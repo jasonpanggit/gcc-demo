@@ -68,3 +68,9 @@ backup/
 
 # Virtual environments
 .venv/
+
+# Ignore appsettings.json files but keep the example
+# ignore any appsettings*.json
+appsettings*.json
+# except the example file which should remain tracked
+!appsettings.json.example

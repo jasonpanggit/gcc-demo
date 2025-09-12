@@ -1,0 +1,20 @@
+{
+  "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
+  "ENABLE_ORYX_BUILD": "true",
+  "WEBSITE_RUN_FROM_PACKAGE": "0",
+  "WEBSITES_PORT": "8000",
+  "PYTHONUNBUFFERED": "1",
+  "PYTHON_ENABLE_GUNICORN_MULTIWORKERS": "true",
+  "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false",
+  "DEBUG_MODE": "true",
+  "ENVIRONMENT": "production",
+  "SUBSCRIPTION_ID": "enter-subscription-id",
+  "RESOURCE_GROUP_NAME": "enter-resource-group-name",
+  "APP_NAME": "enter-app-service-name",
+  "AZURE_OPENAI_ENDPOINT": "enter-azure-openai-endpoint",
+  "AZURE_OPENAI_DEPLOYMENT": "enter-azure-openai-deployment-name",
+  "LOG_ANALYTICS_WORKSPACE_ID": "enter-log-analytics-workspace-id",
+  "AZURE_COSMOS_DB_ENDPOINT": "enter-cosmos-db-endpoint-url",
+  "AZURE_COSMOS_DB_DATABASE": "enter-cosmos-db-database-name",
+  "AZURE_COSMOS_DB_CONTAINER": "enter-cosmos-db-container-name"
+}

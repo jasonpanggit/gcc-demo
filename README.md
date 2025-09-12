@@ -1,4 +1,4 @@
-# Azure Landing Zone – Demos, Modules & Automation
+# GCC Demos, Modules & Automation
 
 Opinionated Terraform landing zone for hybrid network + governance scenarios. Pick a demo, deploy with one command, tear it down when done. Modular building blocks let you evolve from a tiny hub to full hybrid (VPN / ExpressRoute / Arc) with optional routing & security layers.
 
