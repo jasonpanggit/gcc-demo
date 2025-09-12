@@ -1,0 +1,4340 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory Management — EOL Agentic Platform{% endblock %}
+
+{% block extra_head %}
+<script src="/static/js/agent-config.js"></script>
+<style>
+    /* Inventory Management Styles - Consistent with EOL template */
+    .hero-section {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+        color: white;
+        padding: var(--spacing-2xl);
+        border-radius: var(--radius-xl);
+        margin-bottom: var(--spacing-xl);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+        pointer-events: none;
+    }
+
+    .hero-content {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-title {
+        font-size: var(--font-size-3xl);
+        font-weight: 700;
+        margin-bottom: var(--spacing-md);
+        line-height: 1.2;
+    }
+
+    .hero-subtitle {
+        font-size: var(--font-size-lg);
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: var(--spacing-xl);
+        line-height: 1.5;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+    }
+
+    .action-btn {
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .action-btn-primary {
+        background: rgba(255, 255, 255, 0.95);
+        color: var(--primary-color);
+        border: 2px solid transparent;
+    }
+
+    .action-btn-primary:hover {
+        background: white;
+        color: var(--primary-dark);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .action-btn-secondary {
+        background: transparent;
+        color: white;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .action-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: white;
+        transform: translateY(-2px);
+    }
+
+    .filter-panel {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        margin-bottom: var(--spacing-xl);
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+
+    .filter-header {
+        background: var(--gray-50);
+        border-bottom: 1px solid var(--gray-200);
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+
+    .filter-body {
+        padding: var(--spacing-lg);
+    }
+
+    .filter-group {
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .filter-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .filter-label {
+        font-weight: 600;
+        color: var(--gray-700);
+        margin-bottom: var(--spacing-sm);
+        display: block;
+    }
+
+    .stats-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: var(--spacing-lg);
+        margin-bottom: var(--spacing-xl);
+        padding: 0 var(--spacing-xl);
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+        text-align: center;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.2s ease;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+        border-radius: var(--radius-lg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto var(--spacing-md);
+        color: white;
+        font-size: var(--font-size-xl);
+    }
+
+    .stat-value {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        color: var(--gray-800);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .stat-label {
+        color: var(--gray-600);
+        font-weight: 500;
+        font-size: var(--font-size-sm);
+    }
+
+    .inventory-table-container {
+        background: white;
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--gray-200);
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+
+    .inventory-table-header {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+        color: white;
+        padding: var(--spacing-lg) var(--spacing-xl);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid var(--primary-dark);
+    }
+
+    .table-responsive {
+        overflow-x: auto;
+        max-height: 70vh;
+    }
+
+    .inventory-table {
+        margin: 0;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .inventory-table th {
+        background-color: var(--gray-800);
+        color: white;
+        font-weight: 600;
+        border: none;
+        padding: var(--spacing-md) var(--spacing-lg);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.2s ease;
+        text-align: left;
+        white-space: nowrap;
+        border-bottom: 2px solid var(--gray-700);
+    }
+
+    .inventory-table th:first-child {
+        border-top-left-radius: 0;
+    }
+
+    .inventory-table th:last-child {
+        border-top-right-radius: 0;
+    }
+
+    .inventory-table th:hover {
+        background-color: var(--gray-700);
+        transform: translateY(-1px);
+    }
+
+    .inventory-table td {
+        padding: var(--spacing-md) var(--spacing-lg);
+        vertical-align: middle;
+        border-bottom: 1px solid var(--gray-100);
+        border-right: 1px solid var(--gray-100);
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 200px;
+    }
+
+    .inventory-table td:last-child {
+        border-right: none;
+    }
+
+    .inventory-table tr:hover {
+        background-color: var(--gray-50);
+        transform: scale(1.001);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .inventory-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .sortable {
+        position: relative;
+        transition: all 0.2s ease;
+    }
+
+    .sort-icon {
+        margin-left: var(--spacing-sm);
+        opacity: 0.6;
+        transition: all 0.2s ease;
+    }
+
+    .sortable[data-sort-direction="asc"] .sort-icon {
+        transform: rotate(180deg);
+        opacity: 1;
+        color: #ffc107;
+    }
+
+    .sortable[data-sort-direction="desc"] .sort-icon {
+        opacity: 1;
+        color: #ffc107;
+    }
+
+    .modern-badge {
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border-radius: var(--radius-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-active {
+        background-color: #f0fdf4;
+        color: var(--success-color);
+        border: 1px solid #bbf7d0;
+    }
+
+    .status-eol {
+        background-color: #fef2f2;
+        color: var(--danger-color);
+        border: 1px solid #fecaca;
+    }
+
+    .status-warning {
+        background-color: #fffbeb;
+        color: var(--warning-color);
+        border: 1px solid #fed7aa;
+    }
+
+    .status-unknown {
+        background-color: var(--gray-100);
+        color: var(--gray-600);
+        border: 1px solid var(--gray-300);
+    }
+
+    .pagination-modern {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+        margin: var(--spacing-lg) 0;
+        border: 1px solid var(--gray-200);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--spacing-lg);
+        flex-wrap: nowrap;
+        /* Prevent wrapping on desktop */
+        min-height: 40px;
+        position: relative;
+        width: 100%;
+        /* Ensure full width utilization */
+    }
+
+    .pagination-info-section {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        /* Reduce gap between elements */
+        flex-wrap: nowrap;
+        min-width: 0;
+        flex: 0 1 auto;
+        /* Don't grow, allow shrinking */
+        max-width: 50%;
+        /* Strict limit to prevent overlap */
+        overflow: hidden;
+        /* Hide overflow */
+    }
+
+    .page-size-selector {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        white-space: nowrap;
+        flex-shrink: 0;
+        margin-right: var(--spacing-md);
+        min-width: 280px;
+        /* Increase minimum width significantly to prevent dropdown cutoff */
+        order: 1;
+    }
+
+    .page-size-selector .form-select {
+        min-width: 130px;
+        /* Increase select width to prevent cutoff */
+        flex-shrink: 0;
+        font-size: 0.875rem;
+    }
+
+    .page-size-selector .form-label {
+        flex-shrink: 0;
+        margin-right: var(--spacing-sm);
+        font-size: 0.875rem;
+    }
+
+    /* Ensure pagination nav has sufficient space and no overlap */
+    nav[aria-label*="pagination"] {
+        flex-shrink: 0;
+        /* Don't shrink pagination navigation */
+        min-width: 180px;
+        /* Ensure minimum space for pagination buttons */
+        order: 3;
+        /* Ensure pagination comes last */
+        margin-left: auto;
+        /* Push to the right */
+    }
+
+    /* Strict desktop layout to prevent any overlap */
+    @media (min-width: 993px) {
+        .pagination-controls {
+            gap: var(--spacing-lg);
+            /* Increase gap for better spacing */
+            flex-wrap: nowrap;
+            /* Never wrap on desktop */
+        }
+
+        .pagination-info-section {
+            max-width: 50%;
+            /* Allow more space */
+            flex: 0 1 auto;
+            /* Don't grow beyond content */
+        }
+
+        .page-size-selector {
+            min-width: 160px;
+            /* Ensure adequate space for dropdown */
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: 200px;
+            /* Ensure adequate space */
+            flex: 0 0 auto;
+            /* Don't grow or shrink */
+        }
+
+        .pagination .page-link {
+            padding: 0.375rem 0.625rem;
+            min-width: 35px;
+            font-size: 0.875rem;
+        }
+    }
+
+    /* Extra wide screens - optimize layout */
+    @media (min-width: 1401px) {
+        .pagination-controls {
+            gap: var(--spacing-lg);
+            /* More generous spacing on wide screens */
+        }
+
+        .pagination-info-section {
+            max-width: 55%;
+            /* Allow more space for info on wide screens */
+        }
+
+        .page-size-selector {
+            min-width: 150px;
+            /* Wider selector on large screens */
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: 250px;
+            /* More space for pagination buttons */
+        }
+
+        .pagination .page-link {
+            padding: 0.5rem 0.75rem;
+            /* Larger padding on wide screens */
+            min-width: 40px;
+            /* Larger buttons */
+            font-size: 1rem;
+            /* Normal font size */
+        }
+    }
+
+    /* Full screen desktop optimization - prevent any overlap */
+    @media (min-width: 1200px) and (max-width: 1400px) {
+        .pagination-controls {
+            gap: var(--spacing-md);
+            justify-content: space-between;
+        }
+
+        .pagination-info-section {
+            max-width: 48%;
+            /* Strict limit */
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+        }
+
+        .page-size-selector {
+            min-width: 125px;
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: 180px;
+            max-width: 40%;
+            /* Ensure it doesn't take too much space */
+        }
+    }
+
+    .pagination .page-link {
+        color: var(--primary-color);
+        border: 1px solid var(--gray-200);
+        padding: var(--spacing-sm) var(--spacing-md);
+        border-radius: var(--radius-md);
+        margin: 0 2px;
+        transition: all 0.2s ease;
+        font-weight: 500;
+        min-width: 40px;
+        text-align: center;
+    }
+
+    .pagination .page-item.active .page-link {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+        font-weight: 600;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .pagination .page-link:hover {
+        background-color: var(--primary-light);
+        border-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .pagination .page-link:disabled,
+    .pagination .page-item.disabled .page-link {
+        background-color: var(--gray-100);
+        border-color: var(--gray-200);
+        color: var(--gray-400);
+        cursor: not-allowed;
+    }
+
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-lg);
+        z-index: 1000;
+    }
+
+    @media (max-width: 768px) {
+        .stats-cards {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .pagination-controls {
+            flex-direction: column;
+            align-items: stretch;
+            gap: var(--spacing-md);
+        }
+
+        .pagination-info-section {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            text-align: left;
+            gap: var(--spacing-sm);
+            max-width: 100%;
+            /* Allow full width on mobile */
+        }
+
+        .page-size-selector {
+            margin-right: 0;
+            /* Remove margin on mobile */
+            margin-bottom: 0;
+            /* Remove bottom margin */
+            min-width: 140px;
+            /* Ensure consistent width */
+        }
+
+        .pagination {
+            justify-content: center;
+            margin-top: var(--spacing-sm);
+            /* Add top margin for separation */
+            flex-wrap: nowrap;
+            /* Prevent pagination buttons from wrapping */
+            overflow-x: auto;
+            /* Allow horizontal scrolling on very small screens */
+        }
+
+        .pagination .page-item {
+            flex-shrink: 0;
+            /* Prevent pagination items from shrinking */
+        }
+
+        .inventory-table th,
+        .inventory-table td {
+            padding: var(--spacing-sm);
+            font-size: var(--font-size-sm);
+        }
+    }
+
+    @media (max-width: 576px) {
+        .pagination-info-section {
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: var(--spacing-sm);
+        }
+
+        .page-size-selector {
+            flex-direction: column;
+            gap: var(--spacing-xs);
+            text-align: center;
+            min-width: auto;
+            /* Reset min-width on very small screens */
+        }
+
+        .page-size-selector .form-label {
+            margin-right: 0;
+            margin-bottom: var(--spacing-xs);
+        }
+    }
+
+    /* Animation for statistics updates */
+    @keyframes pulse {
+        0% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.1);
+            color: var(--primary-color);
+        }
+
+        100% {
+            transform: scale(1);
+        }
+    }
+
+    /* White outline button styling for hero sections */
+    .btn-outline-light {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .btn-outline-light:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        text-decoration: none;
+    }
+
+    /* Critical: Prevent overlap on all desktop sizes */
+    @media (min-width: 768px) {
+        .pagination-controls {
+            overflow: hidden;
+            /* Hide any overflow */
+            box-sizing: border-box;
+            /* Include padding in width calculations */
+        }
+
+        .pagination-info-section {
+            overflow: hidden;
+            /* Hide text overflow */
+            text-overflow: ellipsis;
+            /* Show ellipsis for long text */
+        }
+
+        .page-size-selector {
+            flex-shrink: 0;
+            /* Never shrink these components */
+        }
+
+        nav[aria-label*="pagination"] {
+            overflow-x: auto;
+            /* Allow horizontal scroll if needed */
+            overflow-y: hidden;
+        }
+
+        .pagination {
+            white-space: nowrap;
+            /* Keep pagination buttons in a line */
+        }
+    }
+
+    /* Quick Actions Section Styling */
+    .quick-actions-section {
+        margin: 0 var(--spacing-xl);
+        padding: 0;
+    }
+
+    /* Medium screens - better pagination layout */
+    @media (max-width: 1200px) {
+        .pagination-info-section {
+            max-width: 50%;
+            /* Allow more space for dropdown */
+            gap: var(--spacing-sm);
+        }
+
+        .page-size-selector {
+            min-width: 150px;
+            /* Adequate space for dropdown */
+            margin-right: var(--spacing-sm);
+        }
+
+        .pagination .page-link {
+            padding: 0.3rem 0.5rem;
+            min-width: 32px;
+            font-size: 0.85rem;
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: 180px;
+        }
+
+        .pagination-controls {
+            gap: var(--spacing-md);
+        }
+    }
+
+    /* Large screens but not extra large - handle the most common overlap cases */
+    @media (max-width: 1400px) and (min-width: 1201px) {
+        .pagination-controls {
+            gap: var(--spacing-lg);
+            /* Better gap for spacing */
+        }
+
+        .pagination-info-section {
+            max-width: 60%;
+            /* Allow more space for dropdown */
+            gap: var(--spacing-sm);
+        }
+
+        .page-size-selector {
+            min-width: 160px;
+            /* Adequate width for dropdown */
+        }
+    }
+
+    /* Compact layout for screens where overlap is most likely */
+    @media (max-width: 1100px) and (min-width: 993px) {
+        .pagination-controls {
+            flex-wrap: wrap;
+            /* Allow wrapping if needed */
+            justify-content: center;
+            /* Center when wrapped */
+            gap: var(--spacing-sm);
+        }
+
+        .pagination-info-section {
+            flex-basis: 100%;
+            /* Take full width when wrapping */
+            max-width: 100%;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: auto;
+            flex-basis: auto;
+        }
+    }
+
+    @media (max-width: 992px) {
+        .pagination-controls {
+            gap: var(--spacing-md);
+            /* Reduce gap on smaller screens */
+        }
+
+        .pagination-info-section {
+            max-width: 100%;
+            /* Allow full width */
+            flex-direction: column;
+            align-items: flex-start;
+            gap: var(--spacing-sm);
+        }
+
+        .page-size-selector {
+            margin-right: 0;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        nav[aria-label*="pagination"] {
+            min-width: auto;
+            /* Reset minimum width */
+            width: 100%;
+            /* Take full width */
+        }
+
+        .pagination {
+            justify-content: center;
+            /* Center pagination buttons */
+        }
+    }
+
+    /* EOL Detail Section Styles */
+    .eol-detail-section {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+        overflow: hidden;
+    }
+
+    .eol-detail-header {
+        background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        color: white;
+        padding: var(--spacing-lg);
+        border-bottom: 2px solid #c82333;
+    }
+
+    .eol-detail-body {
+        padding: var(--spacing-lg);
+    }
+
+    .eol-stat-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: var(--transition);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-md);
+        height: 100%;
+    }
+
+    .eol-stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .eol-stat-card.critical {
+        border-left: 4px solid #dc3545;
+    }
+
+    .eol-stat-card.warning {
+        border-left: 4px solid #ffc107;
+    }
+
+    .eol-stat-card.info {
+        border-left: 4px solid #0dcaf0;
+    }
+
+    .eol-stat-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: var(--radius-full);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .eol-stat-card.critical .eol-stat-icon {
+        background: linear-gradient(135deg, #dc3545, #c82333);
+    }
+
+    .eol-stat-card.warning .eol-stat-icon {
+        background: linear-gradient(135deg, #ffc107, #e0a800);
+    }
+
+    .eol-stat-card.info .eol-stat-icon {
+        background: linear-gradient(135deg, #0dcaf0, #0aa2c0);
+    }
+
+    .eol-stat-content {
+        flex: 1;
+    }
+
+    .eol-stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--gray-800);
+        line-height: 1;
+        margin-bottom: 0.25rem;
+    }
+
+    .eol-stat-label {
+        font-size: var(--font-size-sm);
+        color: var(--gray-600);
+        font-weight: 500;
+    }
+
+    .eol-items-table-container {
+        background: #f8f9fa;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+    }
+
+    .eol-items-table {
+        background: white;
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 0;
+    }
+
+    .eol-items-table thead th {
+        background: linear-gradient(135deg, #343a40, #495057);
+        color: white;
+        font-weight: 600;
+        border: none;
+        padding: var(--spacing-md);
+        font-size: var(--font-size-sm);
+    }
+
+    .eol-items-table tbody td {
+        padding: var(--spacing-md);
+        vertical-align: middle;
+        border-color: var(--gray-200);
+    }
+
+    .eol-items-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .eol-priority-badge {
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .eol-priority-critical {
+        background: #dc3545;
+        color: white;
+    }
+
+    .eol-priority-high {
+        background: #fd7e14;
+        color: white;
+    }
+
+    .eol-priority-medium {
+        background: #ffc107;
+        color: #212529;
+    }
+
+    .eol-priority-low {
+        background: #20c997;
+        color: white;
+    }
+
+    /* Loading Spinner Styles */
+    #eol-loading {
+        background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+        border-radius: 10px;
+        margin: 20px;
+        transition: opacity 0.3s ease;
+    }
+
+    #eol-loading .spinner-border {
+        width: 2rem;
+        height: 2rem;
+        border-width: 3px;
+    }
+
+    #eol-loading span {
+        font-size: 1.1rem;
+        font-weight: 500;
+        color: #6c757d;
+    }
+
+    /* Fade in animation for content */
+    .eol-content-fade-in {
+        animation: fadeInUp 0.5s ease-out;
+    }
+
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .eol-days-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--radius-md);
+        font-weight: 600;
+        font-size: var(--font-size-xs);
+    }
+
+    .eol-days-expired {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .eol-days-warning {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .eol-days-info {
+        background: #d1ecf1;
+        color: #0c5460;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Inventory Hero Section -->
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title">
+                    <i class="fas fa-list-ul me-3"></i>
+                    Inventory Management
+                </h1>
+                <p class="hero-subtitle">
+                    Comprehensive software and operating system inventory tracking with real-time data from Azure
+                    Monitor.
+                    Monitor versions, compliance status, and lifecycle information across your infrastructure.
+                </p>
+                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                    <button class="btn btn-outline-light" onclick="refreshInventory()" id="refresh-btn">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh Data
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="container-fluid px-0">
+    <!-- Stats Cards -->
+    <div class="stats-cards fade-in">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-desktop"></i>
+            </div>
+            <div class="stat-value" id="total-computers">—</div>
+            <div class="stat-label">Total Computers</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-cube"></i>
+            </div>
+            <div class="stat-value" id="total-software">—</div>
+            <div class="stat-label">Software Items</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fab fa-windows"></i>
+            </div>
+            <div class="stat-value" id="os-count">—</div>
+            <div class="stat-label">Operating Systems</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="stat-value" id="eol-count">—</div>
+            <div class="stat-label">EOL Items</div>
+        </div>
+    </div>
+
+    <!-- Filter Panel -->
+    <div class="filter-panel fade-in">
+        <div class="filter-header">
+            <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="fas fa-filter me-2"></i>
+                    Filters & Search
+                </span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()">
+                    <i class="fas fa-times me-1"></i>Clear All
+                </button>
+            </h5>
+        </div>
+        <div class="filter-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label class="filter-label">Data Timespan</label>
+                        <select class="form-select" id="days-select" onchange="loadInventory()">
+                            <option value="7">7 days</option>
+                            <option value="30">30 days</option>
+                            <option value="90" selected>90 days</option>
+                            <option value="180">180 days</option>
+                            <option value="365">365 days</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label class="filter-label">Query Limit</label>
+                        <input type="number" class="form-control" id="limit-input" value="5000" min="0" max="50000"
+                            step="100" placeholder="5000" onchange="loadInventory()"
+                            title="Maximum number of records to fetch from Log Analytics (0 = unlimited)">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label class="filter-label">Type Filter</label>
+                        <select class="form-select" id="type-filter" onchange="applyFilters()">
+                            <option value="">All Types</option>
+                            <option value="Software">Software</option>
+                            <option value="OS">Operating System</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label class="filter-label">Status Filter</label>
+                        <select class="form-select" id="status-filter" onchange="applyFilters()">
+                            <option value="">All Status</option>
+                            <option value="Active">Active</option>
+                            <option value="EOL">End of Life</option>
+                            <option value="Warning">Warning</option>
+                            <option value="Unknown">Unknown</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search row - moved to its own line for better width -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="filter-group">
+                        <label class="filter-label">Search</label>
+                        <input type="text" class="form-control" id="search-input"
+                            placeholder="Search software or computer..." onkeyup="applyFilters()">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inventory Table -->
+    <div class="inventory-table-container fade-in" id="inventory-container">
+        <div class="inventory-table-header">
+            <h4 class="mb-0">
+                <i class="fas fa-table me-2"></i>
+                Inventory Data
+            </h4>
+            <div class="d-flex align-items-center gap-3">
+                <div id="cache-status">
+                    <span class="modern-badge status-unknown">
+                        <i class="fas fa-sync-alt me-1"></i>Loading...
+                    </span>
+                </div>
+                <button class="btn btn-sm btn-outline-light" onclick="exportInventory()">
+                    <i class="fas fa-download me-1"></i>Export
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Text -->
+        <div class="mb-3 px-3">
+            <small class="text-muted" id="summary-text">Loading inventory...</small>
+        </div>
+
+        <!-- EOL Items Detail Section -->
+        <div class="eol-detail-section fade-in" id="eol-detail-section" style="display: none;">
+            <div class="eol-detail-header">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-exclamation-triangle text-danger me-2"></i>
+                        Operating Systems with End-of-Life Dates
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger" onclick="exportEOLItems()">
+                        <i class="fas fa-download me-1"></i>Export EOL Report
+                    </button>
+                </h5>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="eol-loading" class="text-center py-5">
+                <div class="spinner-border text-primary me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span class="text-muted">Loading EOL analysis...</span>
+            </div>
+
+            <div class="eol-detail-body" id="eol-detail-content" style="display: none;">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <div class="eol-stat-card critical">
+                            <div class="eol-stat-icon">
+                                <i class="fas fa-skull-crossbones"></i>
+                            </div>
+                            <div class="eol-stat-content">
+                                <div class="eol-stat-value" id="eol-expired-count">—</div>
+                                <div class="eol-stat-label">Already EOL</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="eol-stat-card warning">
+                            <div class="eol-stat-icon">
+                                <i class="fas fa-hourglass-half"></i>
+                            </div>
+                            <div class="eol-stat-content">
+                                <div class="eol-stat-value" id="eol-soon-count">—</div>
+                                <div class="eol-stat-label">EOL Within 1 Year</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="eol-stat-card info">
+                            <div class="eol-stat-icon">
+                                <i class="fas fa-calendar-alt"></i>
+                            </div>
+                            <div class="eol-stat-content">
+                                <div class="eol-stat-value" id="eol-future-count">—</div>
+                                <div class="eol-stat-label">Future EOL Dates</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="eol-items-table-container">
+                    <div class="table-responsive">
+                        <table class="table eol-items-table">
+                            <thead>
+                                <tr>
+                                    <th>
+                                        <i class="fas fa-desktop me-1"></i>
+                                        Computer
+                                    </th>
+                                    <th>
+                                        <i class="fab fa-windows me-1"></i>
+                                        Operating System
+                                    </th>
+                                    <th>
+                                        <i class="fas fa-code-branch me-1"></i>
+                                        Version
+                                    </th>
+                                    <th>
+                                        <i class="fas fa-calendar-times me-1"></i>
+                                        EOL Date
+                                    </th>
+                                    <th>
+                                        <i class="fas fa-clock me-1"></i>
+                                        Days Until EOL
+                                    </th>
+                                    <th>
+                                        <i class="fas fa-heartbeat me-1"></i>
+                                        Last Seen
+                                    </th>
+                                    <th>
+                                        <i class="fas fa-exclamation-circle me-1"></i>
+                                        Priority
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="eol-items-tbody">
+                                <!-- EOL items will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- No EOL Items Message -->
+                <div id="no-eol-items" class="text-center py-4" style="display: none;">
+                    <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                    <h5 class="text-success">No End-of-Life Items Found</h5>
+                    <p class="text-muted">All operating systems in your inventory are currently supported.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Navigation Controls -->
+        <div class="pagination-modern mb-3" id="pagination-container-top" style="display: none;">
+            <div class="pagination-controls">
+                <div class="pagination-info-section">
+                    <div class="page-size-selector">
+                        <label for="page-size-select-top" class="form-label mb-0">Items per page:</label>
+                        <select class="form-select form-select-sm" id="page-size-select-top"
+                            onchange="changePageSizeFromTop()">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="250">250</option>
+                        </select>
+                    </div>
+                </div>
+                <nav aria-label="Top inventory pagination">
+                    <ul class="pagination pagination-sm mb-0" id="pagination-controls-top">
+                        <!-- Pagination buttons will be generated here -->
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading-state" class="d-none">
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="text-muted">Loading inventory data...</div>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="d-none">
+            <div class="alert alert-danger" role="alert">
+                <h5 class="alert-heading">Error Loading Inventory</h5>
+                <p id="error-message">An error occurred while loading the inventory data.</p>
+                <hr>
+                <p class="mb-0">Please try refreshing the page or contact support if the problem persists.</p>
+            </div>
+        </div>
+
+        <div class="position-relative">
+            <div class="table-responsive">
+                <table class="table inventory-table" id="inventory-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable" data-sort="computer" onclick="sortTable('computer')">
+                                Computer Name
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="computer_type" onclick="sortTable('computer_type')">
+                                Computer Type
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="software" onclick="sortTable('software')">
+                                Software Name
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="version" onclick="sortTable('version')">
+                                Version
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="publisher" onclick="sortTable('publisher')">
+                                Publisher
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="type" onclick="sortTable('type')">
+                                Software Type
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="status" onclick="sortTable('status')">
+                                EOL Status
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-table-body">
+                        <!-- Data will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-modern" id="pagination-container" style="display: none;">
+            <div class="pagination-controls">
+                <div class="pagination-info-section">
+                    <div class="page-size-selector">
+                        <label for="page-size" class="form-label mb-0">Items per page:</label>
+                        <select class="form-select form-select-sm" id="page-size" onchange="changePageSize()">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="250">250</option>
+                        </select>
+                    </div>
+                </div>
+                <nav aria-label="Inventory pagination">
+                    <ul class="pagination pagination-sm mb-0" id="pagination-controls">
+                        <!-- Pagination buttons will be generated here -->
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions-section">
+        <div class="row mt-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-comments fa-2x text-primary mb-2"></i>
+                        <h6>Ask AI About Inventory</h6>
+                        <a href="/chat" class="btn btn-outline-primary btn-sm">
+                            Chat with AI
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-calendar-times fa-2x text-warning mb-2"></i>
+                        <h6>Advanced EOL Search</h6>
+                        <p class="small text-muted">Use multi-agent search for any software</p>
+                        <a href="/eol" class="btn btn-outline-warning btn-sm">
+                            <i class="fas fa-search me-1"></i>
+                            EOL Search
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-download fa-2x text-info mb-2"></i>
+                        <h6>Export Data</h6>
+                        <button class="btn btn-outline-info btn-sm" onclick="exportInventory()">
+                            Download CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div> <!-- End Main Content Container -->
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let currentInventory = [];
+    let filteredInventory = [];
+    let currentSortColumn = null;
+    let currentSortDirection = 'none';
+
+    // Pagination variables
+    let currentPage = 1;
+    let pageSize = 50; // Match the HTML default selection
+    let totalPages = 1;
+    let totalEntries = 0;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadInventory();
+        loadInventoryStatus();
+        initializeSorting();
+
+        // Try to restore last view state if available
+        tryRestoreViewState();
+    });
+
+    function tryRestoreViewState() {
+        try {
+            const savedState = localStorage.getItem('eol_inventory_state');
+            if (savedState) {
+                const state = JSON.parse(savedState);
+                if (state.timestamp && (Date.now() - state.timestamp < 300000)) { // 5 minutes
+                    // Restore filters and view settings
+                    if (state.daysSelect) {
+                        const daysSelect = document.getElementById('days-select');
+                        if (daysSelect) daysSelect.value = state.daysSelect;
+                    }
+                    if (state.limitInput) {
+                        const limitInput = document.getElementById('limit-input');
+                        if (limitInput) limitInput.value = state.limitInput;
+                    }
+                    if (state.pageSize) {
+                        const pageSizeSelect = document.getElementById('page-size-select');
+                        if (pageSizeSelect) pageSizeSelect.value = state.pageSize;
+                    }
+                    // console.log('Restored view state from localStorage');
+                }
+            }
+        } catch (error) {
+            console.warn('Error restoring view state:', error);
+        }
+    }
+
+    function saveViewState() {
+        try {
+            const daysSelect = document.getElementById('days-select');
+            const limitInput = document.getElementById('limit-input');
+            const pageSizeSelect = document.getElementById('page-size-select');
+
+            const state = {
+                timestamp: Date.now(),
+                daysSelect: daysSelect ? daysSelect.value : '90',
+                limitInput: limitInput ? limitInput.value : '5000',
+                pageSize: pageSizeSelect ? pageSizeSelect.value : '50'
+            };
+
+            localStorage.setItem('eol_inventory_state', JSON.stringify(state));
+        } catch (error) {
+            console.warn('Error saving view state:', error);
+        }
+    }
+
+    async function loadInventoryStatus() {
+        try {
+            const response = await fetch('/api/inventory/status');
+            const status = await response.json();
+
+            // Show status banner
+            const container = document.getElementById('inventory-container');
+            let statusBanner = '';
+
+            if (status.status === 'error' || status.data_source === 'none') {
+                statusBanner = `
+                <div class="alert alert-danger mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>No Data Available:</strong> ${status.message}
+                    ${status.note ? `<br><small>${status.note}</small>` : ''}
+                </div>
+            `;
+            } else if (status.status === 'no_data') {
+                statusBanner = `
+                <div class="alert alert-warning mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>No Live Data:</strong> ${status.message}
+                    <br><small>${status.note}</small>
+                </div>
+            `;
+            } else if (status.status === 'connected') {
+                statusBanner = `
+                <div class="alert alert-success mb-3">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>Live Data:</strong> Showing real-time software inventory from Log Analytics workspace.
+                </div>
+            `;
+            }
+
+            if (statusBanner) {
+                container.insertAdjacentHTML('afterbegin', statusBanner);
+            }
+        } catch (error) {
+            console.warn('Could not load inventory status:', error);
+        }
+    }
+
+    async function loadInventory(forceRefresh = false) {
+        // Clear manually checked items tracking on reload
+        manuallyCheckedItems.clear();
+
+        const limitInput = document.getElementById('limit-input');
+        const limitValue = limitInput ? parseInt(limitInput.value) : 5000;
+        // If limit is 0, don't apply any limit (unlimited query), otherwise use the value or default to 5000
+        const limit = limitValue === 0 ? null : (limitValue || 5000);
+        const daysSelect = document.getElementById('days-select');
+        const days = daysSelect ? daysSelect.value : null;
+        const loadingState = document.getElementById('loading-state');
+        const errorState = document.getElementById('error-state');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const inventoryContainer = document.getElementById('inventory-container');
+        const refreshBtn = document.getElementById('refresh-btn');
+
+        // Show loading and disable refresh button with null checks
+        if (loadingState) {
+            loadingState.classList.remove('d-none');
+        }
+        if (errorState) {
+            errorState.classList.add('d-none');
+        }
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+        if (inventoryContainer) {
+            inventoryContainer.style.opacity = '0.5';
+        }
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+        }
+
+        // Show different message based on whether it's a force refresh
+        if (refreshBtn) {
+            if (forceRefresh) {
+                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading from LAW...';
+            } else {
+                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Refreshing...';
+            }
+        }
+
+        try {
+            // console.log(`Fetching inventory data with limit: ${limit}, days: ${days}, forceRefresh: ${forceRefresh}`);
+
+            // Build URLs conditionally based on whether limit is set, and add force_refresh parameter if needed
+            const forceParam = forceRefresh ? '&force_refresh=true' : '';
+            const softwareUrl = limit !== null ?
+                `/api/inventory/raw/software?limit=${limit}&days=${days}${forceParam}` :
+                `/api/inventory/raw/software?days=${days}${forceParam}`;
+            const osUrl = limit !== null ?
+                `/api/inventory/raw/os?limit=${limit}&days=${days}${forceParam}` :
+                `/api/inventory/raw/os?days=${days}${forceParam}`;
+
+            // Fetch both software and OS inventory data concurrently
+            const [softwareResponse, osResponse] = await Promise.all([
+                fetch(softwareUrl),
+                fetch(osUrl)
+            ]);
+
+            // console.log('Software response status:', softwareResponse.status);
+            // console.log('OS response status:', osResponse.status);
+
+            const softwareData = await softwareResponse.json();
+            const osData = await osResponse.json();
+
+            // console.log('Software data:', softwareData);
+            // console.log('OS data:', osData);
+
+            if (softwareResponse.ok && osResponse.ok) {
+                // Process software inventory - expand aggregated data into individual computer records
+                let softwareInventory = [];
+                if (Array.isArray(softwareData)) {
+                    // Expand aggregated software data into individual computer records
+                    softwareData.forEach(software => {
+                        //if (software.computer && software.computer.trim() && software.computer !== 'Unknown') {
+                        // Handle direct computer field
+                        softwareInventory.push({
+                            id: `sw_${software.computer}_${software.name}_${Math.random().toString(36).substr(2, 9)}`,
+                            computer: software.computer.trim(),
+                            name: software.name,
+                            version: software.version || '',
+                            publisher: software.publisher || 'Unknown',
+                            software_type: software.software_type || 'Unknown',
+                            computer_count: software.computer_count || 1,
+                            last_seen: software.last_seen,
+                            source: software.source || 'log_analytics'
+                        });
+                        // } else {
+                        //     // Only add 'Unknown' computer as last resort
+                        //     softwareInventory.push({
+                        //         id: `sw_unknown_${software.name}_${Math.random().toString(36).substr(2, 9)}`,
+                        //         computer: 'Unknown',
+                        //         name: software.name,
+                        //         version: software.version || '',
+                        //         publisher: software.publisher || 'Unknown',
+                        //         software_type: software.software_type || 'Unknown',
+                        //         computer_count: software.computer_count || 1,
+                        //         last_seen: software.last_seen,
+                        //         source: software.source || 'log_analytics'
+                        //     });
+                        // }
+                    });
+                    // console.log(`Expanded ${softwareData.length} aggregated software items into ${softwareInventory.length} individual computer records`);
+                } else if (softwareData && softwareData.success && Array.isArray(softwareData.data)) {
+                    // Expand aggregated software data from dict format
+                    softwareData.data.forEach(software => {
+                        if (software.computers && Array.isArray(software.computers) && software.computers.length > 0) {
+                            software.computers.forEach(computerName => {
+                                // Skip empty or null computer names
+                                if (computerName && computerName.trim()) {
+                                    softwareInventory.push({
+                                        id: `sw_${computerName}_${software.name}_${Math.random().toString(36).substr(2, 9)}`,
+                                        computer: computerName.trim(),
+                                        name: software.name,
+                                        version: software.version || '',
+                                        publisher: software.publisher || 'Unknown',
+                                        software_type: software.software_type || 'Application',
+                                        computer_count: software.computer_count || 1,
+                                        last_seen: software.last_seen,
+                                        source: software.source || 'log_analytics'
+                                    });
+                                }
+                            });
+                        } else if (software.computer && software.computer.trim() && software.computer !== 'Unknown') {
+                            // Handle direct computer field
+                            softwareInventory.push({
+                                id: `sw_${software.computer}_${software.name}_${Math.random().toString(36).substr(2, 9)}`,
+                                computer: software.computer.trim(),
+                                name: software.name,
+                                version: software.version || '',
+                                publisher: software.publisher || 'Unknown',
+                                software_type: software.software_type || 'Application',
+                                computer_count: software.computer_count || 1,
+                                last_seen: software.last_seen,
+                                source: software.source || 'log_analytics'
+                            });
+                        } else {
+                            // Only add 'Unknown' computer as last resort
+                            softwareInventory.push({
+                                id: `sw_unknown_${software.name}_${Math.random().toString(36).substr(2, 9)}`,
+                                computer: 'Unknown',
+                                name: software.name,
+                                version: software.version || '',
+                                publisher: software.publisher || 'Unknown',
+                                software_type: software.software_type || 'Application',
+                                computer_count: software.computer_count || 1,
+                                last_seen: software.last_seen,
+                                source: software.source || 'log_analytics'
+                            });
+                        }
+                    });
+                    // console.log(`Expanded ${softwareData.data.length} aggregated software items into ${softwareInventory.length} individual computer records`);
+                } else {
+                    console.warn('No software inventory data found:', softwareData);
+                    softwareInventory = []; // Ensure it's always an array
+                }
+
+                // Ensure softwareInventory is always an array
+                if (!Array.isArray(softwareInventory)) {
+                    console.warn('softwareInventory is not an array, resetting to empty array:', softwareInventory);
+                    softwareInventory = [];
+                }
+
+                // Process OS inventory and convert to inventory format
+                let osInventory = [];
+                if (osData && osData.success && osData.data) {
+                    osInventory = osData.data.map(osItem => ({
+                        id: `os_${osItem.computer_name}_${Math.random().toString(36).substr(2, 9)}`,
+                        computer: osItem.computer_name || osItem.computer || 'Unknown', // Handle both field names
+                        name: osItem.os_name || 'Operating System',
+                        version: osItem.os_version || '',
+                        publisher: osItem.publisher || 'Microsoft',
+                        software_type: 'Operating System',
+                        computer_type: osItem.computer_type || 'Unknown',
+                        resource_id: osItem.resource_id || '',
+                        computer_environment: osItem.computer_environment || 'Unknown',
+                        // Add OS-specific fields
+                        os_architecture: osItem.os_architecture || '',
+                        os_build: osItem.os_build || '',
+                        os_service_pack: osItem.os_service_pack || ''
+                    }));
+                    // console.log(`Converted ${osInventory.length} OS items to inventory format`);
+
+                    // Create a lookup map for computer types from OS data - handle both computer_name and computer fields
+                    const computerTypeMap = new Map();
+                    const computerTypeMapLower = new Map(); // Case-insensitive lookup
+                    osInventory.forEach(osItem => {
+                        const computerInfo = {
+                            computer_type: osItem.computer_type || 'Unknown',
+                            resource_id: osItem.resource_id || '',
+                            computer_environment: osItem.computer_environment || 'Unknown'
+                        };
+                        // Store using the computer field (which is now normalized)
+                        if (osItem.computer && osItem.computer !== 'Unknown') {
+                            computerTypeMap.set(osItem.computer, computerInfo);
+                            computerTypeMapLower.set(osItem.computer.toLowerCase(), computerInfo);
+                        }
+                    });
+
+                    // console.log(`Created computer type mapping for ${computerTypeMap.size} computers`);
+
+                    // Enhance software inventory with computer type information
+                    let enhancedCount = 0;
+                    softwareInventory.forEach(swItem => {
+                        // Skip if computer is already 'Unknown' from source data
+                        if (!swItem.computer || swItem.computer === 'Unknown') {
+                            swItem.computer_type = 'Unknown';
+                            swItem.resource_id = '';
+                            swItem.computer_environment = 'Unknown';
+                            return;
+                        }
+
+                        // Try exact match first
+                        let computerInfo = computerTypeMap.get(swItem.computer);
+
+                        // If no exact match, try case-insensitive match
+                        if (!computerInfo) {
+                            computerInfo = computerTypeMapLower.get(swItem.computer.toLowerCase());
+                        }
+
+                        // If still no match, try trimming whitespace and special characters
+                        if (!computerInfo) {
+                            const cleanedComputer = swItem.computer.trim().replace(/[^\w\-\.]/g, '');
+                            computerInfo = computerTypeMapLower.get(cleanedComputer.toLowerCase());
+                        }
+
+                        if (computerInfo) {
+                            swItem.computer_type = computerInfo.computer_type;
+                            swItem.resource_id = computerInfo.resource_id;
+                            swItem.computer_environment = computerInfo.computer_environment;
+                            enhancedCount++;
+                        } else {
+                            // Set defaults for software items without OS data
+                            swItem.computer_type = 'Unknown';
+                            swItem.resource_id = '';
+                            swItem.computer_environment = 'Unknown';
+                        }
+                    });
+
+                    // console.log(`Enhanced ${enhancedCount} of ${softwareInventory.length} software items with OS data`);
+
+                    // Debug: Show sample enhanced software items
+                    const sampleEnhanced = softwareInventory
+                        .filter(sw => sw.computer_type !== 'Unknown')
+                        .slice(0, 3);
+                    // console.log('Sample enhanced software items:', sampleEnhanced);
+
+                    // Debug: Show unmatched software computers
+                    if (enhancedCount < softwareInventory.length) {
+                        const unmatchedComputers = softwareInventory
+                            .filter(sw => sw.computer_type === 'Unknown')
+                            .map(sw => sw.computer)
+                            .filter((computer, index, arr) => arr.indexOf(computer) === index)
+                            .slice(0, 10); // Limit to first 10 for readability
+
+                        // console.log('Unmatched software computers (first 10):', unmatchedComputers);
+
+                        const osComputers = Array.from(computerTypeMap.keys()).slice(0, 10);
+                        // console.log('Available OS computers (first 10):', osComputers);
+                    }
+                    // console.log(`Enhanced ${softwareInventory.length} software items with computer type information`);
+                }
+
+                // Ensure osInventory is always an array
+                if (!Array.isArray(osInventory)) {
+                    console.warn('osInventory is not an array, resetting to empty array:', osInventory);
+                    osInventory = [];
+                }
+
+                // Ensure softwareInventory is always an array
+                if (!Array.isArray(softwareInventory)) {
+                    console.warn('softwareInventory is not an array, resetting to empty array:', softwareInventory);
+                    softwareInventory = [];
+                }
+
+                // Debug types before combining
+                // console.log('Before spread - softwareInventory type:', typeof softwareInventory, 'isArray:', Array.isArray(softwareInventory));
+                // console.log('Before spread - osInventory type:', typeof osInventory, 'isArray:', Array.isArray(osInventory));
+
+                // Combine software and OS inventory with try-catch for extra safety
+                let combinedInventory;
+                try {
+                    combinedInventory = [...softwareInventory, ...osInventory];
+                    // console.log('Successfully created combined inventory');
+                } catch (error) {
+                    console.error('Error in spread operator:', error);
+                    console.error('softwareInventory at error:', softwareInventory, 'osInventory at error:', osInventory);
+                    // Fallback to safe combination
+                    combinedInventory = (softwareInventory || []).concat(osInventory || []);
+                }
+                currentInventory = combinedInventory;
+
+                // console.log(`Loaded combined inventory: ${softwareInventory.length} software + ${osInventory.length} OS = ${combinedInventory.length} total`);
+                // console.log('First 3 combined items:', combinedInventory.slice(0, 3));
+                // console.log('Sample software item:', softwareInventory[0]);
+                // console.log('Sample OS item:', osInventory[0]);
+
+                currentPage = 1; // Reset to first page
+                displayInventoryWithPagination(combinedInventory); // Pass combined data
+
+                // Update cache status display with combined data
+                const combinedData = {
+                    success: true,
+                    data: combinedInventory,
+                    software_count: softwareInventory.length,
+                    os_count: osInventory.length,
+                    software_cached: softwareData.from_cache || false,
+                    os_cached: osData.from_cache || false,
+                    software_cached_at: softwareData.cached_at || null,
+                    os_cached_at: osData.cached_at || null
+                };
+                updateCacheStatus(combinedData);
+
+                // Update statistics cards with real data
+                updateStatistics(combinedInventory, softwareInventory, osInventory);
+
+                // Detect potential cache inconsistencies
+                detectCacheInconsistency(combinedData);
+
+                // Also refresh OS summary asynchronously
+                loadOsSummary();
+
+                // Save view state for page reload persistence
+                saveViewState();
+
+                // Show success feedback for force refresh
+                if (forceRefresh) {
+                    const refreshBtn = document.getElementById('refresh-btn');
+                    let originalClass = ''; // Declare outside the inner if block
+                    if (refreshBtn) {
+                        originalClass = refreshBtn.className;
+                        refreshBtn.innerHTML = '<i class="fas fa-check me-1"></i>Fresh Data Loaded';
+                        refreshBtn.classList.add('btn-success');
+                        refreshBtn.classList.remove('btn-light');
+                    }
+
+                    // Also show a brief toast notification
+                    const toast = document.createElement('div');
+                    toast.className = 'toast position-fixed top-0 end-0 m-3';
+                    toast.style.zIndex = '9999';
+                    toast.innerHTML = `
+                        <div class="toast-header bg-success text-light">
+                            <i class="fas fa-check-circle me-2"></i>
+                            <strong class="me-auto">Data Refreshed</strong>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                        </div>
+                        <div class="toast-body">
+                            Fresh data loaded from Azure Log Analytics Workspace<br>
+                            <small class="text-muted">
+                                ${combinedInventory.length} items loaded (${softwareInventory.length} software + ${osInventory.length} OS)
+                            </small>
+                        </div>
+                    `;
+
+                    document.body.appendChild(toast);
+                    const bsToast = new bootstrap.Toast(toast);
+                    bsToast.show();
+
+                    // Clean up toast after it's hidden
+                    toast.addEventListener('hidden.bs.toast', () => {
+                        document.body.removeChild(toast);
+                    });
+
+                    // Reset button after 2 seconds
+                    setTimeout(() => {
+                        const refreshBtn = document.getElementById('refresh-btn');
+                        if (refreshBtn) {
+                            refreshBtn.innerHTML = '<i class="fas fa-refresh me-1"></i>Refresh';
+                            refreshBtn.className = originalClass;
+                        }
+                    }, 2000);
+                }
+            } else {
+                const error = softwareData.detail || osData.detail || 'Failed to load inventory data';
+                showError(error);
+            }
+        } catch (error) {
+            console.error('Error loading inventory:', error);
+            showError('Network error: ' + error.message);
+        } finally {
+            const loadingState = document.getElementById('loading-state');
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const inventoryContainer = document.getElementById('inventory-container');
+            const refreshBtn = document.getElementById('refresh-btn');
+
+            if (loadingState) {
+                loadingState.classList.add('d-none');
+            }
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            if (inventoryContainer) {
+                inventoryContainer.style.opacity = '1';
+            }
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = '<i class="fas fa-refresh me-1"></i>Refresh';
+            }
+        }
+    }
+
+    function displayInventoryWithPagination(inventoryData) {
+        // console.log('displayInventoryWithPagination called with:', inventoryData);
+        // console.log('Is array?', Array.isArray(inventoryData));
+        // console.log('Has success property?', inventoryData && inventoryData.success);
+
+        // Handle both old array format and new dict format
+        let inventory;
+        if (Array.isArray(inventoryData)) {
+            // Legacy format - just an array
+            inventory = inventoryData;
+            // console.log('Using array format, length:', inventory.length);
+        } else if (inventoryData && inventoryData.success) {
+            // New Dict format with metadata
+            inventory = inventoryData.data || [];
+            // console.log('Using dict format, data length:', inventory.length);
+        } else {
+            // Fallback
+            inventory = [];
+            // console.log('Using fallback empty array');
+        }
+
+        // console.log('Final inventory to display:', inventory);
+        // console.log('Final inventory length:', inventory.length);
+
+        // Get the current page size from the dropdown (try top first, then bottom)
+        const pageSizeSelectTop = document.getElementById('page-size-select-top');
+        const pageSizeSelect = document.getElementById('page-size-select');
+
+        if (pageSizeSelectTop) {
+            pageSize = parseInt(pageSizeSelectTop.value) || 50;
+        } else if (pageSizeSelect) {
+            pageSize = parseInt(pageSizeSelect.value) || 50;
+        }
+
+        // Use the existing display function
+        displayInventory(inventory);
+        updateSummary(filteredInventory.length, totalEntries, null);
+    }
+
+    function changePageSize() {
+        const pageSizeSelect = document.getElementById('page-size');
+        if (pageSizeSelect) {
+            pageSize = parseInt(pageSizeSelect.value) || 25;
+        }
+
+        // Sync the top page size selector
+        const pageSizeSelectTop = document.getElementById('page-size-select-top');
+        if (pageSizeSelectTop) {
+            pageSizeSelectTop.value = pageSize;
+        }
+
+        currentPage = 1; // Reset to first page when changing page size
+
+        // Re-display with current data
+        displayInventory(filteredInventory);
+        updateSummary(filteredInventory.length, totalEntries, null);
+    }
+
+    function changePageSizeFromTop() {
+        const pageSizeSelectTop = document.getElementById('page-size-select-top');
+        if (pageSizeSelectTop) {
+            pageSize = parseInt(pageSizeSelectTop.value) || 25;
+        }
+
+        // Sync the bottom page size selector
+        const pageSizeSelect = document.getElementById('page-size');
+        if (pageSizeSelect) {
+            pageSizeSelect.value = pageSize;
+        }
+
+        currentPage = 1; // Reset to first page when changing page size
+
+        // Re-display with current data
+        displayInventory(filteredInventory);
+        updateSummary(filteredInventory.length, totalEntries, null);
+    }
+
+    function displayInventory(inventory) {
+        // console.log('displayInventory called with data:', inventory);
+        // console.log('Inventory length:', inventory ? inventory.length : 'null/undefined');
+
+        // Store the filtered inventory for pagination
+        filteredInventory = inventory;
+        totalEntries = inventory.length;
+
+        // Calculate pagination
+        totalPages = Math.ceil(totalEntries / pageSize);
+
+        // Ensure current page is valid
+        if (currentPage > totalPages) {
+            currentPage = Math.max(1, totalPages);
+        }
+
+        // Get items for current page
+        const startIndex = (currentPage - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const pageItems = inventory.slice(startIndex, endIndex);
+
+        // console.log(`Page ${currentPage} of ${totalPages}, showing items ${startIndex}-${endIndex}, pageItems length:`, pageItems.length);
+
+        const tbody = document.getElementById('inventory-table-body');
+        // console.log('Table body element:', tbody);
+
+        if (!tbody) {
+            console.error('ERROR: Table body element not found!');
+            return;
+        }
+
+        if (inventory.length === 0) {
+            // console.log('No inventory data - showing empty state');
+            tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-4">
+                    <i class="fas fa-inbox text-muted fa-2x mb-2"></i>
+                    <p class="text-muted mb-0">No inventory data available</p>
+                </td>
+            </tr>
+        `;
+            // Hide both pagination containers
+            const paginationContainer = document.getElementById('pagination-container');
+            const paginationContainerTop = document.getElementById('pagination-container-top');
+            if (paginationContainer) {
+                paginationContainer.style.display = 'none';
+            }
+            if (paginationContainerTop) {
+                paginationContainerTop.style.display = 'none';
+            }
+            return;
+        }
+
+        // console.log('Displaying inventory data - showing pagination');
+        // console.log('Sample item structure:', inventory[0]);
+        // console.log('Required fields check for first item:');
+        // console.log('- computer:', inventory[0]?.computer);
+        // console.log('- computer_type:', inventory[0]?.computer_type);  
+        // console.log('- name:', inventory[0]?.name);
+        // console.log('- version:', inventory[0]?.version);
+        // console.log('- publisher:', inventory[0]?.publisher);
+        // console.log('- software_type:', inventory[0]?.software_type);
+
+        // Show both pagination containers
+        const paginationContainer = document.getElementById('pagination-container');
+        const paginationContainerTop = document.getElementById('pagination-container-top');
+        if (paginationContainer) {
+            paginationContainer.style.display = 'block';
+        }
+        if (paginationContainerTop) {
+            paginationContainerTop.style.display = 'block';
+        }
+        // updatePaginationInfo();
+        updatePaginationNav();
+
+        tbody.innerHTML = pageItems.map(item => {
+            const itemId = item.id || Math.random().toString(36).substr(2, 9);
+            item.id = itemId; // Store the ID for later use
+            return `
+        <tr>
+            <td>
+                <i class="fas fa-desktop text-primary me-2"></i>
+                <a href="${getAzurePortalLink(item)}" 
+                   target="_blank" 
+                   class="text-decoration-none"
+                   title="View in Azure Portal">
+                    ${escapeHtml(item.computer || 'N/A')}
+                    <i class="fas fa-external-link-alt ms-1 text-muted icon-sm"></i>
+                </a>
+            </td>
+            <td>
+                ${getComputerTypeBadge(item)}
+            </td>
+            <td>
+                ${(item.software_type || '').toLowerCase() === 'application' || (item.software_type || '').toLowerCase() === 'operating system' ?
+                    `<div class="software-name-clickable" 
+                          onclick="handleManualEOLCheck('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}')"
+                          title="Click to search EOL information for ${escapeHtml(item.name)}${item.version ? ' v' + escapeHtml(item.version) : ''}"
+                          style="cursor: pointer; color: #0d6efd;">
+                        <strong>${escapeHtml(item.name || 'Unknown')}</strong>
+                        <small class="text-muted d-block mt-1">
+                            <i class="fas fa-search me-1 icon-sm"></i>
+                            Click to search EOL info
+                        </small>
+                    </div>` :
+                    `<strong>${escapeHtml(item.name || 'Unknown')}</strong>`
+                }
+                ${item.name && item.name.includes('(Arc-enabled)') ? '<i class="fas fa-cloud ms-1 text-success" title="Arc-enabled OS"></i>' : ''}
+            </td>
+            <td>
+                <span class="badge bg-secondary text-light">${escapeHtml(item.version || 'N/A')}</span>
+            </td>
+            <td>${escapeHtml(item.publisher || 'Unknown')}</td>
+            <td>
+                <span class="badge bg-info text-dark">${escapeHtml(item.software_type || 'Application')}</span>
+            </td>
+            <td id="eol-status-${itemId}">
+                <span class="badge bg-secondary text-light">
+                    <i class="fas fa-clock me-1"></i>
+                    Checking...
+                </span>
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
+                    <i class="fas fa-sync me-1"></i>
+                    Refresh EOL
+                </button>
+            </td>
+        </tr>
+        `;
+        }).join('');
+
+        // Clear any previous automatic EOL check timeout
+        if (autoEOLCheckTimeout) {
+            clearTimeout(autoEOLCheckTimeout);
+        }
+
+        // Start EOL checks for all items after a brief delay
+        autoEOLCheckTimeout = setTimeout(() => {
+            inventory.forEach(item => {
+                if (item.name && !item.name.includes('(Arc-enabled)')) {
+                    const softwareType = (item.software_type || '').toLowerCase();
+                    // Only check EOL for applications and operating systems
+                    if (softwareType === 'application' || softwareType === 'operating system') {
+                        // Skip automatic checking if item was manually checked
+                        if (!manuallyCheckedItems.has(item.id)) {
+                            checkEOLInPlace(item.name, item.version || '', item.id, item.software_type || '');
+                        }
+                    } else {
+                        // Set N/A status for other types
+                        const statusElement = document.getElementById(`eol-status-${item.id}`);
+                        if (statusElement) {
+                            statusElement.innerHTML = `
+                            <span class="badge bg-light text-dark">
+                                <i class="fas fa-minus me-1"></i>
+                                N/A
+                            </span>
+                        `;
+                        }
+                    }
+                }
+            });
+        }, 1000);
+
+        // Initialize multi-select dropdowns after data is displayed
+        initializeDropdownsAfterDisplay();
+    }
+
+    function filterInventory() {
+        const searchInput = document.getElementById('search-input');
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        let filtered = [...currentInventory];
+
+        if (searchTerm) {
+            filtered = filtered.filter(item =>
+                (item.name || '').toLowerCase().includes(searchTerm) ||
+                (item.publisher || '').toLowerCase().includes(searchTerm) ||
+                (item.version || '').toLowerCase().includes(searchTerm) ||
+                (item.software_type || '').toLowerCase().includes(searchTerm) ||
+                (item.computer_type || '').toLowerCase().includes(searchTerm) ||
+                (item.computer || '').toLowerCase().includes(searchTerm)
+            );
+        }
+
+        // Reset to first page
+        currentPage = 1;
+
+        // Display filtered results
+        displayInventory(filtered);
+        updateSummary(filtered.length, currentInventory.length, searchTerm, []);
+    }
+
+    function applyFilters() {
+        const searchInput = document.getElementById('search-input');
+        const typeFilterEl = document.getElementById('type-filter');
+        const statusFilterEl = document.getElementById('status-filter');
+
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const typeFilter = typeFilterEl ? typeFilterEl.value : '';
+        const statusFilter = statusFilterEl ? statusFilterEl.value : '';
+
+        filteredInventory = currentInventory.filter(item => {
+            // Search filter
+            const searchMatch = !searchTerm ||
+                (item.name && item.name.toLowerCase().includes(searchTerm)) ||
+                (item.computer && item.computer.toLowerCase().includes(searchTerm)) ||
+                (item.publisher && item.publisher.toLowerCase().includes(searchTerm)) ||
+                (item.version && item.version.toLowerCase().includes(searchTerm));
+
+            // Type filter
+            const typeMatch = !typeFilter ||
+                (typeFilter === 'Software' && item.software_type !== 'Operating System') ||
+                (typeFilter === 'OS' && item.software_type === 'Operating System');
+
+            // Status filter
+            const statusMatch = !statusFilter ||
+                (item.eol_status && item.eol_status === statusFilter);
+
+            return searchMatch && typeMatch && statusMatch;
+        });
+
+        // Reset to first page when filters change
+        currentPage = 1;
+        displayInventory(filteredInventory);
+        updateSummary(filteredInventory.length, currentInventory.length, searchTerm);
+    }
+
+    function clearAllFilters() {
+        // Clear all filter inputs
+        const searchInput = document.getElementById('search-input');
+        const typeFilter = document.getElementById('type-filter');
+        const statusFilter = document.getElementById('status-filter');
+
+        if (searchInput) searchInput.value = '';
+        if (typeFilter) typeFilter.value = '';
+        if (statusFilter) statusFilter.value = '';
+
+        // Reapply filters (which will show all data since inputs are cleared)
+        applyFilters();
+    }
+
+    // Pagination Functions
+    // function updatePaginationInfo() {
+    //     const showingStart = totalEntries === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    //     const showingEnd = Math.min(currentPage * pageSize, totalEntries);
+
+    //     // Update bottom pagination info
+    //     const paginationInfo = document.getElementById('pagination-info');
+    //     if (paginationInfo) {
+    //         paginationInfo.innerHTML = `
+    //             Showing <span class="fw-bold">${showingStart}</span> to <span class="fw-bold">${showingEnd}</span> 
+    //             of <span class="fw-bold">${totalEntries}</span> entries
+    //             ${currentInventory.length !== totalEntries && currentInventory.length > 0 ? 
+    //                 `<span class="text-muted">(filtered from ${currentInventory.length} total)</span>` : ''}
+    //         `;
+    //     }
+
+    //     // Update both top and bottom pagination info safely (legacy code for other elements)
+    //     const elements = [
+    //         { id: 'showing-start', value: showingStart },
+    //         { id: 'showing-end', value: showingEnd },
+    //         { id: 'total-entries', value: totalEntries },
+    //         { id: 'showing-start-top', value: showingStart },
+    //         { id: 'showing-end-top', value: showingEnd },
+    //         { id: 'total-entries-top', value: totalEntries }
+    //     ];
+
+    //     elements.forEach(({ id, value }) => {
+    //         const element = document.getElementById(id);
+    //         if (element) {
+    //             element.textContent = value;
+    //         }
+    //     });
+
+    //     // Show filtered info if different from total inventory
+    //     const filteredInfo = document.getElementById('filtered-info');
+    //     const totalUnfiltered = document.getElementById('total-unfiltered');
+    //     const filteredInfoTop = document.getElementById('filtered-info-top');
+    //     const totalUnfilteredTop = document.getElementById('total-unfiltered-top');
+
+    //     if (currentInventory.length !== totalEntries && currentInventory.length > 0) {
+    //         if (filteredInfo) {
+    //             filteredInfo.style.display = 'inline';
+    //         }
+    //         if (totalUnfiltered) {
+    //             totalUnfiltered.textContent = currentInventory.length;
+    //         }
+    //         if (filteredInfoTop) {
+    //             filteredInfoTop.style.display = 'inline';
+    //         }
+    //         if (totalUnfilteredTop) {
+    //             totalUnfilteredTop.textContent = currentInventory.length;
+    //         }
+    //     } else {
+    //         if (filteredInfo) {
+    //             filteredInfo.style.display = 'none';
+    //         }
+    //         if (filteredInfoTop) {
+    //             filteredInfoTop.style.display = 'none';
+    //         }
+    //     }
+    // }
+
+    function updatePaginationNav() {
+        // Update main pagination controls (uses dynamically generated content)
+        updatePaginationControls('pagination-controls');
+        updatePaginationControls('pagination-controls-top');
+
+        // Update pagination info
+        // updatePaginationInfo();
+    }
+
+    function updatePaginationControls(controlsId) {
+        const paginationControls = document.getElementById(controlsId);
+        if (!paginationControls) return;
+
+        // Generate pagination HTML
+        let paginationHTML = '';
+
+        // Previous button
+        paginationHTML += `
+            <li class="page-item ${currentPage <= 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="previousPage()" aria-label="Previous">
+                    <span aria-hidden="true">&laquo;</span>
+                </a>
+            </li>
+        `;
+
+        // Page numbers
+        const pageNumbers = generatePageNumbers();
+        pageNumbers.forEach(pageInfo => {
+            if (pageInfo.disabled) {
+                paginationHTML += `
+                    <li class="page-item disabled">
+                        <span class="page-link">${pageInfo.text}</span>
+                    </li>
+                `;
+            } else {
+                paginationHTML += `
+                    <li class="page-item ${pageInfo.active ? 'active' : ''}">
+                        <a class="page-link" href="#" onclick="goToPage(${pageInfo.page})">${pageInfo.text}</a>
+                    </li>
+                `;
+            }
+        });
+
+        // Next button
+        paginationHTML += `
+            <li class="page-item ${currentPage >= totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="nextPage()" aria-label="Next">
+                    <span aria-hidden="true">&raquo;</span>
+                </a>
+            </li>
+        `;
+
+        paginationControls.innerHTML = paginationHTML;
+    }
+
+    // function updatePaginationInfo() {
+    //     // Update top pagination info
+    //     const topPaginationInfo = document.getElementById('top-pagination-info');
+    //     if (topPaginationInfo) {
+    //         topPaginationInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    //     }
+
+    //     // Update bottom pagination info
+    //     const paginationInfo = document.getElementById('pagination-info');
+    //     if (paginationInfo) {
+    //         paginationInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    //     }
+    // }
+
+    function generatePageNumbers() {
+        const pages = [];
+        const maxVisiblePages = 5;
+        const halfVisible = Math.floor(maxVisiblePages / 2);
+
+        let startPage = Math.max(1, currentPage - halfVisible);
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+        // Adjust start page if we're near the end
+        if (endPage - startPage < maxVisiblePages - 1) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        // Add first page and ellipsis if needed
+        if (startPage > 1) {
+            pages.push({ page: 1, text: '1', active: false, disabled: false });
+            if (startPage > 2) {
+                pages.push({ page: null, text: '...', active: false, disabled: true });
+            }
+        }
+
+        // Add visible page numbers
+        for (let i = startPage; i <= endPage; i++) {
+            pages.push({
+                page: i,
+                text: i.toString(),
+                active: i === currentPage,
+                disabled: false
+            });
+        }
+
+        // Add last page and ellipsis if needed
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                pages.push({ page: null, text: '...', active: false, disabled: true });
+            }
+            pages.push({ page: totalPages, text: totalPages.toString(), active: false, disabled: false });
+        }
+
+        return pages;
+    }
+
+    function goToPage(page) {
+        if (page < 1 || page > totalPages || page === currentPage) {
+            return;
+        }
+
+        currentPage = page;
+        displayInventory(filteredInventory);
+    }
+
+    function showError(message) {
+        const errorMessageEl = document.getElementById('error-message');
+        const errorStateEl = document.getElementById('error-state');
+
+        if (errorMessageEl) {
+            errorMessageEl.textContent = message;
+        }
+        if (errorStateEl) {
+            errorStateEl.classList.remove('d-none');
+        }
+    }
+
+    function updateSummary(displayCount, totalCount, searchTerm = null, selectedComputers = []) {
+        const summaryText = document.getElementById('summary-text');
+        if (!summaryText) {
+            console.warn('Summary text element not found');
+            return;
+        }
+
+        let text = '';
+
+        const filters = [];
+        if (searchTerm) {
+            filters.push(`search: "${searchTerm}"`);
+        }
+        if (selectedComputers.length > 0) {
+            filters.push(`computers: ${selectedComputers.length} selected`);
+        }
+        if (currentSortColumn && currentSortDirection !== 'none') {
+            filters.push(`sorted by ${currentSortColumn} (${currentSortDirection})`);
+        }
+
+        if (filters.length > 0) {
+            text = `Showing ${displayCount} of ${totalCount} items (${filters.join(', ')})`;
+        } else {
+            text = `Showing ${displayCount} software items`;
+            const daysSelect = document.getElementById('days-select');
+            const days = daysSelect ? daysSelect.value : null;
+            const limitInput = document.getElementById('limit-input');
+            const limit = limitInput ? limitInput.value : '5000';
+
+            if (days) {
+                text += ` from last ${days} days`;
+            }
+            if (limit === '0') {
+                text += ` (query limit: unlimited)`;
+            } else if (limit && limit !== '5000') {
+                text += ` (query limit: ${limit})`;
+            }
+        }
+
+        summaryText.textContent = text;
+    }
+
+    // Table Sorting Functions
+    function initializeSorting() {
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', function () {
+                const sortColumn = this.getAttribute('data-sort');
+                sortTable(sortColumn);
+            });
+        });
+    }
+
+    function sortTable(column) {
+        // Determine sort direction
+        let direction = 'asc';
+        if (currentSortColumn === column) {
+            if (currentSortDirection === 'asc') {
+                direction = 'desc';
+            } else if (currentSortDirection === 'desc') {
+                direction = 'none';
+            } else {
+                direction = 'asc';
+            }
+        }
+
+        // Update sort state
+        currentSortColumn = column;
+        currentSortDirection = direction;
+
+        // Update UI indicators
+        updateSortIndicators(column, direction);
+
+        // Sort the data if not "none"
+        if (direction !== 'none') {
+            currentInventory.sort((a, b) => {
+                let valueA = getSortValue(a, column);
+                let valueB = getSortValue(b, column);
+
+                // Handle special cases
+                if (column === 'eol_status') {
+                    return compareEOLStatus(valueA, valueB, direction);
+                }
+
+                // Convert to strings for comparison if not numbers
+                if (typeof valueA !== 'number' && typeof valueB !== 'number') {
+                    valueA = String(valueA).toLowerCase();
+                    valueB = String(valueB).toLowerCase();
+                }
+
+                if (valueA < valueB) {
+                    return direction === 'asc' ? -1 : 1;
+                }
+                if (valueA > valueB) {
+                    return direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+
+        // Re-render the filtered results
+        filterInventory();
+    }
+
+    function getSortValue(item, column) {
+        switch (column) {
+            case 'computer':
+                return item.computer || 'Unknown';
+            case 'computer_type':
+                return item.computer_type || 'Unknown';
+            case 'name':
+                return item.name || 'Unknown';
+            case 'version':
+                return item.version || '';
+            case 'publisher':
+                return item.publisher || 'Unknown';
+            case 'software_type':
+                return item.software_type || 'Application';
+            case 'eol_status':
+                // Get EOL status from the DOM element if available
+                const statusElement = document.getElementById(`eol-status-${item.id}`);
+                if (statusElement) {
+                    const statusText = statusElement.textContent.trim();
+                    return getEOLSortPriority(statusText);
+                }
+                return 999; // Default for unknown status
+            default:
+                return '';
+        }
+    }
+
+    function getEOLSortPriority(statusText) {
+        // Define priority order for EOL statuses
+        if (statusText.includes('End of Life') || statusText.includes('EOL')) return 1;
+        if (statusText.includes('Soon') || statusText.includes('Warning')) return 2;
+        if (statusText.includes('Supported') || statusText.includes('Active')) return 3;
+        if (statusText.includes('Checking') || statusText.includes('Loading')) return 4;
+        if (statusText.includes('N/A')) return 5;
+        if (statusText.includes('Unknown')) return 6;
+        return 7; // Default
+    }
+
+    function compareEOLStatus(valueA, valueB, direction) {
+        if (direction === 'asc') {
+            return valueA - valueB;
+        } else {
+            return valueB - valueA;
+        }
+    }
+
+    function updateSortIndicators(activeColumn, direction) {
+        // Reset all sort indicators
+        document.querySelectorAll('.sort-icon').forEach(icon => {
+            icon.setAttribute('data-sort-direction', 'none');
+            icon.className = 'fas fa-sort sort-icon ms-1';
+        });
+
+        // Update active column indicator
+        if (direction !== 'none') {
+            const activeHeader = document.querySelector(`[data-sort="${activeColumn}"] .sort-icon`);
+            if (activeHeader) {
+                activeHeader.setAttribute('data-sort-direction', direction);
+                activeHeader.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} sort-icon ms-1`;
+            }
+        }
+
+        // Show/hide reset sort button
+        const resetBtn = document.getElementById('reset-sort-btn');
+        if (resetBtn) {
+            if (direction !== 'none') {
+                resetBtn.style.display = 'inline-block';
+            } else {
+                resetBtn.style.display = 'none';
+            }
+        }
+    }
+
+    function resetSort() {
+        currentSortColumn = null;
+        currentSortDirection = 'none';
+        updateSortIndicators('', 'none');
+
+        // Reload inventory to restore original order
+        loadInventory();
+    }
+
+    function refreshInventory() {
+        // Directly call loadInventory with force refresh to bypass cache
+        loadInventory(true); // Pass true to force refresh from LAW
+    }
+
+    async function clearInventoryCache(forceRefresh = false) {
+        try {
+            // Clear the raw inventory cache
+            const response = await fetch('/api/inventory/clear-cache', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                // console.log('Cache cleared:', result);
+
+                // Show brief feedback that cache was cleared and fresh data is being loaded
+                const refreshBtn = document.getElementById('refresh-btn');
+                if (refreshBtn) {
+                    const originalHtml = refreshBtn.innerHTML;
+                    refreshBtn.innerHTML = '<i class="fas fa-check me-1"></i>Refreshing from LAW';
+                    refreshBtn.classList.add('btn-success');
+                    refreshBtn.classList.remove('btn-light');
+
+                    setTimeout(() => {
+                        refreshBtn.innerHTML = originalHtml;
+                        refreshBtn.classList.remove('btn-success');
+                        refreshBtn.classList.add('btn-light');
+                    }, 1500);
+                }
+            }
+
+            // Load fresh inventory data regardless of cache clear result
+            loadInventory(forceRefresh);
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            // Still attempt to reload inventory
+            loadInventory(forceRefresh);
+        }
+    }
+
+    function updateCacheStatus(inventoryData) {
+        const cacheStatusDiv = document.getElementById('cache-status');
+        if (!cacheStatusDiv) {
+            // Container not found; nothing to update safely
+            return;
+        }
+
+        // Ensure we have a target span to write into; create if missing
+        let cacheTimestampSpan = document.getElementById('cache-timestamp');
+        if (!cacheTimestampSpan) {
+            cacheTimestampSpan = document.createElement('span');
+            cacheTimestampSpan.id = 'cache-timestamp';
+            // Replace any placeholder/loading content with our managed span
+            cacheStatusDiv.innerHTML = '';
+            cacheStatusDiv.appendChild(cacheTimestampSpan);
+        }
+
+        // Check if we have cache metadata (for backward compatibility)
+        if (typeof inventoryData === 'object' && inventoryData.success !== undefined) {
+            // Handle combined inventory data
+            const data = inventoryData.data || [];
+            const softwareCount = inventoryData.software_count || 0;
+            const osCount = inventoryData.os_count || 0;
+            const softwareCached = inventoryData.software_cached || false;
+            const osCached = inventoryData.os_cached || false;
+            const softwareCachedAt = inventoryData.software_cached_at;
+            const osCachedAt = inventoryData.os_cached_at;
+
+            // Helper function to format timestamp
+            const formatTimestamp = (timestamp) => {
+                if (!timestamp) return '';
+                try {
+                    const date = new Date(timestamp);
+                    return date.toLocaleString();
+                } catch (e) {
+                    return timestamp;
+                }
+            };
+
+            // Show cache status if either data source is cached
+            if (softwareCached || osCached) {
+                if (cacheStatusDiv) {
+                    cacheStatusDiv.style.display = 'block';
+                }
+
+                let cacheText = '';
+                let timestampText = '';
+
+                if (softwareCached && osCached) {
+                    cacheText = `${softwareCount} software + ${osCount} OS items (both cached)`;
+                    if (softwareCachedAt && osCachedAt) {
+                        const swTime = formatTimestamp(softwareCachedAt);
+                        const osTime = formatTimestamp(osCachedAt);
+                        if (swTime === osTime) {
+                            timestampText = ` - cached at ${swTime}`;
+                        } else {
+                            timestampText = ` - software cached at ${swTime}, OS cached at ${osTime}`;
+                        }
+                    }
+                } else if (softwareCached && !osCached) {
+                    cacheText = `${softwareCount} software items (cached) + ${osCount} OS items (fresh)`;
+                    if (softwareCachedAt) {
+                        timestampText = ` - software cached at ${formatTimestamp(softwareCachedAt)}`;
+                    }
+                } else if (!softwareCached && osCached) {
+                    cacheText = `${softwareCount} software items (fresh) + ${osCount} OS items (cached)`;
+                    if (osCachedAt) {
+                        timestampText = ` - OS cached at ${formatTimestamp(osCachedAt)}`;
+                    }
+                } else {
+                    cacheText = `${softwareCount} software + ${osCount} OS items (live data)`;
+                }
+
+                cacheTimestampSpan.innerHTML = `
+                <span class="badge bg-info text-dark me-1">
+                    <i class="fas fa-database me-1"></i>Cache Status
+                </span>
+                ${cacheText}${timestampText}
+            `;
+            } else {
+                // No cached data
+                if (cacheStatusDiv) {
+                    cacheStatusDiv.style.display = 'block';
+                }
+                cacheTimestampSpan.innerHTML = `
+                <span class="badge bg-success text-dark me-1">
+                    <i class="fas fa-sync me-1"></i>Fresh Data
+                </span>
+                ${softwareCount} software + ${osCount} OS items (live data)
+            `;
+            }
+        } else {
+            // Legacy format or no cache info - hide cache status
+            if (cacheStatusDiv) {
+                cacheStatusDiv.style.display = 'none';
+            }
+        }
+    }
+
+    function updateStatistics(combinedInventory, softwareInventory, osInventory) {
+        // Count unique computers
+        const computerSet = new Set();
+        const eolItems = [];
+
+        combinedInventory.forEach(item => {
+            if (item.computer && item.computer !== 'Unknown') {
+                computerSet.add(item.computer.toLowerCase());
+            }
+
+            // Check for EOL status
+            if (item.eol_status === 'EOL' || item.eol_status === 'End of Life') {
+                eolItems.push(item);
+            }
+        });
+
+        // Update statistics cards
+        const totalComputersEl = document.getElementById('total-computers');
+        const totalSoftwareEl = document.getElementById('total-software');
+        const osCountEl = document.getElementById('os-count');
+        const eolCountEl = document.getElementById('eol-count');
+
+        if (totalComputersEl) {
+            totalComputersEl.textContent = computerSet.size;
+            totalComputersEl.style.animation = 'pulse 0.5s';
+        }
+
+        if (totalSoftwareEl) {
+            totalSoftwareEl.textContent = softwareInventory.length;
+            totalSoftwareEl.style.animation = 'pulse 0.5s';
+        }
+
+        if (osCountEl) {
+            // Count unique OS types
+            const osSet = new Set();
+            osInventory.forEach(os => {
+                if (os.name && os.name !== 'Unknown') {
+                    osSet.add(os.name);
+                }
+            });
+            osCountEl.textContent = osSet.size;
+            osCountEl.style.animation = 'pulse 0.5s';
+        }
+
+        if (eolCountEl) {
+            eolCountEl.textContent = eolItems.length;
+            eolCountEl.style.animation = 'pulse 0.5s';
+
+            // Update color based on EOL count
+            const parentCard = eolCountEl.closest('.stat-card');
+            if (parentCard) {
+                if (eolItems.length > 0) {
+                    parentCard.style.borderLeft = '4px solid #dc3545';
+                } else {
+                    parentCard.style.borderLeft = '4px solid #28a745';
+                }
+            }
+        }
+
+        // Reset animations after they complete
+        setTimeout(() => {
+            [totalComputersEl, totalSoftwareEl, osCountEl, eolCountEl].forEach(el => {
+                if (el) el.style.animation = '';
+            });
+        }, 500);
+
+        // Update EOL detail section asynchronously (non-blocking)
+        updateEOLDetailSection(osInventory).catch(error => {
+            console.error('Error updating EOL detail section:', error);
+        });
+    }
+
+    async function updateEOLDetailSection(osInventory) {
+        const eolDetailSection = document.getElementById('eol-detail-section');
+        const eolLoading = document.getElementById('eol-loading');
+        const eolDetailContent = document.getElementById('eol-detail-content');
+        const noEolItemsDiv = document.getElementById('no-eol-items');
+        const eolItemsTbody = document.getElementById('eol-items-tbody');
+        
+        if (!eolDetailSection) return;
+
+        // Show the EOL detail section with loading state
+        eolDetailSection.style.display = 'block';
+        if (eolLoading) eolLoading.style.display = 'block';
+        if (eolDetailContent) eolDetailContent.style.display = 'none';
+
+        try {
+            // Add a minimum delay to prevent flashing for fast responses
+            const [eolResponse] = await Promise.all([
+                fetch('/api/os'), // Changed from /api/os/eol-analysis to existing endpoint
+                new Promise(resolve => setTimeout(resolve, 500)) // Minimum 500ms loading
+            ]);
+
+            const eolData = await eolResponse.json();
+            
+            let eolItems = [];
+            
+            if (eolData.success && eolData.data && eolData.data.length > 0) {
+                // Process the EOL data
+                eolItems = eolData.data.filter(item => item.eol_date);
+            } else {
+                // Fallback: try to extract EOL items from current OS inventory
+                eolItems = osInventory.filter(item => {
+                    return item.eol_date || item.eol_status === 'EOL' || item.eol_status === 'End of Life';
+                });
+            }
+
+            // Hide loading and show content
+            if (eolLoading) eolLoading.style.display = 'none';
+            
+            if (eolItems.length === 0) {
+                eolDetailSection.style.display = 'none';
+                return;
+            }
+
+            if (eolDetailContent) {
+                eolDetailContent.style.display = 'block';
+                eolDetailContent.classList.add('eol-content-fade-in');
+            }
+
+            // Calculate EOL statistics
+            const now = new Date();
+            const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+            
+            let expiredCount = 0;
+            let soonCount = 0;
+            let futureCount = 0;
+
+            eolItems.forEach(item => {
+                if (item.eol_date) {
+                    const eolDate = new Date(item.eol_date);
+                    if (eolDate < now) {
+                        expiredCount++;
+                    } else if (eolDate <= oneYearFromNow) {
+                        soonCount++;
+                    } else {
+                        futureCount++;
+                    }
+                }
+            });
+
+            // Update EOL statistics cards
+            const expiredEl = document.getElementById('eol-expired-count');
+            const soonEl = document.getElementById('eol-soon-count');
+            const futureEl = document.getElementById('eol-future-count');
+            
+            if (expiredEl) expiredEl.textContent = expiredCount;
+            if (soonEl) soonEl.textContent = soonCount;
+            if (futureEl) futureEl.textContent = futureCount;
+
+            // Populate EOL items table
+            populateEOLTable(eolItems);
+
+        } catch (error) {
+            console.error('Error loading EOL analysis:', error);
+            
+            // Hide loading and show error state
+            if (eolLoading) eolLoading.style.display = 'none';
+            if (eolDetailContent) {
+                eolDetailContent.style.display = 'block';
+                eolDetailContent.innerHTML = `
+                    <div class="text-center py-4">
+                        <i class="fas fa-exclamation-circle text-warning fa-3x mb-3"></i>
+                        <h5>Unable to Load EOL Analysis</h5>
+                        <p class="text-muted">There was an error loading the end-of-life analysis. Please try refreshing the page.</p>
+                        <button class="btn btn-outline-primary" onclick="location.reload()">
+                            <i class="fas fa-refresh me-1"></i>Refresh Page
+                        </button>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    function populateEOLTable(eolItems) {
+        const tbody = document.getElementById('eol-items-tbody');
+        const noEolItems = document.getElementById('no-eol-items');
+        
+        if (!tbody) return;
+
+        if (eolItems.length === 0) {
+            tbody.innerHTML = '';
+            if (noEolItems) noEolItems.style.display = 'block';
+            return;
+        }
+
+        if (noEolItems) noEolItems.style.display = 'none';
+
+        const now = new Date();
+        
+        // Sort items by EOL urgency (expired first, then soonest EOL dates)
+        eolItems.sort((a, b) => {
+            const dateA = a.eol_date ? new Date(a.eol_date) : new Date('2099-12-31');
+            const dateB = b.eol_date ? new Date(b.eol_date) : new Date('2099-12-31');
+            return dateA - dateB;
+        });
+
+        tbody.innerHTML = eolItems.map(item => {
+            const eolDate = item.eol_date ? new Date(item.eol_date) : null;
+            let daysUntilEOL = 'Unknown';
+            let daysBadgeClass = 'eol-days-info';
+            let priorityClass = 'eol-priority-low';
+            let priorityText = 'Low';
+
+            if (eolDate) {
+                const timeDiff = eolDate - now;
+                const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+                
+                if (daysDiff < 0) {
+                    daysUntilEOL = `${Math.abs(daysDiff)} days ago`;
+                    daysBadgeClass = 'eol-days-expired';
+                    priorityClass = 'eol-priority-critical';
+                    priorityText = 'Critical';
+                } else if (daysDiff <= 90) {
+                    daysUntilEOL = `${daysDiff} days`;
+                    daysBadgeClass = 'eol-days-expired';
+                    priorityClass = 'eol-priority-critical';
+                    priorityText = 'Critical';
+                } else if (daysDiff <= 365) {
+                    daysUntilEOL = `${daysDiff} days`;
+                    daysBadgeClass = 'eol-days-warning';
+                    priorityClass = 'eol-priority-high';
+                    priorityText = 'High';
+                } else {
+                    daysUntilEOL = `${daysDiff} days`;
+                    daysBadgeClass = 'eol-days-info';
+                    priorityClass = daysDiff <= 730 ? 'eol-priority-medium' : 'eol-priority-low';
+                    priorityText = daysDiff <= 730 ? 'Medium' : 'Low';
+                }
+            }
+
+            const lastSeen = item.last_heartbeat ? 
+                new Date(item.last_heartbeat).toLocaleDateString() : 
+                (item.days_since_heartbeat !== undefined ? 
+                    `${item.days_since_heartbeat} days ago` : 'Unknown');
+
+            return `
+                <tr>
+                    <td>
+                        <strong>${item.computer_name || item.computer || 'Unknown'}</strong>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <i class="fab fa-${getOSIcon(item.os_name || item.name)} me-2"></i>
+                            ${item.os_name || item.name || 'Unknown'}
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary">${item.os_version || item.version || 'N/A'}</span>
+                    </td>
+                    <td>
+                        <strong>${eolDate ? eolDate.toLocaleDateString() : 'Unknown'}</strong>
+                    </td>
+                    <td>
+                        <span class="eol-days-badge ${daysBadgeClass}">${daysUntilEOL}</span>
+                    </td>
+                    <td>
+                        ${lastSeen}
+                    </td>
+                    <td>
+                        <span class="eol-priority-badge ${priorityClass}">${priorityText}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function getOSIcon(osName) {
+        if (!osName) return 'desktop';
+        const name = osName.toLowerCase();
+        if (name.includes('windows')) return 'windows';
+        if (name.includes('ubuntu') || name.includes('linux')) return 'ubuntu';
+        if (name.includes('red hat') || name.includes('rhel') || name.includes('centos')) return 'redhat';
+        if (name.includes('mac') || name.includes('darwin')) return 'apple';
+        return 'desktop';
+    }
+
+    function exportEOLItems() {
+        const eolItemsTable = document.querySelector('.eol-items-table tbody');
+        if (!eolItemsTable) {
+            alert('No EOL items to export');
+            return;
+        }
+
+        const rows = Array.from(eolItemsTable.querySelectorAll('tr'));
+        if (rows.length === 0) {
+            alert('No EOL items to export');
+            return;
+        }
+
+        const csvData = [
+            ['Computer', 'Operating System', 'Version', 'EOL Date', 'Days Until EOL', 'Last Seen', 'Priority'].join(','),
+            ...rows.map(row => {
+                const cells = Array.from(row.querySelectorAll('td'));
+                return cells.map(cell => {
+                    let text = cell.textContent.trim();
+                    // Remove extra whitespace and escape commas
+                    text = text.replace(/\s+/g, ' ').replace(/,/g, ';');
+                    return text;
+                }).join(',');
+            })
+        ].join('\n');
+
+        const blob = new Blob([csvData], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `eol-inventory-report-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function detectCacheInconsistency(inventoryData) {
+        // Check if we have mixed cache states that might cause computer type issues
+        if (typeof inventoryData === 'object' && inventoryData.success !== undefined) {
+            const softwareCached = inventoryData.software_cached || false;
+            const osCached = inventoryData.os_cached || false;
+            const softwareCount = inventoryData.software_count || 0;
+            const osCount = inventoryData.os_count || 0;
+
+            // If one is cached and the other isn't, and we have significant data inconsistency
+            if (softwareCached !== osCached) {
+                const data = inventoryData.data || [];
+                const unknownComputerCount = data.filter(item =>
+                    item.computer === 'Unknown' || item.computer_type === 'Unknown'
+                ).length;
+
+                // If more than 30% of items have unknown computer info, suggest cache clear
+                const unknownPercentage = data.length > 0 ? (unknownComputerCount / data.length) * 100 : 0;
+
+                if (unknownPercentage > 30) {
+                    console.warn(`Cache inconsistency detected: ${unknownPercentage.toFixed(1)}% unknown computers. Software cached: ${softwareCached}, OS cached: ${osCached}`);
+
+                    // Show a subtle warning to the user
+                    const cacheTimestampSpan = document.getElementById('cache-timestamp');
+                    if (cacheTimestampSpan) {
+                        const existingContent = cacheTimestampSpan.innerHTML;
+                        cacheTimestampSpan.innerHTML = `${existingContent} 
+                            <span class="badge bg-warning text-dark ms-2" style="cursor: pointer;" 
+                                  onclick="clearInventoryCache()" 
+                                  title="Click to refresh data - cache inconsistency detected">
+                                <i class="fas fa-exclamation-triangle me-1"></i>Refresh Recommended
+                            </span>`;
+                    }
+                }
+            }
+        }
+    }
+
+    async function loadOsSummary() {
+        try {
+            const daysSelect = document.getElementById('days-select');
+            const days = daysSelect ? daysSelect.value : '90';
+            const res = await fetch(`/api/os/summary?days=${days}`);
+            if (!res.ok) return;
+            const payload = await res.json();
+            if (!payload || payload.status !== 'ok') return;
+            const s = payload.summary || {};
+
+            // Update OS summary text
+            const txt = `OS coverage across ${s.total_computers || 0} computers: Windows ${s.windows_count || 0}, Linux ${s.linux_count || 0}. Top versions: ${(s.top_versions || []).map(v => v.name_version + ' (' + v.count + ')').join(', ')}`;
+            const el = document.getElementById('os-summary');
+            const tel = document.getElementById('os-summary-text');
+
+            if (tel) {
+                tel.textContent = txt;
+            }
+            if (el) {
+                el.classList.remove('d-none');
+            }
+
+            // Add OS cache status if available
+            if (s.from_cache && s.cached_at && tel) {
+                const cacheDate = new Date(s.cached_at);
+                const now = new Date();
+                const diffMinutes = Math.floor((now - cacheDate) / (1000 * 60));
+
+                let timeText;
+                if (diffMinutes < 1) {
+                    timeText = 'just now';
+                } else if (diffMinutes < 60) {
+                    timeText = `${diffMinutes}m ago`;
+                } else {
+                    const diffHours = Math.floor(diffMinutes / 60);
+                    timeText = `${diffHours}h ago`;
+                }
+
+                tel.innerHTML = txt + ` <small class="text-info">(cached ${timeText})</small>`;
+            }
+        } catch (e) {
+            // best-effort only
+            console.warn('OS summary load failed:', e);
+        }
+    }
+
+    // Track manually checked items to prevent automatic duplicate checking
+    const manuallyCheckedItems = new Set();
+
+    // Track automatic EOL check timeout to prevent duplicates
+    let autoEOLCheckTimeout = null;
+
+    // Track last manual check to prevent rapid successive clicks
+    let lastManualCheckTime = 0;
+    const MANUAL_CHECK_DEBOUNCE_MS = 1000; // 1 second debounce
+
+    function handleManualEOLCheck(name, version, itemId) {
+        const now = Date.now();
+
+        // Debounce rapid successive clicks
+        if (now - lastManualCheckTime < MANUAL_CHECK_DEBOUNCE_MS) {
+            // console.log('Debouncing rapid click on', name);
+            return;
+        }
+
+        lastManualCheckTime = now;
+
+        // Mark this item as manually checked
+        manuallyCheckedItems.add(itemId);
+
+        // console.log('Manual EOL check for:', name, version, 'itemId:', itemId);
+
+        // Call the original checkEOL function
+        checkEOL(name, version);
+    }
+
+    function checkEOL(name, version) {
+        // Clean and validate inputs
+        const rawName = name ? name.trim() : '';
+        const rawVersion = version ? version.trim() : '';
+
+        if (!rawName) {
+            alert('Software name is required for EOL search');
+            return;
+        }
+
+        // Apply enhanced parameter extraction logic like in eol.html
+        const cleanedName = cleanSoftwareName(rawName);
+        const parsedInfo = parseVersionFromName(cleanedName);
+
+        // Use the best available name and version
+        const finalName = parsedInfo.name || cleanedName;
+        const finalVersion = rawVersion || parsedInfo.version || '';
+
+        // Pre-populate the EOL search form with optimized software name and version
+        const params = new URLSearchParams({
+            name: finalName,
+            autosearch: 'true'
+        });
+
+        if (finalVersion) {
+            params.set('version', finalVersion);
+        }
+
+        const url = `/eol?${params.toString()}`;
+
+        // Show brief feedback that search is being initiated
+        const toast = document.createElement('div');
+        toast.className = 'toast position-fixed top-0 end-0 m-3';
+        toast.style.zIndex = '9999';
+        toast.innerHTML = `
+        <div class="toast-header bg-primary text-light">
+            <i class="fas fa-search me-2"></i>
+            <strong class="me-auto">Enhanced EOL Search</strong>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body">
+            Opening EOL search for: <strong>${finalName}</strong>${finalVersion ? ` v${finalVersion}` : ''}<br>
+            ${rawName !== finalName ? `<small class="text-muted">Optimized from: "${rawName}"</small>` : ''}
+        </div>
+    `;
+
+        document.body.appendChild(toast);
+        const bsToast = new bootstrap.Toast(toast);
+        bsToast.show();
+
+        // Clean up toast after it's hidden
+        toast.addEventListener('hidden.bs.toast', () => {
+            document.body.removeChild(toast);
+        });
+
+        // Open the EOL search page
+        window.open(url, '_blank');
+    }
+
+    // Enhanced parameter extraction functions (duplicated from eol.html for inventory functionality)
+    function cleanSoftwareName(name) {
+        if (!name) return name;
+
+        // Remove common noise patterns that might interfere with EOL lookup
+        let cleaned = name
+            .replace(/\s*\(Arc-enabled\)/gi, '')  // Remove Arc-enabled markers
+            .replace(/\s*\(x64\)/gi, '')          // Remove architecture markers
+            .replace(/\s*\(x86\)/gi, '')
+            .replace(/\s*64-bit/gi, '')
+            .replace(/\s*32-bit/gi, '')
+            .replace(/\s*\([^)]*bit[^)]*\)/gi, '') // Remove any parenthetical bit references
+            .replace(/\s+/g, ' ')                  // Normalize whitespace
+            .trim();
+
+        return cleaned;
+    }
+
+    function parseVersionFromName(name) {
+        if (!name) return { name: name, version: null };
+
+        // Common version patterns to extract
+        const versionPatterns = [
+            // Standard version patterns: "Software 2019", "Windows Server 2016"
+            /^(.+?)\s+(\d{4})$/i,
+            // Version with dots: "Software 1.2.3"
+            /^(.+?)\s+(v?(?:\d+\.)+\d+(?:\.\d+)*)$/i,
+            // Version with single number: "Software 12"
+            /^(.+?)\s+v?(\d+)$/i,
+            // Ubuntu-style: "Ubuntu 20.04", "RHEL 8.5"
+            /^(.+?)\s+(\d+\.\d+(?:\.\d+)?)$/i,
+        ];
+
+        for (const pattern of versionPatterns) {
+            const match = name.match(pattern);
+            if (match) {
+                const baseName = match[1].trim();
+                const version = match[2].trim();
+
+                // Validate that we're not accidentally parsing a valid part of the name
+                if (!isCommonSoftwareWord(version)) {
+                    return {
+                        name: baseName,
+                        version: version
+                    };
+                }
+            }
+        }
+
+        return { name: name, version: null };
+    }
+
+    function isCommonSoftwareWord(word) {
+        const commonWords = [
+            'server', 'client', 'pro', 'professional', 'enterprise', 'standard',
+            'express', 'developer', 'runtime', 'framework', 'sdk', 'tools',
+            'service', 'pack', 'update', 'hotfix', 'patch'
+        ];
+        return commonWords.includes(word.toLowerCase());
+    }
+
+    // Helper function to check if EOL data contains valid information
+    function hasValidEOLData(eolInfo) {
+        if (!eolInfo) return false;
+
+        // Check for direct EOL date
+        if (eolInfo.eol_date && eolInfo.eol_date !== 'Not specified' && eolInfo.eol_date !== 'Not available') {
+            return true;
+        }
+
+        // Check for EOL date in additional_info
+        if (eolInfo.additional_info) {
+            const info = eolInfo.additional_info;
+            const hasEolDate = info.eol || info.eol_date || info.end_of_life ||
+                info.endOfLife || info.support_end || info.end_date;
+
+            if (hasEolDate && hasEolDate !== 'Not specified' && hasEolDate !== 'Not available') {
+                return true;
+            }
+
+            // Check for support status information
+            if (info.status === 'supported' || info.status === 'discontinued' ||
+                info.active !== undefined || info.discontinued !== undefined) {
+                return true;
+            }
+        }
+
+        // Check for direct EOL fields
+        const directEolDate = eolInfo.eol || eolInfo.end_of_life || eolInfo.endOfLife ||
+            eolInfo.support_end || eolInfo.end_date;
+
+        if (directEolDate && directEolDate !== 'Not specified' && directEolDate !== 'Not available') {
+            return true;
+        }
+
+        return false;
+    }
+
+    async function checkEOLInPlace(name, version, itemId, softwareType = '') {
+        const statusElement = document.getElementById(`eol-status-${itemId}`);
+        if (!statusElement) return;
+
+        // Check if software type is eligible for EOL checking
+        const normalizedType = softwareType.toLowerCase();
+        if (normalizedType && normalizedType !== 'application' && normalizedType !== 'operating system') {
+            statusElement.innerHTML = `
+            <span class="badge bg-light text-dark">
+                <i class="fas fa-minus me-1"></i>
+                N/A
+            </span>
+        `;
+            return;
+        }
+
+        // Show loading state
+        statusElement.innerHTML = `
+        <span class="badge bg-secondary text-light">
+            <i class="fas fa-spinner fa-spin me-1"></i>
+            Checking...
+        </span>
+    `;
+
+        try {
+            // Apply enhanced parameter extraction like in eol.html
+            const rawName = name ? name.trim() : '';
+            const rawVersion = version ? version.trim() : '';
+
+            if (!rawName) {
+                statusElement.innerHTML = `
+                <span class="badge bg-warning text-dark">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    No name
+                </span>
+            `;
+                return;
+            }
+
+            // Clean and optimize the software name
+            const cleanedName = cleanSoftwareName(rawName);
+            const parsedInfo = parseVersionFromName(cleanedName);
+
+            // Use the best available name and version
+            const finalName = parsedInfo.name || cleanedName;
+            const finalVersion = rawVersion || parsedInfo.version || '';
+
+            // Build request payload for enhanced search endpoint
+            const searchData = {
+                software_name: finalName
+            };
+
+            if (finalVersion) {
+                searchData.software_version = finalVersion;
+            }
+
+            // Two-stage search strategy: try name only first, then name + version
+            let eolInfo = null;
+            let searchAttempt = 1;
+
+            // Stage 1: Search with software name only
+            // console.log('Stage 1: Searching with name only:', finalName);
+            const nameOnlySearchData = {
+                software_name: finalName,
+                search_hints: {
+                    original_name: rawName,
+                    cleaned_name: finalName,
+                    extracted_version: parsedInfo.version,
+                    provided_version: rawVersion,
+                    confidence_level: calculateSearchConfidence(finalName, ''),
+                    search_strategy: 'name_only'
+                }
+            };
+
+            let response = await fetch('/api/search/eol', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(nameOnlySearchData)
+            });
+
+            let data = await response.json();
+            // console.log('Stage 1 response:', data);
+
+            // Check if Stage 1 found valid EOL data
+            if (response.ok && data.result && data.result.software_name && hasValidEOLData(data.result)) {
+                eolInfo = data.result;
+                // console.log('Stage 1 successful - found EOL data');
+            } else if (finalVersion) {
+                // Stage 2: Search with software name and version
+                // console.log('Stage 2: Searching with name and version:', finalName, finalVersion);
+                searchAttempt = 2;
+
+                const nameVersionSearchData = {
+                    software_name: finalName,
+                    software_version: finalVersion,
+                    search_hints: {
+                        original_name: rawName,
+                        cleaned_name: finalName,
+                        extracted_version: parsedInfo.version,
+                        provided_version: rawVersion,
+                        confidence_level: calculateSearchConfidence(finalName, finalVersion),
+                        search_strategy: 'name_and_version'
+                    }
+                };
+
+                response = await fetch('/api/search/eol', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(nameVersionSearchData)
+                });
+
+                data = await response.json();
+                // console.log('Stage 2 response:', data);
+
+                if (response.ok && data.result && data.result.software_name) {
+                    eolInfo = data.result;
+                    // console.log('Stage 2 successful - found EOL data');
+                }
+            }
+
+            // Process the results
+            if (eolInfo) {
+                // console.log(`Processing EOL info from stage ${searchAttempt}:`, eolInfo);
+                const eolStatus = getEnhancedEOLStatus(eolInfo);
+                // console.log('Generated EOL status:', eolStatus);
+                statusElement.innerHTML = eolStatus.html;
+            } else {
+                // No EOL data found - but check if we have any helpful status info
+                let statusText = 'No data';
+                let statusClass = 'bg-light text-dark';
+
+                // Check if we have any indication this software is still supported
+                if (eolInfo && eolInfo.additional_info) {
+                    const info = eolInfo.additional_info;
+                    if (info.status === 'supported' || info.active === true ||
+                        info.current === true || info.lts === true) {
+                        statusText = 'Supported';
+                        statusClass = 'bg-success text-light';
+                    } else if (info.status === 'discontinued' || info.discontinued === true) {
+                        statusText = 'Discontinued';
+                        statusClass = 'bg-dark text-light';
+                    }
+                }
+
+                statusElement.innerHTML = `
+                <span class="badge ${statusClass}" title="No EOL data found for ${finalName}${finalVersion ? ` v${finalVersion}` : ''}">
+                    <i class="fas fa-question me-1"></i>
+                    ${statusText}
+                </span>
+            `;
+            }
+        } catch (error) {
+            console.error('Error checking EOL:', error);
+            statusElement.innerHTML = `
+            <span class="badge bg-warning text-dark" title="Error occurred while checking EOL data">
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                Error
+            </span>
+        `;
+        }
+    }
+
+    function calculateSearchConfidence(name, version) {
+        let confidence = 0.5; // Base confidence
+
+        // Increase confidence for well-known software patterns
+        const knownPatterns = [
+            /windows.*server/i, /microsoft.*office/i, /visual.*studio/i,
+            /red.*hat/i, /rhel/i, /ubuntu/i, /centos/i,
+            /sql.*server/i, /\.net/i, /iis/i
+        ];
+
+        if (knownPatterns.some(pattern => pattern.test(name))) {
+            confidence += 0.3;
+        }
+
+        // Increase confidence if version is provided
+        if (version) {
+            confidence += 0.2;
+
+            // Boost for year-based versions (common for enterprise software)
+            if (/^\d{4}$/.test(version)) {
+                confidence += 0.1;
+            }
+        }
+
+        return Math.min(confidence, 1.0);
+    }
+
+    function getEnhancedEOLStatus(eolInfo) {
+        // console.log('getEnhancedEOLStatus called with:', eolInfo);
+
+        const now = new Date();
+        let status = 'unknown';
+        let badgeClass = 'bg-secondary text-light';
+        let icon = 'fas fa-question';
+        let text = 'Unknown';
+        let title = 'EOL status unknown';
+
+        // Add agent indicator if available - define early for use in special cases
+        const agentUsed = eolInfo ? eolInfo.agent_used : null;
+        let agentIcon = '';
+        if (agentUsed) {
+            const agentDisplayName = getAgentDisplayName(agentUsed);
+            const agentIcons = {
+                'microsoft': 'fab fa-microsoft',
+                'redhat': 'fab fa-redhat',
+                'ubuntu': 'fab fa-ubuntu',
+                'endoflife': 'fas fa-calendar-times',
+                'bing_search': 'fab fa-microsoft',
+                'apache': 'fas fa-server',
+                'python': 'fab fa-python',
+                'nodejs': 'fab fa-node-js',
+                'oracle': 'fas fa-database',
+                'postgresql': 'fas fa-database',
+                'php': 'fab fa-php',
+                'vmware': 'fas fa-cloud'
+            };
+            if (agentIcons[agentUsed]) {
+                agentIcon = `<i class="${agentIcons[agentUsed]} ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
+            } else {
+                agentIcon = `<i class="fas fa-robot ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
+            }
+        }
+
+        // Extract EOL date from multiple possible locations in enhanced response
+        let eolDate = null;
+        let supportDate = null;
+        let extendedSupportDate = null;
+
+        // Only proceed with EOL extraction if eolInfo exists
+        if (eolInfo) {
+            // Primary EOL date extraction
+            if (eolInfo.eol_date) {
+                eolDate = eolInfo.eol_date;
+                // console.log('Found eol_date:', eolDate);
+            } else if (eolInfo.additional_info) {
+                const info = eolInfo.additional_info;
+                // console.log('Checking additional_info:', info);
+                eolDate = info.eol || info.eol_date || info.end_of_life ||
+                    info.endOfLife || info.support_end || info.end_date ||
+                    info.discontinued;
+                // console.log('Extracted eolDate from additional_info:', eolDate);
+
+                // Support date extraction
+                supportDate = eolInfo.support_date || info.support || info.support_date ||
+                    info.mainstream_support || info.standard_support;
+
+                // Extended support extraction
+                extendedSupportDate = eolInfo.extended_support_date || info.extended_support ||
+                    info.extendedSupport || info.extended_support_date;
+            } else {
+                // console.log('No eol_date or additional_info found in eolInfo');
+
+                // Try direct fields in case the structure is different
+                eolDate = eolInfo.eol || eolInfo.end_of_life || eolInfo.endOfLife ||
+                    eolInfo.support_end || eolInfo.end_date || eolInfo.discontinued;
+                // console.log('Trying direct fields, found:', eolDate);
+            }
+        }
+
+        // Handle array format (some APIs return arrays)
+        if (Array.isArray(eolDate) && eolDate.length > 0) {
+            eolDate = eolDate[0];
+        }
+
+        // Handle object format with date field
+        if (typeof eolDate === 'object' && eolDate.date) {
+            eolDate = eolDate.date;
+        }
+
+        // console.log('Final extracted eolDate:', eolDate);
+
+        // Handle special EOL cases that are not actual dates
+        if (eolDate && typeof eolDate === 'string') {
+            const specialCases = [
+                'No EOL (Continuous updates)',
+                'No EOL',
+                'Continuous updates',
+                'Rolling release',
+                'LTS',
+                'Never',
+                'Not specified',
+                'Not available',
+                'N/A',
+                'TBD',
+                'TBA'
+            ];
+
+            const normalizedEolDate = eolDate.trim();
+            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
+                // console.log('Found special EOL case:', normalizedEolDate);
+                if (normalizedEolDate.toLowerCase().includes('continuous') ||
+                    normalizedEolDate.toLowerCase().includes('rolling') ||
+                    normalizedEolDate.toLowerCase().includes('never')) {
+                    status = 'continuous';
+                    badgeClass = 'bg-primary text-light';
+                    icon = 'fas fa-infinity';
+                    text = 'Continuous Updates';
+                    title = 'No end-of-life date (continuous updates)';
+                } else {
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'EOL date not specified';
+                }
+                // console.log('Set special case status:', { status, text, title, badgeClass });
+                return {
+                    status,
+                    html: `
+                    <span class="badge ${badgeClass}" title="${title}">
+                        <i class="${icon} me-1"></i>
+                        ${text}${agentIcon || ''}
+                    </span>
+                `
+                };
+            }
+        }
+
+        if (eolDate && eolDate !== 'Not specified' && eolDate !== 'Not available') {
+            // console.log('Processing valid eolDate:', eolDate);
+            try {
+                const eolDateObj = new Date(eolDate);
+                // console.log('Parsed eolDateObj:', eolDateObj);
+
+                // Check if the date is valid
+                if (isNaN(eolDateObj.getTime())) {
+                    throw new Error(`Invalid date: ${eolDate}`);
+                }
+
+                const daysDiff = Math.ceil((eolDateObj - now) / (1000 * 60 * 60 * 24));
+                // console.log('Days difference:', daysDiff);
+                const formattedDate = eolDate.includes('-') ? eolDate : eolDateObj.toISOString().split('T')[0];
+
+                if (daysDiff < 0) {
+                    // Already EOL
+                    status = 'eol';
+                    badgeClass = 'bg-danger text-light';
+                    icon = 'fas fa-times-circle';
+                    text = `EOL (${formattedDate})`;
+                    title = `End-of-life: ${eolDate}`;
+                } else if (daysDiff <= 90) {
+                    // EOL within 90 days
+                    status = 'warning';
+                    badgeClass = 'bg-warning text-dark';
+                    icon = 'fas fa-exclamation-triangle';
+                    text = `${daysDiff}d (${formattedDate})`;
+                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
+                } else if (daysDiff <= 365) {
+                    // EOL within 1 year
+                    status = 'caution';
+                    badgeClass = 'bg-info text-dark';
+                    icon = 'fas fa-clock';
+                    text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
+                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
+                } else {
+                    // EOL more than 1 year away
+                    status = 'good';
+                    badgeClass = 'bg-success text-light';
+                    icon = 'fas fa-check-circle';
+                    text = `OK (${formattedDate})`;
+                    title = `End-of-life: ${eolDate}`;
+                }
+            } catch (error) {
+                console.warn('Error parsing EOL date:', eolDate, error);
+                status = 'unknown';
+                badgeClass = 'bg-secondary text-light';
+                icon = 'fas fa-question';
+                text = 'Unknown';
+                title = 'Could not parse EOL date';
+            }
+        } else if (eolInfo.additional_info && eolInfo.additional_info.discontinued) {
+            status = 'discontinued';
+            badgeClass = 'bg-dark text-light';
+            icon = 'fas fa-ban';
+            text = 'Discontinued';
+            title = 'Product discontinued';
+        } else {
+            // Check for extended support if no EOL date
+            if (extendedSupportDate === true || extendedSupportDate === 'Available') {
+                status = 'extended';
+                badgeClass = 'bg-info text-dark';
+                icon = 'fas fa-shield-alt';
+                text = 'Extended Support';
+                title = 'Extended support available';
+            }
+        }
+
+        // console.log('Final EOL status:', { status, text, title, badgeClass });
+
+        return {
+            status,
+            html: `
+            <span class="badge ${badgeClass}" title="${title}">
+                <i class="${icon} me-1"></i>
+                ${text}${agentIcon}
+            </span>
+        `
+        };
+    }
+
+    function getEOLStatus(eolInfo) {
+        const now = new Date();
+        let status = 'unknown';
+        let badgeClass = 'bg-secondary text-light';
+        let icon = 'fas fa-question';
+        let text = 'Unknown';
+        let title = 'EOL status unknown';
+
+        if (eolInfo.eol_date) {
+            // Handle special EOL cases that are not actual dates
+            const specialCases = [
+                'No EOL (Continuous updates)',
+                'No EOL',
+                'Continuous updates',
+                'Rolling release',
+                'LTS',
+                'Never',
+                'Not specified',
+                'Not available',
+                'N/A',
+                'TBD',
+                'TBA'
+            ];
+
+            const normalizedEolDate = eolInfo.eol_date.trim();
+            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
+                if (normalizedEolDate.toLowerCase().includes('continuous') ||
+                    normalizedEolDate.toLowerCase().includes('rolling') ||
+                    normalizedEolDate.toLowerCase().includes('never')) {
+                    status = 'continuous';
+                    badgeClass = 'bg-primary text-light';
+                    icon = 'fas fa-infinity';
+                    text = 'Continuous Updates';
+                    title = 'No end-of-life date (continuous updates)';
+                } else {
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'EOL date not specified';
+                }
+            } else {
+                try {
+                    const eolDate = new Date(eolInfo.eol_date);
+
+                    // Check if the date is valid
+                    if (isNaN(eolDate.getTime())) {
+                        throw new Error(`Invalid date: ${eolInfo.eol_date}`);
+                    }
+
+                    const daysDiff = Math.ceil((eolDate - now) / (1000 * 60 * 60 * 24));
+                    const formattedDate = eolInfo.eol_date.includes('-') ? eolInfo.eol_date : eolDate.toISOString().split('T')[0];
+
+                    if (daysDiff < 0) {
+                        // Already EOL
+                        status = 'eol';
+                        badgeClass = 'bg-danger text-light';
+                        icon = 'fas fa-times-circle';
+                        text = `EOL (${formattedDate})`;
+                        title = `End-of-life: ${eolInfo.eol_date}`;
+                    } else if (daysDiff <= 90) {
+                        // EOL within 90 days
+                        status = 'warning';
+                        badgeClass = 'bg-warning text-dark';
+                        icon = 'fas fa-exclamation-triangle';
+                        text = `${daysDiff}d (${formattedDate})`;
+                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
+                    } else if (daysDiff <= 365) {
+                        // EOL within 1 year
+                        status = 'caution';
+                        badgeClass = 'bg-info text-dark';
+                        icon = 'fas fa-clock';
+                        text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
+                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
+                    } else {
+                        // EOL more than 1 year away
+                        status = 'good';
+                        badgeClass = 'bg-success text-light';
+                        icon = 'fas fa-check-circle';
+                        text = `OK (${formattedDate})`;
+                        title = `End-of-life: ${eolInfo.eol_date}`;
+                    }
+                } catch (error) {
+                    console.warn('Error parsing EOL date in getEOLStatus:', eolInfo.eol_date, error);
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'Could not parse EOL date';
+                }
+            }
+        } else if (eolInfo.discontinued) {
+            status = 'discontinued';
+            badgeClass = 'bg-dark text-light';
+            icon = 'fas fa-ban';
+            text = 'Discontinued';
+            title = 'Product discontinued';
+        }
+
+        return {
+            status,
+            html: `
+            <span class="badge ${badgeClass}" title="${title}">
+                <i class="${icon} me-1"></i>
+                ${text}
+            </span>
+        `
+        };
+    }
+
+    function exportInventory() {
+        if (currentInventory.length === 0) {
+            alert('No inventory data to export');
+            return;
+        }
+
+        // Ensure currentInventory is an array before using spread operator
+        if (!Array.isArray(currentInventory)) {
+            console.error('currentInventory is not an array for CSV export:', currentInventory);
+            alert('Invalid inventory data for export');
+            return;
+        }
+
+        const csvContent = [
+            ['Computer', 'Software Name', 'Version', 'Publisher', 'Type'],
+            ...currentInventory.map(item => [
+                item.computer || '',
+                item.name || '',
+                item.version || '',
+                item.publisher || '',
+                item.software_type || ''
+            ])
+        ].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `software-inventory-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    }
+
+    function getComputerTypeBadge(item) {
+        const computerType = item.computer_type || 'Unknown';
+        const resourceId = item.resource_id || '';
+        const computerEnvironment = item.computer_environment || 'Unknown';
+
+        // Use ResourceId for more accurate classification
+        // let actualComputerType = computerType;
+
+        // If we have a ResourceId, use it for accurate classification
+        // if (resourceId) {
+        //     if (resourceId.includes('/virtualMachines/')) {
+        //         actualComputerType = 'Azure VM';
+        //     } else if (resourceId.includes('/machines/')) {
+        //         actualComputerType = 'Arc-enabled Server';
+        //     }
+        // }
+
+        switch (computerEnvironment) {
+            case 'Azure':
+                return `<span class="badge bg-primary text-light" title="Azure Virtual Machine">
+                        <i class="fas fa-cloud me-1"></i>Azure VM
+                    </span>`;
+            case 'Non-Azure':
+                return `<span class="badge bg-success text-light" title="Arc-enabled Server">
+                        <i class="fas fa-server me-1"></i>Non-Azure VM
+                    </span>`;
+            default:
+                // Fallback for unknown types
+                return `<span class="badge bg-secondary text-light" title="Unknown Computer Type">
+                        <i class="fas fa-question me-1"></i>Unknown
+                    </span>`;
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function hasArcOS(item) {
+        // Check if this computer has any Arc-enabled OS
+        return currentInventory.some(inv =>
+            inv.computer === item.computer &&
+            inv.name &&
+            inv.name.includes('(Arc-enabled)') &&
+            inv.software_type === 'operating system'
+        );
+    }
+
+    function getAzurePortalLink(item) {
+        // Get computer type and resource information
+        const computerType = item.computer_type || 'Unknown';
+        const resourceId = item.resource_id || '';
+        const computerName = item.computer || 'Unknown';
+
+        // Use subscription and resource group from template variables or inventory item
+        const subscriptionId = item.subscription_id || '{{ subscription_id }}' || 'SUBSCRIPTION_ID';
+        const resourceGroup = item.resource_group || '{{ resource_group }}' || 'RESOURCE_GROUP';
+
+        // If we have a resource ID, use it to construct the correct portal link
+        if (resourceId) {
+            // Extract subscription ID and resource group from resource ID if available
+            const resourceIdParts = resourceId.split('/');
+            let extractedSubscriptionId = subscriptionId;
+            let extractedResourceGroup = resourceGroup;
+
+            if (resourceIdParts.length > 4) {
+                // Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}
+                if (resourceIdParts[1] === 'subscriptions' && resourceIdParts[2]) {
+                    extractedSubscriptionId = resourceIdParts[2];
+                }
+                if (resourceIdParts[3] === 'resourceGroups' && resourceIdParts[4]) {
+                    extractedResourceGroup = resourceIdParts[4];
+                }
+            }
+
+            // Direct link using the resource ID
+            return `https://portal.azure.com/#@/resource${resourceId}`;
+        }
+
+        // Fallback to computer type-based logic
+        if (computerType === 'Arc-enabled Server') {
+            // Link to Arc-enabled servers (Connected Machines)
+            return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.HybridCompute/machines/${encodeURIComponent(computerName)}/overview`;
+        } else if (computerType === 'Azure VM') {
+            // Link to regular VMs
+            return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(computerName)}/overview`;
+        } else {
+            // Fallback to legacy logic for backward compatibility
+            const isArcEnabled = hasArcOS(item);
+
+            if (isArcEnabled) {
+                return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.HybridCompute/machines/${encodeURIComponent(computerName)}/overview`;
+            } else {
+                return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(computerName)}/overview`;
+            }
+        }
+    }
+
+    // Column filter functionality
+    let columnFilters = {};
+
+    function populateMultiSelectOptions(column) {
+        const dropdown = document.querySelector(`[data-column="${column}"]`);
+        if (!dropdown) {
+            console.warn(`Multi-select dropdown not found for column: ${column}`);
+            return;
+        }
+
+        const menu = dropdown.querySelector('.multi-select-dropdown-menu');
+        if (!menu) {
+            console.warn(`Multi-select menu not found for column: ${column}`);
+            return;
+        }
+
+        // Check if we have current inventory data
+        if (!currentInventory || currentInventory.length === 0) {
+            console.warn('No current inventory data available for populating options');
+            menu.innerHTML = '<div class="multi-select-option"><label>Loading...</label></div>';
+            return;
+        }
+
+        // Get unique values for this column
+        let values = new Set();
+
+        if (column === 'eol_status') {
+            // For EOL status, extract text from badges
+            currentInventory.forEach(item => {
+                const statusElement = document.getElementById(`eol-status-${item.id}`);
+                if (statusElement) {
+                    const statusText = statusElement.textContent.trim();
+                    if (statusText && statusText !== 'Checking...' && statusText !== 'Loading...') {
+                        values.add(statusText);
+                    }
+                }
+            });
+        } else {
+            currentInventory.forEach(item => {
+                const value = item[column];
+                if (value && value.trim()) {
+                    values.add(value.trim());
+                }
+            });
+        }
+
+        // console.log(`Found ${values.size} unique values for column ${column}:`, Array.from(values));
+
+        // Sort values alphabetically
+        const sortedValues = Array.from(values).sort();
+
+        // Create options HTML
+        menu.innerHTML = '';
+
+        if (sortedValues.length === 0) {
+            menu.innerHTML = '<div class="multi-select-option"><label>No options available</label></div>';
+            return;
+        }
+
+        // Add "Select All" option
+        const selectAllOption = document.createElement('div');
+        selectAllOption.className = 'multi-select-option select-all-option';
+        selectAllOption.innerHTML = `
+        <input type="checkbox" id="select-all-${column}" onchange="toggleSelectAll('${column}', this)">
+        <label for="select-all-${column}"><strong>Select All</strong></label>
+    `;
+
+        // Add click handler to the select all option
+        selectAllOption.addEventListener('click', function (e) {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                const checkbox = selectAllOption.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    toggleSelectAll(column, checkbox);
+                }
+            }
+        });
+
+        menu.appendChild(selectAllOption);
+
+        // Add separator
+        const separator = document.createElement('div');
+        separator.style.borderTop = '2px solid #dee2e6';
+        separator.style.margin = '0.25rem 0';
+        menu.appendChild(separator);
+
+        // Add individual options
+        sortedValues.forEach((value, index) => {
+            const option = document.createElement('div');
+            option.className = 'multi-select-option';
+            const optionId = `${column}-option-${index}`;
+
+            option.innerHTML = `
+            <input type="checkbox" id="${optionId}" value="${escapeHtml(value)}" onchange="updateMultiSelectFilter('${column}')">
+            <label for="${optionId}" title="${escapeHtml(value)}">${escapeHtml(value)}</label>
+        `;
+
+            // Add click handler to the option div to toggle checkbox
+            option.addEventListener('click', function (e) {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                    const checkbox = option.querySelector('input[type="checkbox"]');
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        updateMultiSelectFilter(column);
+                    }
+                }
+            });
+
+            menu.appendChild(option);
+        });
+
+        // console.log(`Populated ${sortedValues.length} options for column ${column}`);
+    }
+
+    function toggleMultiSelectDropdown(button, event) {
+        event.stopPropagation();
+        event.preventDefault();
+
+        const dropdown = button.closest('.multi-select-dropdown');
+        if (!dropdown) {
+            console.error('Dropdown element not found');
+            return;
+        }
+
+        const menu = dropdown.querySelector('.multi-select-dropdown-menu');
+        if (!menu) {
+            console.error('Dropdown menu not found');
+            return;
+        }
+
+        const column = dropdown.dataset.column;
+        if (!column) {
+            console.error('Column data attribute not found');
+            return;
+        }
+
+        // console.log('Toggling dropdown for column:', column);
+
+        // Close other dropdowns
+        closeAllMultiSelectDropdowns();
+
+        // Toggle this dropdown
+        const isShowing = menu.classList.contains('show');
+        menu.classList.toggle('show');
+
+        // Refresh options if dropdown is opening
+        if (!isShowing && menu.classList.contains('show')) {
+            // console.log('Populating options for column:', column);
+            populateMultiSelectOptions(column);
+            updateSelectAllState(column);
+        }
+
+        // console.log('Dropdown is now:', menu.classList.contains('show') ? 'open' : 'closed');
+    }
+
+    function closeAllMultiSelectDropdowns() {
+        document.querySelectorAll('.multi-select-dropdown-menu').forEach(menu => {
+            menu.classList.remove('show');
+        });
+    }
+
+    function toggleSelectAll(column, checkbox) {
+        const dropdown = document.querySelector(`[data-column="${column}"]`);
+        const checkboxes = dropdown.querySelectorAll('.multi-select-option:not(.select-all-option) input[type="checkbox"]');
+
+        checkboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+        });
+
+        updateMultiSelectFilter(column);
+    }
+
+    function updateSelectAllState(column) {
+        const dropdown = document.querySelector(`[data-column="${column}"]`);
+        const selectAllCheckbox = dropdown.querySelector('.select-all-option input[type="checkbox"]');
+        const individualCheckboxes = dropdown.querySelectorAll('.multi-select-option:not(.select-all-option) input[type="checkbox"]');
+
+        if (!selectAllCheckbox || individualCheckboxes.length === 0) return;
+
+        const checkedCount = Array.from(individualCheckboxes).filter(cb => cb.checked).length;
+        const totalCount = individualCheckboxes.length;
+
+        if (checkedCount === 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        } else if (checkedCount === totalCount) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    function updateMultiSelectFilter(column) {
+        const dropdown = document.querySelector(`[data-column="${column}"]`);
+        const checkboxes = dropdown.querySelectorAll('.multi-select-option:not(.select-all-option) input[type="checkbox"]:checked');
+        const selectedValues = Array.from(checkboxes).map(cb => cb.value);
+
+        // Store selected values
+        if (selectedValues.length === 0) {
+            delete multiSelectFilters[column];
+        } else {
+            multiSelectFilters[column] = selectedValues;
+        }
+
+        // Update UI
+        updateMultiSelectButton(column, selectedValues);
+        updateSelectAllState(column);
+
+        // Apply filters
+        applyMultiSelectFilters();
+    }
+
+    function updateMultiSelectButton(column, selectedValues) {
+        const dropdown = document.querySelector(`[data-column="${column}"]`);
+        const textElement = dropdown.querySelector('.multi-select-text');
+        const countElement = dropdown.querySelector('.multi-select-selected-count');
+        const clearButton = dropdown.querySelector('.multi-select-clear');
+
+        if (selectedValues.length === 0) {
+            // No selection
+            textElement.textContent = getDefaultText(column);
+            countElement.style.display = 'none';
+            clearButton.style.display = 'none';
+        } else if (selectedValues.length === 1) {
+            // Single selection
+            textElement.textContent = selectedValues[0].length > 15 ?
+                selectedValues[0].substring(0, 12) + '...' : selectedValues[0];
+            countElement.style.display = 'none';
+            clearButton.style.display = 'inline-block';
+        } else {
+            // Multiple selections
+            textElement.textContent = getDefaultText(column);
+            countElement.textContent = `(${selectedValues.length})`;
+            countElement.style.display = 'inline-block';
+            clearButton.style.display = 'inline-block';
+        }
+    }
+
+    function getDefaultText(column) {
+        const defaults = {
+            computer: 'All Computers',
+            computer_type: 'All Types',
+            name: 'All Software',
+            version: 'All Versions',
+            publisher: 'All Publishers',
+            software_type: 'All Software Types',
+            eol_status: 'All Statuses'
+        };
+        return defaults[column] || 'All';
+    }
+
+    function clearMultiSelectFilter(button, event) {
+        event.stopPropagation();
+
+        const dropdown = button.closest('.multi-select-dropdown');
+        const column = dropdown.dataset.column;
+
+        // Uncheck all options
+        const checkboxes = dropdown.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+
+        // Update filter
+        updateMultiSelectFilter(column);
+    }
+
+    // Update the main filter function
+    function filterInventory() {
+        const searchInput = document.getElementById('search-input');
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        let filtered = [...currentInventory];
+
+        if (searchTerm) {
+            filtered = filtered.filter(item =>
+                (item.name || '').toLowerCase().includes(searchTerm) ||
+                (item.publisher || '').toLowerCase().includes(searchTerm) ||
+                (item.version || '').toLowerCase().includes(searchTerm) ||
+                (item.software_type || '').toLowerCase().includes(searchTerm) ||
+                (item.computer_type || '').toLowerCase().includes(searchTerm) ||
+                (item.computer || '').toLowerCase().includes(searchTerm)
+            );
+        }
+
+        // Reset to first page
+        currentPage = 1;
+
+        // Display filtered results
+        displayInventory(filtered);
+        updateSummary(filtered.length, currentInventory.length, searchTerm, []);
+    }
+
+    // Update clear filters function
+    function clearAllFilters() {
+        // Clear main search
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+
+        // Apply filters to show all data
+        filterInventory();
+    }
+
+    // Initialize page and set up dropdown behavior
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize column filters after inventory is loaded and displayed
+        // Note: Main initialization is handled by the first DOMContentLoaded handler
+        console.log('Secondary DOMContentLoaded handler - skipping duplicate loadInventory call');
+    });
+
+    // Initialize column filters after inventory is loaded and displayed
+    function initializeDropdownsAfterDisplay() {
+        setTimeout(() => {
+            try {
+                // Column filters have been removed - using main search only
+                // console.log('Inventory display initialized');
+            } catch (error) {
+                console.warn('Initialization warning:', error);
+            }
+        }, 100);
+    }
+
+
+</script>
+{% endblock %}

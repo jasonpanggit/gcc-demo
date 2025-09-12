@@ -1,0 +1,3322 @@
+{% extends "base.html" %}
+
+{% block title %}Cache Management - EOL Agentic App{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Cache Management Styles - Consistent with EOL template */
+    .hero-section {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+        color: white;
+        padding: var(--spacing-2xl);
+        border-radius: var(--radius-xl);
+        margin-bottom: var(--spacing-xl);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+        pointer-events: none;
+    }
+
+    .hero-content {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-title {
+        font-size: var(--font-size-3xl);
+        font-weight: 700;
+        margin-bottom: var(--spacing-md);
+        line-height: 1.2;
+    }
+
+    .hero-subtitle {
+        font-size: var(--font-size-lg);
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: var(--spacing-xl);
+        line-height: 1.5;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .action-btn {
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+        border: none;
+        cursor: pointer;
+    }
+
+    .action-btn-primary {
+        background: rgba(255, 255, 255, 0.95);
+        color: var(--primary-color);
+        border: 2px solid transparent;
+    }
+
+    .action-btn-primary:hover {
+        background: white;
+        color: var(--primary-dark);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .action-btn-secondary {
+        background: transparent;
+        color: white;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .action-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: white;
+        transform: translateY(-2px);
+    }
+
+    /* White outline button styling for hero sections */
+    .btn-outline-light {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .btn-outline-light:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        text-decoration: none;
+    }
+
+    .stats-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-xl);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stats-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-xl);
+        border-color: var(--primary-color);
+    }
+
+    .stats-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: var(--radius-lg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: var(--spacing-lg);
+        font-size: var(--font-size-2xl);
+        color: white;
+    }
+
+    .stats-number {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        color: var(--gray-800);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .stats-label {
+        font-size: var(--font-size-sm);
+        color: var(--gray-600);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+    }
+
+    .modern-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.3s ease;
+    }
+
+    .modern-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    /* White outline button styling for hero sections */
+    .btn-outline-light {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .btn-outline-light:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        text-decoration: none;
+    }
+
+    /* Section margins for full-width layout */
+    .mb-5 {
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl) !important;
+    }
+
+    .cache-management-card,
+    .cache-operations-card,
+    .cache-insights-card {
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+</style>
+<script src="/static/js/agent-config.js"></script>
+{% endblock %}
+
+{% block content %}
+<!-- Cache Hero Section -->
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title">
+                    <i class="fas fa-database me-3"></i>
+                    Cache Management
+                </h1>
+                <p class="hero-subtitle">
+                    Monitor and optimize agent cache performance for faster responses and improved efficiency.
+                    Manage cache lifecycles and ensure optimal system performance across all platform components.
+                </p>
+                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                    <button class="btn btn-outline-light" onclick="refreshAllCaches()">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh All Caches
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="container-fluid px-0">
+
+    <!-- Cache Statistics -->
+    <div class="mb-5">
+        <div class="row g-4">
+        <div class="col-lg-3 col-md-6">
+            <div class="stats-card">
+                <div class="stats-icon bg-primary">
+                    <i class="fas fa-hdd"></i>
+                </div>
+                <div class="stats-content">
+                    <h3 class="stats-number" id="total-cache-size">--</h3>
+                    <p class="stats-label">Total Cache Size</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="stats-card">
+                <div class="stats-icon bg-success">
+                    <i class="fas fa-bolt"></i>
+                </div>
+                <div class="stats-content">
+                    <h3 class="stats-number" id="cache-hit-rate">--</h3>
+                    <p class="stats-label">Hit Rate</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="stats-card">
+                <div class="stats-icon bg-warning">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stats-content">
+                    <h3 class="stats-number" id="avg-response-time">--</h3>
+                    <p class="stats-label">Avg Response Time</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="stats-card">
+                <div class="stats-icon bg-info">
+                    <i class="fas fa-layer-group"></i>
+                </div>
+                <div class="stats-content">
+                    <h3 class="stats-number" id="active-agents">--</h3>
+                    <p class="stats-label">Active Agents</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Cache Cards -->
+    <div class="mb-5">
+        <!-- This section is now handled by the main agent caches card above -->
+    </div>
+<!-- End main container -->
+
+<style>
+    /* Additional styles for agent cache cards */
+
+    .agent-cache-card.postgresql {
+        border-left-color: #336791;
+    }
+
+    .agent-cache-card.php {
+        border-left-color: #8892bf;
+    }
+
+    .agent-cache-card.python {
+        border-left-color: #3776ab;
+    }
+
+    .agent-cache-card.redhat {
+        border-left-color: #ee0000;
+    }
+
+    .agent-cache-card.ubuntu {
+        border-left-color: #e95420;
+    }
+
+    .agent-cache-card.endoflife {
+        border-left-color: #6c757d;
+    }
+
+    .agent-cache-card.bing {
+        border-left-color: #1ba1e2;
+    }
+
+    .agent-cache-card.inventory {
+        border-left-color: #17a2b8;
+    }
+
+    .agent-cache-card.openai {
+        border-left-color: #412991;
+    }
+
+    .agent-cache-card.os_inventory {
+        border-left-color: #28a745;
+    }
+
+    .agent-cache-card.software_inventory {
+        border-left-color: #fd7e14;
+    }
+
+    .cache-metric {
+        text-align: center;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 0.25rem;
+    }
+
+    .cache-metric h4 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+
+    .cache-metric p {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+
+    .action-button {
+        margin: 0.25rem;
+        min-width: 120px;
+    }
+
+    .cache-type-section {
+        margin-bottom: 2rem;
+    }
+
+    /* Make the health indicator a readable badge (supports short text like "Ready" or "10 items") */
+    .cache-health {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 56px;
+        height: 24px;
+        border-radius: 0.375rem;
+        padding: 0 0.5rem;
+        margin-left: 0.5rem;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .cache-health.healthy {
+        background-color: #28a745;
+    }
+
+    .cache-health.warning {
+        background-color: #ffc107;
+    }
+
+    .cache-health.error {
+        background-color: #dc3545;
+    }
+
+    .cache-health.unavailable {
+        background-color: #6c757d;
+    }
+
+    .last-updated {
+        font-size: 0.8rem;
+        color: #6c757d;
+        font-style: italic;
+    }
+
+    .cache-item {
+        border-bottom: 1px solid #eee;
+        padding: 0.75rem 0;
+    }
+
+    .cache-item:last-child {
+        border-bottom: none;
+    }
+
+    .progress {
+        height: 8px;
+    }
+
+    #cosmos-cache-stats .d-flex.align-items-center,
+    #cosmos-cache-stats .d-flex {
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Allow the status text in the cosmos cache area to expand instead of being truncated */
+    #cosmos-cache-stats .d-flex.align-items-center span.text-muted {
+        flex: 1 1 auto;
+        min-width: 180px;
+    }
+
+    .loading-spinner {
+        vertical-align: middle;
+        margin-top: 0;
+    }
+
+    /* Small spacing tweak for the last-updated timestamp area */
+    .card-body .last-updated {
+        display: inline-block;
+        vertical-align: middle;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    .status-indicator {
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .status-success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .status-warning {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+
+    .status-error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
+    .status-info {
+        background-color: #d1ecf1;
+        color: #0c5460;
+    }
+
+    /* Performance Badge Styles */
+    .performance-badge {
+        font-size: 0.7rem;
+        border-radius: 10px;
+        padding: 2px 6px;
+    }
+
+    /* Agent Performance Card Enhancements */
+    .agent-cache-card {
+        transition: all 0.3s ease;
+        border: 1px solid #dee2e6;
+    }
+
+    .agent-cache-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+
+    .agent-cache-card .card-title {
+        font-weight: 600;
+        color: #495057;
+    }
+
+    /* Performance Modal Styles */
+    #agentPerformanceModal .progress {
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    #agentPerformanceModal .card {
+        border: 1px solid #e9ecef;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    #agentPerformanceModal .table-responsive {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    #agentPerformanceModal .badge {
+        font-size: 0.8rem;
+    }
+
+    /* Performance Score Color Classes */
+    .bg-excellent { background-color: #28a745 !important; }
+    .bg-good { background-color: #6f42c1 !important; }
+    .bg-fair { background-color: #ffc107 !important; }
+    .bg-poor { background-color: #dc3545 !important; }
+</style>
+
+<div class="container-fluid px-0 mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-database me-2"></i>Cache Management</h2>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="refreshAllCaches()">
+                        <i class="fas fa-sync-alt me-1"></i>Refresh All
+                    </button>
+                    <button class="btn btn-secondary" onclick="window.location.reload()">
+                        <i class="fas fa-redo me-1"></i>Reload Page
+                    </button>
+                    <button class="btn btn-outline-warning" onclick="clearAllCaches()">
+                        <i class="fas fa-trash me-1"></i>Clear All Caches
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cache Overview -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card cache-stats">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">
+                        <i class="fas fa-chart-pie me-2"></i>Cache Overview
+                    </h5>
+                    <div class="row g-4" id="cache-overview">
+                        <div class="col-lg-3 col-md-6">
+                            <div class="cache-metric">
+                                <h4 id="total-cache-items">
+                                    {% if cache_stats and cache_stats.get('agents', {}).get('summary', {}).get('total_requests') %}
+                                        {{ cache_stats.agents.summary.total_requests }}
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </h4>
+                                <p>Total Agent Requests</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="cache-metric">
+                                <h4 id="active-agents">
+                                    {% if cache_stats and cache_stats.get('agents', {}).get('summary', {}).get('total_agents') %}
+                                        {{ cache_stats.agents.summary.total_agents }}
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </h4>
+                                <p>Active Agents</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="cache-metric">
+                                <h4 id="cache-hit-rate">
+                                    {% if cache_stats and cache_stats.get('agents', {}).get('summary', {}).get('overall_hit_rate') %}
+                                        {{ "%.1f"|format(cache_stats.agents.summary.overall_hit_rate) }}%
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </h4>
+                                <p>Overall Cache Hit Rate</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="cache-metric">
+                                <h4 id="total-errors">
+                                    {% if cache_stats and cache_stats.get('agents', {}).get('summary', {}).get('total_errors') %}
+                                        {{ cache_stats.agents.summary.total_errors }}
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </h4>
+                                <p>Total Errors</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent-Specific Caches -->
+    <div class="cache-type-section">
+        <div class="row">
+            <div class="col-12">
+                <div class="card cache-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <h5 class="mb-0 me-2">
+                                <i class="fas fa-users me-2"></i>Agent Caches
+                            </h5>
+                            <span class="cache-health healthy" id="agents-health" data-health-text="Checking"></span>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-primary" onclick="refreshAgentCaches()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-sm btn-warning" onclick="clearAllAgentCaches()">
+                                <i class="fas fa-trash me-1"></i>Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="agent-caches">
+                            {% if cache_stats and cache_stats.get('agents', {}).get('agents') %}
+                                {% for agent_name, agent_data in cache_stats.agents.agents.items() %}
+                                <div class="col-md-6 col-lg-4 mb-3">
+                                    <div class="card agent-cache-card {{ agent_name.lower().replace(' ', '_') }}">
+                                        <div class="card-body">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <h6 class="card-title mb-0">{{ agent_name }}</h6>
+                                                <div class="d-flex align-items-center">
+                                                    {% if agent_data.error_rate <= 5 %}
+                                                        <span class="badge bg-success performance-badge">Excellent</span>
+                                                    {% elif agent_data.error_rate <= 15 %}
+                                                        <span class="badge bg-warning performance-badge">Good</span>
+                                                    {% else %}
+                                                        <span class="badge bg-danger performance-badge">Poor</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row text-center mb-3">
+                                                <div class="col-4">
+                                                    <strong>{{ agent_data.request_count }}</strong>
+                                                    <br><small class="text-muted">Requests</small>
+                                                </div>
+                                                <div class="col-4">
+                                                    <strong>{{ "%.1f"|format(agent_data.cache_hit_rate) }}%</strong>
+                                                    <br><small class="text-muted">Hit Rate</small>
+                                                </div>
+                                                <div class="col-4">
+                                                    <strong>{{ "%.0f"|format(agent_data.avg_response_time_ms) }}ms</strong>
+                                                    <br><small class="text-muted">Avg Time</small>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="progress mb-2" style="height: 6px;">
+                                                <div class="progress-bar bg-success" 
+                                                     data-width="{{ agent_data.cache_hit_rate }}"
+                                                     style="width: 0%"></div>
+                                            </div>
+                                            
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <small class="text-muted">
+                                                    {% if agent_data.last_request_time %}
+                                                        Last: {{ agent_data.last_request_time[:19].replace('T', ' ') }}
+                                                    {% else %}
+                                                        Never used
+                                                    {% endif %}
+                                                </small>
+                                                <a href="/agent-cache-details?agent_name={{ agent_name }}" 
+                                                   class="btn btn-sm btn-outline-info">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            </div>
+                                            
+                                            {% if agent_data.error_count > 0 %}
+                                            <div class="mt-2">
+                                                <small class="text-danger">
+                                                    <i class="fas fa-exclamation-triangle"></i>
+                                                    {{ agent_data.error_count }} errors ({{ "%.1f"|format(agent_data.error_rate) }}%)
+                                                </small>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="col-12">
+                                    <div class="text-center text-muted py-4">
+                                        <i class="fas fa-robot fa-3x mb-3"></i>
+                                        <p>No agent statistics available. Agents will appear here once they start processing requests.</p>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        {% if cache_stats and cache_stats.get('agents', {}).get('agents') %}
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">
+                                        Session uptime: 
+                                        {% if cache_stats.agents.summary.session_uptime_seconds %}
+                                            {{ "%.0f"|format(cache_stats.agents.summary.session_uptime_seconds / 60) }} minutes
+                                        {% else %}
+                                            Unknown
+                                        {% endif %}
+                                    </small>
+                                    <a href="/agent-cache-details" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-chart-line me-1"></i>View All Agent Details
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cosmos DB Cache -->
+    <div class="cache-type-section">
+        <div class="row">
+            <div class="col-12">
+                <div class="card cache-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <h5 class="mb-0 me-2">
+                                <i class="fas fa-cloud me-2"></i>Cosmos DB Cache
+                            </h5>
+                            <span class="cache-health healthy" id="cosmos-health" data-health-text="Checking"></span>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-primary" onclick="refreshCosmosCache()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-sm btn-info" onclick="viewCosmosDetails()">
+                                <i class="fas fa-eye me-1"></i>View Details
+                            </button>
+                            <button class="btn btn-sm btn-warning" onclick="clearCosmosCache()">
+                                <i class="fas fa-trash me-1"></i>Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div id="cosmos-cache-stats">
+                                    <div class="d-flex align-items-center">
+                                        <div class="loading-spinner me-2"></div>
+                                        <span class="text-muted">Checking Cosmos DB cache status...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- <div class="col-md-4">
+                                <div class="text-end">
+                                    <div class="last-updated" id="cosmos-last-updated">Never</div>
+                                </div>
+                            </div> -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inventory Cache -->
+    <div class="cache-type-section">
+        <div class="row">
+            <div class="col-12">
+                <div class="card cache-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <h5 class="mb-0 me-2">
+                                <i class="fas fa-list me-2"></i>Inventory Cache Performance
+                            </h5>
+                            <span class="cache-health healthy" id="inventory-health" data-health-text="Checking"></span>
+                            <!--
+                            <div class="ms-3 text-muted small" id="inventory-summary">Loading...</div>
+                            <div class="ms-3 last-updated small" id="inventory-last-updated">Never</div>
+                            -->
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-primary" onclick="refreshInventoryCache()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-sm btn-info" onclick="viewInventoryAgentDetails()">
+                                <i class="fas fa-eye me-1"></i>Agent Details
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="resetInventoryStats()">
+                                <i class="fas fa-undo me-1"></i>Reset Stats
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="inventory-cache-stats">
+                            <p class="text-muted">Loading inventory cache statistics...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cache Details Modal -->
+<div class="modal fade" id="cacheDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Cache Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="cache-details-content">
+                    <!-- Details will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmation-message">Are you sure you want to perform this action?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-action-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Global variables
+    let refreshInterval;
+    let lastRefreshTime = null;
+
+    // Function to get display name for an agent is now in agent-config.js
+
+    // Helper function to safely set textContent with better error reporting
+    function safeSetTextContent(elementId, value) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = value;
+            return true;
+        } else {
+            console.warn(`Element '${elementId}' not found when trying to set textContent to '${value}'`);
+            return false;
+        }
+    }
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function () {
+        initializeCacheManagement();
+
+        // Set progress bar widths from data attributes
+        document.querySelectorAll('.progress-bar[data-width]').forEach(bar => {
+            const width = bar.getAttribute('data-width');
+            if (width) {
+                bar.style.width = width + '%';
+            }
+        });
+
+        // Auto-refresh disabled - can be re-enabled by uncommenting below
+        // refreshInterval = setInterval(() => {
+        //     console.log('Auto-refreshing cache data...');
+        //     refreshAllCaches().catch(error => {
+        //         console.warn('Auto-refresh failed, but continuing...', error);
+        //     });
+        // }, 30000);
+        console.log('Auto-refresh disabled - manual refresh only');
+    });
+
+    function initializeCacheManagement() {
+        console.log('Initializing cache management...');
+
+        // Set all health indicators to checking state initially
+        updateHealthIndicator('cosmos-health', 'unavailable', 'Checking');
+        updateHealthIndicator('agents-health', 'unavailable', 'Checking');
+        updateHealthIndicator('inventory-health', 'unavailable', 'Checking');
+
+        // Add performance dashboard to the overview
+        addPerformanceDashboard();
+
+        // Load actual cache status
+        updateOverviewWithRealData().catch(error => {
+            console.warn('Failed to load initial cache status:', error);
+            // Set fallback states if loading fails
+            updateHealthIndicator('cosmos-health', 'error', 'Error');
+            updateHealthIndicator('agents-health', 'error', 'Error');
+            updateHealthIndicator('inventory-health', 'error', 'Error');
+        });
+
+        // Try to load initial performance data
+        updatePerformanceDashboard();
+
+        refreshAllCaches();
+    }
+
+    function addPerformanceDashboard() {
+        // Add a performance metrics section as a standalone row after cache overview
+        const cacheOverviewSection = document.querySelector('.row.mb-4');
+        if (cacheOverviewSection && !document.getElementById('performance-dashboard')) {
+            const dashboardHTML = `
+            <!-- Cache Performance Dashboard -->
+            <div class="row mb-4" id="performance-dashboard">
+                <div class="col-12">
+                    <div class="card cache-stats">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3">
+                                <i class="fas fa-chart-line me-2"></i>Cache Performance Dashboard
+                                <button class="btn btn-sm btn-primary ms-3" onclick="updatePerformanceDashboard()">
+                                    <i class="fas fa-sync-alt me-1"></i>Refresh
+                                </button>
+                            </h5>
+                            <div class="row g-4" id="performance-metrics">
+                                <div class="col-lg-3 col-md-6">
+                                    <div class="card text-center">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Overall Hit Rate</h6>
+                                            <h4 class="text-success" id="overall-hit-rate">--</h4>
+                                            <small class="text-muted">Cache efficiency</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-3 col-md-6">
+                                    <div class="card text-center">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Avg Response Time</h6>
+                                            <h4 class="text-info" id="overall-response-time">--</h4>
+                                            <small class="text-muted">Performance</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-3 col-md-6">
+                                    <div class="card text-center">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Agent Requests</h6>
+                                            <h4 class="text-primary" id="total-requests">--</h4>
+                                            <small class="text-muted">All agent activity</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-3 col-md-6">
+                                    <div class="card text-center">
+                                        <div class="card-body">
+                                            <h6 class="card-title">Error Rate</h6>
+                                            <h4 class="text-warning" id="overall-error-rate">--</h4>
+                                            <small class="text-muted">Reliability</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+            cacheOverviewSection.insertAdjacentHTML('afterend', dashboardHTML);
+        }
+    }
+
+    async function updatePerformanceDashboard() {
+        const refreshBtn = document.querySelector('button[onclick="updatePerformanceDashboard()"]');
+        
+        try {
+            // Show loading state on the refresh button
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                const icon = refreshBtn.querySelector('i');
+                if (icon) {
+                    icon.className = 'fas fa-spinner fa-spin me-1';
+                }
+            }
+
+            const response = await fetch('/api/cache/stats/performance');
+            if (response.ok) {
+                const data = await response.json();
+                console.log('Performance dashboard data:', data);
+                console.log('Data structure check:', {
+                    total_requests: data.total_requests,
+                    overall_hit_rate: data.overall_hit_rate,
+                    avg_response_time_ms: data.avg_response_time_ms,
+                    overall_error_rate: data.overall_error_rate
+                });
+                const nf = new Intl.NumberFormat();
+                
+                // Update each element with better error checking
+                const hitRateEl = document.getElementById('overall-hit-rate');
+                if (hitRateEl) {
+                    const hitRateValue = data.overall_hit_rate !== undefined ? `${data.overall_hit_rate.toFixed(1)}%` : '--';
+                    hitRateEl.textContent = hitRateValue;
+                    console.log('Setting overall-hit-rate to:', hitRateValue);
+                } else {
+                    console.warn('overall-hit-rate element not found');
+                }
+                
+                const responseTimeEl = document.getElementById('overall-response-time');
+                if (responseTimeEl) {
+                    const responseTimeValue = data.avg_response_time_ms !== undefined ? `${data.avg_response_time_ms.toFixed(0)}ms` : '--';
+                    responseTimeEl.textContent = responseTimeValue;
+                    console.log('Setting overall-response-time to:', responseTimeValue);
+                } else {
+                    console.warn('overall-response-time element not found');
+                }
+                
+                const totalRequestsEl = document.getElementById('total-requests');
+                if (totalRequestsEl) {
+                    const totalRequestsValue = data.total_requests !== undefined ? nf.format(data.total_requests) : '--';
+                    totalRequestsEl.textContent = totalRequestsValue;
+                    console.log('Setting total-requests to:', totalRequestsValue, '(original value:', data.total_requests, ')');
+                } else {
+                    console.warn('total-requests element not found');
+                }
+                
+                const errorRateEl = document.getElementById('overall-error-rate');
+                if (errorRateEl) {
+                    const errorRateValue = data.overall_error_rate !== undefined ? `${data.overall_error_rate.toFixed(1)}%` : '--';
+                    errorRateEl.textContent = errorRateValue;
+                    console.log('Setting overall-error-rate to:', errorRateValue);
+                } else {
+                    console.warn('overall-error-rate element not found');
+                }
+            } else if (response.status === 403 || response.status === 404 || response.status === 500) {
+                // Server not available - show offline indicators
+                setDashboardOffline();
+            }
+        } catch (error) {
+            console.error('Error updating performance dashboard:', error);
+            // Set all dashboard values to indicate offline state
+            setDashboardOffline();
+        } finally {
+            // Re-enable the refresh button and restore icon
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                const icon = refreshBtn.querySelector('i');
+                if (icon) {
+                    icon.className = 'fas fa-sync-alt me-1';
+                }
+            }
+        }
+    }
+    
+    function setDashboardOffline() {
+        const elements = ['overall-hit-rate', 'overall-response-time', 'total-requests', 'overall-error-rate'];
+        elements.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = 'Offline';
+            } else {
+                console.warn(`Dashboard element ${id} not found`);
+            }
+        });
+    }
+
+    // Main refresh function - simplified for server-side rendering
+    async function refreshAllCaches() {
+        console.log('Refreshing all caches...');
+
+        // Get all refresh buttons and show loading state
+        const refreshButtons = document.querySelectorAll('button[onclick*="refresh"]');
+        refreshButtons.forEach(btn => {
+            btn.disabled = true;
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-spinner fa-spin me-1';
+            }
+        });
+
+        try {
+            // Show loading indicators
+            updateHealthIndicator('cosmos-health', 'unavailable', 'Checking');
+            updateHealthIndicator('agents-health', 'unavailable', 'Checking'); 
+            updateHealthIndicator('inventory-health', 'unavailable', 'Checking');
+
+            // Try to refresh caches with better error handling
+            const results = await Promise.allSettled([
+                refreshCosmosCache(),
+                refreshInventoryCache(),
+                refreshAgentCaches(),
+                updatePerformanceDashboard()
+            ]);
+
+            // Update overview and health indicators with current data
+            await updateOverviewWithRealData();
+
+            // Check if any succeeded
+            const successCount = results.filter(r => r.status === 'fulfilled').length;
+            const failureCount = results.filter(r => r.status === 'rejected').length;
+
+            if (successCount > 0) {
+                lastRefreshTime = new Date();
+                if (failureCount === 0) {
+                    showAlert('All cache data refreshed successfully', 'success');
+                } else {
+                    showAlert(`${successCount} cache(s) refreshed, ${failureCount} failed`, 'warning');
+                }
+            } else {
+                // All failed - probably server not available
+                console.warn('All cache refresh attempts failed - server may not be available');
+                setOfflineMode();
+            }
+
+        } catch (error) {
+            console.error('Error refreshing caches:', error);
+            setOfflineMode();
+        } finally {
+            // Re-enable all refresh buttons and restore icons
+            refreshButtons.forEach(btn => {
+                btn.disabled = false;
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    icon.className = 'fas fa-sync-alt me-1';
+                }
+            });
+        }
+    }
+
+    function setOfflineMode() {
+        // Set all health indicators to unavailable
+        updateHealthIndicator('cosmos-health', 'unavailable');
+        updateHealthIndicator('agents-health', 'unavailable');
+        updateHealthIndicator('inventory-health', 'unavailable');
+        
+        // Show offline message
+        showAlert('Server not available - displaying cached data only', 'warning');
+        
+        // Update health indicator text
+        const indicators = ['cosmos-health', 'agents-health', 'inventory-health'];
+        indicators.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.setAttribute('data-health-text', 'Offline');
+            }
+        });
+    }
+
+    // Cosmos DB Cache Functions
+    async function refreshCosmosCache() {
+        console.log('Refreshing Cosmos cache...');
+        try {
+            const response = await fetch('/api/cache/cosmos/stats');
+            console.log('Cosmos cache response status:', response.status);
+
+            if (response.status === 503) {
+                // Service unavailable - cache not initialized
+                console.log('Cosmos DB cache not available (503)');
+                updateHealthIndicator('cosmos-health', 'unavailable');
+                document.getElementById('cosmos-cache-stats').innerHTML =
+                    `<div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Cosmos DB Cache Not Initialized</strong>
+                    <p class="mb-2">Cosmos DB cache is not configured or unavailable. This may be because:</p>
+                    <ul class="mb-3">
+                        <li>Cosmos DB endpoint is not configured in environment variables</li>
+                        <li>Azure credentials are not properly set up</li>
+                        <li>Database or container creation failed</li>
+                    </ul>
+                    <button class="btn btn-primary btn-sm" onclick="initializeCosmosCache()">
+                        <i class="fas fa-rocket me-1"></i>Initialize Cosmos DB Cache
+                    </button>
+                    <button class="btn btn-info btn-sm ms-2" onclick="checkCosmosConfig()">
+                        <i class="fas fa-cog me-1"></i>Check Configuration
+                    </button>
+                </div>`;
+                return;
+            }
+
+            if (response.status === 400) {
+                // Bad request - likely invalid input values (the specific error you're experiencing)
+                const errorData = await response.json().catch(() => ({ message: 'Unknown query error' }));
+                console.log('Cosmos DB BadRequest error:', errorData);
+                updateHealthIndicator('cosmos-health', 'error');
+                
+                // Extract ActivityId from error message if available
+                const errorMessage = errorData.message || errorData.error || 'Unknown error';
+                const activityIdMatch = errorMessage.match(/ActivityId: ([a-f0-9-]+)/i);
+                const activityId = activityIdMatch ? activityIdMatch[1] : null;
+                
+                document.getElementById('cosmos-cache-stats').innerHTML =
+                    `<div class="alert alert-danger">
+                    <i class="fas fa-times me-2"></i>
+                    <strong>Cosmos DB BadRequest Error - Invalid Input Values</strong>
+                    <p class="mb-2">One of the input values is invalid. This error typically occurs due to:</p>
+                    <ul class="mb-3">
+                        <li><strong>Invalid document ID or partition key values</strong> (containing /, \\, ?, # characters)</li>
+                        <li><strong>Missing required partition key field</strong> ('cache_key' field)</li>
+                        <li><strong>Non-JSON serializable data</strong> in document fields</li>
+                        <li><strong>Document size exceeding limits</strong> (2MB maximum per document)</li>
+                        <li><strong>Container or partition configuration problems</strong></li>
+                        <li><strong>Cosmos DB SDK version compatibility issues</strong></li>
+                        <li><strong>Parameterized query issues</strong> with datetime values or special characters</li>
+                    </ul>
+                    <div class="mt-2">
+                        <small class="text-muted"><strong>Error details:</strong> ${errorMessage}</small>
+                        ${activityId ? `<br><small class="text-muted"><strong>ActivityId:</strong> <code>${activityId}</code></small>` : ''}
+                        <br><small class="text-muted"><em>This error has been resolved with improved query handling. Try refreshing or reinitializing the cache.</em></small>
+                    </div>
+                    <button class="btn btn-success btn-sm mt-2" onclick="refreshCosmosCache()">
+                        <i class="fas fa-sync-alt me-1"></i>Retry with Fixed Queries
+                    </button>
+                    <button class="btn btn-warning btn-sm mt-2 ms-2" onclick="reinitializeCosmosCache()">
+                        <i class="fas fa-redo me-1"></i>Reinitialize Cache
+                    </button>
+                    <button class="btn btn-info btn-sm ms-2 mt-2" onclick="checkCosmosConfig()">
+                        <i class="fas fa-cog me-1"></i>Check Configuration
+                    </button>
+                </div>`;
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Cosmos cache data:', data);
+
+            if (data.success) {
+                displayCosmosStats(data);
+                updateHealthIndicator('cosmos-health', 'healthy');
+                
+                // Update performance dashboard with latest data
+                await updatePerformanceDashboard();
+            } else {
+                updateHealthIndicator('cosmos-health', 'error');
+                document.getElementById('cosmos-cache-stats').innerHTML =
+                    `<div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Cache Statistics Unavailable</strong>
+                    <p class="mb-2">${data.error || 'Unknown error retrieving cache statistics'}</p>
+                    <button class="btn btn-info btn-sm" onclick="checkCosmosConfig()">
+                        <i class="fas fa-cog me-1"></i>Check Configuration
+                    </button>
+                </div>`;
+            }
+        } catch (error) {
+            console.error('Error fetching Cosmos cache stats:', error);
+            updateHealthIndicator('cosmos-health', 'error');
+            document.getElementById('cosmos-cache-stats').innerHTML =
+                `<div class="alert alert-danger">
+                <i class="fas fa-times me-2"></i>
+                <strong>Failed to load Cosmos DB cache stats</strong>
+                <p class="mb-2">Error: ${error.message}</p>
+                <button class="btn btn-info btn-sm" onclick="checkCosmosConfig()">
+                    <i class="fas fa-cog me-1"></i>Check Configuration
+                </button>
+                <button class="btn btn-warning btn-sm ms-2" onclick="refreshCosmosCache()">
+                    <i class="fas fa-sync-alt me-1"></i>Retry
+                </button>
+            </div>`;
+        }
+    }
+
+    function displayCosmosStats(data) {
+        // Check if we have inventory container information
+        const hasInventoryData = data.inventory_containers && !data.inventory_containers.error;
+        const inventoryData = data.inventory_containers || {};
+        const inventoryMemoryEntries = inventoryData.memory_cache_entries || {};
+        const totalInventoryEntries = inventoryData.total_memory_entries || 0;
+        
+        const html = `
+        <!-- EOL Cache Containers -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-secondary mb-3">
+                    <i class="fas fa-server me-1"></i>EOL Cache Containers
+                </h6>
+            </div>
+        </div>
+        <div class="row g-4 mb-4">
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-primary mb-1">${data.total_items || 0}</h4>
+                        <small class="text-muted">EOL Cache Items</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-success mb-1">${data.active_items || 0}</h4>
+                        <small class="text-muted">Active EOL Items</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-warning mb-1">${data.expired_items || 0}</h4>
+                        <small class="text-muted">Expired EOL Items</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-info mb-1">${Object.keys(data.agent_breakdown || {}).length}</h4>
+                        <small class="text-muted">EOL Agent Types</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card modern-card">
+                    <div class="card-body">
+                        <small class="text-muted">
+                            <i class="fas fa-clock me-1"></i>EOL Cache Duration: ${data.cache_duration_days || 30} days |
+                            <i class="fas fa-percentage me-1"></i>Min Confidence: ${data.min_confidence_threshold || 80}%
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        ${hasInventoryData ? `
+        <!-- Inventory Cache Containers -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-secondary mb-3">
+                    <i class="fas fa-server me-1"></i>Inventory Cache Containers
+                </h6>
+            </div>
+        </div>
+        <div class="row g-4 mb-4">
+            <div class="col-lg-4 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-info mb-1">${inventoryMemoryEntries.software || 0}</h4>
+                        <small class="text-muted">Software Cache Entries</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-info mb-1">${inventoryMemoryEntries.os || 0}</h4>
+                        <small class="text-muted">OS Cache Entries</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-info mb-1">${totalInventoryEntries}</h4>
+                        <small class="text-muted">Total Inventory Items</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card modern-card">
+                    <div class="card-body">
+                        <small class="text-muted">
+                            <i class="fas fa-database me-1"></i>Containers: ${inventoryData.software_container || 'inventory_software'}, ${inventoryData.os_container || 'inventory_os'} |
+                            <i class="fas fa-clock me-1"></i>Duration: ${inventoryData.cache_duration_hours || 4}h
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ` : `
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Inventory Cache:</strong> ${data.inventory_containers && data.inventory_containers.error ? 
+                        `Not available (${data.inventory_containers.error})` : 
+                        'No inventory data in Cosmos DB containers yet'}
+                </div>
+            </div>
+        </div>
+        `}
+    `;
+
+        document.getElementById('cosmos-cache-stats').innerHTML = html;
+        
+        const cosmosLastUpdatedEl = document.getElementById('cosmos-last-updated');
+        if (cosmosLastUpdatedEl) {
+            cosmosLastUpdatedEl.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+        }
+    }
+
+    async function clearCosmosCache() {
+        const confirmed = await showConfirmation('Clear Cosmos DB Cache',
+            'This will remove all cached EOL responses from Cosmos DB. This action cannot be undone.');
+
+        if (confirmed) {
+            try {
+                const response = await fetch('/api/cache/cosmos/clear', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    showAlert(`Cosmos DB cache cleared: ${result.deleted_count} items removed`, 'success');
+
+                    // If backend returned updated stats, use them to update the display immediately
+                    if (result.stats) {
+                        try {
+                            displayCosmosStats(result.stats);
+
+                            // Update overview counts using the stats where possible
+                            // Trigger a lightweight overview update (recalculate totals)
+                            await updateOverviewWithRealData();
+                        } catch (e) {
+                            // Fallback to full refresh if something goes wrong
+                            console.warn('Failed to apply returned stats:', e);
+                            await refreshCosmosCache();
+                        }
+                    } else {
+                        // No stats returned; fall back to refreshing from server
+                        await refreshCosmosCache();
+                    }
+                } else {
+                    showAlert(`Failed to clear cache: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert('Error clearing Cosmos DB cache', 'error');
+                console.error('Error:', error);
+            }
+        }
+    }
+
+    async function viewCosmosDetails() {
+        try {
+            const response = await fetch('/api/cache/cosmos/stats');
+            const data = await response.json();
+
+            if (data.success) {
+                const detailsHtml = `
+                <h6>Cosmos DB Cache Details</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Agent</th>
+                                <th>Cached Items</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${Object.entries(data.agent_breakdown || {}).map(([agent, count]) => `
+                                <tr>
+                                    <td><span class="badge bg-primary">${agent}</span></td>
+                                    <td>${count}</td>
+                                    <td>
+                                        <div class="progress progress-sm">
+                                            <div class="progress-bar" style="width: ${(count / data.total_items * 100).toFixed(1)}%"></div>
+                                        </div>
+                                        ${(count / data.total_items * 100).toFixed(1)}%
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-3">
+                    <h6>Configuration</h6>
+                    <ul>
+                        <li><strong>Total Items:</strong> ${data.total_items}</li>
+                        <li><strong>Active Items:</strong> ${data.active_items}</li>
+                        <li><strong>Expired Items:</strong> ${data.expired_items}</li>
+                    </ul>
+                </div>
+            `;
+
+                document.getElementById('cache-details-content').innerHTML = detailsHtml;
+                new bootstrap.Modal(document.getElementById('cacheDetailsModal')).show();
+            }
+        } catch (error) {
+            showAlert('Error loading Cosmos DB details', 'error');
+            console.error('Error:', error);
+        }
+    }
+
+    // Cosmos DB initialization functions
+    async function initializeCosmosCache() {
+        try {
+            showAlert('Initializing Cosmos DB cache...', 'info');
+
+            const response = await fetch('/api/cache/cosmos/initialize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                showAlert('Cosmos DB cache initialized successfully!', 'success');
+                // Refresh the cache section after successful initialization
+                setTimeout(() => refreshCosmosCache(), 1000);
+            } else {
+                showAlert(`Failed to initialize Cosmos DB cache: ${result.error || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error initializing Cosmos cache:', error);
+            showAlert('Error initializing Cosmos DB cache. Check console for details.', 'error');
+        }
+    }
+
+    async function reinitializeCosmosCache() {
+        try {
+            showAlert('Reinitializing Cosmos DB cache to fix query issues...', 'info');
+
+            // First try to clear the cache
+            await fetch('/api/cache/cosmos/clear', { method: 'POST' });
+
+            // Then reinitialize
+            const response = await fetch('/api/cache/cosmos/initialize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                showAlert('Cosmos DB cache reinitialized successfully!', 'success');
+                // Refresh the cache section after successful reinitialization
+                setTimeout(() => refreshCosmosCache(), 1500);
+            } else {
+                showAlert(`Failed to reinitialize Cosmos DB cache: ${result.error || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error reinitializing Cosmos cache:', error);
+            showAlert('Error reinitializing Cosmos DB cache. Check console for details.', 'error');
+        }
+    }
+
+    async function checkCosmosConfig() {
+        try {
+            const response = await fetch('/api/cache/cosmos/config');
+            const config = await response.json();
+
+            const configHtml = `
+            <h6>Cosmos DB Configuration</h6>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <td><strong>Endpoint:</strong></td>
+                            <td>${config.endpoint || '<span class="text-danger">Not configured</span>'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Database:</strong></td>
+                            <td>${config.database || '<span class="text-danger">Not configured</span>'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Container:</strong></td>
+                            <td>${config.container || '<span class="text-danger">Not configured</span>'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Authentication:</strong></td>
+                            <td>${config.auth_method || '<span class="text-danger">Unknown</span>'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Initialized:</strong></td>
+                            <td>${config.initialized ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Cache Duration:</strong></td>
+                            <td>${config.cache_duration_days || 30} days</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Min Confidence:</strong></td>
+                            <td>${config.min_confidence_threshold || 80}%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            ${!config.initialized && config.error ? `
+                <div class="alert alert-danger mt-3">
+                    <strong>Initialization Error:</strong><br>
+                    ${config.error}
+                </div>
+            ` : ''}
+            ${!config.endpoint ? `
+                <div class="alert alert-warning mt-3">
+                    <strong>Setup Required:</strong><br>
+                    Please configure the following environment variables:
+                    <ul class="mt-2">
+                        <li><code>AZURE_COSMOS_ENDPOINT</code></li>
+                        <li><code>AZURE_COSMOS_DATABASE</code></li>
+                        <li><code>AZURE_COSMOS_CONTAINER</code></li>
+                    </ul>
+                    Ensure Azure authentication is configured (Managed Identity, Service Principal, or Azure CLI).
+                </div>
+            ` : ''}
+        `;
+
+            document.getElementById('cache-details-content').innerHTML = configHtml;
+            new bootstrap.Modal(document.getElementById('cacheDetailsModal')).show();
+        } catch (error) {
+            showAlert('Error loading Cosmos DB configuration', 'error');
+            console.error('Error:', error);
+        }
+    }
+
+    // Agent Cache Functions
+    async function refreshAgentCaches() {
+        try {
+            console.log('Refreshing agent cache statistics...');
+            updateHealthIndicator('agents-health', 'unavailable', 'Refreshing');
+            
+            // Fetch the latest agent statistics
+            const response = await fetch('/api/cache/stats/enhanced');
+            if (!response.ok) {
+                // Handle server not available gracefully
+                if (response.status === 403 || response.status === 404 || response.status === 500) {
+                    console.warn('Agent cache endpoint not available, showing offline status');
+                    updateHealthIndicator('agents-health', 'unavailable');
+                    return null;
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Updated agent stats:', data);
+            
+            // Update the agent caches display with latest data
+            updateAgentCachesDisplay(data?.agent_stats?.agents || {});
+            
+            // Update the health indicator
+            updateHealthIndicator('agents-health', 'healthy');
+            
+            // Show success message
+            showAlert('Agent cache statistics refreshed successfully', 'success');
+            
+            // Update performance dashboard with latest data
+            await updatePerformanceDashboard();
+            
+            return data;
+        } catch (error) {
+            console.error('Error refreshing agent cache data:', error);
+            
+            // Check if it's a network error (server not available)
+            if (error.message.includes('Failed to fetch') || error.message.includes('403') || error.message.includes('404')) {
+                updateHealthIndicator('agents-health', 'unavailable');
+            } else {
+                updateHealthIndicator('agents-health', 'error');
+                showAlert(`Error refreshing agent caches: ${error.message}`, 'error');
+            }
+        }
+    }
+
+    function updateAgentCachesDisplay(agentStats) {
+        const agentCachesContainer = document.getElementById('agent-caches');
+        if (!agentCachesContainer) {
+            console.warn('Agent caches container not found');
+            return;
+        }
+
+        if (!agentStats || Object.keys(agentStats).length === 0) {
+            agentCachesContainer.innerHTML = `
+                <div class="col-12">
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-robot fa-3x mb-3"></i>
+                        <p>No agent statistics available. Agents will appear here once they start processing requests.</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Convert agent stats to use display names
+        const displayStats = {};
+        for (const [agentName, stats] of Object.entries(agentStats)) {
+            const displayName = getAgentDisplayName(agentName);
+            displayStats[displayName] = stats;
+        }
+
+        // Generate HTML for each agent
+        let html = '';
+        for (const [agentName, agentData] of Object.entries(displayStats)) {
+            const errorRate = agentData.error_rate || 0;
+            const hitRate = agentData.cache_hit_rate || 0;
+            
+            let performanceBadge = 'bg-success">Excellent';
+            if (errorRate > 15) {
+                performanceBadge = 'bg-danger">Poor';
+            } else if (errorRate > 5) {
+                performanceBadge = 'bg-warning">Good';
+            }
+            
+            const agentClass = agentName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            
+            html += `
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card agent-cache-card ${agentClass}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="card-title mb-0">${agentName}</h6>
+                                <div class="d-flex align-items-center">
+                                    <span class="badge ${performanceBadge}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="row text-center mb-3">
+                                <div class="col-4">
+                                    <strong>${agentData.request_count || 0}</strong>
+                                    <br><small class="text-muted">Requests</small>
+                                </div>
+                                <div class="col-4">
+                                    <strong>${hitRate.toFixed(1)}%</strong>
+                                    <br><small class="text-muted">Hit Rate</small>
+                                </div>
+                                <div class="col-4">
+                                    <strong>${(agentData.avg_response_time_ms || 0).toFixed(0)}ms</strong>
+                                    <br><small class="text-muted">Avg Time</small>
+                                </div>
+                            </div>
+                            
+                            <div class="progress mb-2" style="height: 6px;">
+                                <div class="progress-bar bg-success" 
+                                     style="width: ${hitRate}%"></div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">
+                                    ${agentData.last_request_time ? 
+                                        `Last: ${agentData.last_request_time.substring(0, 19).replace('T', ' ')}` : 
+                                        'Never used'
+                                    }
+                                </small>
+                                <a href="/agent-cache-details?agent_name=${encodeURIComponent(agentName)}" 
+                                   class="btn btn-sm btn-outline-info">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                            </div>
+                            
+                            ${agentData.error_count && agentData.error_count > 0 ? `
+                            <div class="mt-2">
+                                <small class="text-danger">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    ${agentData.error_count} errors (${errorRate.toFixed(1)}%)
+                                </small>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        agentCachesContainer.innerHTML = html;
+        
+        // Reapply progress bar animations
+        document.querySelectorAll('.progress-bar').forEach(bar => {
+            const width = bar.style.width;
+            bar.style.width = '0%';
+            setTimeout(() => bar.style.width = width, 100);
+        });
+    }
+
+    // Helper functions for performance metrics
+    function calculatePerformanceScore(hitRate, avgResponseTime, errorRate) {
+        let score = 0;
+        
+        // Hit rate contribution (40% of score)
+        if (hitRate > 0) {
+            score += Math.min(40, (hitRate / 100) * 40);
+        }
+        
+        // Response time contribution (35% of score)
+        if (avgResponseTime > 0) {
+            if (avgResponseTime <= 200) score += 35;
+            else if (avgResponseTime <= 500) score += 25;
+            else if (avgResponseTime <= 1000) score += 15;
+            else if (avgResponseTime <= 2000) score += 5;
+            // else 0 points
+        }
+        
+        // Error rate contribution (25% of score, inverted)
+        if (errorRate >= 0) {
+            if (errorRate <= 1) score += 25;
+            else if (errorRate <= 5) score += 20;
+            else if (errorRate <= 10) score += 15;
+            else if (errorRate <= 20) score += 10;
+            else if (errorRate <= 30) score += 5;
+            // else 0 points
+        }
+        
+        return Math.round(score);
+    }
+
+    // Get performance rating badge text
+    function getPerformanceRating(value, metric) {
+        switch (metric) {
+            case 'hit_rate':
+                if (value >= 80) return 'Excellent';
+                if (value >= 60) return 'Good';
+                if (value >= 40) return 'Fair';
+                return 'Poor';
+            
+            case 'response_time':
+                if (value <= 200) return 'Excellent';
+                if (value <= 500) return 'Good';
+                if (value <= 1000) return 'Fair';
+                return 'Poor';
+            
+            case 'error_rate':
+                if (value <= 1) return 'Excellent';
+                if (value <= 5) return 'Good';
+                if (value <= 15) return 'Fair';
+                return 'Poor';
+            
+            default:
+                return 'Unknown';
+        }
+    }
+
+    // Get CSS class for performance score
+    function getScoreClass(score) {
+        if (score >= 80) return 'bg-success';
+        if (score >= 60) return 'bg-warning';
+        return 'bg-danger';
+    }
+
+    // Get CSS class for performance score text color
+    function getPerformanceScoreClass(hitRate, responseTime, errorRate) {
+        const score = calculatePerformanceScore(hitRate, responseTime, errorRate);
+        if (score >= 80) return 'success';
+        if (score >= 60) return 'warning';
+        return 'danger';
+    }
+
+    // displayAgentCaches function removed - now using server-side rendering
+    // Agent cache cards are rendered server-side in the template
+
+    // Helper function for performance ratings
+    function getPerformanceRating(value, type) {
+        switch(type) {
+            case 'hit_rate':
+                if (value >= 80) return 'Excellent';
+                if (value >= 60) return 'Good';
+                if (value >= 40) return 'Fair';
+                return 'Poor';
+            case 'response_time':
+                if (value <= 200) return 'Fast';
+                if (value <= 500) return 'Good';
+                if (value <= 1000) return 'Slow';
+                return 'Very Slow';
+            case 'error_rate':
+                if (value <= 1) return 'Excellent';
+                if (value <= 5) return 'Good';
+                if (value <= 15) return 'Fair';
+                return 'Poor';
+            default:
+                return 'Unknown';
+        }
+    }
+
+    function getScoreClass(score) {
+        if (score >= 80) return 'bg-success';
+        if (score >= 60) return 'bg-info';
+        if (score >= 40) return 'bg-warning';
+        return 'bg-danger';
+    }
+
+    async function refreshAgentCache(agentKey) {
+        try {
+            showAlert(`Refreshing ${agentKey} agent cache...`, 'info');
+            // For now, just refresh the status since individual refresh isn't implemented
+            await refreshAgentCaches();
+            showAlert(`${agentKey} agent cache status refreshed`, 'success');
+        } catch (error) {
+            showAlert(`Error refreshing ${agentKey} agent cache`, 'error');
+            console.error('Error:', error);
+        }
+    }
+
+    async function clearAgentCache(agentKey) {
+        const confirmed = await showConfirmation('Clear Agent Cache',
+            `This will clear all cached data for the ${agentKey} agent. Continue?`);
+
+        if (confirmed) {
+            try {
+                showAlert(`Clearing ${agentKey} agent cache...`, 'info');
+                const response = await fetch(`/api/cache/purge?agent_type=${agentKey}`, { method: 'POST' });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                console.log('Clear agent cache result:', result);
+
+                if (result.success) {
+                    const agentResult = result.results[agentKey];
+                    if (agentResult && agentResult.error) {
+                        showAlert(`${agentKey} agent: ${agentResult.error}`, 'warning');
+                    } else {
+                        showAlert(`${agentKey} agent cache cleared successfully`, 'success');
+                    }
+                } else {
+                    showAlert(`Failed to clear ${agentKey} agent cache: ${result.error || 'Unknown error'}`, 'error');
+                }
+
+                // Refresh the agent caches display
+                refreshAgentCaches();
+            } catch (error) {
+                showAlert(`Error clearing ${agentKey} agent cache: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+    }
+
+    async function clearAllAgentCaches() {
+        const confirmed = await showConfirmation('Clear All Agent Caches',
+            'This will clear cached data for ALL agents. This action cannot be undone.');
+
+        if (confirmed) {
+            try {
+                showAlert('Clearing all agent caches...', 'info');
+                const response = await fetch('/api/cache/purge', { method: 'POST' });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                console.log('Clear all agent caches result:', result);
+
+                if (result.success) {
+                    let clearedCount = 0;
+                    let errorCount = 0;
+
+                    for (const [agentName, agentResult] of Object.entries(result.results || {})) {
+                        if (agentResult && !agentResult.error) {
+                            clearedCount++;
+                        } else {
+                            errorCount++;
+                        }
+                    }
+
+                    if (clearedCount > 0) {
+                        showAlert(`Successfully cleared ${clearedCount} agent cache(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`, 'success');
+                    } else {
+                        showAlert(`No agent caches were cleared (${errorCount} errors)`, 'warning');
+                    }
+                } else {
+                    showAlert(`Failed to clear agent caches: ${result.error || 'Unknown error'}`, 'error');
+                }
+
+                // Refresh the agent caches display
+                refreshAgentCaches();
+            } catch (error) {
+                showAlert(`Error clearing agent caches: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+    }
+
+    // Web scraping cache removed
+
+    // Inventory Cache Functions
+    async function refreshInventoryCache() {
+        const inventoryStatsContainer = document.getElementById('inventory-cache-stats');
+        
+        try {
+            console.log('Refreshing inventory cache...');
+            
+            // Show loading indicator
+            inventoryStatsContainer.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span>Loading inventory statistics...</span>
+                </div>
+            `;
+            
+            // Fetch enhanced statistics that now include inventory agents
+            const enhancedResponse = await fetch('/api/cache/stats/enhanced');
+
+            if (!enhancedResponse.ok) {
+                // Handle server not available gracefully
+                if (enhancedResponse.status === 403 || enhancedResponse.status === 404 || enhancedResponse.status === 500) {
+                    console.warn('Server endpoint not available, showing offline status');
+                    updateHealthIndicator('inventory-health', 'unavailable', 'Offline');
+                    inventoryStatsContainer.innerHTML =
+                        `<div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Server not available.</strong> Inventory statistics cannot be loaded.
+                    </div>`;
+                    return;
+                }
+                throw new Error(`HTTP ${enhancedResponse.status}: ${enhancedResponse.statusText}`);
+            }
+
+            const enhancedData = await enhancedResponse.json();
+            console.log('Enhanced cache stats:', enhancedData);
+
+            // Extract inventory agent statistics
+            const agentStats = enhancedData?.agent_stats?.agents || {};
+            console.log('Agent stats:', agentStats);
+            console.log('Available agent names:', Object.keys(agentStats));
+            
+            const softwareInventoryStats = agentStats['software_inventory'];
+            const osInventoryStats = agentStats['os_inventory'];
+            console.log('Software inventory stats:', softwareInventoryStats);
+            console.log('OS inventory stats:', osInventoryStats);
+            
+            // Always call the display function, even with null stats
+            displayInventoryAgentStats(softwareInventoryStats, osInventoryStats);
+            
+            if (softwareInventoryStats || osInventoryStats) {
+                updateHealthIndicator('inventory-health', 'healthy');
+                
+                // Calculate aggregated summary for header
+                // const totalRequests = (softwareInventoryStats?.request_count || 0) + (osInventoryStats?.request_count || 0);
+                // const totalHits = (softwareInventoryStats?.cache_hits || 0) + (osInventoryStats?.cache_hits || 0);
+                // const overallHitRate = totalRequests > 0 ? (totalHits / totalRequests * 100) : 0;
+                
+                // const inventorySummaryEl = document.getElementById('inventory-summary');
+                // if (inventorySummaryEl) {
+                //     if (totalRequests > 0) {
+                //         inventorySummaryEl.textContent = `${totalRequests} requests • ${overallHitRate.toFixed(1)}% hit rate`;
+                //     } else {
+                //         const parts = [];
+                //         if (softwareInventoryStats) parts.push('Software');
+                //         if (osInventoryStats) parts.push('OS');
+                //         inventorySummaryEl.textContent = `${parts.join(' & ')} agents ready`;
+                //     }
+                // }
+                
+                // Update performance dashboard with latest data
+                await updatePerformanceDashboard();
+            } else {
+                updateHealthIndicator('inventory-health', 'warning');
+                
+                // const inventorySummaryEl = document.getElementById('inventory-summary');
+                // if (inventorySummaryEl) {
+                //     inventorySummaryEl.textContent = 'No activity';
+                // }
+            }
+        } catch (error) {
+            console.error('Error fetching inventory cache stats:', error);
+            
+            // Check if it's a network error (server not available)
+            if (error.message.includes('Failed to fetch') || error.message.includes('403') || error.message.includes('404')) {
+                updateHealthIndicator('inventory-health', 'unavailable', 'Offline');
+                inventoryStatsContainer.innerHTML =
+                    `<div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Server not available.</strong> Inventory statistics cannot be loaded at this time.
+                </div>`;
+                
+                // const inventorySummaryEl = document.getElementById('inventory-summary');
+                // if (inventorySummaryEl) {
+                //     inventorySummaryEl.textContent = 'Offline';
+                // }
+            } else {
+                updateHealthIndicator('inventory-health', 'error', 'Error');
+                inventoryStatsContainer.innerHTML =
+                    `<div class="alert alert-danger">
+                    <i class="fas fa-times me-2"></i>
+                    <strong>Failed to load inventory cache stats:</strong> ${error.message}
+                </div>`;
+            }
+        }
+    }
+
+    function displayInventoryAgentStats(softwareStats, osStats) {
+        console.log('Displaying inventory agent stats:', { softwareStats, osStats });
+        const nf = new Intl.NumberFormat();
+        
+        // Calculate combined statistics
+        const totalRequests = (softwareStats?.request_count || 0) + (osStats?.request_count || 0);
+        const totalHits = (softwareStats?.cache_hits || 0) + (osStats?.cache_hits || 0);
+        const totalMisses = (softwareStats?.cache_misses || 0) + (osStats?.cache_misses || 0);
+        const totalErrors = (softwareStats?.error_count || 0) + (osStats?.error_count || 0);
+        
+        const overallHitRate = totalRequests > 0 ? (totalHits / totalRequests * 100) : 0;
+        const overallErrorRate = totalRequests > 0 ? (totalErrors / totalRequests * 100) : 0;
+        
+        // Calculate average response time (weighted by request count)
+        let avgResponseTime = 0;
+        if (totalRequests > 0) {
+            const softwareWeight = (softwareStats?.request_count || 0) / totalRequests;
+            const osWeight = (osStats?.request_count || 0) / totalRequests;
+            avgResponseTime = (softwareStats?.avg_response_time_ms || 0) * softwareWeight + 
+                             (osStats?.avg_response_time_ms || 0) * osWeight;
+        }
+
+        const html = `
+        <!-- Combined Performance Overview -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-secondary mb-3">Combined Inventory Agent Performance</h6>
+            </div>
+        </div>
+        <div class="row g-4 mb-4">
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-primary mb-1">${nf.format(totalRequests)}</h4>
+                        <small class="text-muted">Total Requests</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-success mb-1">${overallHitRate.toFixed(1)}%</h4>
+                        <small class="text-muted">Cache Hit Rate</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-info mb-1">${avgResponseTime.toFixed(0)}ms</h4>
+                        <small class="text-muted">Avg Response Time</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <div class="card modern-card h-100">
+                    <div class="card-body text-center">
+                        <h4 class="text-${totalErrors > 0 ? 'warning' : 'success'} mb-1">${totalErrors}</h4>
+                        <small class="text-muted">Total Errors</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        ${totalRequests > 0 ? `
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card modern-card">
+                    <div class="card-body text-center">
+                        <small class="text-muted">
+                            Performance Score: <strong class="text-${getPerformanceScoreClass(overallHitRate, avgResponseTime, overallErrorRate)}">${calculatePerformanceScore(overallHitRate, avgResponseTime, overallErrorRate)}/100</strong>
+                            • Cache Efficiency: <strong>${totalHits}/${totalRequests}</strong>
+                            • Error Rate: <strong>${overallErrorRate.toFixed(1)}%</strong>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+        
+        <!-- Individual Agent Breakdown -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <h6 class="text-secondary">Individual Agent Breakdown</h6>
+            </div>
+        </div>
+        <div class="row g-3">
+            ${softwareStats ? `
+            <div class="col-md-6">
+                <div class="card modern-card border-start border-4" style="border-left-color: #fd7e14 !important;">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h6 class="card-title mb-0">Software Inventory Agent</h6>
+                            <span class="badge ${(softwareStats.error_count || 0) > 0 ? 'bg-warning' : 'bg-success'} performance-badge">
+                                ${(softwareStats.error_count || 0) > 0 ? 'Active' : 'Healthy'}
+                            </span>
+                        </div>
+                        
+                        <div class="row text-center mb-3">
+                            <div class="col-4">
+                                <strong>${nf.format(softwareStats.request_count || 0)}</strong>
+                                <br><small class="text-muted">Requests</small>
+                            </div>
+                            <div class="col-4">
+                                <strong>${(softwareStats.cache_hit_rate || 0).toFixed(1)}%</strong>
+                                <br><small class="text-muted">Hit Rate</small>
+                            </div>
+                            <div class="col-4">
+                                <strong>${(softwareStats.avg_response_time_ms || 0).toFixed(0)}ms</strong>
+                                <br><small class="text-muted">Avg Time</small>
+                            </div>
+                        </div>
+                        
+                        <div class="progress mb-2" style="height: 6px;">
+                            <div class="progress-bar bg-success" 
+                                 style="width: ${(softwareStats.cache_hit_rate || 0)}%"></div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                ${softwareStats.last_request_time ? 
+                                    `Last: ${new Date(softwareStats.last_request_time).toLocaleString()}` : 
+                                    'Never used'}
+                            </small>
+                            <small class="text-muted">
+                                Hits: ${softwareStats.cache_hits || 0} | Errors: ${softwareStats.error_count || 0}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+            
+            ${osStats ? `
+            <div class="col-md-6">
+                <div class="card modern-card border-start border-4" style="border-left-color: #28a745 !important;">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h6 class="card-title mb-0">OS Inventory Agent</h6>
+                            <span class="badge ${(osStats.error_count || 0) > 0 ? 'bg-warning' : 'bg-success'} performance-badge">
+                                ${(osStats.error_count || 0) > 0 ? 'Active' : 'Healthy'}
+                            </span>
+                        </div>
+                        
+                        <div class="row text-center mb-3">
+                            <div class="col-4">
+                                <strong>${nf.format(osStats.request_count || 0)}</strong>
+                                <br><small class="text-muted">Requests</small>
+                            </div>
+                            <div class="col-4">
+                                <strong>${(osStats.cache_hit_rate || 0).toFixed(1)}%</strong>
+                                <br><small class="text-muted">Hit Rate</small>
+                            </div>
+                            <div class="col-4">
+                                <strong>${(osStats.avg_response_time_ms || 0).toFixed(0)}ms</strong>
+                                <br><small class="text-muted">Avg Time</small>
+                            </div>
+                        </div>
+                        
+                        <div class="progress mb-2" style="height: 6px;">
+                            <div class="progress-bar bg-success" 
+                                 style="width: ${(osStats.cache_hit_rate || 0)}%"></div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                ${osStats.last_request_time ? 
+                                    `Last: ${new Date(osStats.last_request_time).toLocaleString()}` : 
+                                    'Never used'}
+                            </small>
+                            <small class="text-muted">
+                                Hits: ${osStats.cache_hits || 0} | Errors: ${osStats.error_count || 0}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+        </div>
+        
+        ${totalRequests === 0 ? `
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>No inventory agent activity yet.</strong> 
+                <p class="mb-2">This section shows aggregated performance statistics from both Software Inventory and OS Inventory agents.</p>
+                <p class="mb-0">Performance metrics will appear once the agents begin processing inventory requests from the following endpoints:</p>
+                <ul class="mb-0">
+                    <li><code>/inventory</code> - Combined software and OS inventory</li>
+                    <li><code>/inventory/raw/software</code> - Raw software inventory data</li>
+                    <li><code>/inventory/raw/os</code> - Raw OS inventory data</li>
+                    <li><code>/inventory/status</code> - Inventory system status</li>
+                </ul>
+            </div>
+        ` : ''}
+    `;
+
+        document.getElementById('inventory-cache-stats').innerHTML = html;
+    }
+
+    function displayInventoryStats(stats) {
+        // tolerant parsing and formatted output
+        const nf = new Intl.NumberFormat();
+        const cached = stats.cached ?? stats.present ?? false;
+        const expired = stats.expired ?? false;
+        const ageSeconds = Number(stats.age_seconds ?? stats.age ?? 0);
+        const ageText = ageSeconds > 0 ? `${Math.round(ageSeconds)}s ago` : 'Never';
+        const entries = Number(stats.items_count ?? stats.entries_count ?? stats.items ?? 0);
+        const computers = Number(stats.computers_count ?? stats.hosts_count ?? 0);
+        const softwareInventory = Number(stats.software_inventory_count ?? stats.software_count ?? stats.packages_count ?? stats.software_items ?? 0);
+        const osInventory = Number(stats.os_inventory_count ?? stats.os_count ?? stats.os_items ?? 0);
+        const sizeBytes = Number(stats.size_bytes ?? stats.size ?? 0);
+        const ttl = Number(stats.ttl_seconds ?? stats.ttl ?? 0);
+        const lastUpdated = stats.timestamp || stats.last_updated || stats.updated_at || null;
+        
+        // Enhanced performance metrics
+        const hitRate = stats.hit_rate || 0;
+        const avgResponseTime = stats.avg_response_time || 0;
+        const requestCount = stats.request_count || 0;
+        const errorCount = stats.error_count || 0;
+        const errorRate = stats.error_rate || 0;
+
+        const expiredBadge = expired ? '<span class="badge bg-warning ms-2">EXPIRED</span>' : '';
+        const cachedBadge = cached ? '<span class="badge bg-success ms-2">CACHED</span>' : '<span class="badge bg-secondary ms-2">NOT CACHED</span>';
+
+        const html = `
+        <div class="row">
+            <div class="col-md-12">
+                <h6>Inventory Context Cache ${cachedBadge} ${expiredBadge}</h6>
+                <div class="row">
+                    <div class="col-sm-3 cache-metric">
+                        <h4>${nf.format(entries)}</h4>
+                        <p class="mb-0">Entries</p>
+                    </div>
+                    <div class="col-sm-3 cache-metric">
+                        <h4>${nf.format(computers)}</h4>
+                        <p class="mb-0">Computers</p>
+                    </div>
+                    <div class="col-sm-3 cache-metric">
+                        <h4>${nf.format(softwareInventory)}</h4>
+                        <p class="mb-0">Software Items</p>
+                    </div>
+                    <div class="col-sm-3 cache-metric">
+                        <h4>${nf.format(osInventory)}</h4>
+                        <p class="mb-0">OS Items</p>
+                    </div>
+                </div>
+                ${(hitRate > 0 || avgResponseTime > 0 || requestCount > 0) ? `
+                <div class="row mt-3">
+                    ${hitRate > 0 ? `
+                    <div class="col-sm-3 cache-metric">
+                        <h5 class="text-success">${hitRate.toFixed(1)}%</h5>
+                        <p class="mb-0">Hit Rate</p>
+                    </div>
+                    ` : ''}
+                    ${avgResponseTime > 0 ? `
+                    <div class="col-sm-3 cache-metric">
+                        <h5 class="text-info">${avgResponseTime.toFixed(0)}ms</h5>
+                        <p class="mb-0">Avg Response</p>
+                    </div>
+                    ` : ''}
+                    ${requestCount > 0 ? `
+                    <div class="col-sm-3 cache-metric">
+                        <h5 class="text-primary">${nf.format(requestCount)}</h5>
+                        <p class="mb-0">Requests</p>
+                    </div>
+                    ` : ''}
+                    ${errorCount > 0 ? `
+                    <div class="col-sm-3 cache-metric">
+                        <h5 class="text-warning">${errorCount}</h5>
+                        <p class="mb-0">Errors (${errorRate.toFixed(1)}%)</p>
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
+                <div class="mt-3">
+                    <strong>Storage</strong>
+                    <ul class="list-unstyled mt-2">
+                        <li><strong>Size:</strong> ${sizeBytes > 0 ? (sizeBytes / 1024).toFixed(1) + ' KB' : '—'}</li>
+                        <li><strong>TTL:</strong> ${ttl > 0 ? ttl + 's' : '—'}</li>
+                        <li><strong>Age:</strong> ${ageText}</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="text-center">
+                    <h5 class="${cached ? (expired ? 'text-warning' : 'text-success') : 'text-muted'}">${cached ? (expired ? 'Expired' : 'Active') : 'Empty'}</h5>
+                    <small class="text-muted">Last updated: ${lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Never'}</small>
+                    ${expired ? '<div class="mt-2"><small class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Cache has expired and needs refresh</small></div>' : ''}
+                </div>
+            </div>
+        </div>
+        ${entries === 0 ? `
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>No inventory cache entries found.
+            </div>
+        ` : ''}
+    `;
+
+        document.getElementById('inventory-cache-stats').innerHTML = html;
+        // Update compact summary and last-updated badge in the header
+        // const inventorySummaryEl = document.getElementById('inventory-summary');
+        // if (inventorySummaryEl) {
+        //     const parts = [];
+        //     if (entries > 0) parts.push(`${nf.format(entries)} items`);
+        //     if (computers > 0) parts.push(`${nf.format(computers)} computers`);
+        //     if (softwareInventory > 0) parts.push(`${nf.format(softwareInventory)} software`);
+        //     inventorySummaryEl.textContent = parts.length > 0 ? parts.join(' • ') : 'No data';
+        // }
+
+        // const lastUpdatedEl = document.getElementById('inventory-last-updated');
+        // if (lastUpdatedEl) {
+        //     lastUpdatedEl.textContent = lastUpdated ? `Updated: ${new Date(lastUpdated).toLocaleString()}` : 'Never';
+        // }
+    }
+
+    async function resetInventoryStats() {
+        const confirmed = await showConfirmation('Reset Inventory Agent Statistics',
+            'This will reset the performance statistics for Software Inventory and OS Inventory agents. The actual cache data will not be affected. Continue?');
+
+        if (confirmed) {
+            try {
+                showAlert('Resetting inventory agent statistics...', 'info');
+                const response = await fetch('/api/cache/stats/reset', { method: 'POST' });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                console.log('Reset inventory stats result:', result);
+
+                showAlert('Inventory agent statistics reset successfully', 'success');
+
+                // Refresh the inventory section display
+                refreshInventoryCache();
+            } catch (error) {
+                showAlert(`Error resetting inventory statistics: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+    }
+
+    async function viewInventoryAgentDetails() {
+        try {
+            const response = await fetch('/api/cache/stats/enhanced');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const agentStats = data?.agent_stats?.agents || {};
+            const softwareStats = agentStats['software_inventory'];
+            const osStats = agentStats['os_inventory'];
+
+            if (!softwareStats && !osStats) {
+                showAlert('No inventory agent activity to display yet.', 'info');
+                return;
+            }
+
+            const detailsHtml = `
+                <h6>Inventory Agent Performance Details</h6>
+                
+                ${softwareStats ? `
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-cogs me-2"></i>Software Inventory Agent</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Performance Metrics</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Total Requests:</strong> ${softwareStats.request_count}</li>
+                                    <li><strong>Cache Hit Rate:</strong> ${softwareStats.cache_hit_rate.toFixed(1)}%</li>
+                                    <li><strong>Average Response Time:</strong> ${softwareStats.avg_response_time_ms.toFixed(0)}ms</li>
+                                    <li><strong>Error Rate:</strong> ${softwareStats.error_rate.toFixed(1)}%</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Request Breakdown</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Cache Hits:</strong> ${softwareStats.cache_hits}</li>
+                                    <li><strong>Cache Misses:</strong> ${softwareStats.cache_misses}</li>
+                                    <li><strong>Errors:</strong> ${softwareStats.error_count}</li>
+                                    <li><strong>Last Request:</strong> ${new Date(softwareStats.last_request_time).toLocaleString()}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${osStats ? `
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-desktop me-2"></i>OS Inventory Agent</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Performance Metrics</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Total Requests:</strong> ${osStats.request_count}</li>
+                                    <li><strong>Cache Hit Rate:</strong> ${osStats.cache_hit_rate.toFixed(1)}%</li>
+                                    <li><strong>Average Response Time:</strong> ${osStats.avg_response_time_ms.toFixed(0)}ms</li>
+                                    <li><strong>Error Rate:</strong> ${osStats.error_rate.toFixed(1)}%</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Request Breakdown</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Cache Hits:</strong> ${osStats.cache_hits}</li>
+                                    <li><strong>Cache Misses:</strong> ${osStats.cache_misses}</li>
+                                    <li><strong>Errors:</strong> ${osStats.error_count}</li>
+                                    <li><strong>Last Request:</strong> ${new Date(osStats.last_request_time).toLocaleString()}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    These statistics show the performance of inventory agents that query Azure Log Analytics for software and OS inventory data.
+                </div>
+            `;
+
+            document.getElementById('cache-details-content').innerHTML = detailsHtml;
+            new bootstrap.Modal(document.getElementById('cacheDetailsModal')).show();
+        } catch (error) {
+            showAlert(`Error loading inventory agent details: ${error.message}`, 'error');
+            console.error('Error:', error);
+        }
+    }
+
+    // Helper Functions
+    function updateOverview() {
+        // This will be called after all cache data is loaded
+        // We'll update this with real data from the cache status calls
+    }
+
+    async function updateOverviewWithRealData() {
+        try {
+            console.log('Starting updateOverviewWithRealData...');
+            
+            // Get data from multiple sources including enhanced statistics
+            const [cacheStatusResponse, inventoryStatsResponse, enhancedStatsResponse] = await Promise.allSettled([
+                fetch('/api/cache/status').then(r => {
+                    console.log('Cache status response:', r.status);
+                    if (!r.ok) throw new Error(`Cache status failed: ${r.status}`);
+                    return r.json();
+                }),
+                fetch('/api/cache/inventory/stats').then(r => {
+                    console.log('Inventory stats response:', r.status);
+                    if (!r.ok) throw new Error(`Inventory stats failed: ${r.status}`);
+                    return r.json();
+                }),
+                fetch('/api/cache/stats/enhanced').then(r => {
+                    console.log('Enhanced stats response:', r.status);
+                    if (!r.ok) throw new Error(`Enhanced stats failed: ${r.status}`);
+                    return r.json();
+                })
+            ]);
+
+            // Process results
+            const cacheStatus = cacheStatusResponse.status === 'fulfilled' ? 
+                cacheStatusResponse.value : { success: false, error: cacheStatusResponse.reason?.message };
+            const inventoryStats = inventoryStatsResponse.status === 'fulfilled' ? 
+                inventoryStatsResponse.value : { success: false, error: inventoryStatsResponse.reason?.message };
+            const enhancedStats = enhancedStatsResponse.status === 'fulfilled' ? 
+                enhancedStatsResponse.value : { success: false, error: enhancedStatsResponse.reason?.message };
+
+            console.log('Endpoint results:', {
+                cacheStatus: cacheStatus.success || cacheStatus.error,
+                inventoryStats: inventoryStats.success || inventoryStats.error,
+                enhancedStats: enhancedStats.success || enhancedStats.error
+            });
+
+            let totalCacheItems = 0;
+            let activeAgents = 0;
+            let expiredItems = 0;
+            let cosmosItems = 0;
+            let hitRate = 0;
+
+            // Count from agent caches
+            if (cacheStatus.success) {
+                totalCacheItems += cacheStatus.total_cached_items || 0;
+                activeAgents = cacheStatus.cache_capable_agents || 0;
+
+                // Add Cosmos DB items if available
+                if (cacheStatus.cosmos_db_stats && cacheStatus.cosmos_db_stats.success) {
+                    cosmosItems = cacheStatus.cosmos_db_stats.total_items || 0;
+                    totalCacheItems += cosmosItems;
+                    expiredItems += cacheStatus.cosmos_db_stats.expired_items || 0;
+                }
+
+                // Update Cosmos DB health indicator
+                const cosmosHealthElement = document.getElementById('cosmos-health');
+                if (cosmosHealthElement) {
+                    if (cacheStatus.cosmos_db_available) {
+                        if (cosmosItems > 0) {
+                            cosmosHealthElement.className = 'cache-health healthy';
+                            cosmosHealthElement.textContent = `${cosmosItems} items`;
+                        } else {
+                            cosmosHealthElement.className = 'cache-health warning';
+                            cosmosHealthElement.textContent = 'Ready';
+                        }
+                    } else {
+                        cosmosHealthElement.className = 'cache-health error';
+                        cosmosHealthElement.textContent = 'Unavailable';
+                    }
+                }
+
+                // Update other health badges with readable content
+                const agentsBadge = document.getElementById('agents-health');
+                if (agentsBadge) {
+                    const agentsText = activeAgents > 0 ? `${activeAgents} agents` : 'Ready';
+                    agentsBadge.className = `cache-health ${activeAgents > 0 ? 'healthy' : 'warning'}`;
+                    agentsBadge.textContent = agentsText;
+                }
+
+                const inventoryBadge = document.getElementById('inventory-health');
+                if (inventoryBadge) {
+                    const invText = (inventoryStats && inventoryStats.cache_stats && inventoryStats.cache_stats.cached) ? 'Active' : 'Ready';
+                    inventoryBadge.className = `cache-health ${(inventoryStats && inventoryStats.cache_stats && inventoryStats.cache_stats.cached) ? 'healthy' : 'warning'}`;
+                    inventoryBadge.textContent = invText;
+                }
+            }
+
+            // Count from inventory cache
+            if (inventoryStats.success && inventoryStats.cache_stats.cached) {
+                totalCacheItems += inventoryStats.cache_stats.items_count || 0;
+                if (inventoryStats.cache_stats.expired) {
+                    expiredItems += inventoryStats.cache_stats.items_count || 0;
+                }
+            }
+
+            // Calculate cache hit rate from enhanced statistics
+            if (enhancedStats && enhancedStats.performance_summary) {
+                hitRate = enhancedStats.performance_summary.overall_hit_rate || 0;
+            } else {
+                // Fallback calculation from available data
+                const totalRequests = (enhancedStats?.agent_stats?.summary?.total_requests || 0) + 
+                                    (inventoryStats?.enhanced_stats?.total_requests || 0);
+                const totalHits = (enhancedStats?.agent_stats?.summary?.total_cache_hits || 0) + 
+                                (inventoryStats?.enhanced_stats?.hits || 0);
+                hitRate = totalRequests > 0 ? (totalHits / totalRequests * 100) : 0;
+            }
+
+            // Calculate average response time from enhanced statistics
+            let avgResponseTime = 0;
+            if (enhancedStats && enhancedStats.performance_summary) {
+                avgResponseTime = enhancedStats.performance_summary.avg_response_time || 0;
+            }
+
+            // Calculate total cache size (approximate)
+            let totalCacheSize = totalCacheItems > 0 ? `${totalCacheItems} items` : '--';
+            
+            // Update top-level statistics display with real data (with null checks)
+            const totalCacheSizeEl = document.getElementById('total-cache-size');
+            if (totalCacheSizeEl) {
+                totalCacheSizeEl.textContent = totalCacheSize;
+            }
+            
+            const cacheHitRateEl = document.getElementById('cache-hit-rate');
+            if (cacheHitRateEl) {
+                cacheHitRateEl.textContent = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+            }
+            
+            const avgResponseTimeEl = document.getElementById('avg-response-time');
+            if (avgResponseTimeEl) {
+                avgResponseTimeEl.textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
+            }
+            
+            // Update secondary overview elements (for other sections)
+            const totalCacheItemsEl = document.getElementById('total-cache-items');
+            if (totalCacheItemsEl) {
+                totalCacheItemsEl.textContent = totalCacheItems.toLocaleString();
+            }
+            
+            const activeAgentsEl = document.getElementById('active-agents');
+            if (activeAgentsEl) {
+                activeAgentsEl.textContent = activeAgents;
+            }
+            
+            // Use correct element ID (total-errors, not expired-items)
+            const totalErrorsEl = document.getElementById('total-errors');
+            if (totalErrorsEl) {
+                totalErrorsEl.textContent = expiredItems;
+            }
+
+            // Add performance metrics display if enhanced stats are available
+            if (enhancedStats && enhancedStats.performance_summary) {
+                updatePerformanceMetrics(enhancedStats.performance_summary);
+            }
+
+            // Update health indicators based on actual data availability
+            if (!cacheStatus.success) {
+                updateHealthIndicator('cosmos-health', 'error', 'Error');
+                updateHealthIndicator('agents-health', 'error', 'Error');
+            }
+            if (!inventoryStats.success) {
+                updateHealthIndicator('inventory-health', 'error', 'Error');
+            }
+
+            console.log('Overview updated with enhanced stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, enhancedStats: !!enhancedStats });
+        } catch (error) {
+            console.error('Error updating overview:', error);
+            console.error('Error stack:', error.stack);
+            
+            // Set error state for health indicators
+            updateHealthIndicator('cosmos-health', 'error', 'Error');
+            updateHealthIndicator('agents-health', 'error', 'Error');
+            updateHealthIndicator('inventory-health', 'error', 'Error');
+            
+            // Keep default values for top-level statistics (with null checks)
+            const totalCacheSizeEl = document.getElementById('total-cache-size');
+            if (totalCacheSizeEl) {
+                totalCacheSizeEl.textContent = '--';
+            }
+            
+            const cacheHitRateEl = document.getElementById('cache-hit-rate');
+            if (cacheHitRateEl) {
+                cacheHitRateEl.textContent = '--';
+            }
+            
+            const avgResponseTimeEl = document.getElementById('avg-response-time');
+            if (avgResponseTimeEl) {
+                avgResponseTimeEl.textContent = '--';
+            }
+            
+            // Keep default values for secondary overview elements (with null checks)
+            const totalCacheItemsEl = document.getElementById('total-cache-items');
+            if (totalCacheItemsEl) {
+                totalCacheItemsEl.textContent = '-';
+            }
+            
+            const activeAgentsEl = document.getElementById('active-agents');
+            if (activeAgentsEl) {
+                activeAgentsEl.textContent = '-';
+            }
+            
+            // Use correct element ID (total-errors, not expired-items)
+            const totalErrorsEl = document.getElementById('total-errors');
+            if (totalErrorsEl) {
+                totalErrorsEl.textContent = '-';
+            }
+            
+            // Re-throw for the caller to handle if needed
+            throw error;
+        }
+    }
+
+    // Debug function to test endpoints - can be called from browser console
+    window.debugCacheEndpoints = async function() {
+        console.log('=== Testing Cache Endpoints ===');
+        
+        try {
+            console.log('Testing /cache/status...');
+            const cacheStatus = await fetch('/api/cache/status');
+            console.log('Cache status:', cacheStatus.status, await cacheStatus.json());
+        } catch (e) {
+            console.error('Cache status failed:', e);
+        }
+        
+        try {
+            console.log('Testing /cache/stats/enhanced...');
+            const enhancedStats = await fetch('/api/cache/stats/enhanced');
+            const enhancedData = await enhancedStats.json();
+            console.log('Enhanced stats:', enhancedStats.status, enhancedData);
+            console.log('Available agents:', Object.keys(enhancedData?.agent_stats?.agents || {}));
+        } catch (e) {
+            console.error('Enhanced stats failed:', e);
+        }
+        
+        try {
+            console.log('Testing /cache/inventory/stats...');
+            const inventoryStats = await fetch('/api/cache/inventory/stats');
+            console.log('Inventory stats:', inventoryStats.status, await inventoryStats.json());
+        } catch (e) {
+            console.error('Inventory stats failed:', e);
+        }
+        
+        console.log('=== Test Complete ===');
+    };
+
+    // Debug function to trigger inventory requests and generate statistics
+    window.triggerInventoryRequests = async function() {
+        console.log('=== Triggering Inventory Requests ===');
+        
+        try {
+            console.log('Making inventory requests...');
+            const requests = [
+                fetch('/api/inventory/status'),
+                fetch('/api/inventory?days=1&limit=5'),
+                fetch('/api/inventory/raw/software?days=1&limit=5'),
+                fetch('/api/inventory/raw/os?days=1&limit=5')
+            ];
+            
+            const results = await Promise.allSettled(requests);
+            results.forEach((result, index) => {
+                const endpoints = ['/inventory/status', '/inventory', '/inventory/raw/software', '/inventory/raw/os'];
+                console.log(`${endpoints[index]}:`, result.status, result.status === 'fulfilled' ? 'success' : result.reason);
+            });
+            
+            // Wait a moment then refresh stats
+            setTimeout(async () => {
+                console.log('Refreshing stats after requests...');
+                await refreshInventoryCache();
+                await updateOverviewWithRealData();
+            }, 2000);
+            
+        } catch (e) {
+            console.error('Error triggering requests:', e);
+        }
+        
+        console.log('=== Requests Triggered ===');
+    };
+
+    function updatePerformanceMetrics(performanceData) {
+        try {
+            // Update cache overview with additional performance metrics
+            const overviewSection = document.getElementById('cache-overview');
+            
+            // Check if we already have performance metrics displayed
+            let performanceRow = document.getElementById('performance-metrics-row');
+            if (!performanceRow) {
+                // Create new row for performance metrics
+                performanceRow = document.createElement('div');
+                performanceRow.id = 'performance-metrics-row';
+                performanceRow.className = 'row g-4 mt-3';
+                performanceRow.innerHTML = `
+                    <div class="col-lg-3 col-md-6">
+                        <div class="cache-metric">
+                            <h4 id="requests-per-second">0</h4>
+                            <p>Requests/sec</p>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="cache-metric">
+                            <h4 id="uptime-display">0s</h4>
+                            <p>Uptime</p>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="cache-metric">
+                            <h4 id="error-rate">0%</h4>
+                            <p>Error Rate</p>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="cache-metric">
+                            <h4 id="total-requests">0</h4>
+                            <p>Total Requests</p>
+                        </div>
+                    </div>
+                `;
+                overviewSection.parentNode.appendChild(performanceRow);
+            }
+
+            // Update performance metrics with null checks
+            const requestsPerSecondEl = document.getElementById('requests-per-second');
+            if (requestsPerSecondEl) {
+                requestsPerSecondEl.textContent = (performanceData.requests_per_second || 0).toFixed(2);
+            }
+            
+            const uptimeDisplayEl = document.getElementById('uptime-display');
+            if (uptimeDisplayEl) {
+                uptimeDisplayEl.textContent = performanceData.uptime_formatted || '0s';
+            }
+            
+            const errorRateEl = document.getElementById('error-rate');
+            if (errorRateEl) {
+                errorRateEl.textContent = `${(performanceData.error_rate || 0).toFixed(1)}%`;
+            }
+            
+            const totalRequestsEl = document.getElementById('total-requests');
+            if (totalRequestsEl) {
+                totalRequestsEl.textContent = (performanceData.total_requests_served || 0).toLocaleString();
+            }
+
+        } catch (error) {
+            console.warn('Error updating performance metrics:', error);
+        }
+    }
+
+    function updateHealthIndicator(elementId, status, customText = null) {
+        const element = document.getElementById(elementId);
+        if (!element) return;
+        element.className = `cache-health ${status}`;
+
+        // Use custom text if provided, otherwise use default based on status
+        if (customText) {
+            element.textContent = customText;
+            // Store custom text in data attribute for consistency
+            element.dataset.healthText = customText;
+        } else {
+            // If no custom text, check for existing data attribute or use defaults
+            const providedText = element.dataset && element.dataset.healthText;
+            if (providedText && providedText !== 'Checking') {
+                element.textContent = providedText;
+            } else {
+                const defaultText = {
+                    'healthy': 'Ready',
+                    'warning': 'Ready', 
+                    'error': 'Error',
+                    'unavailable': 'Unavailable'
+                };
+                element.textContent = defaultText[status] || '';
+            }
+        }
+    }
+
+    async function clearAllCaches() {
+        const confirmed = await showConfirmation('Clear All Caches',
+            'This will clear ALL cache data across the entire system. This action cannot be undone and may impact performance temporarily.');
+
+        if (confirmed) {
+            try {
+                await Promise.all([
+                    fetch('/api/cache/clear', { method: 'POST' }),
+                    fetch('/api/cache/purge', { method: 'POST' }),
+                    fetch('/api/cache/cosmos/clear', { method: 'POST' })
+                ]);
+
+                showAlert('All caches cleared successfully', 'success');
+                refreshAllCaches();
+            } catch (error) {
+                showAlert('Error clearing caches', 'error');
+                console.error('Error:', error);
+            }
+        }
+    }
+
+    function showAlert(message, type = 'info') {
+        const alertClass = type === 'error' ? 'alert-danger' :
+            type === 'warning' ? 'alert-warning' :
+                type === 'success' ? 'alert-success' : 'alert-info';
+
+        const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas fa-${type === 'error' ? 'exclamation-triangle' :
+                type === 'warning' ? 'exclamation-triangle' :
+                    type === 'success' ? 'check-circle' : 'info-circle'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+
+        // Insert at the top of the main container
+        const container = document.querySelector('.container-fluid');
+        container.insertAdjacentHTML('afterbegin', alertHtml);
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            const alert = container.querySelector('.alert');
+            if (alert) {
+                alert.remove();
+            }
+        }, 5000);
+    }
+
+    function showConfirmation(title, message) {
+        return new Promise((resolve) => {
+            const confirmationMessageEl = document.getElementById('confirmation-message');
+            if (confirmationMessageEl) {
+                confirmationMessageEl.textContent = message;
+            }
+            
+            const modalTitleEl = document.querySelector('#confirmationModal .modal-title');
+            if (modalTitleEl) {
+                modalTitleEl.textContent = title;
+            }
+
+            const modal = new bootstrap.Modal(document.getElementById('confirmationModal'));
+            const confirmBtn = document.getElementById('confirm-action-btn');
+
+            const handleConfirm = () => {
+                modal.hide();
+                resolve(true);
+                confirmBtn.removeEventListener('click', handleConfirm);
+            };
+
+            const handleCancel = () => {
+                resolve(false);
+                confirmBtn.removeEventListener('click', handleConfirm);
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+            document.getElementById('confirmationModal').addEventListener('hidden.bs.modal', handleCancel, { once: true });
+
+            modal.show();
+        });
+    }
+
+    // Cleanup interval on page unload
+    window.addEventListener('beforeunload', function () {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+        }
+    });
+
+    // Global variable to track current agent being shown in performance modal
+    let currentPerformanceAgent = null;
+
+    // Show detailed performance metrics for a specific agent
+    async function showAgentPerformanceDetails(agentKey) {
+        currentPerformanceAgent = agentKey;
+        const modalTitle = document.getElementById('agentPerformanceModalLabel');
+        const modalBody = document.getElementById('agentPerformanceModalBody');
+        
+        modalTitle.innerHTML = `<i class="fas fa-chart-line me-2"></i>${agentKey.charAt(0).toUpperCase() + agentKey.slice(1)} Agent Performance`;
+        modalBody.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin me-2"></i>Loading performance details...</div>';
+        
+        const modal = new bootstrap.Modal(document.getElementById('agentPerformanceModal'));
+        modal.show();
+        
+        try {
+            // Fetch detailed performance data
+            const [agentStatsResponse, enhancedStatsResponse] = await Promise.all([
+                fetch('/api/cache/stats/agents'),
+                fetch('/api/cache/stats/enhanced')
+            ]);
+            
+            if (!agentStatsResponse.ok || !enhancedStatsResponse.ok) {
+                throw new Error('Failed to fetch performance data');
+            }
+            
+            const agentStatsData = await agentStatsResponse.json();
+            const enhancedStatsData = await enhancedStatsResponse.json();
+            
+            // Find the specific agent data
+            const agentData = agentStatsData.agents_with_cache?.find(a => 
+                (a.agent || a.name || '').toLowerCase() === agentKey.toLowerCase()
+            );
+            
+            const performanceData = enhancedStatsData.performance_by_agent?.[agentKey] || {};
+            
+            modalBody.innerHTML = generateAgentPerformanceDetails(agentKey, agentData, performanceData);
+            
+        } catch (error) {
+            console.error('Error loading agent performance details:', error);
+            modalBody.innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error loading performance details: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    // Generate detailed performance HTML for an agent
+    function generateAgentPerformanceDetails(agentKey, agentData, performanceData) {
+        if (!agentData) {
+            return `
+                <div class="alert alert-warning" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    No performance data available for ${agentKey} agent.
+                </div>
+            `;
+        }
+
+        const {
+            cache_size = 0,
+            local_cache_size = 0,
+            external_cache_size = 0,
+            executions = 0,
+            last_used = null,
+            has_cache = false,
+            can_purge = false
+        } = agentData;
+
+        const {
+            hit_rate = 0,
+            miss_rate = 0,
+            total_requests = 0,
+            cache_hits = 0,
+            cache_misses = 0,
+            avg_response_time = 0,
+            min_response_time = 0,
+            max_response_time = 0,
+            error_count = 0,
+            error_rate = 0,
+            recent_activity = []
+        } = performanceData;
+
+        const performanceScore = calculatePerformanceScore(hit_rate, avg_response_time, error_rate);
+        
+        return `
+            <div class="row">
+                <!-- Cache Overview -->
+                <div class="col-md-6 mb-4">
+                    <h6 class="fw-bold text-primary mb-3">
+                        <i class="fas fa-database me-2"></i>Cache Overview
+                    </h6>
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="border-end">
+                                        <h5 class="text-primary mb-1">${cache_size.toLocaleString()}</h5>
+                                        <small class="text-muted">Total Items</small>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="border-end">
+                                        <h5 class="text-success mb-1">${local_cache_size.toLocaleString()}</h5>
+                                        <small class="text-muted">Local Cache</small>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <h5 class="text-info mb-1">${external_cache_size.toLocaleString()}</h5>
+                                    <small class="text-muted">External Cache</small>
+                                </div>
+                            </div>
+                            <hr>
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <div class="border-end">
+                                        <h5 class="text-warning mb-1">${executions.toLocaleString()}</h5>
+                                        <small class="text-muted">Total Executions</small>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <h5 class="${can_purge ? 'text-success' : 'text-secondary'} mb-1">
+                                        <i class="fas fa-${can_purge ? 'check' : 'times'}"></i>
+                                    </h5>
+                                    <small class="text-muted">Purge Support</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics -->
+                <div class="col-md-6 mb-4">
+                    <h6 class="fw-bold text-success mb-3">
+                        <i class="fas fa-tachometer-alt me-2"></i>Performance Metrics
+                    </h6>
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span>Performance Score</span>
+                                    <span class="badge ${getScoreClass(performanceScore)} px-3">${performanceScore}%</span>
+                                </div>
+                                <div class="progress" style="height: 8px;">
+                                    <div class="progress-bar ${getScoreClass(performanceScore)}" 
+                                         style="width: ${performanceScore}%"></div>
+                                </div>
+                            </div>
+                            
+                            ${hit_rate > 0 ? `
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span>Cache Hit Rate</span>
+                                    <span class="badge ${hit_rate >= 80 ? 'bg-success' : hit_rate >= 60 ? 'bg-warning' : 'bg-danger'}">${hit_rate.toFixed(1)}%</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar ${hit_rate >= 80 ? 'bg-success' : hit_rate >= 60 ? 'bg-warning' : 'bg-danger'}" 
+                                         style="width: ${hit_rate}%"></div>
+                                </div>
+                                <small class="text-muted">${cache_hits} hits / ${total_requests} requests</small>
+                            </div>
+                            ` : ''}
+                            
+                            ${avg_response_time > 0 ? `
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span>Avg Response Time</span>
+                                    <span class="badge ${avg_response_time <= 500 ? 'bg-success' : avg_response_time <= 1000 ? 'bg-warning' : 'bg-danger'}">${avg_response_time.toFixed(0)}ms</span>
+                                </div>
+                                <small class="text-muted">Range: ${min_response_time}ms - ${max_response_time}ms</small>
+                            </div>
+                            ` : ''}
+                            
+                            ${error_count > 0 ? `
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span>Error Rate</span>
+                                    <span class="badge ${error_rate <= 5 ? 'bg-success' : error_rate <= 15 ? 'bg-warning' : 'bg-danger'}">${error_rate.toFixed(1)}%</span>
+                                </div>
+                                <small class="text-muted">${error_count} errors</small>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                ${recent_activity && recent_activity.length > 0 ? `
+                <div class="col-12">
+                    <h6 class="fw-bold text-info mb-3">
+                        <i class="fas fa-history me-2"></i>Recent Activity (Last ${recent_activity.length} requests)
+                    </h6>
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Type</th>
+                                            <th>Response Time</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${recent_activity.slice(0, 10).map(activity => `
+                                            <tr>
+                                                <td><small>${new Date(activity.timestamp).toLocaleString()}</small></td>
+                                                <td>
+                                                    <span class="badge ${activity.type === 'hit' ? 'bg-success' : 'bg-secondary'} text-uppercase">
+                                                        ${activity.type}
+                                                    </span>
+                                                </td>
+                                                <td>${activity.response_time ? activity.response_time.toFixed(0) + 'ms' : 'N/A'}</td>
+                                                <td>
+                                                    ${activity.error ? 
+                                                        '<span class="text-danger"><i class="fas fa-times"></i> Error</span>' : 
+                                                        '<span class="text-success"><i class="fas fa-check"></i> Success</span>'
+                                                    }
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <!-- Last Used Info -->
+                <div class="col-12 mt-3">
+                    <div class="alert ${last_used ? 'alert-info' : 'alert-warning'}" role="alert">
+                        <i class="fas fa-clock me-2"></i>
+                        <strong>Last Used:</strong> ${last_used ? new Date(last_used).toLocaleString() : 'Never'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Refresh performance details for currently shown agent
+    async function refreshAgentPerformanceDetails() {
+        if (currentPerformanceAgent) {
+            showAgentPerformanceDetails(currentPerformanceAgent);
+            // Also refresh the main performance dashboard
+            await updatePerformanceDashboard();
+        }
+    }
+</script>
+<!-- Cache Details Modal -->
+<div class="modal fade" id="cacheDetailsModal" tabindex="-1" aria-labelledby="cacheDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cacheDetailsModalLabel">Cache Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="cache-details-content">
+                <!-- Details will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmationModalLabel">Confirm Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmation-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirm-action-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Performance Details Modal -->
+<div class="modal fade" id="agentPerformanceModal" tabindex="-1" aria-labelledby="agentPerformanceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="agentPerformanceModalLabel">
+                    <i class="fas fa-chart-line me-2"></i>Agent Performance Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="agentPerformanceModalBody">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="refreshAgentPerformanceDetails()">
+                    <i class="fas fa-sync-alt me-1"></i>Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div> <!-- End Main Content Container -->
+
+{% endblock %}

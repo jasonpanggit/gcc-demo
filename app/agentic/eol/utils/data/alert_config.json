@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "critical": {
+    "period": 3,
+    "unit": "months",
+    "frequency": "weekly"
+  },
+  "warning": {
+    "period": 6,
+    "unit": "months",
+    "frequency": "monthly"
+  },
+  "info": {
+    "period": 12,
+    "unit": "months",
+    "frequency": "quarterly"
+  },
+  "email_recipients": [],
+  "webhook_url": null,
+  "smtp_settings": {
+    "enabled": false,
+    "server": "",
+    "port": 587,
+    "username": "",
+    "password": "",
+    "use_tls": true,
+    "use_ssl": false,
+    "from_email": "",
+    "from_name": "EOL Alert System"
+  },
+  "last_sent": {}
+}

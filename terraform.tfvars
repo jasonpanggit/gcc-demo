@@ -1,0 +1,124 @@
+# ==============================================================================
+# TERRAFORM VARIABLES EXAMPLE
+# ==============================================================================
+# Copy this file to terraform.tfvars and customize values for your deployment.
+# This file shows all available variables with their default values.
+#
+# IMPORTANT: Credentials should be in a separate credentials.tfvars file
+# Deploy with: terraform apply -var-file="credentials.tfvars" -var-file="terraform.tfvars"
+
+# ==============================================================================
+# GENERAL CONFIGURATION
+# ==============================================================================
+location     = "Australia East" # Change to your preferred Azure region
+environment  = "demo"           # dev, test, prod, demo
+project_name = "gcc"            # Your project identifier
+
+# ==============================================================================
+# HUB VIRTUAL NETWORK
+# ==============================================================================
+deploy_hub_vnet = false
+
+# Subnet Configuration (uncomment to customize)
+#hub_vnet_address_space = ["172.16.0.0/16"]
+#hub_firewall_subnet_prefix = "172.16.0.0/25"
+#hub_bastion_subnet_prefix = "172.16.1.0/24"
+#hub_gateway_subnet_prefix = "172.16.2.0/24"
+#hub_private_endpoint_subnet_prefix = "172.16.6.0/24"
+
+# ==============================================================================
+# HUB SERVICES
+# ==============================================================================
+deploy_hub_firewall         = false # Azure Firewall Premium
+deploy_bastion              = false # Azure Bastion
+deploy_expressroute_gateway = false # ExpressRoute Gateway
+deploy_vpn_gateway          = false # Site-to-Site VPN Gateway
+deploy_route_server         = false # Azure Route Server
+deploy_linux_nva            = false # Linux NVA
+deploy_squid_proxy          = false # Squid Proxy
+
+# ==============================================================================
+# AZURE FIREWALL
+# ==============================================================================
+hub_firewall_explicit_proxy     = false
+hub_firewall_explicit_proxy_nat = false
+#hub_firewall_explicit_proxy_http_port = 8080
+#hub_firewall_explicit_proxy_https_port = 8443
+hub_firewall_dns_proxy_enabled = false
+hub_firewall_arc_rules         = false
+hub_firewall_private_ip        = "172.16.0.4"
+
+# ==============================================================================
+# VPN GATEWAY
+# ==============================================================================
+vpn_gateway_sku        = "Basic" # VPN Gateway SKU (Basic, VpnGw1-5, VpnGw1AZ-5AZ)
+enable_vpn_gateway_bgp = false   # Enable BGP on VPN Gateway (requires non-Basic SKU)
+
+# ==============================================================================
+# AZURE ARC
+# ==============================================================================
+deploy_arc_private_link_scope            = false
+deploy_arc_service_principal             = false
+arc_service_principal_subscription_scope = false
+
+# ==============================================================================
+# AZURE MONITOR
+# ==============================================================================
+deploy_azure_monitor_private_link_scope = false
+#log_analytics_workspace_retention_days = 30
+#log_analytics_workspace_sku = "PerGB2018"
+
+# ==============================================================================
+# ON-PREMISES SIMULATION
+# ==============================================================================
+deploy_onprem_vnet = false
+#onprem_vnet_address_space = ["192.168.0.0/16"]
+deploy_onprem_windows_server_2025 = false
+deploy_onprem_windows_server_2016 = false
+onprem_windows_admin_username     = "azureuser"
+onprem_windows_admin_password     = "P@55w0rd1234"
+onprem_windows_arc_onboarding     = false
+onprem_windows_vpn_setup          = false # Setup Site-to-Site VPN tunnel
+
+# ==============================================================================
+# ADDITIONAL VNETS
+# ==============================================================================
+deploy_gen_vnet    = false
+deploy_nongen_vnet = false
+
+# ==============================================================================
+# NON-GEN SERVICES
+# ==============================================================================
+deploy_nongen_firewall = false
+
+# ==============================================================================
+# VNET PEERING
+# ==============================================================================
+deploy_hub_onprem_peering = false
+deploy_hub_nongen_peering = false
+deploy_hub_gen_peering    = false
+
+# ==============================================================================
+# STORAGE
+# ==============================================================================
+deploy_script_storage = false # Required for VM extensions and Arc onboarding
+
+# ==============================================================================
+# EXPRESSROUTE (requires separate circuit provisioning)
+# ==============================================================================
+#express_route_circuit_bandwidth = "100"
+#express_route_circuit_peering_location = "Singapore"
+#express_route_circuit_service_provider = "Equinix"
+#express_route_gateway_sku = "ErGw1AZ"
+
+# ==============================================================================
+# ADVANCED BGP (for complex routing scenarios)
+# ==============================================================================
+#enable_expressroute_gateway_bgp = false  # BGP for ExpressRoute Gateway and Route Server
+#enable_vpn_gateway_bgp = false           # BGP for VPN Gateway (separate from ExpressRoute)
+#nva_bgp_asn = 65001
+#expressroute_gateway_bgp_asn = 65515
+#vpn_gateway_bgp_asn = 65516
+#onprem_vpn_shared_key = "VpnSharedKey123!"  # Shared key for Site-to-Site VPN
+#enable_local_network_gateway_bgp = false    # Enable BGP on Local Network Gateway
+#local_network_gateway_bgp_asn = 65515       # BGP ASN for Local Network Gateway

@@ -1,0 +1,2908 @@
+{% extends "base.html" %}
+
+{% block title %}Software EOL Search - EOL Agentic Platform{% endblock %}
+
+{% block extra_head %}
+<script src="/static/js/agent-config.js"></script>
+{% endblock %}
+
+<!-- 
+EOL Search Template - Updated for Standardized Response Format
+This template now exclusively handles the standardized response format:
+{
+  "success": true/false,
+  "data": {
+    "software_name": "...",
+    "version": "...",
+    "eol_date": "...",
+    "support_end_date": "...",
+    "status": "active|deprecated|end_of_life",
+    "risk_level": "low|medium|high|critical",
+    "confidence": 0-100,
+    ...
+  },
+  "source": "agent_name",
+  "timestamp": "ISO_string"
+}
+Legacy format handling has been removed as all agents now use the standardized format.
+-->
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section">
+    <div class="hero-section::before"></div>
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title">
+                    <i class="fas fa-search me-3"></i>Software End-of-Life Search
+                </h1>
+                <p class="hero-subtitle">
+                    Discover software end-of-life information using our intelligent orchestrator system.
+                </p>
+                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                    <button class="btn action-btn action-btn-primary" onclick="clearCommunicationsStream()">
+                        <i class="fas fa-broom me-2"></i>Clear Communications
+                    </button>
+                    <button class="btn action-btn action-btn-secondary" onclick="clearSearchHistory()">
+                        <i class="fas fa-history me-2"></i>Clear History
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="container-fluid px-0">
+
+    <style>
+        /* EOL Search Styles - Consistent with other templates */
+        .hero-section {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+            color: white;
+            padding: var(--spacing-2xl);
+            border-radius: var(--radius-xl);
+            margin-bottom: var(--spacing-xl);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+            pointer-events: none;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .hero-title {
+            font-size: var(--font-size-3xl);
+            font-weight: 700;
+            margin-bottom: var(--spacing-md);
+            line-height: 1.2;
+        }
+
+        .hero-subtitle {
+            font-size: var(--font-size-lg);
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: var(--spacing-xl);
+            line-height: 1.5;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: var(--spacing-md);
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: var(--spacing-md) var(--spacing-xl);
+            font-weight: 600;
+            border-radius: var(--radius-lg);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            min-width: 160px;
+            justify-content: center;
+            border: none;
+        }
+
+        .action-btn-primary {
+            background: transparent;
+            color: white;
+            border: 2px solid white !important;
+        }
+
+        .action-btn-primary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 2px solid white !important;
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .action-btn-secondary {
+            background: transparent;
+            color: white;
+            border: 2px solid white !important;
+        }
+
+        .action-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid white !important;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* Modern Cards */
+        .modern-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--gray-200);
+            transition: var(--transition);
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .modern-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+
+        .modern-card .card-header {
+            background: linear-gradient(45deg, var(--gray-50) 0%, var(--gray-100) 100%);
+            border-bottom: 1px solid var(--gray-200);
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            padding: var(--spacing-lg);
+        }
+
+        .modern-card .card-body {
+            padding: var(--spacing-lg);
+        }
+
+        /* Stats Cards */
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--spacing-lg);
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .stats-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--gray-200);
+            transition: var(--transition);
+        }
+
+        .stats-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+
+        .stats-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary-color), var(--info-color));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto var(--spacing-md);
+            color: white;
+            font-size: 1.5rem;
+        }
+
+        .stats-content {
+            text-align: center;
+            padding: var(--spacing-lg);
+        }
+
+        .stats-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--dark-color);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .stats-label {
+            color: var(--secondary-color);
+            font-weight: 500;
+            margin: 0;
+        }
+
+        /* Custom styles for date badges to ensure visibility */
+        .badge {
+            font-size: 0.85em !important;
+            padding: 0.375rem 0.75rem !important;
+            font-weight: 600 !important;
+            border-radius: var(--radius-md) !important;
+        }
+
+        /* Legacy badge classes for backward compatibility */
+        .badge-danger {
+            background-color: var(--danger-color) !important;
+            color: white !important;
+        }
+
+        .badge-warning {
+            background-color: var(--warning-color) !important;
+            color: var(--dark-color) !important;
+        }
+
+        .badge-info {
+            background-color: var(--info-color) !important;
+            color: var(--dark-color) !important;
+        }
+
+        .badge-success {
+            background-color: var(--success-color) !important;
+            color: white !important;
+        }
+
+        .badge-secondary {
+            background-color: var(--secondary-color) !important;
+            color: white !important;
+        }
+
+        /* Modern Bootstrap 5 badge classes with enhanced visibility */
+        .badge.bg-primary {
+            background-color: var(--primary-color) !important;
+            color: white !important;
+        }
+
+        .badge.bg-secondary {
+            background-color: var(--secondary-color) !important;
+            color: white !important;
+        }
+
+        /* Form styling improvements */
+        .form-control-lg {
+            border-radius: var(--radius-md);
+            border: 2px solid var(--gray-200);
+            transition: var(--transition);
+        }
+
+        .form-control-lg:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.25);
+        }
+
+        .form-label {
+            color: var(--dark-color);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        /* Gradient button styling */
+        .btn-gradient-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            border: 2px solid var(--primary-color);
+            color: white;
+            font-weight: 600;
+            border-radius: var(--radius-lg);
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-gradient-primary:hover {
+            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-color) 100%);
+            border-color: var(--primary-dark);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .btn-gradient-primary:focus {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            border-color: var(--primary-color);
+            color: white;
+            box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.25);
+        }
+
+        .btn-gradient-primary:active {
+            background: var(--primary-dark);
+            border-color: var(--primary-dark);
+            color: white;
+            transform: translateY(0);
+        }
+
+        /* Agent communications styling */
+        .agent-communications {
+            border-radius: var(--radius-md) !important;
+            border: 1px solid var(--gray-200);
+        }
+
+        .task-summary {
+            background: linear-gradient(45deg, var(--gray-50), var(--gray-100));
+            border: 1px solid var(--gray-300);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            text-align: center;
+        }
+
+        .task-summary-header {
+            font-size: 0.95em;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .badge.bg-success {
+            background-color: var(--success-color) !important;
+            color: white !important;
+        }
+
+        .badge.bg-danger {
+            background-color: var(--danger-color) !important;
+            color: white !important;
+        }
+
+        .badge.bg-warning {
+            background-color: var(--warning-color) !important;
+            color: var(--dark-color) !important;
+        }
+
+        .badge.bg-info {
+            background-color: var(--info-color) !important;
+            color: var(--dark-color) !important;
+        }
+
+        .badge.bg-light {
+            background-color: #f8f9fa !important;
+            color: #000 !important;
+            border: 1px solid #dee2e6 !important;
+        }
+
+        .badge.bg-dark {
+            background-color: #212529 !important;
+            color: #f8f9fa !important;
+        }
+
+        /* Ensure card body text is visible */
+        .card-body strong {
+            color: #333 !important;
+        }
+
+        .card-body .text-muted {
+            color: #6c757d !important;
+        }
+
+        /* Agent Selection Visualization Styles */
+        .agent-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+        }
+
+        .microsoft-agent {
+            background-color: #0078d4;
+        }
+
+        .redhat-agent {
+            background-color: #ee0000;
+        }
+
+        .ubuntu-agent {
+            background-color: #e95420;
+        }
+
+        .endoflife-agent {
+            background-color: #6c757d;
+        }
+
+        .bing-agent {
+            background-color: #008272;
+        }
+
+        /* Search History Improvements */
+        #searchHistory .list-group-item {
+            border-left: none;
+            border-right: none;
+            border-radius: 0;
+            transition: background-color 0.2s ease;
+        }
+
+        #searchHistory .list-group-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        #searchHistory .list-group-item:first-child {
+            border-top: none;
+        }
+
+        #searchHistory .list-group-item:last-child {
+            border-bottom: none;
+        }
+
+        .text-truncate-custom {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        /* Responsive improvements for small screens */
+        @media (max-width: 768px) {
+
+            #searchHistory .list-group-item .row .col-md-8,
+            #searchHistory .list-group-item .row .col-md-4 {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+
+            #searchHistory .badge {
+                font-size: 0.65em !important;
+                margin-bottom: 0.25rem;
+            }
+        }
+
+        .rule-item {
+            padding: 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background-color: #ffffff;
+        }
+
+        .keyword-badges .badge {
+            font-size: 0.75em;
+        }
+
+        .selection-flow {
+            position: relative;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .step-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: #0d6efd;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .flow-arrow {
+            text-align: center;
+            color: #6c757d;
+            font-size: 16px;
+            margin: -5px 0;
+        }
+
+        .live-selection-display {
+            min-height: 100px;
+        }
+
+        .selected-agent {
+            display: inline-block;
+            margin: 4px;
+            padding: 8px 12px;
+            border-radius: 20px;
+            color: white;
+            font-size: 0.875em;
+            font-weight: 500;
+        }
+
+        .selected-agent.microsoft {
+            background-color: #0078d4;
+        }
+
+        .selected-agent.redhat {
+            background-color: #ee0000;
+        }
+
+        .selected-agent.ubuntu {
+            background-color: #e95420;
+        }
+
+        .selected-agent.endoflife {
+            background-color: #6c757d;
+        }
+
+        .selected-agent.bing {
+            background-color: #008272;
+        }
+
+        .agents-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .selected-agent {
+            transition: transform 0.2s ease;
+        }
+
+        .selected-agent:hover {
+            transform: translateY(-2px);
+        }
+
+        .live-selection-display .agents-container .selected-agent {
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Collapsible Section Styles */
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .collapsible-header:hover {
+            background-color: #e9ecef !important;
+        }
+
+        .collapse-toggle {
+            font-size: 0.9em;
+            transition: transform 0.2s;
+            margin-left: 0.5rem;
+        }
+
+        .collapse-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        /* Agent Communication Styles */
+        .agent-communication {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border-left: 3px solid #6c757d;
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            word-wrap: break-word;
+            clear: both;
+        }
+
+        .agent-communication.inventory-agent {
+            border-left-color: #0d6efd;
+        }
+
+        .agent-communication.microsoft-agent {
+            border-left-color: #dc3545;
+        }
+
+        .agent-communication.ubuntu-agent {
+            border-left-color: #fd7e14;
+        }
+
+        .agent-communication.enterprise-agent {
+            border-left-color: #198754;
+        }
+
+        .agent-communication.oracle-agent {
+            border-left-color: #dc3545;
+        }
+
+        .agent-communication.risk-coordinator {
+            border-left-color: #6f42c1;
+        }
+
+        .agent-communication.orchestrator-agent {
+            border-left-color: #20c997;
+        }
+
+        .agent-communication.os-agent {
+            border-left-color: #17a2b8;
+        }
+
+        .agent-communication.openai-agent {
+            border-left-color: #28a745;
+        }
+
+        .agent-communication.specialist-agent {
+            border-left-color: #007bff;
+        }
+
+        .agent-communication.coordinator-agent {
+            border-left-color: #ffc107;
+        }
+
+        .agent-communication.general-agent {
+            border-left-color: #6c757d;
+        }
+
+        /* Section margins for consistent full-width layout */
+        .main-search-section,
+        .agent-communication-section,
+        .search-history-section {
+            margin: 0 0 var(--spacing-xl) 0;
+        }
+    </style>
+
+    <!-- Use shared agent communications stylesheet to avoid duplication -->
+    <link rel="stylesheet" href="/static/css/agent_communication.css">
+
+    <!-- Main Search Interface -->
+    <div class="mb-5 main-search-section">
+        <div class="row g-4">
+            <!-- Search Input Section -->
+            <div class="col-12">
+                <div class="modern-card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-search me-2"></i>Software EOL Search
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="softwareSearchName" class="form-label fw-bold">Software Name:</label>
+                                <input type="text" class="form-control form-control-lg" id="softwareSearchName"
+                                    placeholder="e.g., Windows Server 2016, Ubuntu 18.04, .NET Framework 4.7, Red Hat Enterprise Linux 7"
+                                    onkeypress="handleSearchKeyPress(event)">
+                                <div class="form-text">Enter the software name you want to check for end-of-life
+                                    information</div>
+                            </div>
+
+                            <div class="col-md-3">
+                                <label for="softwareSearchVersion" class="form-label fw-bold">Version
+                                    (Optional):</label>
+                                <input type="text" class="form-control form-control-lg" id="softwareSearchVersion"
+                                    placeholder="e.g., 2016, 18.04, 4.7.2" onkeypress="handleSearchKeyPress(event)">
+                                <div class="form-text">Specific version if needed for more accurate results</div>
+                            </div>
+
+                            <div class="col-md-5">
+                                <label class="form-label fw-bold">&nbsp;</label>
+                                <button class="btn btn-gradient-primary btn-lg w-100" onclick="searchSoftwareEOL()"
+                                    id="searchButton">
+                                    <i class="fas fa-search me-2"></i>Search EOL Information
+                                </button>
+                                <div class="form-text">&nbsp;</div>
+                            </div>
+
+                            <!-- Quick Examples Row -->
+                            <div class="col-12 mt-4">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="fas fa-bolt me-2"></i>Quick Examples:
+                                </h6>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('Windows Server', '2016')">Windows Server 2016</button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('Ubuntu', '18.04')">Ubuntu 18.04</button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('.NET Framework', '4.7')">.NET Framework 4.7</button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('Red Hat Enterprise Linux', '7')">Red Hat Enterprise Linux
+                                        7</button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('CentOS', '7')">CentOS 7</button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="quickSearch('Java', '8')">Java 8</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Results Section -->
+            <div class="col-12">
+                <div class="modern-card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-line me-2"></i>Search Results
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="searchResult" style="min-height: 300px;">
+                            <div class="text-center text-muted py-5">
+                                <div class="stats-icon mb-3">
+                                    <i class="fas fa-info-circle"></i>
+                                </div>
+                                <h6 class="mb-3">Ready to Search</h6>
+                                <p class="mb-2">Enter a software name and click "Search EOL Information" to find
+                                    end-of-life details.</p>
+                                <p><small>The orchestrator agent will automatically select the best specialist agent for
+                                        your search.</small></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Communication Visualization -->
+        <div class="mb-5 agent-communication-section">
+            <div class="modern-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-1">
+                            <i class="fas fa-comments me-2"></i>Live Agent Communications
+                        </h5>
+                        <small class="text-muted">Real-time view of orchestrator operations during searches</small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="clearCommunicationsStream()">
+                        <i class="fas fa-broom me-1"></i>Clear
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="communicationsStream" class="agent-communications"
+                        style="height: 400px; overflow-y: auto; padding: 1.5rem; background-color: var(--gray-50); border-radius: var(--radius-md);">
+                        <div class="text-center text-muted py-5">
+                            <div class="stats-icon mb-3">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <h6 class="mb-3">⚙️ System Operations</h6>
+                            <p><small>Watch real-time task execution and agent coordination during searches</small></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search History -->
+            <div class="mb-5 search-history-section">
+                <div class="modern-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-history me-2"></i>Search History
+                        </h5>
+                        <button class="btn btn-sm btn-outline-danger" onclick="clearSearchHistory()"
+                            id="clearHistoryButton" style="display: none;">
+                            <i class="fas fa-trash me-1"></i>Clear History
+                        </button>
+                    </div>
+                    <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                        <div id="searchHistory">
+                            <div class="text-center text-muted py-4">
+                                <div class="stats-icon mb-3">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <p class="mb-0">Your recent searches will appear here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- End main container -->
+
+        <!-- Search Result Modal -->
+        <div class="modal fade" id="searchResultModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-xl" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Detailed EOL Information</h5>
+                        <button type="button" class="close" data-dismiss="modal">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="detailedSearchResult"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Communication Details Modal -->
+        <div class="modal fade" id="communicationModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Agent Communication Details</h5>
+                        <button type="button" class="close" data-dismiss="modal">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="communicationDetails"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div> <!-- End Main Content Container -->
+
+    <script>
+        let searchInProgress = false;
+        let searchHistory = [];
+        let urlParametersProcessed = false;
+
+        // Real-time communication polling
+        let communicationPollingInterval = null;
+        let lastCommunicationCount = 0;
+
+        function startCommunicationPolling() {
+            // Clear any existing polling
+            if (communicationPollingInterval) {
+                clearInterval(communicationPollingInterval);
+            }
+
+            // Reset counter
+            lastCommunicationCount = 0;
+
+            // Start polling every 2 seconds
+            communicationPollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/communications/eol');
+                    const data = await response.json();
+
+                    if (data.success && data.communications && data.communications.length > lastCommunicationCount) {
+                        // New communications available
+                        console.log(`New communications: ${data.communications.length} (was ${lastCommunicationCount})`);
+                        displayAgentCommunications(data.communications);
+                        lastCommunicationCount = data.communications.length;
+                    }
+                } catch (error) {
+                    console.error('Error polling communications:', error);
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        function stopCommunicationPolling() {
+            if (communicationPollingInterval) {
+                clearInterval(communicationPollingInterval);
+                communicationPollingInterval = null;
+            }
+        }
+
+        // Helper function to check if a date is expired
+        function isDateExpired(dateString) {
+            if (!dateString || dateString === 'Not specified' || dateString === 'Not available' || dateString === 'Available') {
+                return false;
+            }
+
+            try {
+                const date = new Date(dateString);
+                const today = new Date();
+                return date < today;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        // Helper function to get appropriate badge class and style for dates
+        function getDateBadge(date, baseClass) {
+            // Handle undefined, null, or empty values
+            if (!date || date === undefined || date === null || date === 'undefined' ||
+                date === 'Not specified' || date === 'Not available' || date === '') {
+                return '<span class="text-muted">Not specified</span>';
+            }
+
+            // Convert to string if it's not already
+            const dateStr = String(date);
+
+            if (dateStr === 'Available') {
+                return '<span class="badge badge-success" style="color: #f8f9fa;">Available</span>';
+            }
+
+            // Extract just the date part if there's additional text
+            let dateOnly = dateStr;
+            if (dateStr.includes('(')) {
+                dateOnly = dateStr.split('(')[0].trim();
+            }
+
+            const expired = isDateExpired(dateOnly);
+            if (expired) {
+                return `<span class="badge badge-danger" style="color: #f8f9fa; font-weight: bold;">${dateOnly}</span>`;
+            } else {
+                return `<span class="badge ${baseClass}" style="color: #f8f9fa;">${dateOnly}</span>`;
+            }
+        }
+
+        // Function to display search history
+        function displaySearchHistory() {
+            if (searchHistory.length === 0) {
+                $('#searchHistory').html('<p class="text-muted">Your recent searches will appear here.</p>');
+                $('#clearHistoryButton').hide();
+                return;
+            }
+
+            let html = '<div class="list-group list-group-flush">';
+
+            searchHistory.forEach((search, index) => {
+                const timestamp = new Date(search.timestamp).toLocaleString();
+                const hasResult = search.result && !search.result.error;
+                const fromInventory = search.source === 'inventory';
+
+                // Truncate long software names for better display
+                const displayName = search.software_name.length > 30 ?
+                    search.software_name.substring(0, 30) + '...' :
+                    search.software_name;
+
+                html += `
+            <div class="list-group-item px-0 py-2">
+                <div class="row align-items-center">
+                    <div class="col-md-8 col-12">
+                        <div class="d-flex flex-column">
+                            <div class="d-flex align-items-center flex-wrap">
+                                <strong class="text-truncate me-2" style="max-width: 200px;" title="${search.software_name}">
+                                    ${displayName}
+                                </strong>
+                                ${search.software_version ?
+                        `<span class="badge bg-secondary text-light me-2" style="font-size: 0.7em;">${search.software_version}</span>` :
+                        ''
+                    }
+                                ${fromInventory ?
+                        '<span class="badge bg-info text-dark" style="font-size: 0.7em;" title="Searched from inventory page"><i class="fas fa-list me-1"></i>Inventory</span>' :
+                        ''
+                    }
+                            </div>
+                            <small class="text-muted mt-1">
+                                <i class="fas fa-clock me-1"></i>${timestamp}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-12 mt-2 mt-md-0">
+                        <div class="d-flex align-items-center justify-content-md-end justify-content-start">
+                            ${hasResult ?
+                        '<span class="badge bg-success text-light me-2"><i class="fas fa-check me-1"></i>Found</span>' :
+                        '<span class="badge bg-warning text-dark me-2"><i class="fas fa-exclamation-triangle me-1"></i>No data</span>'
+                    }
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="repeatSearch('${search.software_name.replace(/'/g, "\\'")}', '${(search.software_version || '').replace(/'/g, "\\'")}')" 
+                                    title="Repeat this search">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+            });
+
+            html += '</div>';
+            $('#searchHistory').html(html);
+            $('#clearHistoryButton').show();
+        }
+
+        // Function to load search history from storage
+        function loadSearchHistoryFromStorage() {
+            try {
+                const stored = localStorage.getItem('eol_search_history');
+                if (stored) {
+                    searchHistory = JSON.parse(stored);
+                    displaySearchHistory();
+                }
+            } catch (error) {
+                console.error('Error loading search history:', error);
+                searchHistory = [];
+            }
+        }
+
+        // Function to update live agent selection preview  
+        function updateLiveAgentSelection() {
+            const softwareName = $('#softwareSearchName').val().trim();
+            const selectedAgents = getSelectedAgents(softwareName);
+            const container = $('#liveAgentSelection');
+
+            if (!softwareName) {
+                container.html(`
+            <div class="text-center text-muted">
+                <i class="fas fa-search fa-2x mb-2"></i>
+                <p class="mb-0">Enter a software name above to see which agents the orchestrator will select</p>
+            </div>
+        `);
+                return;
+            }
+
+            if (selectedAgents.length === 0) {
+                container.html(`
+            <div class="text-center text-muted">
+                <i class="fas fa-question-circle fa-2x mb-2"></i>
+                <p class="mb-0">No specific agents detected. Only EndOfLife.date and Bing fallback will be used.</p>
+            </div>
+        `);
+                return;
+            }
+
+            const agentsHtml = selectedAgents.map(agent => `
+        <div class="selected-agent ${agent.type}">
+            <i class="${agent.icon} me-2"></i>
+            <span>${agent.name}</span>
+            <small class="d-block mt-1" style="opacity: 0.8;">${agent.reason}</small>
+        </div>
+    `).join('');
+
+            container.html(`
+        <div class="mb-3">
+            <strong><i class="fas fa-robot me-2"></i>Selected Agents for "${softwareName}":</strong>
+        </div>
+        <div class="agents-container">
+            ${agentsHtml}
+        </div>
+        <div class="mt-3">
+            <small class="text-muted">
+                <i class="fas fa-info-circle me-1"></i>
+                Priority order: Official vendor agents → EndOfLife.date → Bing search (if needed)
+            </small>
+        </div>
+    `);
+        }
+
+        // Load search history on page load
+        function initializeSearchHistory() {
+            loadSearchHistoryFromStorage();
+
+            // Add event listener for live agent selection preview
+            $('#softwareSearchName').on('input', function () {
+                updateLiveAgentSelection();
+            });
+
+            // Initialize with empty state
+            updateLiveAgentSelection();
+        }
+
+        // Function to handle URL parameters for auto-population and search
+        function handleUrlParameters() {
+            // Prevent duplicate processing of URL parameters
+            if (urlParametersProcessed) {
+                return;
+            }
+
+            // Check if we have any search parameters at all
+            if (!window.location.search) {
+                // Mark URL parameters as processed since there are none to process
+                urlParametersProcessed = true;
+                return;
+            }
+
+            const urlParams = new URLSearchParams(window.location.search);
+
+            // Get all parameters
+            const name = urlParams.get('name');
+            const version = urlParams.get('version');
+            const autosearch = urlParams.get('autosearch');
+            const nosearch = urlParams.get('nosearch');
+
+            // Also try getting parameters manually as fallback
+            const searchString = window.location.search;
+            const manualNameMatch = searchString.match(/[?&]name=([^&]*)/);
+            const manualVersionMatch = searchString.match(/[?&]version=([^&]*)/);
+
+            // Check if form fields exist before processing
+            const nameFieldJS = document.getElementById('softwareSearchName');
+            const versionFieldJS = document.getElementById('softwareSearchVersion');
+
+            if (name || manualNameMatch) {
+                const nameValue = name || (manualNameMatch ? decodeURIComponent(manualNameMatch[1]) : '');
+
+                // Clean and parse the software name for better matching
+                const cleanName = cleanSoftwareName(nameValue);
+                const parsedInfo = parseVersionFromName(cleanName);
+
+                // Fill the software name field with the cleaned name
+                const finalName = parsedInfo.name || cleanName;
+
+                // Set value using vanilla JavaScript first
+                if (nameFieldJS) {
+                    nameFieldJS.value = finalName;
+
+                    // Force trigger change event
+                    const changeEvent = new Event('change', { bubbles: true });
+                    const inputEvent = new Event('input', { bubbles: true });
+                    nameFieldJS.dispatchEvent(changeEvent);
+                    nameFieldJS.dispatchEvent(inputEvent);
+                }
+
+                // Also try jQuery if available
+                if (typeof $ !== 'undefined') {
+                    const nameFieldJQ = $('#softwareSearchName');
+                    if (nameFieldJQ && nameFieldJQ.length > 0) {
+                        nameFieldJQ.val(finalName);
+                        nameFieldJQ.trigger('change');
+                        nameFieldJQ.trigger('input');
+                    }
+                }
+
+                // Call updateLiveAgentSelection if available
+                if (typeof updateLiveAgentSelection === 'function') {
+                    updateLiveAgentSelection();
+                }
+
+                // Determine the final version to use
+                let finalVersion = '';
+                const versionValue = version || (manualVersionMatch ? decodeURIComponent(manualVersionMatch[1]) : '');
+
+                if (versionValue) {
+                    // Use explicit version parameter if provided
+                    finalVersion = versionValue.trim();
+                } else if (parsedInfo.version) {
+                    // Use extracted version from name if available
+                    finalVersion = parsedInfo.version;
+                }
+
+                // Fill the version field if we have a version
+                if (finalVersion) {
+                    // Set value using vanilla JavaScript first
+                    if (versionFieldJS) {
+                        versionFieldJS.value = finalVersion;
+
+                        // Force trigger change event
+                        const changeEvent = new Event('change', { bubbles: true });
+                        const inputEvent = new Event('input', { bubbles: true });
+                        versionFieldJS.dispatchEvent(changeEvent);
+                        versionFieldJS.dispatchEvent(inputEvent);
+                    }
+
+                    // Also try jQuery if available
+                    if (typeof $ !== 'undefined') {
+                        const versionFieldJQ = $('#softwareSearchVersion');
+                        if (versionFieldJQ && versionFieldJQ.length > 0) {
+                            versionFieldJQ.val(finalVersion);
+                            versionFieldJQ.trigger('change');
+                            versionFieldJQ.trigger('input');
+                        }
+                    }
+                }
+
+                // Auto-trigger search if autosearch=true or if nosearch parameter is not present
+                if (autosearch === 'true' || (!nosearch && !autosearch)) {
+                    // Mark URL parameters as processed before triggering search
+                    urlParametersProcessed = true;
+
+                    // Auto-trigger search after a brief delay to allow UI to update
+                    setTimeout(() => {
+                        // Call search function if available
+                        if (typeof searchSoftwareEOL === 'function') {
+                            searchSoftwareEOL();
+                        }
+                    }, 1000);
+                } else {
+                    // Mark URL parameters as processed even if not auto-searching
+                    urlParametersProcessed = true;
+                }
+            } else {
+                // Mark URL parameters as processed even if no name parameter was found
+                urlParametersProcessed = true;
+            }
+        }
+
+        // Function to clean software names for better EOL matching
+        function cleanSoftwareName(name) {
+            if (!name) return name;
+
+            // Remove common noise patterns that might interfere with EOL lookup
+            let cleaned = name
+                .replace(/\s*\(Arc-enabled\)/gi, '')  // Remove Arc-enabled markers
+                .replace(/\s*\(x64\)/gi, '')          // Remove architecture markers
+                .replace(/\s*\(x86\)/gi, '')
+                .replace(/\s*64-bit/gi, '')
+                .replace(/\s*32-bit/gi, '')
+                .replace(/\s*\([^)]*bit[^)]*\)/gi, '') // Remove any parenthetical bit references
+                .replace(/\s+/g, ' ')                  // Normalize whitespace
+                .trim();
+
+            return cleaned;
+        }
+
+        // Function to extract version information from software name
+        function parseVersionFromName(name) {
+            if (!name) return { name: name, version: null };
+
+            // Common version patterns to extract
+            const versionPatterns = [
+                // Standard version patterns: "Software 2019", "Windows Server 2016"
+                /^(.+?)\s+(\d{4})$/i,
+                // Version with dots: "Software 1.2.3"
+                /^(.+?)\s+(v?(?:\d+\.)+\d+(?:\.\d+)*)$/i,
+                // Version with single number: "Software 12"
+                /^(.+?)\s+v?(\d+)$/i,
+                // Ubuntu-style: "Ubuntu 20.04", "RHEL 8.5"
+                /^(.+?)\s+(\d+\.\d+(?:\.\d+)?)$/i,
+            ];
+
+            for (const pattern of versionPatterns) {
+                const match = name.match(pattern);
+                if (match) {
+                    const baseName = match[1].trim();
+                    const version = match[2].trim();
+
+                    // Validate that we're not accidentally parsing a valid part of the name
+                    if (!isCommonSoftwareWord(version)) {
+                        return {
+                            name: baseName,
+                            version: version
+                        };
+                    }
+                }
+            }
+
+            return { name: name, version: null };
+        }
+
+        // Helper to identify words that shouldn't be treated as versions
+        function isCommonSoftwareWord(word) {
+            if (!word || typeof word !== 'string') {
+                return false;
+            }
+            const commonWords = [
+                'server', 'client', 'pro', 'professional', 'enterprise', 'standard',
+                'express', 'developer', 'runtime', 'framework', 'sdk', 'tools',
+                'service', 'pack', 'update', 'hotfix', 'patch'
+            ];
+            return commonWords.includes(word.toLowerCase());
+        }
+
+        // Function to determine which agents would be selected based on software name
+        function getSelectedAgents(softwareName) {
+            if (!softwareName || typeof softwareName !== 'string') {
+                return [];
+            }
+
+            const softwareNameLower = softwareName.toLowerCase();
+            const selectedAgents = [];
+
+            // Microsoft products
+            const msKeywords = ['windows', 'microsoft', 'office', 'sql server', 'iis', 'visual studio', '.net'];
+            if (msKeywords.some(keyword => softwareNameLower.includes(keyword))) {
+                selectedAgents.push({
+                    name: 'Microsoft Agent',
+                    type: 'microsoft',
+                    icon: 'fab fa-microsoft',
+                    reason: 'Microsoft product detected'
+                });
+            }
+
+            // Red Hat products
+            const rhKeywords = ['red hat', 'rhel', 'centos', 'fedora'];
+            if (rhKeywords.some(keyword => softwareNameLower.includes(keyword))) {
+                selectedAgents.push({
+                    name: 'Red Hat Agent',
+                    type: 'redhat',
+                    icon: 'fab fa-redhat',
+                    reason: 'Red Hat product detected'
+                });
+            }
+
+            // Ubuntu products
+            const ubuntuKeywords = ['ubuntu', 'canonical'];
+            if (ubuntuKeywords.some(keyword => softwareNameLower.includes(keyword))) {
+                selectedAgents.push({
+                    name: 'Ubuntu Agent',
+                    type: 'ubuntu',
+                    icon: 'fab fa-ubuntu',
+                    reason: 'Ubuntu product detected'
+                });
+            }
+
+            // Always include endoflife.date as fallback
+            selectedAgents.push({
+                name: 'EndOfLife.date Agent',
+                type: 'endoflife',
+                icon: 'fas fa-calendar-times',
+                reason: 'Always included as fallback'
+            });
+
+            return selectedAgents;
+        }
+
+        // Software EOL Search Functions
+        async function clearCommunicationsStream() {
+            try {
+                // First, clear the backend orchestrator communications log
+                const response = await fetch('/api/communications/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error('Backend communications clear failed:', response.statusText);
+                }
+
+                // Reset polling counter
+                lastCommunicationCount = 0;
+
+            } catch (error) {
+                console.error('Error clearing backend communications:', error.message);
+            }
+
+            // Clear any existing communications from previous searches
+            const commContainer = document.getElementById('communicationsStream');
+            if (commContainer) {
+                // Completely clear all content first
+                commContainer.innerHTML = '';
+
+                // Reset to the default empty state message
+                const defaultContent = `
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-robot fa-2x mb-3"></i>
+                    <p>⚙️ System operations will appear here</p>
+                    <p><small>Watch real-time operation status during searches</small></p>
+                </div>
+            `;
+                commContainer.innerHTML = defaultContent;
+            }
+
+            // Also clear using jQuery if available (for compatibility)
+            if (typeof $ !== 'undefined') {
+                const $container = $('#communicationsStream');
+                if ($container.length) {
+                    $container.empty().html(`
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-robot fa-2x mb-3"></i>
+                        <p>⚙️ System operations will appear here</p>
+                        <p><small>Watch real-time operation status during searches</small></p>
+                    </div>
+                `);
+                }
+            }
+
+            // Clear interactions using AgentComm if available
+            if (window.AgentComm && typeof window.AgentComm.clearAllCommunications === 'function') {
+                window.AgentComm.clearAllCommunications();
+            }
+
+            // Clear any AgentComm handlers that might have cached data
+            if (window.AgentComm && typeof window.AgentComm.clearHandler === 'function') {
+                try {
+                    window.AgentComm.clearHandler('communicationsStream');
+                } catch (e) {
+                    // Silent fail - not critical
+                }
+            }
+        }
+
+        function handleSearchKeyPress(event) {
+            if (event.key === 'Enter') {
+                searchSoftwareEOL();
+            }
+        }
+
+        function quickSearch(software, version) {
+            $('#softwareSearchName').val(software);
+            $('#softwareSearchVersion').val(version);
+            searchSoftwareEOL();
+        }
+
+        // Function to calculate confidence level for search optimization
+        function calculateSearchConfidence(name, version) {
+            let confidence = 0.5; // Base confidence
+
+            // Increase confidence for well-known software patterns
+            const knownPatterns = [
+                /windows.*server/i, /microsoft.*office/i, /visual.*studio/i,
+                /red.*hat/i, /rhel/i, /ubuntu/i, /centos/i,
+                /sql.*server/i, /\.net/i, /iis/i
+            ];
+
+            if (knownPatterns.some(pattern => pattern.test(name))) {
+                confidence += 0.3;
+            }
+
+            // Increase confidence if version is provided
+            if (version) {
+                confidence += 0.2;
+
+                // Boost for year-based versions (common for enterprise software)
+                if (/^\d{4}$/.test(version)) {
+                    confidence += 0.1;
+                }
+            }
+
+            return Math.min(confidence, 1.0);
+        }
+
+        function searchSoftwareEOL() {
+            const rawName = $('#softwareSearchName').val().trim();
+            const rawVersion = $('#softwareSearchVersion').val().trim();
+
+            if (!rawName) {
+                alert('Please enter a software name to search for.');
+                $('#softwareSearchName').focus();
+                return;
+            }
+
+            if (searchInProgress) {
+                alert('Search already in progress. Please wait for it to complete.');
+                return;
+            }
+
+            // Start search initialization
+            searchInProgress = true;
+
+            // Start real-time communication polling
+            startCommunicationPolling();
+
+            const button = $('#searchButton');
+            button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Preparing Search...');
+
+            // Continue with search immediately
+            continueWithSearch(rawName, rawVersion);
+        }
+
+        // Continuation of search after clearing communications
+        function continueWithSearch(rawName, rawVersion) {
+            // IMPORTANT: Clear communications stream and history FIRST before anything else
+            clearCommunicationsStream();
+
+            // Clean and optimize search parameters
+            const cleanName = cleanSoftwareName(rawName);
+            const parsedInfo = parseVersionFromName(cleanName);
+
+            // Use the best available name and version
+            const softwareName = parsedInfo.name || cleanName;
+            const softwareVersion = rawVersion || parsedInfo.version || null;
+
+            // Update form fields with cleaned values if they were changed
+            if (softwareName !== rawName) {
+                $('#softwareSearchName').val(softwareName);
+            }
+            if (softwareVersion && !rawVersion) {
+                $('#softwareSearchVersion').val(softwareVersion);
+            }
+
+            // Update button to show active searching
+            const button = $('#searchButton');
+            button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Searching...');
+
+            // Clear previous results and show searching state
+            $('#searchResult').html(`
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Searching...</span>
+            </div>
+            <h6 class="mt-3">Searching for EOL information...</h6>
+            <p class="text-muted">Software: <strong>${softwareName}</strong>${softwareVersion ? ` (Version: ${softwareVersion})` : ''}</p>
+            <p><small>The orchestrator is selecting the best agent for your search...</small></p>
+        </div>
+    `);
+
+            // Add initial search message to communications stream
+            // setTimeout(() => {
+            $('#communicationsStream').html(`
+        <div class="text-info mb-2">
+            <i class="fas fa-search"></i> <strong>[${new Date().toLocaleTimeString()}] Starting EOL search</strong>
+        </div>
+        <div class="text-muted mb-2">
+            → Software: <strong>${softwareName}</strong>${softwareVersion ? ` (${softwareVersion})` : ''}
+        </div>
+    `);
+            // }, 100);
+
+            // Prepare optimized search request
+            const searchData = {
+                software_name: softwareName
+            };
+
+            if (softwareVersion) {
+                searchData.software_version = softwareVersion;
+            }
+
+            // Add search optimization hints
+            searchData.search_hints = {
+                original_name: rawName,
+                cleaned_name: softwareName,
+                extracted_version: parsedInfo.version,
+                provided_version: rawVersion,
+                confidence_level: calculateSearchConfidence(softwareName, softwareVersion)
+            };
+
+            // Two-stage search strategy: try name only first, then name + version
+            performTwoStageSearch(softwareName, softwareVersion, searchData, rawName);
+        }
+
+        // Two-stage search function: try name + version first (if available), then name only
+        async function performTwoStageSearch(softwareName, softwareVersion, baseSearchData, rawName) {
+            const button = $('#searchButton');
+
+            try {
+                // Determine search stages based on version availability
+                const searchStages = softwareVersion ?
+                    [
+                        { type: 'name_and_version', hasVersion: true, stage: 1 },
+                        { type: 'name_only', hasVersion: false, stage: 2 }
+                    ] :
+                    [
+                        { type: 'name_only', hasVersion: false, stage: 1 }
+                    ];
+
+                // Try each search stage until we find valid data
+                for (const searchStage of searchStages) {
+                    console.log(`🔍 Starting search stage ${searchStage.stage} (${searchStage.type})`);
+                    const data = await performSingleSearch(
+                        softwareName,
+                        softwareVersion,
+                        baseSearchData,
+                        searchStage
+                    );
+
+                    console.log(`Stage ${searchStage.stage} result:`, data);
+
+                    // If we found valid data, display and return
+                    if (data.success) {
+                        console.log(`🎯 Valid EOL data found in stage ${searchStage.stage} (${searchStage.type})`);
+                        await finalizeSuccessfulSearch(data, softwareName, softwareVersion, button);
+                        return;
+                    }
+
+                    // If this was an error and we have no more stages, handle the error
+                    if (data.error && searchStage === searchStages[searchStages.length - 1]) {
+                        console.error(`❌ Search error in final stage: ${data.error}`);
+                        await finalizeFailedSearch(data, button);
+                        return;
+                    }
+
+                    // If no valid data but no error, continue to next stage (if any)
+                    if (!data.success && searchStage !== searchStages[searchStages.length - 1]) {
+                        console.log(`ℹ️ No valid data in stage ${searchStage.stage} (${searchStage.type}), trying next stage...`);
+                        logStageTransition(searchStage.stage);
+                    }
+                }
+
+                // If we get here, no stages found valid data
+                await finalizeFailedSearch({
+                    error: 'No valid EOL data found in any search stage',
+                    data: null
+                }, button);
+
+            } catch (error) {
+                console.error('Critical error in performTwoStageSearch:', error);
+                await finalizeFailedSearch({
+                    error: error.message || 'Unknown error occurred during search',
+                    data: null
+                }, button);
+            }
+        }
+
+        // Perform a single search stage
+        async function performSingleSearch(softwareName, softwareVersion, baseSearchData, searchStage) {
+            const { type, hasVersion, stage } = searchStage;
+
+            // Log search stage start
+            logSearchStageStart(stage, type, softwareName, hasVersion ? softwareVersion : null);
+
+            // Prepare search data
+            const searchData = createSearchData(softwareName, softwareVersion, baseSearchData, type);
+
+            try {
+                // Perform the API request
+                const response = await fetch('/api/search/eol', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(searchData)
+                });
+
+                // Handle response
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                // Validate and process the response
+                // const processedResult = processSearchResponse(data, stage, searchData);
+
+                // Check if we have valid EOL data
+                const hasValidData = hasValidEOLData(data.result)
+
+                if (hasValidData) {
+                    logSearchStageSuccess(stage, type);
+                }
+
+                return {
+                    success: hasValidData,
+                    data: data,
+                    searchData,
+                    stage,
+                    error: null
+                };
+
+            } catch (error) {
+                console.error(`Stage ${stage} (${type}) error:`, error);
+                logSearchStageError(stage, type, error.message);
+
+                return {
+                    success: false,
+                    data: createErrorResponse(error.message, stage),
+                    searchData,
+                    stage,
+                    error: error.message
+                };
+            }
+        }
+
+        // Create search data for a specific search type
+        function createSearchData(softwareName, softwareVersion, baseSearchData, searchType) {
+            const searchData = {
+                software_name: softwareName,
+                search_hints: {
+                    ...baseSearchData.search_hints,
+                    search_strategy: searchType
+                }
+            };
+
+            if (searchType === 'name_and_version' && softwareVersion) {
+                searchData.software_version = softwareVersion;
+            } else if (searchType === 'name_only') {
+                searchData.search_hints.confidence_level = calculateSearchConfidence(softwareName, '');
+            }
+
+            return searchData;
+        }
+
+        // Process search response and normalize format
+        // function processSearchResponse(data, stage, searchData) {
+        //     console.log(`🔍 Processing search response for stage ${stage}`);
+
+        //     let result = null;
+        //     let success = false;
+
+        //     if (data.result) {
+        //         result = data.result;
+        //     }
+
+        //     return {
+        //         ...data,
+        //         success,
+        //         result,
+        //         search_stage: stage,
+        //         searchData
+        //     };
+        // }
+
+        // Create error response object
+        function createErrorResponse(errorMessage, stage) {
+            return {
+                result: null,
+                error: errorMessage,
+                communication_history: [],
+                timestamp: new Date().toISOString(),
+                search_stage: stage,
+                success: false
+            };
+        }
+
+        // Finalize successful search
+        async function finalizeSuccessfulSearch(raw, softwareName, softwareVersion, button) {
+            console.log('🎯 Search successful - displaying results');
+
+            // Display search results
+            displayEnhancedSearchResult(raw);
+
+            // Display agent communications
+            await displaySearchCommunications(raw.data);
+
+            // Cleanup and finalize
+            finishSearch(button, true);
+            addToSearchHistory(softwareName, softwareVersion, raw.data);
+
+            console.log('✅ Search process completed successfully');
+        }
+
+        // Finalize failed search
+        async function finalizeFailedSearch(raw, button) {
+            console.error('❌ Search failed:', raw.error);
+
+            // Display error message
+            displaySearchError(raw.error || 'Search failed');
+
+            // Show error in communications
+            displayErrorCommunications(raw.error || 'Search failed');
+
+            // Cleanup
+            finishSearch(button, false);
+        }
+
+        // Display agent communications from search result
+        async function displaySearchCommunications(data) {
+            // Extract communications from various possible fields
+            const agentComms = extractCommunications(data);
+
+            if (agentComms.length > 0) {
+                console.log(`🎯 Displaying ${agentComms.length} agent communications`);
+                try {
+                    displayAgentCommunications(agentComms);
+                    console.log('✅ Agent communications displayed successfully');
+                } catch (commError) {
+                    console.error('❌ Error displaying agent communications:', commError);
+                    displayErrorCommunications('Could not display agent communications');
+                }
+            } else {
+                console.log('🎯 No agent communications found - showing simple completion message');
+                displaySimpleCompletionMessage();
+            }
+        }
+
+        // Extract communications from search data
+        function extractCommunications(data) {
+            // Try standard fields first
+            const standardFields = ['agent_communications', 'communications', 'communication_history'];
+
+            for (const field of standardFields) {
+                if (Array.isArray(data[field]) && data[field].length > 0) {
+                    return data[field];
+                }
+            }
+
+            // Search through all fields for arrays that look like communications
+            for (const [key, value] of Object.entries(data)) {
+                if (Array.isArray(value) && value.length > 0) {
+                    // Check if this looks like communications data
+                    const firstItem = value[0];
+                    if (firstItem && (firstItem.agent_name || firstItem.agentName || firstItem.timestamp)) {
+                        console.log(`🔍 Found communications in field: ${key}`);
+                        return value;
+                    }
+                }
+            }
+
+            return [];
+        }
+
+        // Finish search and cleanup
+        function finishSearch(button, success) {
+            stopCommunicationPolling();
+            searchInProgress = false;
+            button.prop('disabled', false).html('<i class="fas fa-search"></i> Search EOL Information');
+        }
+
+        // Display simple completion message
+        function displaySimpleCompletionMessage() {
+            const commContainer = document.getElementById('communicationsStream');
+            if (commContainer) {
+                commContainer.innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
+                        <p><strong>EOL Search Completed</strong></p>
+                        <p>Used optimized single-agent routing for fast results.</p>
+                        <p><small>For detailed multi-agent interactions, use the <a href="/chat" class="text-decoration-none">Chat Interface</a></small></p>
+                    </div>
+                `;
+            }
+        }
+
+        // Display error in search results
+        function displaySearchError(errorMessage) {
+            $('#searchResult').html(`
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle"></i> Search Failed</h6>
+                    <p>${errorMessage}</p>
+                    <button class="btn btn-sm btn-outline-primary" onclick="searchSoftwareEOL()">
+                        <i class="fas fa-redo"></i> Retry Search
+                    </button>
+                </div>
+            `);
+        }
+
+        // Display error in communications
+        function displayErrorCommunications(errorMessage) {
+            const commContainer = document.getElementById('communicationsStream');
+            if (commContainer) {
+                commContainer.innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-exclamation-triangle fa-2x mb-3 text-danger"></i>
+                        <p><strong>Search Error</strong></p>
+                        <p>${errorMessage}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Logging functions
+        function logSearchStageStart(stage, type, softwareName, softwareVersion) {
+            const versionText = softwareVersion ? ` version "${softwareVersion}"` : ' (no version)';
+            const stageLabel = type === 'name_and_version' ? 'Name + version search' : 'Name-only search';
+
+            appendToCommunicationsStream(`
+                <div class="text-info mb-2">
+                    <i class="fas fa-search"></i> <strong>[${new Date().toLocaleTimeString()}] Stage ${stage}: ${stageLabel}</strong>
+                </div>
+                <div class="text-muted mb-2">
+                    → Searching for: "<strong>${softwareName}</strong>"${versionText}
+                </div>
+            `);
+        }
+
+        function logSearchStageSuccess(stage, type) {
+            appendToCommunicationsStream(`
+                <div class="text-success mb-2">
+                    <i class="fas fa-check"></i> <strong>[${new Date().toLocaleTimeString()}] Stage ${stage} successful</strong>
+                </div>
+                <div class="text-muted mb-2">
+                    → Found valid EOL data
+                </div>
+            `);
+        }
+
+        function logSearchStageError(stage, type, errorMessage) {
+            appendToCommunicationsStream(`
+                <div class="text-danger mb-2">
+                    <i class="fas fa-exclamation-triangle"></i> <strong>[${new Date().toLocaleTimeString()}] Stage ${stage} error</strong>
+                </div>
+                <div class="text-muted mb-2">
+                    → ${errorMessage}
+                </div>
+            `);
+        }
+
+        function logStageTransition(currentStage) {
+            appendToCommunicationsStream(`
+                <div class="text-info mb-2">
+                    <i class="fas fa-arrow-right"></i> <strong>[${new Date().toLocaleTimeString()}] Proceeding to Stage ${currentStage + 1}</strong>
+                </div>
+                <div class="text-muted mb-2">
+                    → Stage ${currentStage} didn't find sufficient EOL data, trying fallback search
+                </div>
+            `);
+        }
+
+        // Helper function to check if EOL data contains valid information
+        function hasValidEOLData(eolInfo) {
+            if (!eolInfo) {
+                console.log('hasValidEOLData - no eolInfo provided');
+                return false;
+            }
+
+            // Extracted EOL data from orchestrator result: 
+            // {'software_name': 'Windows Server', 'version': None, 'eol_date': '2027-01-12', 'support_end_date': '2022-01-11', 'release_date': None, 
+            // 'status': 'Medium Risk - EOL Within 2 Years', 'risk_level': 'medium', 'confidence': 0.95, 
+            // 'source_url': 'https://learn.microsoft.com/en-us/windows/release-health/windows-server-release-info', 'days_until_eol': 489, 'cycle': '2016', 
+            // 'extendedSupport': True, 'original_result': {'cycle': '2016', 'releaseDate': '2016-10-15', 'eol': '2027-01-12', 'support': '2022-01-11', 
+            // 'latest': '10.0.14393', 'extendedSupport': True, 'source': 'microsoft_official', 'confidence': 95}, 'agent_used': 'microsoft'}
+
+            // Debug logging to understand the data structure
+            console.log('hasValidEOLData - checking:', eolInfo);
+
+            // Check for standardized format fields
+            if (eolInfo.eol_date && eolInfo.eol_date !== 'Not specified' && eolInfo.eol_date !== 'Not available' && eolInfo.eol_date !== null) {
+                console.log('hasValidEOLData - found standardized eol_date:', eolInfo.eol_date);
+                return true;
+            }
+
+            // Check for software name (required field in standardized format)
+            if (eolInfo.software_name) {
+                console.log('hasValidEOLData - found software_name:', eolInfo.software_name);
+                return true;
+            }
+
+            // Check for support_end_date (standardized format)
+            if (eolInfo.support_end_date && eolInfo.support_end_date !== 'Not specified' && eolInfo.support_end_date !== 'Not available' && eolInfo.support_end_date !== null) {
+                console.log('hasValidEOLData - found standardized support_end_date:', eolInfo.support_end_date);
+                return true;
+            }
+
+            // Check for status field (standardized format)
+            if (eolInfo.status && ['active', 'deprecated', 'end_of_life'].includes(eolInfo.status)) {
+                console.log('hasValidEOLData - found standardized status:', eolInfo.status);
+                return true;
+            }
+
+            // Check for risk_level field (standardized format)
+            if (eolInfo.risk_level && ['low', 'medium', 'high', 'critical'].includes(eolInfo.risk_level)) {
+                console.log('hasValidEOLData - found standardized risk_level:', eolInfo.risk_level);
+                return true;
+            }
+
+            // Check for version field (standardized format)
+            if (eolInfo.version && eolInfo.version !== 'unknown') {
+                console.log('hasValidEOLData - found standardized version:', eolInfo.version);
+                return true;
+            }
+
+            console.log('hasValidEOLData - no valid EOL data found');
+            return false;
+        }
+
+        function displayEnhancedSearchResult(raw) {
+            let searchData = raw.searchData || {};
+            // Debug: Log the actual data structure being passed
+            console.log('displayEnhancedSearchResult called with data:', raw);
+            console.log('displayEnhancedSearchResult data.success:', raw.success);
+            // console.log('displayEnhancedSearchResult data.data:', data.data);
+            console.log('displayEnhancedSearchResult data.result:', raw.data.result);
+
+            if (raw.error) {
+                $('#searchResult').html(`
+            <div class="alert alert-warning">
+                <h6><i class="fas fa-exclamation-triangle"></i> Search Completed with Issues</h6>
+                <p>${raw.error}</p>
+                ${searchData.search_hints ? `
+                    <hr>
+                    <small class="text-muted">
+                        <strong>Search Analysis:</strong><br>
+                        Original: "${searchData.search_hints.original_name}"<br>
+                        Processed: "${searchData.search_hints.cleaned_name}"${searchData.search_hints.extracted_version ? ` (${searchData.search_hints.extracted_version})` : ''}
+                    </small>
+                ` : ''}
+            </div>
+        `);
+                return;
+            }
+
+            // Handle different response formats
+            let result;
+            if (raw.success && raw.data.result) {
+                // New standardized format: { success: true, data: {...}, source: "agent_name" }
+                result = raw.data.result;
+                console.log('Using standardized format - raw.data.result:', result);
+            }
+            // else if (data.result && data.result.software_name) {
+            //     // Current format: { result: {...}, session_id: "...", agent_communications: [...] }
+            //     result = data.result;
+            //     console.log('Using current format - data.result:', result);
+            // } else if (data.result) {
+            //     // Legacy format - try result field anyway
+            //     result = data.result;
+            //     console.log('Using legacy format - data.result:', result);
+            // } 
+            else {
+                // No valid data found
+                //console.log('No valid data found - raw.success:', raw.success, 'raw.data:', raw.data, 'raw.data.result:', raw.data.result);
+                $('#searchResult').html(`
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle"></i> No Data Found</h6>
+                    <p>No valid EOL data found in the response.</p>
+                    <button class="btn btn-sm btn-outline-primary" onclick="searchSoftwareEOL()">
+                        <i class="fas fa-redo"></i> Retry Search
+                    </button>
+                </div>
+            `);
+                return;
+            }
+            // Extract agent source information based on BaseEOLAgent response structure
+            // BaseEOLAgent returns: { success: true, source: "agent_name", data: { agent_used: "agent_name", ... } }
+            let agentSource = 'unknown';
+
+            // Priority order based on actual BaseEOLAgent implementation:
+            // 1. data.source (top-level source field from BaseEOLAgent - most reliable)
+            // 2. result.agent_used (standardized field within data object)
+            // 3. result.source (legacy compatibility within result)
+            // 4. data.agent_used (backup top-level field)
+
+            // if (data.source && data.source !== 'unknown' && data.source !== 'none' && data.source !== '') {
+            //     agentSource = data.source;
+            // } else 
+            if (result.agent_used && result.agent_used !== 'unknown' && result.agent_used !== 'none' && result.agent_used !== '') {
+                agentSource = result.agent_used;
+            }
+            // else if (result.source && result.source !== 'unknown' && result.source !== 'none' && result.source !== '') {
+            //     agentSource = result.source;
+            // } else if (data.agent_used && data.agent_used !== 'unknown' && data.agent_used !== 'none' && data.agent_used !== '') {
+            //     agentSource = data.agent_used;
+            // }
+
+            //console.log('BaseEOLAgent-optimized agent source detection:', {
+                //'data.source (top-level)': raw.data.result.source_url,
+                //'detection_method': agentSource
+                //'result.agent_used (in data obj)': result.agent_used,
+                // 'result.source (legacy)': result.source,
+                // 'data.agent_used (backup)': data.agent_used,
+                //'final_agent': agentSource,
+                // 'detection_method': agentSource === data.source ? 'data.source (BaseEOLAgent)' :
+                //     agentSource === result.agent_used ? 'result.agent_used' :
+                //         agentSource === result.source ? 'result.source (legacy)' :
+                //             agentSource === data.agent_used ? 'data.agent_used (backup)' : 'fallback'
+            //});
+
+            let html = `
+        <div class="alert alert-success">
+            <h6><i class="fas fa-check-circle"></i> Search Completed Successfully</h6>
+            ${searchData.search_hints ? `
+                <small>Confidence: ${Math.round(searchData.search_hints.confidence_level * 100)}% | Agent: ${agentSource}</small>
+            ` : ''}
+        </div>
+    `;
+
+            if (result.software_name) {
+                // Extract standardized fields directly
+                const eolDate = result.eol_date;
+                const supportDate = result.support_end_date;
+                const releaseDate = result.release_date;
+                const status = result.status;
+                const riskLevel = result.risk_level;
+                // Handle confidence - could be decimal (0.95) or percentage (95)
+                let confidence = result.confidence;
+                if (!confidence || isNaN(confidence)) {
+                    confidence = 0.5; // Default to 50% if no confidence provided
+                }
+                console.log('Raw confidence from result:', result.confidence, 'Processed confidence:', confidence);
+                const sourceUrl = result.source_url;
+                const extendedSupport = result.extendedSupport;
+                const daysUntilEol = result.days_until_eol;
+
+                // Use the same BaseEOLAgent-optimized agent source extraction logic
+                let agentSourceCard = 'unknown';
+                // if (data.source && data.source !== 'unknown' && data.source !== 'none' && data.source !== '') {
+                //     agentSourceCard = data.source;
+                // } else 
+                
+                if (result.agent_used && result.agent_used !== 'unknown' && result.agent_used !== 'none' && result.agent_used !== '') {
+                    agentSourceCard = result.agent_used;
+                } else if (result.source && result.source !== 'unknown' && result.source !== 'none' && result.source !== '') {
+                    agentSourceCard = result.source;
+                } 
+                // else if (data.agent_used && data.agent_used !== 'unknown' && data.agent_used !== 'none' && data.agent_used !== '') {
+                //     agentSourceCard = data.agent_used;
+                // }
+                console.log('Agent source for card display:', agentSourceCard);
+
+                html += `
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">
+                        <i class="fas fa-info-circle"></i> 
+                        ${result.software_name}${result.version && result.version !== 'unknown' ? ` ${result.version}` : ''}
+                    </h6>
+                    <div class="d-flex align-items-center">
+                        ${getConfidenceBadge(confidence)}
+                        ${getAgentBadge(agentSourceCard)}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-2">
+                                <small class="text-muted d-block">End-of-Life Date</small>
+                                ${getDateBadge(eolDate, 'badge-danger')}
+                                ${daysUntilEol && daysUntilEol > 0 ? `<br><small class="text-muted">${daysUntilEol} days remaining</small>` : ''}
+                                ${daysUntilEol && daysUntilEol <= 0 ? `<br><small class="text-danger">Already ended</small>` : ''}
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Support End Date</small>
+                                ${getDateBadge(supportDate, 'badge-info')}
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Release Date</small>
+                                ${getDateBadge(releaseDate, 'badge-secondary')}
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Risk Level</small>
+                                ${getRiskBadge(riskLevel)}
+                                ${extendedSupport ? '<br><span class="badge badge-info">Extended Support</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${status ? `
+                        <div class="mt-3 p-3 bg-light rounded">
+                            <strong>Status:</strong> ${status}
+                        </div>
+                    ` : ''}
+                    
+                    ${result.description && result.description !== 'undefined' ? `<p class="mt-3"><strong>Description:</strong> ${result.description}</p>` : ''}
+                    
+                    ${result.recommendations && result.recommendations.length > 0 ? `
+                        <div class="mt-3">
+                            <strong>Recommendations:</strong>
+                            <ul class="mt-2">
+                                ${result.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    
+                    ${searchData.search_hints ? `
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <strong>Search Processing:</strong>
+                                ${(searchData.search_hints.original_name && searchData.search_hints.cleaned_name &&
+                            searchData.search_hints.original_name !== searchData.search_hints.cleaned_name) ?
+                            `Cleaned "${searchData.search_hints.original_name}" → "${searchData.search_hints.cleaned_name}" | ` : ''}
+                                ${(searchData.search_hints.extracted_version && searchData.search_hints.extracted_version !== 'undefined') ?
+                            `Extracted version: ${searchData.search_hints.extracted_version} | ` : ''}
+                                Strategy: ${searchData.search_hints.search_strategy || 'standard'}
+                            </small>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Source validation link -->
+                    <div class="mt-3 pt-2 border-top">
+                        <small class="text-muted">
+                            <strong>Data Source:</strong> 
+                            ${sourceUrl ? `<a href="${sourceUrl}" target="_blank" class="text-decoration-none"><i class="fas fa-external-link-alt"></i> ${getUrlDomain(sourceUrl)}</a>` : getAgentSourceName(agentSourceCard)}
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `;
+
+                // Display additional sources if available
+                if (result.all_sources && Object.keys(result.all_sources).length > 1) {
+                    html += generateAlternativeSourcesSection(result.all_sources, result.agent_used);
+                }
+
+            } else {
+                // No data found case with enhanced suggestions
+                html += `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0 text-warning">
+                        <i class="fas fa-search"></i> No EOL Information Found
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <p>We couldn't find end-of-life information for <strong>${searchData.software_name}</strong>${searchData.software_version ? ` version ${searchData.software_version}` : ''}.</p>
+                    
+                    <div class="alert alert-info">
+                        <strong>Suggestions:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Try searching with just the base software name (without version)</li>
+                            <li>Check if the software name is spelled correctly</li>
+                            <li>Try common abbreviations or alternative names</li>
+                            <li>Consult the official vendor website directly</li>
+                        </ul>
+                    </div>
+                    
+                    ${searchData.search_hints ? `
+                        <small class="text-muted">
+                            <strong>Search attempted:</strong> "${searchData.search_hints.cleaned_name}"${searchData.search_hints.extracted_version ? ` ${searchData.search_hints.extracted_version}` : ''}
+                        </small>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+            }
+
+            $('#searchResult').html(html);
+        }
+
+        // Enhanced EOL date extraction with multiple strategies
+        function extractBestEolDate(result) {
+            if (!result) return null;
+
+            // Standardized format: use eol_date field directly
+            return result.eol_date || null;
+        }
+
+        function extractBestSupportDate(result) {
+            if (!result) return null;
+
+            // Standardized format: use support_end_date field directly
+            return result.support_end_date || null;
+        }
+
+        function extractBestExtendedSupportDate(result) {
+            if (!result) return null;
+
+            // Standardized format: check extended_support field
+            if (result.extended_support === true) {
+                return 'Available';
+            } else if (result.extended_support === false) {
+                return null;
+            }
+
+            // If it's a date string, return it
+            return result.extended_support || null;
+        }
+
+        function calculateResultConfidence(result, searchData) {
+            // Use standardized confidence field directly
+            if (result.confidence && typeof result.confidence === 'number') {
+                return result.confidence / 100; // Convert percentage to decimal
+            }
+
+            // Fallback to search hints confidence
+            let confidence = searchData.search_hints ? searchData.search_hints.confidence_level : 0.5;
+
+            // Boost confidence based on standardized result quality
+            if (result.eol_date || result.support_end_date) {
+                confidence += 0.2;
+            }
+
+            if (result.status && ['active', 'deprecated', 'end_of_life'].includes(result.status)) {
+                confidence += 0.1;
+            }
+
+            if (result.version && searchData.software_version) {
+                confidence += 0.1; // Version match increases confidence
+            }
+
+            return Math.min(confidence, 1.0);
+        }
+
+        function getConfidenceBadge(confidence) {
+            if (!confidence || isNaN(confidence)) {
+                confidence = 0;
+            }
+
+            // Handle both percentage (95) and decimal (0.95) formats
+            let percentage;
+            if (confidence > 1) {
+                // Already a percentage (95)
+                percentage = Math.round(confidence);
+            } else {
+                // Decimal format (0.95), convert to percentage
+                percentage = Math.round(confidence * 100);
+            }
+
+            let badgeClass = 'bg-secondary text-light';
+
+            if (percentage >= 80) badgeClass = 'bg-success text-light';
+            else if (percentage >= 60) badgeClass = 'bg-info text-dark';
+            else if (percentage >= 40) badgeClass = 'bg-warning text-dark';
+            else badgeClass = 'bg-danger text-light';
+
+            return `<span class="badge ${badgeClass} me-2" title="Search confidence">${percentage}%</span>`;
+        }
+
+        function getAgentBadge(agentUsed) {
+            if (!agentUsed || agentUsed === 'none' || agentUsed === 'undefined' || agentUsed === undefined || agentUsed === 'unknown') {
+                return '<span class="badge bg-secondary text-light" title="Unknown agent"><i class="fas fa-question me-1"></i>Unknown</span>';
+            }
+
+            // Normalize agent name for consistent lookup
+            const normalizedAgent = String(agentUsed).toLowerCase().trim();
+
+            // Enhanced agent information with more comprehensive mappings
+            const agentInfo = {
+                // Microsoft agents
+                'microsoft': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
+                'microsoft_agent': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
+                'microsofteol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
+                'microsoft_eol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
+
+                // Red Hat agents
+                'redhat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
+                'redhat_agent': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
+                'redhateol': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat EOL' },
+                'red_hat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
+
+                // Ubuntu agents
+                'ubuntu': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
+                'ubuntu_agent': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
+                'ubuntueol': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL' },
+
+                // EndOfLife.date agents
+                'endoflife': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'endoflife_agent': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'endoflifeeol': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'eol_agent': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+
+                // Oracle agents
+                'oracle': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle' },
+                'oracle_agent': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle' },
+                'oracleeol': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle EOL' },
+
+                // VMware agents
+                'vmware': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
+                'vmware_agent': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
+                'vmwareeol': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware EOL' },
+
+                // Apache agents
+                'apache': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
+                'apache_agent': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
+                'apacheeol': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache EOL' },
+
+                // Node.js agents
+                'nodejs': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
+                'nodejs_agent': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
+                'node': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
+
+                // PostgreSQL agents
+                'postgresql': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
+                'postgresql_agent': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
+                'postgres': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
+
+                // PHP agents
+                'php': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
+                'php_agent': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
+                'phpeol': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP EOL' },
+
+                // Python agents
+                'python': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python' },
+                'python_agent': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python' },
+                'pythoneol': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python EOL' },
+
+                // Bing search agents
+                'bing': { class: 'bg-dark text-light', icon: 'fab fa-microsoft', name: 'Bing Search' },
+                'bing_agent': { class: 'bg-dark text-light', icon: 'fab fa-microsoft', name: 'Bing Search' },
+                'bingsearch': { class: 'bg-dark text-light', icon: 'fab fa-microsoft', name: 'Bing Search' },
+
+                // Generic/fallback agents
+                'general': { class: 'bg-secondary text-light', icon: 'fas fa-robot', name: 'General Agent' },
+                'web_search': { class: 'bg-info text-dark', icon: 'fas fa-search', name: 'Web Search' },
+                'websearch': { class: 'bg-info text-dark', icon: 'fas fa-search', name: 'Web Search' }
+            };
+
+            // Check for exact match first
+            let agent = agentInfo[normalizedAgent];
+
+            // If no exact match, try partial matching for known agent patterns
+            if (!agent) {
+                if (normalizedAgent.includes('microsoft') || normalizedAgent.includes('ms')) {
+                    agent = agentInfo['microsoft'];
+                } else if (normalizedAgent.includes('redhat') || normalizedAgent.includes('red_hat') || normalizedAgent.includes('rhel')) {
+                    agent = agentInfo['redhat'];
+                } else if (normalizedAgent.includes('ubuntu')) {
+                    agent = agentInfo['ubuntu'];
+                } else if (normalizedAgent.includes('endoflife') || normalizedAgent.includes('eol_date')) {
+                    agent = agentInfo['endoflife'];
+                } else if (normalizedAgent.includes('oracle')) {
+                    agent = agentInfo['oracle'];
+                } else if (normalizedAgent.includes('vmware')) {
+                    agent = agentInfo['vmware'];
+                } else if (normalizedAgent.includes('apache')) {
+                    agent = agentInfo['apache'];
+                } else if (normalizedAgent.includes('nodejs') || normalizedAgent.includes('node')) {
+                    agent = agentInfo['nodejs'];
+                } else if (normalizedAgent.includes('postgresql') || normalizedAgent.includes('postgres')) {
+                    agent = agentInfo['postgresql'];
+                } else if (normalizedAgent.includes('php')) {
+                    agent = agentInfo['php'];
+                } else if (normalizedAgent.includes('python')) {
+                    agent = agentInfo['python'];
+                } else if (normalizedAgent.includes('bing')) {
+                    agent = agentInfo['bing'];
+                } else {
+                    // Fallback: create a generic badge with the original name
+                    const displayName = String(agentUsed).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    agent = { class: 'bg-secondary text-light', icon: 'fas fa-robot', name: displayName };
+                }
+            }
+
+            return `<span class="badge ${agent.class}" title="Data source: ${agent.name}"><i class="${agent.icon} me-1"></i>${agent.name}</span>`;
+        }
+
+        function generateAlternativeSourcesSection(allSources, primaryAgent) {
+            let html = `
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-database"></i> Alternative Data Sources</h6>
+            </div>
+            <div class="card-body">
+                <small class="text-muted mb-2 d-block">The following sources were also consulted:</small>
+    `;
+
+            Object.entries(allSources).forEach(([agent, data]) => {
+                if (agent !== primaryAgent && data) {
+                    const hasEolDate = data.eol_date;
+                    html += `
+                <div class="mb-2">
+                    ${getAgentBadge(agent)}
+                    <span class="ms-2">${hasEolDate ? 'Has EOL data' : 'No specific EOL data'}</span>
+                </div>
+            `;
+                }
+            });
+
+            html += `
+            </div>
+        </div>
+    `;
+
+            return html; // Return the HTML instead of setting it directly
+        }
+
+        function getRiskBadge(riskLevel) {
+            const risk = (riskLevel && typeof riskLevel === 'string' ? riskLevel : 'unknown').toLowerCase();
+            const badges = {
+                'critical': '<span class="badge badge-danger" style="color: #f8f9fa; font-weight: bold;">Critical</span>',
+                'high': '<span class="badge badge-warning" style="color: #212529; font-weight: bold;">High</span>',
+                'medium': '<span class="badge badge-info" style="color: #212529;">Medium</span>',
+                'low': '<span class="badge badge-success" style="color: #f8f9fa;">Low</span>',
+                'unknown': '<span class="badge badge-secondary" style="color: #f8f9fa;">Unknown</span>'
+            };
+            return badges[risk] || badges['unknown'];
+        }
+
+        function getActionClass(action) {
+            if (!action || typeof action !== 'string') return 'secondary';
+
+            const actionLower = action.toLowerCase();
+            if (actionLower.includes('search') || actionLower.includes('query') || actionLower.includes('get_eol')) return 'info';
+            if (actionLower.includes('error') || actionLower.includes('fail')) return 'danger';
+            if (actionLower.includes('success') || actionLower.includes('complete') || actionLower.includes('route')) return 'success';
+            if (actionLower.includes('optimization') || actionLower.includes('search_optimization')) return 'warning';
+            return 'secondary';
+        }
+
+        // Display agent communications with task information
+        // Note: This function is now centralized in agent-communication.js
+        // Keeping a lightweight wrapper for any EOL-specific logic if needed in the future
+        function displayAgentCommunications(communications, options = {}) {
+            console.log('🎯 EOL displayAgentCommunications: Delegating to centralized handler');
+
+            // Use the centralized handler from agent-communication.js
+            if (window.AgentComm && typeof window.AgentComm.display === 'function') {
+                const defaultOptions = {
+                    containerId: 'communicationsStream',
+                    showFlow: true,
+                    autoExpand: true,
+                    autoScroll: true
+                };
+                const finalOptions = Object.assign({}, defaultOptions, options);
+
+                console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
+                window.AgentComm.display(communications, finalOptions);
+            } else {
+                console.error('❌ AgentComm.display not available, falling back to basic display');
+                // Basic fallback
+                const commContainer = document.getElementById(options.containerId || 'communicationsStream');
+                if (commContainer) {
+                    if (!communications || communications.length === 0) {
+                        commContainer.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-info-circle fa-2x mb-3"></i>
+                            <p><strong>No Agent Communications</strong></p>
+                            <p>This search completed without detailed agent interactions to display.</p>
+                            <p><small>For detailed multi-agent interactions, use the <a href="/chat" class="text-decoration-none">Chat Interface</a></small></p>
+                        </div>`;
+                    } else {
+                        commContainer.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-exclamation-triangle fa-2x mb-3 text-warning"></i>
+                            <p><strong>Agent Communication Handler Not Available</strong></p>
+                            <p>Found ${communications.length} communications but display handler failed to load.</p>
+                            <p><small>Check console for details.</small></p>
+                        </div>`;
+                    }
+                }
+            }
+        }
+
+        // Search History Management
+        function addToSearchHistory(query, searchType) {
+            // Check if this search came from inventory page
+            const urlParams = new URLSearchParams(window.location.search);
+            const fromInventory = urlParams.get('autosearch') === 'true';
+
+            // Don't add inventory auto-searches to history
+            if (fromInventory) {
+                return;
+            }
+
+            try {
+                // Get existing search history
+                let searchHistory = JSON.parse(localStorage.getItem('eolSearchHistory') || '[]');
+
+                // Add new search to beginning of history
+                searchHistory.unshift({
+                    query: query,
+                    timestamp: new Date().toISOString(),
+                    type: searchType || 'manual'
+                });
+
+                // Keep only last 10 searches
+                if (searchHistory.length > 10) {
+                    searchHistory = searchHistory.slice(0, 10);
+                }
+
+                // Save back to localStorage
+                localStorage.setItem('eolSearchHistory', JSON.stringify(searchHistory));
+
+                // Update the UI
+                updateSearchHistoryDisplay();
+            } catch (error) {
+                console.error('Error adding to search history:', error);
+            }
+        }
+
+        function updateSearchHistoryDisplay() {
+            try {
+                const searchHistory = JSON.parse(localStorage.getItem('eolSearchHistory') || '[]');
+                const historyContainer = document.querySelector('.search-history-container');
+
+                if (!historyContainer || searchHistory.length === 0) {
+                    return;
+                }
+
+                const historyList = historyContainer.querySelector('.search-history-list') ||
+                    document.createElement('div');
+                historyList.className = 'search-history-list';
+                historyList.innerHTML = '';
+
+                searchHistory.forEach((item, index) => {
+                    const historyItem = document.createElement('div');
+                    historyItem.className = 'search-history-item';
+                    historyItem.innerHTML = `
+                        <span class="search-query">${item.query}</span>
+                        <span class="search-timestamp">${new Date(item.timestamp).toLocaleDateString()}</span>
+                    `;
+                    historyItem.addEventListener('click', () => {
+                        document.getElementById('searchInput').value = item.query;
+                        performSearch();
+                    });
+                    historyList.appendChild(historyItem);
+                });
+
+                if (!historyContainer.contains(historyList)) {
+                    historyContainer.appendChild(historyList);
+                }
+            } catch (error) {
+                console.error('Error updating search history display:', error);
+            }
+        }
+        function appendToCommunicationsStream(content) {
+            try {
+                // Prefer the tidy AgentComm namespace when available
+                if (window.AgentComm && typeof window.AgentComm.createHandler === 'function') {
+                    const handler = window.AgentComm.createHandler('communicationsStream');
+                    if (handler && typeof handler.addInteraction === 'function') {
+                        handler.addInteraction('📋 System', String(content), 'text');
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error('appendToCommunicationsStream wrapper error:', e);
+            }
+
+            // Fallback: Direct DOM manipulation when AgentComm is not available
+            try {
+                const stream = document.getElementById('communicationsStream');
+                if (stream) {
+                    // Create a new div element for the content
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'communication-message mb-2';
+
+                    messageDiv.innerHTML = content;
+
+                    // Append to the stream
+                    stream.appendChild(messageDiv);
+
+                    // Auto-scroll to bottom only if the user isn't actively scrolling
+                    if (stream && isNearBottom(stream)) {
+                        stream.scrollTop = stream.scrollHeight;
+                    }
+                }
+            } catch (fallbackError) {
+                console.error('appendToCommunicationsStream fallback error:', fallbackError);
+            }
+        }
+
+        function showDetailedResult(resultData) {
+            try {
+                const result = JSON.parse(resultData.replace(/&quot;/g, '"'));
+
+                // Check if EOL date exists in additional_info if not in main result
+                let eolDateDisplay = result.eol_date || 'Not specified';
+                let supportDateDisplay = result.support_date || 'Not specified';
+                let extendedSupportDisplay = result.extended_support_date || 'Not available';
+                let eolSource = '';
+                let supportSource = '';
+                let extendedSource = '';
+
+                if (!result.eol_date && result.additional_info) {
+                    // Look for EOL date in additional_info
+                    const additionalEolDate = result.additional_info.eol ||
+                        result.additional_info.eol_date ||
+                        result.additional_info.end_of_life ||
+                        result.additional_info.endOfLife ||
+                        result.additional_info.support_end ||
+                        result.additional_info.end_date ||
+                        result.additional_info.discontinued;
+
+                    if (additionalEolDate) {
+                        eolDateDisplay = additionalEolDate;
+                        eolSource = ' (found in additional data)';
+                    }
+                }
+
+                if (!result.support_date && result.additional_info) {
+                    // Look for support date in additional_info
+                    const additionalSupportDate = result.additional_info.support ||
+                        result.additional_info.support_date ||
+                        result.additional_info.mainstream_support ||
+                        result.additional_info.standard_support;
+
+                    if (additionalSupportDate) {
+                        supportDateDisplay = additionalSupportDate;
+                        supportSource = ' (found in additional data)';
+                    }
+                }
+
+                if (!result.extended_support_date && result.additional_info) {
+                    // Look for extended support in additional_info
+                    const additionalExtended = result.additional_info.extended_support ||
+                        result.additional_info.extendedSupport ||
+                        result.additional_info.extended_support_date ||
+                        result.additional_info.extended_end;
+
+                    if (additionalExtended) {
+                        extendedSupportDisplay = typeof additionalExtended === 'boolean' ?
+                            (additionalExtended ? 'Available' : 'Not available') :
+                            additionalExtended;
+                        extendedSource = ' (found in additional data)';
+                    }
+                }
+
+                const html = `
+            <h6>${result.software_name}${result.software_version ? ` ${result.software_version}` : ''}</h6>
+            <table class="table table-sm">
+                <tr><td><strong>Software Name:</strong></td><td>${result.software_name || 'N/A'}</td></tr>
+                <tr><td><strong>Version:</strong></td><td>${result.software_version || 'N/A'}</td></tr>
+                <tr><td><strong>Support End Date:</strong></td><td>${getDateBadge(supportDateDisplay, 'badge-info')}${supportSource}</td></tr>
+                <tr><td><strong>Extended Support:</strong></td><td>${getDateBadge(extendedSupportDisplay, 'badge-secondary')}${extendedSource}</td></tr>
+                <tr><td><strong>End of Life Date:</strong></td><td>${getDateBadge(eolDateDisplay, 'badge-warning')}${eolSource}</td></tr>
+                <tr><td><strong>Risk Level:</strong></td><td>${getRiskBadge(result.risk_level)}</td></tr>
+                <tr><td><strong>Agent Used:</strong></td><td>${getAgentBadge(data.source || 'unknown')}</td></tr>
+            </table>
+            
+            ${result.description ? `<h6>Description</h6><p>${result.description}</p>` : ''}
+            
+            ${result.recommendations && result.recommendations.length > 0 ? `
+                <h6>Recommendations</h6>
+                <ul>
+                    ${result.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                </ul>
+            ` : ''}
+            
+            ${result.additional_info ? `<h6>Additional Information</h6><pre class="bg-light p-2">${JSON.stringify(result.additional_info, null, 2)}</pre>` : ''}
+        `;
+
+                $('#detailedSearchResult').html(html);
+                $('#searchResultModal').modal('show');
+            } catch (error) {
+                console.error('Error displaying detailed result:', error);
+            }
+        }
+
+        // Search History Management
+        function addToSearchHistory(softwareName, softwareVersion, data) {
+            // Check if this search came from inventory page
+            const urlParams = new URLSearchParams(window.location.search);
+            const fromInventory = urlParams.get('autosearch') === 'true';
+
+            const searchEntry = {
+                timestamp: new Date().toISOString(),
+                software_name: softwareName,
+                software_version: softwareVersion,
+                result: data.result,
+                source: fromInventory ? 'inventory' : 'manual'
+            };
+
+            searchHistory.unshift(searchEntry);
+            if (searchHistory.length > 10) {
+                searchHistory = searchHistory.slice(0, 10); // Keep only last 10 searches
+            }
+
+            saveSearchHistoryToStorage();
+            displaySearchHistory();
+        }
+
+        function repeatSearch(softwareName, softwareVersion) {
+            $('#softwareSearchName').val(softwareName);
+            $('#softwareSearchVersion').val(softwareVersion || '');
+            searchSoftwareEOL();
+        }
+
+        function clearSearchHistory() {
+            if (confirm('Are you sure you want to clear your search history?')) {
+                searchHistory = [];
+                saveSearchHistoryToStorage();
+                displaySearchHistory();
+            }
+        }
+
+        function saveSearchHistoryToStorage() {
+            try {
+                localStorage.setItem('eol_search_history', JSON.stringify(searchHistory));
+            } catch (error) {
+                console.error('Error saving search history:', error);
+            }
+        }
+
+        // function loadCommunicationHistory() {
+        //     // Communication history is now cleared directly before each search
+        //     // No need to load from a separate endpoint
+        //     console.log('📋 Communication history is managed automatically - clearing before each search');
+
+        //     const commContainer = document.getElementById('communicationsStream');
+        //     commContainer.innerHTML = `
+        //         <div class="text-center text-muted py-4">
+        //             <i class="fas fa-info-circle fa-2x mb-2"></i>
+        //             <p>Communication history is cleared automatically</p>
+        //             <p><small>Perform a new EOL search to see fresh task execution</small></p>
+        //         </div>
+        //     `;
+        // }
+
+        // Initialize page - use both vanilla JS and jQuery approaches for maximum compatibility
+        function initializePage() {
+            // Clear communications stream after a brief delay to ensure DOM is ready
+            setTimeout(() => {
+                clearCommunicationsStream();
+            }, 50);
+
+            // Initialize functions that might depend on other scripts
+            if (typeof initializeSearchHistory === 'function') {
+                initializeSearchHistory();
+            }
+
+            // Handle URL parameters for auto-population and auto-search
+            // Add a delay to ensure everything is rendered and scripts loaded
+            setTimeout(() => {
+                handleUrlParameters();
+            }, 200);
+
+            // Setup collapsible toggle functionality
+            const orchestratorContent = document.getElementById('orchestratorLogicContent');
+            const toggleIcon = document.querySelector('.collapse-toggle');
+
+            if (orchestratorContent && toggleIcon) {
+                orchestratorContent.addEventListener('shown.bs.collapse', function () {
+                    toggleIcon.textContent = '▼';
+                    toggleIcon.classList.remove('collapsed');
+                });
+
+                orchestratorContent.addEventListener('hidden.bs.collapse', function () {
+                    toggleIcon.textContent = '▶';
+                    toggleIcon.classList.add('collapsed');
+                });
+            }
+        }
+
+        // Helper functions for agent source information
+        function getAgentSourceUrl(agentName) {
+            if (!agentName) return '#';
+
+            const name = agentName.toLowerCase();
+            const agentUrls = {
+                // Actual agents from orchestrator
+                'endoflife': 'https://endoflife.date/',
+                'endoflife_agent': 'https://endoflife.date/',
+                'microsoft': 'https://docs.microsoft.com/en-us/lifecycle/products/',
+                'microsoft_agent': 'https://docs.microsoft.com/en-us/lifecycle/products/',
+                'redhat': 'https://access.redhat.com/support/policy/updates/errata',
+                'redhat_agent': 'https://access.redhat.com/support/policy/updates/errata',
+                'ubuntu': 'https://wiki.ubuntu.com/Releases',
+                'ubuntu_agent': 'https://wiki.ubuntu.com/Releases',
+                'oracle': 'https://www.oracle.com/support/lifetime-support/',
+                'oracle_agent': 'https://www.oracle.com/support/lifetime-support/',
+                'vmware': 'https://lifecycle.vmware.com/',
+                'vmware_agent': 'https://lifecycle.vmware.com/',
+                'apache': 'https://archive.apache.org/',
+                'apache_agent': 'https://archive.apache.org/',
+                'nodejs': 'https://nodejs.org/en/about/releases/',
+                'nodejs_agent': 'https://nodejs.org/en/about/releases/',
+                'postgresql': 'https://www.postgresql.org/support/versioning/',
+                'postgresql_agent': 'https://www.postgresql.org/support/versioning/',
+                'php': 'https://www.php.net/supported-versions.php',
+                'php_agent': 'https://www.php.net/supported-versions.php',
+                'python': 'https://devguide.python.org/versions/',
+                'python_agent': 'https://devguide.python.org/versions/',
+                'bing': 'https://www.bing.com/',
+                'bing_agent': 'https://www.bing.com/'
+            };
+
+            // Check exact match first
+            if (agentUrls[agentName]) return agentUrls[agentName];
+
+            // Check partial matches for actual agents only
+            if (name.includes('endoflife')) return 'https://endoflife.date/';
+            if (name.includes('microsoft')) return 'https://docs.microsoft.com/en-us/lifecycle/products/';
+            if (name.includes('redhat')) return 'https://access.redhat.com/support/policy/updates/errata';
+            if (name.includes('ubuntu')) return 'https://wiki.ubuntu.com/Releases';
+            if (name.includes('oracle')) return 'https://www.oracle.com/support/lifetime-support/';
+            if (name.includes('vmware')) return 'https://lifecycle.vmware.com/';
+            if (name.includes('apache')) return 'https://archive.apache.org/';
+            if (name.includes('nodejs')) return 'https://nodejs.org/en/about/releases/';
+            if (name.includes('postgresql')) return 'https://www.postgresql.org/support/versioning/';
+            if (name.includes('php')) return 'https://www.php.net/supported-versions.php';
+            if (name.includes('python')) return 'https://devguide.python.org/versions/';
+            if (name.includes('bing')) return 'https://www.bing.com/';
+
+            return '#';
+        }
+
+        function getAgentSourceName(agentName) {
+            if (!agentName) return 'Unknown Source';
+
+            const name = agentName.toLowerCase();
+            const agentNames = {
+                // Actual agents from orchestrator
+                'endoflife': 'EndOfLife.date',
+                'endoflife_agent': 'EndOfLife.date',
+                'microsoft': 'Microsoft Lifecycle',
+                'microsoft_agent': 'Microsoft Lifecycle',
+                'redhat': 'Red Hat Support',
+                'redhat_agent': 'Red Hat Support',
+                'ubuntu': 'Ubuntu Wiki',
+                'ubuntu_agent': 'Ubuntu Wiki',
+                'oracle': 'Oracle Support',
+                'oracle_agent': 'Oracle Support',
+                'vmware': 'VMware Lifecycle',
+                'vmware_agent': 'VMware Lifecycle',
+                'apache': 'Apache Archive',
+                'apache_agent': 'Apache Archive',
+                'nodejs': 'Node.js Releases',
+                'nodejs_agent': 'Node.js Releases',
+                'postgresql': 'PostgreSQL Versioning',
+                'postgresql_agent': 'PostgreSQL Versioning',
+                'php': 'PHP Supported Versions',
+                'php_agent': 'PHP Supported Versions',
+                'python': 'Python Dev Guide',
+                'python_agent': 'Python Dev Guide',
+                'bing': 'Bing Search',
+                'bing_agent': 'Bing Search'
+            };
+
+            // Check exact match first
+            if (agentNames[agentName]) return agentNames[agentName];
+
+            // Check partial matches for actual agents only
+            if (name.includes('endoflife')) return 'EndOfLife.date';
+            if (name.includes('microsoft')) return 'Microsoft Lifecycle';
+            if (name.includes('redhat')) return 'Red Hat Support';
+            if (name.includes('ubuntu')) return 'Ubuntu Wiki';
+            if (name.includes('oracle')) return 'Oracle Support';
+            if (name.includes('vmware')) return 'VMware Lifecycle';
+            if (name.includes('apache')) return 'Apache Archive';
+            if (name.includes('nodejs')) return 'Node.js Releases';
+            if (name.includes('postgresql')) return 'PostgreSQL Versioning';
+            if (name.includes('php')) return 'PHP Supported Versions';
+            if (name.includes('python')) return 'Python Dev Guide';
+            if (name.includes('bing')) return 'Bing Search';
+
+            // Default formatting
+            return agentName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        // Helper function to extract domain from URL
+        function getUrlDomain(url) {
+            try {
+                if (!url) return 'Unknown Source';
+                const urlObj = new URL(url);
+                return urlObj.hostname.replace('www.', '');
+            } catch (e) {
+                return url.length > 40 ? url.substring(0, 40) + '...' : url;
+            }
+        }
+
+        // Use multiple initialization approaches for maximum compatibility
+        try {
+            document.addEventListener('DOMContentLoaded', function () {
+                initializePage();
+            });
+
+            // Also use jQuery document ready if available
+            if (typeof $ !== 'undefined') {
+                $(document).ready(function () {
+                    initializePage();
+                });
+            } else {
+                // If jQuery is not immediately available, wait a bit and try again
+                setTimeout(() => {
+                    if (typeof $ !== 'undefined') {
+                        $(document).ready(function () {
+                            initializePage();
+                        });
+                    }
+                }, 100);
+            }
+        } catch (initError) {
+            console.error('Initialization error:', initError);
+        }
+    </script>
+    {% endblock %}
+
+    {% block extra_scripts %}
+    <script src="/static/js/agent-communication.js"></script>
+    {% endblock %}

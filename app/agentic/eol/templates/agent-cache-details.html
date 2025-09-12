@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Cache Details - EOL Agentic App{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Agent Cache Details Styles - Consistent with other templates */
+    .agent-detail-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.3s ease;
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .agent-detail-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-xl);
+        border-color: var(--primary-color);
+    }
+
+    .performance-metric {
+        text-align: center;
+        padding: var(--spacing-md);
+        border-radius: var(--radius-lg);
+        background: var(--gray-50);
+        margin: var(--spacing-xs);
+        border: 1px solid var(--gray-200);
+    }
+
+    .performance-metric h4 {
+        margin: 0;
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        color: var(--primary-color);
+    }
+
+    .performance-metric p {
+        margin: 0;
+        font-size: var(--font-size-sm);
+        color: var(--gray-600);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .url-performance-card {
+        border-left: 4px solid var(--primary-color);
+        margin-bottom: var(--spacing-md);
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .url-performance-card.excellent {
+        border-left-color: var(--success-color);
+    }
+
+    .url-performance-card.good {
+        border-left-color: var(--info-color);
+    }
+
+    .url-performance-card.poor {
+        border-left-color: var(--warning-color);
+    }
+
+    .url-performance-card.error {
+        border-left-color: var(--danger-color);
+    }
+</style>
+<script src="/static/js/agent-config.js"></script>
+{% endblock %}
+
+{% block content %}
+<style>
+    /* Agent Details Styles */
+    .agent-detail-card {
+        transition: all 0.3s ease;
+        border: 1px solid #dee2e6;
+    }
+
+    .agent-detail-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .performance-metric {
+        text-align: center;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 0.25rem;
+    }
+
+    .performance-metric h4 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+
+    .performance-metric p {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+
+    .url-performance-card {
+        border-left: 4px solid #007bff;
+        margin-bottom: 1rem;
+    }
+
+    .url-performance-card.excellent {
+        border-left-color: #28a745;
+    }
+
+    .url-performance-card.good {
+        border-left-color: #17a2b8;
+    }
+
+    .url-performance-card.warning {
+        border-left-color: #ffc107;
+    }
+
+    .url-performance-card.poor {
+        border-left-color: #dc3545;
+    }
+
+    .performance-badge {
+        font-size: 0.7rem;
+        border-radius: 10px;
+        padding: 2px 6px;
+    }
+
+    .agent-header {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+        color: white;
+    }
+
+    .recent-requests-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .request-item {
+        padding: 0.5rem;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .request-item:last-child {
+        border-bottom: none;
+    }
+
+    .request-time {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+    .request-status {
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+
+    .request-status.hit {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .request-status.miss {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+
+    .request-status.error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2><i class="fas fa-robot me-2"></i>Agent Cache Performance Details</h2>
+                    {% if selected_agent %}
+                        <p class="text-muted mb-0">Detailed performance metrics for {{ selected_agent }}</p>
+                    {% else %}
+                        <p class="text-muted mb-0">Comprehensive performance analysis across all EOL agents</p>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="/cache" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Cache Management
+                    </a>
+                    <button class="btn btn-outline-primary" onclick="refreshPage()">
+                        <i class="fas fa-sync-alt me-1"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if agent_stats.get('error') %}
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">Error Loading Agent Statistics</h4>
+                    <p>{{ agent_stats.error }}</p>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <!-- Debug Information -->
+        {% if agent_stats.get('agents') %}
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <small>
+                        <strong>Available Agents:</strong> 
+                        {% for agent_name in agent_stats.agents.keys() %}
+                            {{ agent_name }}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                        {% if selected_agent %}
+                            <br><strong>Selected Agent:</strong> {{ selected_agent }}
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Performance Summary -->
+        {% if agent_stats.get('summary') %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card agent-header">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">
+                            <i class="fas fa-chart-line me-2"></i>Performance Summary
+                        </h5>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="performance-metric">
+                                    <h4>{{ agent_stats.summary.total_agents }}</h4>
+                                    <p>Active Agents</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="performance-metric">
+                                    <h4>{{ agent_stats.summary.total_requests }}</h4>
+                                    <p>Total Requests</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="performance-metric">
+                                    <h4>{{ "%.1f"|format(agent_stats.summary.overall_hit_rate) }}%</h4>
+                                    <p>Overall Hit Rate</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="performance-metric">
+                                    <h4>{{ agent_stats.summary.total_errors }}</h4>
+                                    <p>Total Errors</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Agent Details -->
+        {% if agent_stats.get('agents') %}
+        <div class="row">
+            {% for agent_name, agent_data in agent_stats.agents.items() %}
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="card agent-detail-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">{{ agent_name }}</h6>
+                        {% if agent_data.error_rate <= 5 and agent_data.cache_hit_rate >= 80 %}
+                            <span class="badge bg-success performance-badge">Excellent</span>
+                        {% elif agent_data.error_rate <= 15 and agent_data.cache_hit_rate >= 60 %}
+                            <span class="badge bg-info performance-badge">Good</span>
+                        {% elif agent_data.error_rate <= 25 and agent_data.cache_hit_rate >= 40 %}
+                            <span class="badge bg-warning performance-badge">Fair</span>
+                        {% else %}
+                            <span class="badge bg-danger performance-badge">Poor</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <!-- Core Metrics -->
+                        <div class="row text-center mb-3">
+                            <div class="col-4">
+                                <strong class="d-block">{{ agent_data.request_count }}</strong>
+                                <small class="text-muted">Requests</small>
+                            </div>
+                            <div class="col-4">
+                                <strong class="d-block">{{ "%.1f"|format(agent_data.cache_hit_rate) }}%</strong>
+                                <small class="text-muted">Hit Rate</small>
+                            </div>
+                            <div class="col-4">
+                                <strong class="d-block">{{ "%.0f"|format(agent_data.avg_response_time_ms) }}ms</strong>
+                                <small class="text-muted">Avg Time</small>
+                            </div>
+                        </div>
+
+                        <!-- Cache Performance Bar -->
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="text-muted">Cache Performance</small>
+                                <small class="text-muted">{{ agent_data.cache_hits }}/{{ agent_data.cache_hits + agent_data.cache_misses }}</small>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-success" 
+                                     data-width="{{ agent_data.cache_hit_rate }}"
+                                     style="width: 0%"
+                                     title="Cache hits: {{ agent_data.cache_hits }}"></div>
+                                <div class="progress-bar bg-warning" 
+                                     data-width="{{ 100 - agent_data.cache_hit_rate }}"
+                                     style="width: 0%"
+                                     title="Cache misses: {{ agent_data.cache_misses }}"></div>
+                            </div>
+                        </div>
+
+                        <!-- Response Time Details -->
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <small class="text-muted d-block">Min Response</small>
+                                <strong>{{ "%.0f"|format(agent_data.min_response_time_ms) }}ms</strong>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted d-block">Max Response</small>
+                                <strong>{{ "%.0f"|format(agent_data.max_response_time_ms) }}ms</strong>
+                            </div>
+                        </div>
+
+                        <!-- Error Information -->
+                        {% if agent_data.error_count > 0 %}
+                        <div class="alert alert-warning py-2 mb-3">
+                            <small>
+                                <i class="fas fa-exclamation-triangle me-1"></i>
+                                {{ agent_data.error_count }} errors ({{ "%.1f"|format(agent_data.error_rate) }}%)
+                            </small>
+                        </div>
+                        {% endif %}
+
+                        <!-- Last Activity -->
+                        <div class="text-center">
+                            <small class="text-muted">
+                                {% if agent_data.last_request_time %}
+                                    Last request: {{ agent_data.last_request_time[:19].replace('T', ' ') }}
+                                {% else %}
+                                    No recent activity
+                                {% endif %}
+                            </small>
+                        </div>
+
+                        <!-- Recent Requests -->
+                        {% if agent_data.recent_requests %}
+                        <div class="mt-3">
+                            <h6 class="mb-2">Recent Requests</h6>
+                            <div class="recent-requests-list">
+                                {% for request in agent_data.recent_requests[-5:] %}
+                                <div class="request-item">
+                                    <div>
+                                        <small class="request-time">{{ request.get('timestamp', 'Unknown')[:19].replace('T', ' ') if request.get('timestamp') else 'Unknown' }}</small>
+                                        <br>
+                                        <small class="text-muted">{{ "%.0f"|format(request.get('response_time_ms', 0)) }}ms</small>
+                                    </div>
+                                    <div>
+                                        {% if request.get('had_error') %}
+                                            <span class="request-status error">Error</span>
+                                        {% elif request.get('was_cache_hit') %}
+                                            <span class="request-status hit">Hit</span>
+                                        {% else %}
+                                            <span class="request-status miss">Miss</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+            <div class="row">
+                <div class="col-12">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-robot fa-4x mb-3"></i>
+                        <h4>No Agent Data Available</h4>
+                        <p>Agent performance statistics will appear here once agents start processing requests.</p>
+                        <p>Try making some EOL queries to see agent performance metrics.</p>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- URL Performance Section (Future Enhancement) -->
+        {% if selected_agent and agent_stats.get('agents', {}).get(selected_agent) %}
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-link me-2"></i>URL Performance for {{ selected_agent.title() }} Agent
+                        </h5>
+                        <p class="text-muted mb-0">Performance breakdown by source URLs (Enhanced monitoring)</p>
+                    </div>
+                    <div class="card-body">
+                        <div id="url-performance-content">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                                <p>Loading URL performance data...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    {% endif %}
+</div>
+
+<script>
+    function refreshPage() {
+        window.location.reload();
+    }
+
+    // Auto-refresh disabled - can be re-enabled by uncommenting below
+    // setInterval(refreshPage, 30000);
+    console.log('Auto-refresh disabled in agent cache details');
+
+    // Add tooltips to performance badges
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set progress bar widths from data attributes
+        document.querySelectorAll('.progress-bar[data-width]').forEach(bar => {
+            const width = bar.getAttribute('data-width');
+            if (width) {
+                bar.style.width = width + '%';
+            }
+        });
+
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+
+        // Load URL performance data
+        loadUrlPerformanceData();
+    });
+
+    async function loadUrlPerformanceData() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const selectedAgentParam = urlParams.get('agent');
+        const urlPerformanceContent = document.getElementById('url-performance-content');
+        
+        if (!selectedAgentParam || !urlPerformanceContent) {
+            console.log('No selected agent or URL performance container found');
+            return;
+        }
+
+        // Convert display name back to standardized name if needed
+        const selectedAgent = getStandardizedAgentName(selectedAgentParam);
+        
+        try {
+            console.log(`Loading URL performance data for agent: ${selectedAgent} (from param: ${selectedAgentParam})`);
+            
+            // Fetch enhanced cache statistics
+            const response = await fetch('/api/cache/stats/enhanced');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const agentStats = data?.agent_stats?.agents?.[selectedAgent];
+
+            if (!agentStats) {
+                showNoUrlData('No data available for this agent');
+                return;
+            }
+
+            // Check if the agent has URL-level statistics
+            if (agentStats.url_stats && Object.keys(agentStats.url_stats).length > 0) {
+                displayUrlPerformanceStats(agentStats.url_stats, selectedAgent);
+            } else {
+                showNoUrlData('No URL-level statistics available yet. URL performance data will appear here once the agent starts making requests to different sources.');
+            }
+
+        } catch (error) {
+            console.error('Error loading URL performance data:', error);
+            showNoUrlData(`Failed to load URL performance data: ${error.message}`);
+        }
+    }
+
+    function displayUrlPerformanceStats(urlStats, agentName) {
+        const urlPerformanceContent = document.getElementById('url-performance-content');
+        const nf = new Intl.NumberFormat();
+        
+        let html = `
+            <div class="row mb-3">
+                <div class="col-12">
+                    <h6 class="text-muted">Performance breakdown by source URL</h6>
+                </div>
+            </div>
+        `;
+
+        // Sort URLs by request count (descending)
+        const sortedUrls = Object.entries(urlStats).sort((a, b) => 
+            (b[1].request_count || 0) - (a[1].request_count || 0)
+        );
+
+        sortedUrls.forEach(([url, stats]) => {
+            const hitRate = stats.cache_hit_rate || 0;
+            const responseTime = stats.avg_response_time_ms || 0;
+            const requests = stats.request_count || 0;
+            const errors = stats.error_count || 0;
+            const errorRate = requests > 0 ? (errors / requests * 100) : 0;
+
+            // Determine performance class
+            let performanceClass = 'poor';
+            if (hitRate >= 80 && responseTime <= 500) {
+                performanceClass = 'excellent';
+            } else if (hitRate >= 60 && responseTime <= 1000) {
+                performanceClass = 'good';
+            } else if (hitRate >= 40 && responseTime <= 2000) {
+                performanceClass = 'warning';
+            }
+
+            // Extract domain from URL for display
+            const urlDomain = extractDomain(url);
+
+            html += `
+                <div class="url-performance-card ${performanceClass}">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <h6 class="card-title mb-1">
+                                        <i class="fas fa-globe me-2"></i>${urlDomain}
+                                    </h6>
+                                    <small class="text-muted" title="${url}">${url.length > 60 ? url.substring(0, 60) + '...' : url}</small>
+                                </div>
+                                <span class="badge bg-${getPerformanceBadgeColor(performanceClass)}">${performanceClass.toUpperCase()}</span>
+                            </div>
+                            
+                            <div class="row text-center">
+                                <div class="col-3">
+                                    <strong class="d-block text-primary">${nf.format(requests)}</strong>
+                                    <small class="text-muted">Requests</small>
+                                </div>
+                                <div class="col-3">
+                                    <strong class="d-block text-success">${hitRate.toFixed(1)}%</strong>
+                                    <small class="text-muted">Hit Rate</small>
+                                </div>
+                                <div class="col-3">
+                                    <strong class="d-block text-info">${responseTime.toFixed(0)}ms</strong>
+                                    <small class="text-muted">Avg Response</small>
+                                </div>
+                                <div class="col-3">
+                                    <strong class="d-block text-${errors > 0 ? 'warning' : 'success'}">${errorRate.toFixed(1)}%</strong>
+                                    <small class="text-muted">Error Rate</small>
+                                </div>
+                            </div>
+                            
+                            ${stats.last_request_time ? `
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-clock me-1"></i>
+                                        Last accessed: ${new Date(stats.last_request_time).toLocaleString()}
+                                    </small>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Add summary if multiple URLs
+        if (sortedUrls.length > 1) {
+            const totalRequests = sortedUrls.reduce((sum, [_, stats]) => sum + (stats.request_count || 0), 0);
+            const totalErrors = sortedUrls.reduce((sum, [_, stats]) => sum + (stats.error_count || 0), 0);
+            const avgHitRate = sortedUrls.reduce((sum, [_, stats]) => sum + (stats.cache_hit_rate || 0), 0) / sortedUrls.length;
+            const avgResponseTime = sortedUrls.reduce((sum, [_, stats]) => sum + (stats.avg_response_time_ms || 0), 0) / sortedUrls.length;
+
+            html += `
+                <div class="alert alert-light mt-3">
+                    <h6 class="alert-heading">Summary</h6>
+                    <div class="row text-center">
+                        <div class="col-3">
+                            <strong>${sortedUrls.length}</strong><br>
+                            <small>Unique URLs</small>
+                        </div>
+                        <div class="col-3">
+                            <strong>${nf.format(totalRequests)}</strong><br>
+                            <small>Total Requests</small>
+                        </div>
+                        <div class="col-3">
+                            <strong>${avgHitRate.toFixed(1)}%</strong><br>
+                            <small>Avg Hit Rate</small>
+                        </div>
+                        <div class="col-3">
+                            <strong>${avgResponseTime.toFixed(0)}ms</strong><br>
+                            <small>Avg Response</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        urlPerformanceContent.innerHTML = html;
+    }
+
+    function showNoUrlData(message) {
+        const urlPerformanceContent = document.getElementById('url-performance-content');
+        urlPerformanceContent.innerHTML = `
+            <div class="alert alert-info">
+                <h6 class="alert-heading">
+                    <i class="fas fa-info-circle me-2"></i>No URL Performance Data
+                </h6>
+                <p class="mb-0">${message}</p>
+            </div>
+        `;
+    }
+
+    function extractDomain(url) {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname.replace('www.', '');
+        } catch (e) {
+            // If URL parsing fails, try to extract domain manually
+            const match = url.match(/(?:https?:\/\/)?(?:www\.)?([^\/]+)/);
+            return match ? match[1] : url.substring(0, 30) + '...';
+        }
+    }
+
+    function getPerformanceBadgeColor(performanceClass) {
+        switch (performanceClass) {
+            case 'excellent': return 'success';
+            case 'good': return 'info';
+            case 'warning': return 'warning';
+            case 'poor': return 'danger';
+            default: return 'secondary';
+        }
+    }
+</script>
+{% endblock %}

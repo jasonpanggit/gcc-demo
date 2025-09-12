@@ -1,0 +1,715 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Software Inventory End-of-Life Report\n\nThis workbook extracts software inventory from Azure Arc-connected machines and checks their end-of-life status using the endoflife.date API.\n\n**Data Sources:**\n- Azure Arc software inventory logs\n- endoflife.date API for EOL information\n\n**Last Updated:** {TimeRange:label}\n\n---"
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "subscription-param-id",
+            "version": "KqlParameterItem/1.0",
+            "name": "Subscription",
+            "type": 6,
+            "isRequired": true,
+            "multiSelect": false,
+            "quote": "'",
+            "delimiter": ",",
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::1"
+              ],
+              "includeAll": false,
+              "showDefault": false
+            },
+            "timeContext": {
+              "durationMs": 86400000
+            },
+            "label": "Subscription",
+            "value": null
+          },
+          {
+            "id": "workspace-param-id",
+            "version": "KqlParameterItem/1.0",
+            "name": "Workspace",
+            "type": 5,
+            "isRequired": true,
+            "query": "Resources\n| where type =~ 'microsoft.operationalinsights/workspaces'\n| order by name asc\n| extend Rank = row_number()\n| project value = id, label = name, selected = Rank == 1",
+            "crossComponentResources": [
+              "{Subscription}"
+            ],
+            "value": null,
+            "typeSettings": {
+              "resourceTypeFilter": {
+                "microsoft.operationalinsights/workspaces": true
+              },
+              "additionalResourceOptions": [
+                "value::1"
+              ],
+              "componentIdOnly": false
+            },
+            "timeContext": {
+              "durationMs": 86400000
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "label": "Log Analytics Workspace"
+          },
+          {
+            "id": "bb8a3297-bb93-4d73-a1c2-1b23ac4d3d4a",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 604800000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 259200000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 1209600000
+                },
+                {
+                  "durationMs": 2419200000
+                },
+                {
+                  "durationMs": 7776000000
+                }
+              ],
+              "allowCustom": true
+            },
+            "timeContext": {
+              "durationMs": 86400000
+            },
+            "label": "Time Range"
+          },
+          {
+            "id": "abb8f9d7-09e5-4b96-8e3a-cf8e0a1a7f5b",
+            "version": "KqlParameterItem/1.0",
+            "name": "ResourceGroup",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| where type == \"microsoft.hybridcompute/machines\"\n| summarize by resourceGroup\n| sort by resourceGroup asc",
+            "crossComponentResources": [
+              "{Subscription}"
+            ],
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "selectAllValue": "*"
+            },
+            "timeContext": {
+              "durationMs": 0
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "timeContextFromParameter": "TimeRange",
+            "defaultValue": "value::all",
+            "label": "Resource Group"
+          },
+          {
+            "id": "ccd9f8e8-1a2b-4c3d-5e6f-789012345678",
+            "version": "KqlParameterItem/1.0",
+            "name": "Machine",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| where type == \"microsoft.hybridcompute/machines\"\n| where \"*\" in ({ResourceGroup}) or resourceGroup in ({ResourceGroup})\n| summarize by name\n| sort by name asc",
+            "crossComponentResources": [
+              "{Subscription}"
+            ],
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "selectAllValue": "*"
+            },
+            "timeContext": {
+              "durationMs": 0
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "timeContextFromParameter": "TimeRange",
+            "defaultValue": "value::all",
+            "label": "Machine Name"
+          }
+        ],
+        "style": "pills",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "---\n\n# \ud83d\udda5\ufe0f Operating System End-of-Life Analysis\n\nAnalyze operating systems across your Arc-enabled machines and their EOL status."
+      },
+      "name": "os-title"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Operating System Overview\nHeartbeat\n| where TimeGenerated {TimeRange}\n| where ComputerEnvironment == \"Azure\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| summarize \n    TotalMachines = dcount(Computer),\n    WindowsCount = dcountif(Computer, OSType == \"Windows\"),\n    LinuxCount = dcountif(Computer, OSType == \"Linux\"),\n    LatestHeartbeat = max(TimeGenerated)\nby Computer\n| summarize \n    TotalMachines = dcount(Computer),\n    WindowsMachines = sumif(1, WindowsCount > 0),\n    LinuxMachines = sumif(1, LinuxCount > 0),\n    LatestInventory = max(LatestHeartbeat)\n| extend \n    WindowsPercentage = round((WindowsMachines * 100.0) / TotalMachines, 1),\n    LinuxPercentage = round((LinuxMachines * 100.0) / TotalMachines, 1),\n    InventoryAgeDays = datetime_diff('day', now(), LatestInventory)",
+        "size": 3,
+        "title": "OS Distribution Overview",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "TotalMachines",
+            "formatter": 1,
+            "formatOptions": {
+              "showIcon": true
+            }
+          },
+          "leftContent": {
+            "columnMatch": "TotalMachines",
+            "formatter": 12,
+            "formatOptions": {
+              "palette": "auto"
+            },
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "maximumFractionDigits": 0
+              }
+            }
+          },
+          "secondaryContent": {
+            "columnMatch": "WindowsMachines",
+            "formatter": 1
+          },
+          "showBorder": false
+        }
+      },
+      "name": "os-overview"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Operating System EOL Details\nHeartbeat\n| where TimeGenerated {TimeRange}\n| where ComputerEnvironment == \"Azure\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| summarize \n    OSName = any(OSName),\n    OSVersion = any(OSMajorVersion),\n    OSMinorVersion = any(OSMinorVersion),\n    OSType = any(OSType),\n    LastHeartbeat = max(TimeGenerated)\nby Computer\n| extend \n    OSFullVersion = strcat(OSVersion, \".\", OSMinorVersion),\n    DaysOld = datetime_diff('day', now(), LastHeartbeat)\n| extend \n    OSProductKey = case(\n        OSType == \"Windows\" and OSName contains \"Server 2019\", \"windows-server-2019\",\n        OSType == \"Windows\" and OSName contains \"Server 2022\", \"windows-server-2022\",\n        OSType == \"Windows\" and OSName contains \"Server 2025\", \"windows-server-2025\",\n        OSType == \"Windows\" and OSName contains \"Server 2016\", \"windows-server-2016\",\n        OSType == \"Windows\" and OSName contains \"Server 2012\", \"windows-server-2012-r2\",\n        OSType == \"Windows\" and OSName contains \"Windows 11\", \"windows-11\",\n        OSType == \"Windows\" and OSName contains \"Windows 10\", \"windows-10\",\n        OSType == \"Linux\" and OSName contains \"Ubuntu 24.04\", \"ubuntu\",\n        OSType == \"Linux\" and OSName contains \"Ubuntu 22.04\", \"ubuntu\",\n        OSType == \"Linux\" and OSName contains \"Ubuntu 20.04\", \"ubuntu\",\n        OSType == \"Linux\" and OSName contains \"Ubuntu 18.04\", \"ubuntu\",\n        OSType == \"Linux\" and OSName contains \"CentOS\", \"centos\",\n        OSType == \"Linux\" and OSName contains \"Red Hat\", \"rhel\",\n        OSType == \"Linux\" and OSName contains \"SUSE\", \"sles\",\n        \"unmapped\"\n    )\n| extend \n    EOLPriority = case(\n        OSProductKey in (\"windows-server-2012-r2\", \"ubuntu\", \"centos\"), \"Critical\",\n        OSProductKey in (\"windows-server-2016\", \"windows-10\", \"rhel\"), \"High\",\n        OSProductKey in (\"windows-server-2019\", \"windows-11\", \"sles\"), \"Medium\",\n        OSProductKey == \"unmapped\", \"Review Required\",\n        \"Low\"\n    ),\n    EstimatedEOLDate = case(\n        OSProductKey == \"windows-server-2012-r2\", \"2023-10-10\",\n        OSProductKey == \"windows-server-2016\", \"2027-01-12\",\n        OSProductKey == \"windows-server-2019\", \"2029-01-09\",\n        OSProductKey == \"windows-server-2022\", \"2031-10-14\",\n        OSProductKey == \"windows-server-2025\", \"2034-10-14\",\n        OSProductKey == \"windows-10\", \"2025-10-14\",\n        OSProductKey == \"windows-11\", \"2031-10-14\",\n        OSProductKey == \"ubuntu\", \"Varies by version\",\n        OSProductKey == \"centos\", \"2024-06-30\",\n        OSProductKey == \"rhel\", \"Varies by version\",\n        \"Unknown\"\n    ),\n    EOLStatus = case(\n        OSProductKey == \"windows-server-2012-r2\", \"End of Life\",\n        OSProductKey == \"centos\" and OSName contains \"7\", \"End of Life\",\n        OSProductKey == \"windows-10\", \"Approaching EOL (Oct 2025)\",\n        \"Supported\"\n    ),\n    EOL_API_URL = case(\n        OSProductKey != \"unmapped\", strcat(\"https://endoflife.date/api/\", OSProductKey, \".json\"),\n        \"N/A\"\n    )\n| project \n    Computer, \n    OSName, \n    OSType,\n    OSFullVersion,\n    OSProductKey,\n    EOLPriority,\n    EOLStatus,\n    EstimatedEOLDate,\n    LastHeartbeat,\n    DaysOld,\n    EOL_API_URL\n| sort by \n    case(EOLPriority == \"Critical\", 1, EOLPriority == \"High\", 2, EOLPriority == \"Medium\", 3, EOLPriority == \"Review Required\", 4, 5),\n    DaysOld asc",
+        "size": 0,
+        "title": "Operating System EOL Analysis",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Computer",
+              "formatter": 1,
+              "formatOptions": {
+                "showIcon": true
+              }
+            },
+            {
+              "columnMatch": "EOLPriority",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Critical",
+                    "representation": "redBright",
+                    "text": "\ud83d\udd34 Critical"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "High",
+                    "representation": "orange",
+                    "text": "\ud83d\udfe0 High"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Medium",
+                    "representation": "yellow",
+                    "text": "\ud83d\udfe1 Medium"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Review Required",
+                    "representation": "purple",
+                    "text": "\ud83d\udfe3 Review Required"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "green",
+                    "text": "\ud83d\udfe2 Low"
+                  }
+                ]
+              }
+            },
+            {
+              "columnMatch": "EOLStatus",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "contains",
+                    "thresholdValue": "End of Life",
+                    "representation": "redBright",
+                    "text": "\u26a0\ufe0f End of Life"
+                  },
+                  {
+                    "operator": "contains",
+                    "thresholdValue": "Approaching",
+                    "representation": "orange",
+                    "text": "\u23f0 Approaching EOL"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "green",
+                    "text": "\u2705 Supported"
+                  }
+                ]
+              }
+            },
+            {
+              "columnMatch": "DaysOld",
+              "formatter": 8,
+              "formatOptions": {
+                "palette": "greenRed"
+              }
+            },
+            {
+              "columnMatch": "EOL_API_URL",
+              "formatter": 7,
+              "formatOptions": {
+                "linkTarget": "Url",
+                "linkLabel": "Check EOL Details"
+              }
+            }
+          ]
+        }
+      },
+      "name": "os-eol-analysis"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// OS Version Distribution\nHeartbeat\n| where TimeGenerated {TimeRange}\n| where ComputerEnvironment == \"Azure\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| summarize \n    MachineCount = dcount(Computer),\n    LatestHeartbeat = max(TimeGenerated)\nby OSName, OSType\n| extend \n    OSCategory = case(\n        OSType == \"Windows\" and OSName contains \"Server\", \"Windows Server\",\n        OSType == \"Windows\", \"Windows Client\",\n        OSType == \"Linux\", \"Linux\",\n        \"Other\"\n    )\n| sort by MachineCount desc",
+        "size": 1,
+        "title": "OS Version Distribution",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "piechart",
+        "chartSettings": {
+          "seriesLabelSettings": [
+            {
+              "seriesName": "MachineCount",
+              "label": "Machines"
+            }
+          ]
+        }
+      },
+      "name": "os-distribution"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Software Inventory Overview - Using exact same fields as working PowerShell script\nConfigurationData\n| where TimeGenerated {TimeRange}\n| where ConfigDataType == \"Software\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| extend SoftwareName = tostring(SoftwareName)\n| extend SoftwareVersion = tostring(CurrentVersion)\n| extend SoftwareVendor = tostring(Publisher)\n| where isnotempty(SoftwareName)\n| summarize \n    TotalSoftware = dcount(strcat(SoftwareName, CurrentVersion)),\n    UniqueSoftware = dcount(SoftwareName),\n    UniqueMachines = dcount(Computer),\n    LatestInventory = max(TimeGenerated)\n| extend \n    InventoryAgeDays = datetime_diff('day', now(), LatestInventory),\n    InventoryStatus = case(\n        datetime_diff('day', now(), LatestInventory) <= 1, \"Fresh (< 1 day)\",\n        datetime_diff('day', now(), LatestInventory) <= 7, \"Recent (< 1 week)\", \n        datetime_diff('day', now(), LatestInventory) <= 30, \"Aging (< 1 month)\",\n        \"Stale (> 1 month)\"\n    )",
+        "size": 3,
+        "title": "Software Inventory Overview",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "TotalSoftware",
+            "formatter": 1,
+            "formatOptions": {
+              "showIcon": true
+            }
+          },
+          "leftContent": {
+            "columnMatch": "TotalSoftware",
+            "formatter": 12,
+            "formatOptions": {
+              "palette": "auto"
+            },
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "maximumFractionDigits": 0,
+                "maximumSignificantDigits": 3
+              }
+            }
+          },
+          "secondaryContent": {
+            "columnMatch": "InventoryStatus",
+            "formatter": 1
+          },
+          "showBorder": false
+        }
+      },
+      "name": "overview"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Critical Software needing EOL Check\nlet criticalSoftware = pack_array(\n    \"windows-server\", \"windows\", \"sql-server\", \"iis\", \"dotnet\", \"java\", \"nodejs\", \n    \"python\", \"php\", \"apache\", \"nginx\", \"mysql\", \"postgresql\", \"mongodb\", \n    \"redis\", \"elasticsearch\", \"docker\", \"kubernetes\", \"terraform\", \"ansible\",\n    \"vmware-esxi\", \"citrix\", \"office\", \"exchange\", \"sharepoint\", \"teams\",\n    \"chrome\", \"firefox\", \"edge\", \"safari\", \"acrobat\", \"flash\", \"silverlight\"\n);\nConfigurationData\n| where TimeGenerated {TimeRange}\n| where ConfigDataType == \"Software\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| extend SoftwareName = tostring(SoftwareName)\n| extend SoftwareVersion = tostring(CurrentVersion)\n| extend SoftwareVendor = tostring(Publisher)\n| extend SoftwareType = coalesce(SoftwareType, \"Unknown\")\n| extend SoftwareArchitecture = coalesce(Architecture, \"Unknown\")\n| where isnotempty(SoftwareName)\n| extend NormalizedName = tolower(replace_regex(SoftwareName, @\"[^a-z0-9]\", \"-\"))\n| extend ProductKey = case(\n    NormalizedName contains \"windows\" and NormalizedName contains \"server\", \"windows-server\",\n    NormalizedName contains \"umulative\" and NormalizedName contains \"icrosoft\" and NormalizedName contains \"server\", \"windows-server\",\n    NormalizedName contains \"sql\" and NormalizedName contains \"server\", \"sql-server\",\n    NormalizedName contains \"microsoft\" and NormalizedName contains \"office\", \"office\",\n    NormalizedName contains \"microsoft\" and NormalizedName contains \"exchange\", \"exchange\",\n    NormalizedName contains \"microsoft\" and NormalizedName contains \"sharepoint\", \"sharepoint\",\n    NormalizedName contains \"internet\" and NormalizedName contains \"information\", \"iis\",\n    NormalizedName contains \"net\" and NormalizedName contains \"framework\", \"dotnet\",\n    NormalizedName contains \"ramework\", \"dotnet\",\n    NormalizedName contains \"java\", \"java\",\n    NormalizedName contains \"nodejs\" or NormalizedName contains \"node-js\", \"nodejs\",\n    NormalizedName contains \"python\", \"python\",\n    NormalizedName contains \"php\", \"php\",\n    NormalizedName contains \"apache\", \"apache\",\n    NormalizedName contains \"nginx\", \"nginx\",\n    NormalizedName contains \"mysql\", \"mysql\",\n    NormalizedName contains \"postgresql\", \"postgresql\",\n    NormalizedName contains \"mongodb\", \"mongodb\",\n    NormalizedName contains \"redis\", \"redis\",\n    NormalizedName contains \"elasticsearch\", \"elasticsearch\",\n    NormalizedName contains \"docker\", \"docker\",\n    NormalizedName contains \"kubernetes\", \"kubernetes\",\n    NormalizedName contains \"terraform\", \"terraform\",\n    NormalizedName contains \"ansible\", \"ansible\",\n    NormalizedName contains \"vmware\" and NormalizedName contains \"esxi\", \"vmware-esxi\",\n    NormalizedName contains \"citrix\", \"citrix\",\n    NormalizedName contains \"chrome\", \"chrome\",\n    NormalizedName contains \"firefox\", \"firefox\",\n    NormalizedName contains \"edge\", \"edge\",\n    NormalizedName contains \"icrosoft\" and NormalizedName contains \"dge\", \"edge\",\n    NormalizedName contains \"acrobat\", \"acrobat\",\n    NormalizedName contains \"flash\", \"flash\",\n    NormalizedName contains \"silverlight\", \"silverlight\",\n    NormalizedName contains \"zure\" and NormalizedName contains \"onnected\", \"azure-arc\",\n    NormalizedName contains \"ependency\" and NormalizedName contains \"gent\", \"dependency-agent\",\n    NormalizedName contains \"efender\" or NormalizedName contains \"indows\" and NormalizedName contains \"ecurity\", \"windows-defender\",\n    \"\"\n)\n| where isnotempty(ProductKey)\n| summarize \n    MachineCount = dcount(Computer),\n    VersionList = make_set(CurrentVersion),\n    SoftwareType = any(SoftwareType),\n    SoftwareArchitecture = any(SoftwareArchitecture),\n    LatestSeen = max(TimeGenerated)\nby ProductKey, SoftwareName, SoftwareVendor\n| extend \n    Priority = case(\n        ProductKey in (\"windows-server\", \"windows\", \"sql-server\", \"exchange\"), \"Critical\",\n        ProductKey in (\"iis\", \"dotnet\", \"java\", \"apache\", \"nginx\"), \"High\",\n        ProductKey in (\"mysql\", \"postgresql\", \"docker\", \"kubernetes\"), \"Medium\",\n        \"Low\"\n    ),\n    EOL_API_URL = strcat(\"https://endoflife.date/api/\", ProductKey, \".json\")\n| project-reorder Priority, ProductKey, SoftwareName, SoftwareVendor, SoftwareType, SoftwareArchitecture, MachineCount, VersionList, EOL_API_URL, LatestSeen\n| sort by Priority asc, MachineCount desc",
+        "size": 0,
+        "title": "Critical Software for EOL Analysis",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Priority",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Critical",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "High",
+                    "representation": "orange",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "Medium",
+                    "representation": "yellow",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "lightBlue",
+                    "text": "{0}{1}"
+                  }
+                ]
+              }
+            },
+            {
+              "columnMatch": "ProductKey",
+              "formatter": 1
+            },
+            {
+              "columnMatch": "MachineCount",
+              "formatter": 3,
+              "formatOptions": {
+                "palette": "blue"
+              }
+            },
+            {
+              "columnMatch": "VersionList",
+              "formatter": 1,
+              "formatOptions": {
+                "showIcon": true
+              }
+            },
+            {
+              "columnMatch": "EOL_API_URL",
+              "formatter": 7,
+              "formatOptions": {
+                "linkTarget": "Url",
+                "showIcon": true
+              }
+            },
+            {
+              "columnMatch": "LatestSeen",
+              "formatter": 6
+            }
+          ]
+        }
+      },
+      "name": "critical-software"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## EOL Status Instructions\n\n**To check End-of-Life status:**\n\n1. **Click on the API URLs** in the table above to view EOL data for each product\n2. **Compare installed versions** with the EOL information from the API\n3. **Focus on Critical and High priority** software first\n4. **Look for these key fields** in the API response:\n   - `eol`: End-of-life date\n   - `support`: End of support date\n   - `lts`: Long-term support indicator\n   - `latest`: Latest available version\n\n**Example API Response Structure:**\n```json\n[\n  {\n    \"cycle\": \"2022\",\n    \"release\": \"2022-10-18\",\n    \"eol\": \"2031-10-14\",\n    \"latest\": \"20348.2113\",\n    \"support\": \"2026-10-13\",\n    \"lts\": true\n  }\n]\n```\n\n---"
+      },
+      "name": "instructions"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Software Distribution by Machine\nConfigurationData\n| where TimeGenerated {TimeRange}\n| where ConfigDataType == \"Software\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| extend SoftwareName = tostring(SoftwareName)\n| extend SoftwareVersion = tostring(CurrentVersion)\n| where isnotempty(SoftwareName)\n| summarize \n    SoftwareCount = dcount(strcat(SoftwareName, CurrentVersion)),\n    UniqueSoftware = dcount(SoftwareName),\n    LatestInventory = max(TimeGenerated)\nby Computer\n| extend DaysOld = datetime_diff('day', now(), LatestInventory)\n| project Computer, SoftwareCount, UniqueSoftware, LatestInventory, DaysOld\n| sort by SoftwareCount desc",
+        "size": 0,
+        "title": "Software Distribution by Machine",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Computer",
+              "formatter": 1,
+              "formatOptions": {
+                "showIcon": true
+              }
+            },
+            {
+              "columnMatch": "SoftwareCount",
+              "formatter": 3,
+              "formatOptions": {
+                "palette": "blue"
+              }
+            },
+            {
+              "columnMatch": "UniqueSoftware",
+              "formatter": 3,
+              "formatOptions": {
+                "palette": "green"
+              }
+            },
+            {
+              "columnMatch": "LatestInventory",
+              "formatter": 6
+            },
+            {
+              "columnMatch": "DaysOld",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "<=",
+                    "thresholdValue": "1",
+                    "representation": "green",
+                    "text": "{0}{1} (Fresh)"
+                  },
+                  {
+                    "operator": "<=",
+                    "thresholdValue": "7",
+                    "representation": "yellow",
+                    "text": "{0}{1} (Recent)"
+                  },
+                  {
+                    "operator": "<=",
+                    "thresholdValue": "30",
+                    "representation": "orange",
+                    "text": "{0}{1} (Aging)"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "redBright",
+                    "text": "{0}{1} (Stale)"
+                  }
+                ]
+              }
+            }
+          ],
+          "sortBy": [
+            {
+              "itemKey": "SoftwareCount",
+              "sortOrder": 2
+            }
+          ]
+        }
+      },
+      "name": "software-by-machine"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top Software Products\nConfigurationData\n| where TimeGenerated {TimeRange}\n| where ConfigDataType == \"Software\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| extend SoftwareName = tostring(SoftwareName)\n| extend SoftwareVersion = tostring(CurrentVersion)\n| extend SoftwareVendor = tostring(Publisher)\n| extend SoftwareType = coalesce(SoftwareType, \"Unknown\")\n| extend SoftwareArchitecture = coalesce(Architecture, \"Unknown\")\n| where isnotempty(SoftwareName)\n| summarize \n    Installations = count(),\n    Machines = dcount(Computer),\n    Versions = dcount(CurrentVersion),\n    VersionList = make_set(CurrentVersion, 10),\n    SoftwareType = any(SoftwareType),\n    SoftwareArchitecture = any(SoftwareArchitecture)\nby SoftwareName, SoftwareVendor\n| top 50 by Machines desc\n| extend RiskLevel = case(\n    Machines >= 10 and Versions >= 3, \"High Risk (Many machines, multiple versions)\",\n    Machines >= 5 and Versions >= 2, \"Medium Risk\", \n    \"Low Risk\"\n)\n| project SoftwareName, SoftwareVendor, SoftwareType, SoftwareArchitecture, Machines, Versions, VersionList, RiskLevel\n| sort by Machines desc",
+        "size": 0,
+        "title": "Top Software Products (Risk Assessment)",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "SoftwareName",
+              "formatter": 1,
+              "formatOptions": {
+                "showIcon": true
+              }
+            },
+            {
+              "columnMatch": "Machines",
+              "formatter": 3,
+              "formatOptions": {
+                "palette": "blue"
+              }
+            },
+            {
+              "columnMatch": "Versions",
+              "formatter": 3,
+              "formatOptions": {
+                "palette": "orange"
+              }
+            },
+            {
+              "columnMatch": "VersionList",
+              "formatter": 1
+            },
+            {
+              "columnMatch": "RiskLevel",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "contains",
+                    "thresholdValue": "High Risk",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "contains",
+                    "thresholdValue": "Medium Risk",
+                    "representation": "yellow",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "green",
+                    "text": "{0}{1}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "name": "top-software"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Automated EOL Checking Script\n\n**PowerShell Script to automate EOL checking:**\n\n```powershell\n# Function to check EOL status\nfunction Get-SoftwareEOLStatus {\n    param(\n        [string]$ProductKey,\n        [string]$Version\n    )\n    \n    try {\n        $apiUrl = \"https://endoflife.date/api/$ProductKey.json\"\n        $response = Invoke-RestMethod -Uri $apiUrl -Method Get\n        \n        foreach ($cycle in $response) {\n            if ($cycle.cycle -eq $Version -or $cycle.latest -like \"*$Version*\") {\n                return [PSCustomObject]@{\n                    Product = $ProductKey\n                    Version = $Version\n                    Cycle = $cycle.cycle\n                    EOL = $cycle.eol\n                    Support = $cycle.support\n                    LTS = $cycle.lts\n                    Latest = $cycle.latest\n                    Status = if ($cycle.eol -and [datetime]$cycle.eol -lt (Get-Date)) { \"End of Life\" } else { \"Supported\" }\n                }\n            }\n        }\n    }\n    catch {\n        Write-Warning \"Failed to get EOL data for $ProductKey : $($_.Exception.Message)\"\n        return $null\n    }\n}\n\n# Example usage\n$results = @()\n$products = @(\n    @{Key=\"windows-server\"; Version=\"2019\"},\n    @{Key=\"sql-server\"; Version=\"2017\"},\n    @{Key=\"dotnet\"; Version=\"6.0\"}\n)\n\nforeach ($product in $products) {\n    $eolStatus = Get-SoftwareEOLStatus -ProductKey $product.Key -Version $product.Version\n    if ($eolStatus) {\n        $results += $eolStatus\n    }\n}\n\n$results | Format-Table -AutoSize\n```\n\n---"
+      },
+      "name": "automation-script"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Software Inventory Trends\nConfigurationData\n| where TimeGenerated {TimeRange}\n| where ConfigDataType == \"Software\"\n| extend ComputerName = tolower(Computer)\n| where \"*\" in ({Machine}) or ComputerName in ({Machine})\n| extend SoftwareName = tostring(SoftwareName)\n| where isnotempty(SoftwareName)\n| summarize SoftwareCount = dcount(strcat(SoftwareName, tostring(CurrentVersion))) by bin(TimeGenerated, 1d)\n| sort by TimeGenerated asc\n| extend Trend = iff(SoftwareCount > prev(SoftwareCount), \"\u2197\ufe0f Increasing\", iff(SoftwareCount < prev(SoftwareCount), \"\u2198\ufe0f Decreasing\", \"\u27a1\ufe0f Stable\"))",
+        "size": 0,
+        "title": "Software Inventory Trends",
+        "timeContext": {
+          "durationMs": 0
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "linechart",
+        "chartSettings": {
+          "xAxis": "TimeGenerated",
+          "yAxis": [
+            "SoftwareCount"
+          ],
+          "seriesLabelSettings": [
+            {
+              "seriesName": "SoftwareCount",
+              "label": "Total Software Packages"
+            }
+          ]
+        }
+      },
+      "name": "trends"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Action Items & Recommendations\n\n### \ud83d\udd34 Immediate Actions\n1. **Review Critical Priority Software** - Focus on Windows Server, SQL Server, Exchange\n2. **Check EOL Status** - Use API URLs provided above\n3. **Plan Upgrades** - For software approaching EOL dates\n\n### \ud83d\udfe1 Regular Monitoring\n1. **Weekly Reviews** - Check for new software installations\n2. **Monthly Reports** - Generate comprehensive EOL reports\n3. **Quarterly Planning** - Update software lifecycle management\n\n### \ud83d\udfe2 Automation Opportunities\n1. **API Integration** - Automate EOL checks using PowerShell script\n2. **Alert Setup** - Configure alerts for EOL software detection\n3. **Dashboard Updates** - Keep workbook parameters current\n\n### \ud83d\udcca Metrics to Track\n- Software packages per machine\n- Versions spreading across environment\n- Time since last inventory update\n- EOL software percentage\n\n---\n\n**Note:** This workbook requires Azure Arc agents with software inventory enabled on target machines. EOL data is sourced from https://endoflife.date API."
+      },
+      "name": "recommendations"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [
+    "/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.OperationalInsights/workspaces/{workspace-name}"
+  ]
+}

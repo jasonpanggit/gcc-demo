@@ -1,0 +1,70 @@
+# ==============================================================================
+# Terraform .gitignore
+# ==============================================================================
+
+# Terraform state files - contain sensitive data and infrastructure state
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform variable files containing sensitive data
+credentials.tfvars
+terraform.tfvars # for testing 
+
+# Terraform plan files - may contain sensitive data
+*.tfplan
+*.tfplan.*
+
+# Terraform crash log files
+crash.log
+crash.*.log
+
+# Terraform RC files - may contain sensitive provider configurations
+.terraformrc
+terraform.rc
+
+# Terraform directories
+.terraform/
+.terraform.lock.hcl
+
+# Override files - often contain local/sensitive configurations
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files - may contain sensitive data
+.terraformrc
+terraform.rc
+
+# Environment-specific files
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+
+# backup
+backup/
+
+# Zip files
+*.zip
+
+# Azure
+.azure
+
+# Virtual environments
+.venv/

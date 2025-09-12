@@ -1,0 +1,2699 @@
+{% extends "base.html" %}
+
+{% block title %}Alert Management — EOL Agentic Platform{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Prevent horizontal scrolling */
+    body {
+        overflow-x: hidden;
+    }
+
+    /* Alert Management Styles - Consistent with EOL template */
+    .hero-section {
+        background: linear-gradient(135deg, var(--warning-color) 0%, #e67e22 50%, #d35400 100%);
+        color: white;
+        padding: var(--spacing-lg) var(--spacing-2xl);
+        border-radius: var(--radius-xl);
+        margin-bottom: var(--spacing-lg);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M25,50 L35,40 L45,50 L55,40 L65,50 L75,40" stroke="white" stroke-width="2" fill="none" opacity="0.1"/><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/></svg>');
+        pointer-events: none;
+    }
+
+    .hero-content {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-title {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        margin-bottom: var(--spacing-sm);
+        line-height: 1.2;
+        color: white;
+    }
+
+    .hero-subtitle {
+        font-size: var(--font-size-md);
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: var(--spacing-md);
+        line-height: 1.5;
+    }
+
+    .alert-config-panel {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--gray-200);
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+
+    .panel-header {
+        background: linear-gradient(135deg, var(--warning-color), #e67e22);
+        color: white;
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        border-bottom: 2px solid #e67e22;
+    }
+
+    .panel-body {
+        padding: var(--spacing-xl);
+    }
+
+    .config-section {
+        margin-bottom: var(--spacing-xl);
+        padding: var(--spacing-lg);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius-lg);
+        background: var(--gray-50);
+    }
+
+    .config-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .config-title {
+        font-size: var(--font-size-lg);
+        font-weight: 600;
+        color: var(--gray-800);
+        margin-bottom: var(--spacing-md);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+    }
+
+    .config-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .config-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+
+    .config-label {
+        font-weight: 600;
+        color: var(--gray-700);
+        font-size: var(--font-size-sm);
+    }
+
+    .config-description {
+        font-size: var(--font-size-xs);
+        color: var(--gray-600);
+        font-style: italic;
+    }
+
+    .alert-preview-panel {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--gray-200);
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+
+    .preview-header {
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+        color: white;
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .preview-body {
+        padding: var(--spacing-lg);
+        max-height: 500px;
+        overflow-y: auto;
+    }
+
+    .os-preview-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .os-preview-table th {
+        background-color: var(--gray-100);
+        color: var(--gray-700);
+        font-weight: 600;
+        padding: var(--spacing-md);
+        text-align: left;
+        border-bottom: 2px solid var(--gray-200);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .os-preview-table th:first-child {
+        border-top-left-radius: var(--radius-md);
+    }
+
+    .os-preview-table th:last-child {
+        border-top-right-radius: var(--radius-md);
+    }
+
+    .os-preview-table td {
+        padding: var(--spacing-md);
+        border-bottom: 1px solid var(--gray-100);
+        vertical-align: middle;
+    }
+
+    .os-preview-table tbody tr:hover {
+        background-color: var(--gray-50);
+    }
+
+    .eol-badge {
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border-radius: var(--radius-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .eol-critical {
+        background-color: #fef2f2;
+        color: var(--danger-color);
+        border: 1px solid #fecaca;
+    }
+
+    .eol-warning {
+        background-color: #fffbeb;
+        color: var(--warning-color);
+        border: 1px solid #fed7aa;
+    }
+
+    .eol-info {
+        background-color: #eff6ff;
+        color: var(--primary-color);
+        border: 1px solid #bfdbfe;
+    }
+
+    .alert-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: var(--spacing-lg);
+        margin-bottom: var(--spacing-xl);
+        padding: 0 var(--spacing-xl);
+    }
+
+    .summary-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+        text-align: center;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.2s ease;
+    }
+
+    .summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .summary-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: var(--radius-lg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto var(--spacing-md);
+        color: white;
+        font-size: var(--font-size-xl);
+    }
+
+    .summary-icon.critical {
+        background: linear-gradient(135deg, var(--danger-color), #dc2626);
+    }
+
+    .summary-icon.warning {
+        background: linear-gradient(135deg, var(--warning-color), #d97706);
+    }
+
+    .summary-icon.info {
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+    }
+
+    .summary-value {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        color: var(--gray-800);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .summary-label {
+        color: var(--gray-600);
+        font-weight: 500;
+        font-size: var(--font-size-sm);
+    }
+
+    .btn-create-alert {
+        background: linear-gradient(135deg, var(--success-color), #059669);
+        border: none;
+        color: white;
+        font-weight: 600;
+        padding: var(--spacing-md) var(--spacing-xl);
+        border-radius: var(--radius-lg);
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+    }
+
+    .btn-create-alert:hover {
+        background: linear-gradient(135deg, #059669, #047857);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+        color: white;
+    }
+
+    .btn-preview {
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+        border: none;
+        color: white;
+        font-weight: 600;
+        padding: var(--spacing-sm) var(--spacing-lg);
+        border-radius: var(--radius-lg);
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+    }
+
+    .btn-preview:hover {
+        background: linear-gradient(135deg, var(--primary-dark), #1e40af);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        color: white;
+    }
+
+    .no-data-message {
+        text-align: center;
+        padding: var(--spacing-2xl);
+        color: var(--gray-600);
+    }
+
+    .loading-spinner {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: var(--spacing-2xl);
+    }
+
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+    }
+
+    .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: .4s;
+        border-radius: 24px;
+    }
+
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+    }
+
+    input:checked+.slider {
+        background-color: var(--success-color);
+    }
+
+    input:checked+.slider:before {
+        transform: translateX(26px);
+    }
+
+    @media (max-width: 768px) {
+        .config-row {
+            grid-template-columns: 1fr;
+        }
+
+        .alert-summary {
+            grid-template-columns: repeat(2, 1fr);
+            padding: 0 var(--spacing-lg);
+        }
+
+        .alert-config-panel,
+        .alert-preview-panel {
+            margin: 0 var(--spacing-lg) var(--spacing-xl) var(--spacing-lg);
+        }
+
+        .hero-section {
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .panel-body {
+            padding: var(--spacing-lg);
+        }
+    }
+
+    @media (max-width: 576px) {
+        .alert-summary {
+            grid-template-columns: 1fr;
+            padding: 0 var(--spacing-md);
+        }
+
+        .alert-config-panel,
+        .alert-preview-panel {
+            margin: 0 var(--spacing-md) var(--spacing-xl) var(--spacing-md);
+        }
+    }
+
+    /* Notification History Styles */
+    .notification-stat-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: var(--transition);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-md);
+    }
+
+    .notification-stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .stat-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: var(--radius-full);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .stat-content {
+        flex: 1;
+    }
+
+    .stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--gray-800);
+        line-height: 1;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        font-size: var(--font-size-sm);
+        color: var(--gray-600);
+        font-weight: 500;
+    }
+
+    .notification-filters {
+        background: #f8f9fa;
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--gray-200);
+    }
+
+    .notification-history-table {
+        background: white;
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .notification-history-table thead th {
+        background: var(--primary-color);
+        color: white;
+        font-weight: 600;
+        border: none;
+        padding: var(--spacing-md);
+        font-size: var(--font-size-sm);
+    }
+
+    .notification-history-table tbody td {
+        padding: var(--spacing-md);
+        vertical-align: middle;
+        border-color: var(--gray-200);
+    }
+
+    .notification-history-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .alert-type-badge {
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .alert-type-critical {
+        background: #dc3545;
+        color: white;
+    }
+
+    .alert-type-warning {
+        background: #ffc107;
+        color: #212529;
+    }
+
+    .alert-type-info {
+        background: #0dcaf0;
+        color: #212529;
+    }
+
+    .status-badge {
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .status-success {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .status-failed {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .notification-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .notification-action-btn {
+        background: none;
+        border: 1px solid var(--gray-300);
+        border-radius: var(--radius-md);
+        padding: 0.375rem 0.5rem;
+        color: var(--gray-600);
+        cursor: pointer;
+        transition: var(--transition);
+        font-size: 0.875rem;
+    }
+
+    .notification-action-btn:hover {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .section-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Alert Management Hero Section -->
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="container-xxl">
+            <div class="row align-items-center">
+                <div class="col-lg-8">
+                    <h1 class="hero-title">
+                        <i class="fas fa-bell me-3"></i>
+                        Alert Management
+                    </h1>
+                    <p class="hero-subtitle">
+                        Configure and manage end-of-life alerts for operating systems. Set advance warning periods
+                        and notification frequencies to stay ahead of EOL dates and ensure system compliance.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="container-fluid px-0">
+
+    <!-- Alert Summary Cards -->
+    <div class="alert-summary fade-in">
+        <div class="summary-card">
+            <div class="summary-icon critical">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="summary-value" id="critical-alerts">—</div>
+            <div class="summary-label">Critical Alerts</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-icon warning">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+            <div class="summary-value" id="warning-alerts">—</div>
+            <div class="summary-label">Warning Alerts</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-icon info">
+                <i class="fas fa-info-circle"></i>
+            </div>
+            <div class="summary-value" id="info-alerts">—</div>
+            <div class="summary-label">Info Alerts</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-icon" style="background: linear-gradient(135deg, #6b7280, #4b5563);">
+                <i class="fas fa-desktop"></i>
+            </div>
+            <div class="summary-value" id="total-os">—</div>
+            <div class="summary-label">Total OS Instances</div>
+        </div>
+    </div>
+
+    <!-- Alert Configuration Panel -->
+    <div class="alert-config-panel fade-in">
+        <div class="panel-header">
+            <h4 class="mb-0">
+                <i class="fas fa-cog me-2"></i>
+                Alert Configuration
+            </h4>
+        </div>
+        <div class="panel-body">
+
+            <!-- Enable/Disable Alerts -->
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-power-off"></i>
+                    Alert Status
+                </div>
+                <div class="config-row">
+                    <div class="config-group">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <label class="config-label">Enable EOL Alerts</label>
+                                <div class="config-description">Master switch to enable or disable all EOL alerts</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="alerts-enabled" checked onchange="toggleAlerts()">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Warning Periods -->
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-calendar-alt"></i>
+                    Warning Periods
+                </div>
+                <div class="config-row">
+                    <div class="config-group">
+                        <label class="config-label" for="critical-period">Critical Alert Period</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="critical-period" value="3" min="1" max="60"
+                                onchange="updatePreview()">
+                            <select class="form-select" id="critical-unit" style="max-width: 100px;"
+                                onchange="updatePreview()">
+                                <option value="months" selected>Months</option>
+                                <option value="years">Years</option>
+                                <option value="weeks">Weeks</option>
+                            </select>
+                        </div>
+                        <div class="config-description">Send critical alerts this far before EOL date</div>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label" for="warning-period">Warning Alert Period</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="warning-period" value="6" min="1" max="60"
+                                onchange="updatePreview()">
+                            <select class="form-select" id="warning-unit" style="max-width: 100px;"
+                                onchange="updatePreview()">
+                                <option value="months" selected>Months</option>
+                                <option value="years">Years</option>
+                                <option value="weeks">Weeks</option>
+                            </select>
+                        </div>
+                        <div class="config-description">Send warning alerts this far before EOL date</div>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label" for="info-period">Info Alert Period</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="info-period" value="12" min="1" max="60"
+                                onchange="updatePreview()">
+                            <select class="form-select" id="info-unit" style="max-width: 100px;"
+                                onchange="updatePreview()">
+                                <option value="months" selected>Months</option>
+                                <option value="years">Years</option>
+                                <option value="weeks">Weeks</option>
+                            </select>
+                        </div>
+                        <div class="config-description">Send informational alerts this far before EOL date</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notification Frequency -->
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-clock"></i>
+                    Notification Frequency
+                </div>
+                <div class="config-row">
+                    <div class="config-group">
+                        <label class="config-label" for="critical-frequency">Critical Alert Frequency</label>
+                        <select class="form-select" id="critical-frequency" onchange="updatePreview()">
+                            <option value="daily">Daily</option>
+                            <option value="weekly" selected>Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                        <div class="config-description">How often to send critical alerts</div>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label" for="warning-frequency">Warning Alert Frequency</label>
+                        <select class="form-select" id="warning-frequency" onchange="updatePreview()">
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly" selected>Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                        </select>
+                        <div class="config-description">How often to send warning alerts</div>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label" for="info-frequency">Info Alert Frequency</label>
+                        <select class="form-select" id="info-frequency" onchange="updatePreview()">
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly" selected>Quarterly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                        <div class="config-description">How often to send informational alerts</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notification Settings -->
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-envelope"></i>
+                    Email Notification Settings
+                </div>
+                <div class="config-row">
+                    <div class="config-group">
+                        <label class="config-label" for="notification-email">Email Recipients</label>
+                        <textarea class="form-control" id="notification-email" rows="3"
+                            placeholder="admin@company.com, security@company.com" onchange="updatePreview()"></textarea>
+                        <div class="config-description">Comma-separated list of email addresses</div>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label" for="notification-webhook">Webhook URL (Optional)</label>
+                        <input type="url" class="form-control" id="notification-webhook"
+                            placeholder="https://hooks.slack.com/services/..." onchange="updatePreview()">
+                        <div class="config-description">Webhook URL for external notification systems</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SMTP Configuration -->
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-server"></i>
+                    SMTP Configuration
+                </div>
+                <div class="config-row">
+                    <div class="config-group">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <label class="config-label">Enable SMTP</label>
+                                <div class="config-description">Enable email notifications via SMTP</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="smtp-enabled" onchange="toggleSMTP()">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="smtp-config" style="display: none;">
+                    <!-- Provider Presets -->
+                    <div class="config-row">
+                        <div class="config-group">
+                            <label class="config-label">Email Provider Presets</label>
+                            <select class="form-control" id="smtp-preset" onchange="applySMTPPreset()">
+                                <option value="">Select a provider...</option>
+                                <option value="gmail">Gmail</option>
+                                <option value="outlook">Outlook/Hotmail</option>
+                                <option value="yahoo">Yahoo</option>
+                                <option value="custom">Custom Configuration</option>
+                            </select>
+                            <div class="config-description">Choose a preset to auto-configure SMTP settings</div>
+                        </div>
+                    </div>
+
+                    <div class="config-row">
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-server">SMTP Server</label>
+                            <input type="text" class="form-control" id="smtp-server" placeholder="smtp.gmail.com">
+                            <div class="config-description">SMTP server hostname</div>
+                        </div>
+
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-port">Port</label>
+                            <input type="number" class="form-control" id="smtp-port" value="587" min="1" max="65535">
+                            <div class="config-description">
+                                <span id="port-description">Gmail: 587 (TLS) or 465 (SSL)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="config-row">
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-username">Username</label>
+                            <input type="text" class="form-control" id="smtp-username"
+                                placeholder="your-email@gmail.com">
+                            <div class="config-description">Your email address</div>
+                        </div>
+
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-password">Password</label>
+                            <input type="password" class="form-control" id="smtp-password"
+                                placeholder="Enter App Password">
+                            <div class="config-description">
+                                <span id="password-description">For Gmail: Use App Password, not your regular
+                                    password</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gmail App Password Instructions -->
+                    <div id="gmail-instructions" class="alert alert-info" style="display: none;">
+                        <h6><i class="fas fa-info-circle me-2"></i>Gmail Setup Instructions</h6>
+                        <ol class="mb-0">
+                            <li>Enable 2-factor authentication on your Google account</li>
+                            <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App
+                                    Passwords</a></li>
+                            <li>Generate an App Password for "Mail"</li>
+                            <li>Use that 16-character password here (not your regular password)</li>
+                        </ol>
+                    </div>
+
+                    <div class="config-row">
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-from-email">From Email</label>
+                            <input type="email" class="form-control" id="smtp-from-email"
+                                placeholder="noreply@company.com">
+                            <div class="config-description">Email address for sending alerts</div>
+                        </div>
+
+                        <div class="config-group">
+                            <label class="config-label" for="smtp-from-name">From Name</label>
+                            <input type="text" class="form-control" id="smtp-from-name" value="EOL Alert System">
+                            <div class="config-description">Display name for sent emails</div>
+                        </div>
+                    </div>
+
+                    <div class="config-row">
+                        <div class="config-group">
+                            <div class="d-flex align-items-center gap-4">
+                                <div>
+                                    <label class="config-label">Use TLS</label>
+                                    <div class="config-description">Enable TLS encryption (recommended for Gmail)</div>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="smtp-use-tls" checked
+                                        onchange="updateEncryptionSettings()">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="config-group">
+                            <div class="d-flex align-items-center gap-4">
+                                <div>
+                                    <label class="config-label">Use SSL</label>
+                                    <div class="config-description">Enable SSL encryption (port 465)</div>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="smtp-use-ssl" onchange="updateEncryptionSettings()">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SMTP Test Section -->
+                    <div class="config-row">
+                        <div class="config-group">
+                            <div class="d-flex gap-3">
+                                <button class="btn btn-outline-primary" onclick="testSMTPConnection()">
+                                    <i class="fas fa-plug me-2"></i>Test Connection
+                                </button>
+                                <button class="btn btn-outline-success" onclick="sendTestEmail()">
+                                    <i class="fas fa-paper-plane me-2"></i>Send Test Email
+                                </button>
+                            </div>
+                            <div id="smtp-test-result" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex gap-3 justify-content-end">
+                <button class="btn btn-preview" onclick="updatePreview()">
+                    <i class="fas fa-eye me-2"></i>Update Preview
+                </button>
+                <button class="btn btn-secondary" onclick="reloadAlertConfiguration()">
+                    <i class="fas fa-sync-alt me-2"></i>Reload from DB
+                </button>
+                <button class="btn btn-create-alert" onclick="saveAlertConfiguration()">
+                    <i class="fas fa-save me-2"></i>Save Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Preview Panel -->
+    <div class="alert-preview-panel fade-in">
+        <div class="preview-header">
+            <h4 class="mb-0">
+                <i class="fas fa-list me-2"></i>
+                Alert Preview
+            </h4>
+            <div>
+                <span class="badge bg-light text-dark" id="preview-count">0 OS instances</span>
+            </div>
+        </div>
+        <div class="preview-body">
+            <!-- Loading State -->
+            <div id="preview-loading" class="loading-spinner">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+
+            <!-- Preview Table -->
+            <div id="preview-content" style="display: none;">
+                <div class="table-responsive">
+                    <table class="os-preview-table">
+                        <thead>
+                            <tr>
+                                <th>Computer Name</th>
+                                <th>OS Name</th>
+                                <th>Version</th>
+                                <th>EOL Date</th>
+                                <th>Days Until EOL</th>
+                                <th>Alert Level</th>
+                            </tr>
+                        </thead>
+                        <tbody id="preview-table-body">
+                            <!-- Preview data will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- No Data Message -->
+            <div id="preview-no-data" class="no-data-message" style="display: none;">
+                <i class="fas fa-info-circle fa-2x mb-3 text-muted"></i>
+                <h5 class="text-muted">No OS Data Available</h5>
+                <p class="text-muted">Load OS inventory data to see alert preview</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification History Section -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="config-section">
+                <div class="section-header">
+                    <h3 class="section-title">
+                        <i class="fas fa-history me-2"></i>
+                        Notification History
+                    </h3>
+                    <div class="section-actions">
+                        <button class="btn btn-outline-primary btn-sm" onclick="refreshNotificationHistory()">
+                            <i class="fas fa-sync-alt me-1"></i>
+                            Refresh
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="exportNotificationHistory()">
+                            <i class="fas fa-download me-1"></i>
+                            Export
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Notification Summary Cards -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="notification-stat-card">
+                            <div class="stat-icon bg-primary">
+                                <i class="fas fa-envelope"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="total-notifications">—</div>
+                                <div class="stat-label">Total Sent</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="notification-stat-card">
+                            <div class="stat-icon bg-success">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="successful-notifications">—</div>
+                                <div class="stat-label">Successful</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="notification-stat-card">
+                            <div class="stat-icon bg-danger">
+                                <i class="fas fa-times-circle"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="failed-notifications">—</div>
+                                <div class="stat-label">Failed</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="notification-stat-card">
+                            <div class="stat-icon bg-info">
+                                <i class="fas fa-clock"></i>
+                            </div>
+                            <div class="stat-content">
+                                <div class="stat-value" id="last-notification">—</div>
+                                <div class="stat-label">Last Sent</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Controls -->
+                <div class="notification-filters mb-3">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label for="filter-type" class="form-label">Alert Type</label>
+                            <select class="form-select" id="filter-type" onchange="filterNotifications()">
+                                <option value="">All Types</option>
+                                <option value="critical">Critical</option>
+                                <option value="warning">Warning</option>
+                                <option value="info">Info</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-status" class="form-label">Status</label>
+                            <select class="form-select" id="filter-status" onchange="filterNotifications()">
+                                <option value="">All Status</option>
+                                <option value="success">Successful</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-date-from" class="form-label">From Date</label>
+                            <input type="date" class="form-control" id="filter-date-from" onchange="filterNotifications()">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-date-to" class="form-label">To Date</label>
+                            <input type="date" class="form-control" id="filter-date-to" onchange="filterNotifications()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notification History Table -->
+                <div class="table-responsive">
+                    <table class="table table-hover notification-history-table">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <i class="fas fa-calendar-alt me-1"></i>
+                                    Date & Time
+                                </th>
+                                <th>
+                                    <i class="fas fa-exclamation-triangle me-1"></i>
+                                    Alert Type
+                                </th>
+                                <th>
+                                    <i class="fas fa-users me-1"></i>
+                                    Recipients
+                                </th>
+                                <th>
+                                    <i class="fas fa-list me-1"></i>
+                                    Items Count
+                                </th>
+                                <th>
+                                    <i class="fas fa-check-circle me-1"></i>
+                                    Status
+                                </th>
+                                <th>
+                                    <i class="fas fa-cog me-1"></i>
+                                    Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="notification-history-body">
+                            <!-- Notification history will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="notification-loading" class="text-center py-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading notifications...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Loading notification history...</p>
+                </div>
+
+                <!-- No Notifications Message -->
+                <div id="notification-no-data" class="no-data-message" style="display: none;">
+                    <i class="fas fa-bell-slash fa-2x mb-3 text-muted"></i>
+                    <h5 class="text-muted">No Notifications Found</h5>
+                    <p class="text-muted">No notification history available with current filters</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div> <!-- End Main Content Container -->
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let osInventoryData = [];
+    let currentAlertItems = []; // Store current alert preview items for test emails
+    let alertConfig = {
+        enabled: true,
+        critical: { period: 3, unit: 'months', frequency: 'weekly' },
+        warning: { period: 6, unit: 'months', frequency: 'monthly' },
+        info: { period: 12, unit: 'months', frequency: 'quarterly' },
+        email_recipients: [],
+        webhook_url: '',
+        smtp_settings: {
+            enabled: false,
+            server: '',
+            port: 587,
+            username: '',
+            password: '',
+            use_tls: true,
+            use_ssl: false,
+            from_email: '',
+            from_name: 'EOL Alert System'
+        },
+        last_sent: {}
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadOSInventory();
+        loadAlertConfiguration();
+        updatePreview();
+    });
+
+    async function loadOSInventory() {
+        try {
+            const response = await fetch('/api/inventory/raw/os?days=90');
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                osInventoryData = data.data || [];
+                // Loaded OS inventory items
+                updatePreview();
+            } else {
+                console.warn('Failed to load OS inventory:', data.detail || 'Unknown error');
+                showNoDataMessage();
+            }
+        } catch (error) {
+            console.error('Error loading OS inventory:', error);
+            showNoDataMessage();
+        }
+    }
+
+    async function loadAlertConfiguration() {
+        try {
+            console.log('Loading alert configuration from backend...');
+            const response = await fetch('/api/alerts/config');
+
+            if (response.ok) {
+                const data = await response.json();
+                // Backend response received
+
+                if (data.success && data.data) {
+                    // Properly structure the alert configuration with defaults
+                    alertConfig = {
+                        enabled: data.data.enabled !== undefined ? data.data.enabled : true,
+                        critical: data.data.critical || { period: 3, unit: 'months', frequency: 'weekly' },
+                        warning: data.data.warning || { period: 6, unit: 'months', frequency: 'monthly' },
+                        info: data.data.info || { period: 12, unit: 'months', frequency: 'quarterly' },
+                        email_recipients: data.data.email_recipients || [],
+                        webhook_url: data.data.webhook_url || '',
+                        smtp_settings: data.data.smtp_settings || {
+                            enabled: false,
+                            server: '',
+                            port: 587,
+                            username: '',
+                            password: '',
+                            use_tls: true,
+                            use_ssl: false,
+                            from_email: '',
+                            from_name: 'EOL Alert System'
+                        },
+                        last_sent: data.data.last_sent || {}
+                    };
+
+                    // Updated alertConfig from backend
+                    populateConfigForm();
+                    return;
+                }
+            }
+
+            console.log('Backend load failed, falling back to localStorage...');
+        } catch (error) {
+            console.warn('Error loading alert configuration from backend:', error);
+        }
+
+        // Fallback to localStorage
+        try {
+            const saved = localStorage.getItem('eol_alert_config');
+            if (saved) {
+                const savedConfig = JSON.parse(saved);
+                // Ensure proper structure with defaults
+                alertConfig = {
+                    enabled: savedConfig.enabled !== undefined ? savedConfig.enabled : true,
+                    critical: savedConfig.critical || { period: 3, unit: 'months', frequency: 'weekly' },
+                    warning: savedConfig.warning || { period: 6, unit: 'months', frequency: 'monthly' },
+                    info: savedConfig.info || { period: 12, unit: 'months', frequency: 'quarterly' },
+                    email_recipients: savedConfig.email_recipients || [],
+                    webhook_url: savedConfig.webhook_url || '',
+                    smtp_settings: savedConfig.smtp_settings || {
+                        enabled: false,
+                        server: '',
+                        port: 587,
+                        username: '',
+                        password: '',
+                        use_tls: true,
+                        use_ssl: false,
+                        from_email: '',
+                        from_name: 'EOL Alert System'
+                    },
+                    last_sent: savedConfig.last_sent || {}
+                };
+
+                console.log('Loaded from localStorage:', alertConfig);
+                populateConfigForm();
+            } else {
+                console.log('No saved configuration found, using defaults');
+                // Use default configuration
+                populateConfigForm();
+            }
+        } catch (error) {
+            console.error('Error loading from localStorage:', error);
+            // Use default configuration
+            populateConfigForm();
+        }
+    }
+
+    function populateConfigForm() {
+        // Populating form with alertConfig
+
+        try {
+            // Basic settings
+            const alertsEnabledEl = document.getElementById('alerts-enabled');
+            if (alertsEnabledEl) {
+                alertsEnabledEl.checked = alertConfig.enabled || false;
+            } else {
+                console.error('Element alerts-enabled not found');
+            }
+
+            // Alert periods - handle nested structure properly
+            if (alertConfig.critical) {
+                const criticalPeriodEl = document.getElementById('critical-period');
+                const criticalUnitEl = document.getElementById('critical-unit');
+                const criticalFreqEl = document.getElementById('critical-frequency');
+                
+                if (criticalPeriodEl) criticalPeriodEl.value = alertConfig.critical.period || 3;
+                if (criticalUnitEl) criticalUnitEl.value = alertConfig.critical.unit || 'months';
+                if (criticalFreqEl) criticalFreqEl.value = alertConfig.critical.frequency || 'weekly';
+            }
+
+            if (alertConfig.warning) {
+                const warningPeriodEl = document.getElementById('warning-period');
+                const warningUnitEl = document.getElementById('warning-unit');
+                const warningFreqEl = document.getElementById('warning-frequency');
+                
+                if (warningPeriodEl) warningPeriodEl.value = alertConfig.warning.period || 6;
+                if (warningUnitEl) warningUnitEl.value = alertConfig.warning.unit || 'months';
+                if (warningFreqEl) warningFreqEl.value = alertConfig.warning.frequency || 'monthly';
+            }
+
+            if (alertConfig.info) {
+                const infoPeriodEl = document.getElementById('info-period');
+                const infoUnitEl = document.getElementById('info-unit');
+                const infoFreqEl = document.getElementById('info-frequency');
+                
+                if (infoPeriodEl) infoPeriodEl.value = alertConfig.info.period || 12;
+                if (infoUnitEl) infoUnitEl.value = alertConfig.info.unit || 'months';
+                if (infoFreqEl) infoFreqEl.value = alertConfig.info.frequency || 'quarterly';
+            }
+
+            // Email settings
+            const emailList = Array.isArray(alertConfig.email_recipients) ?
+                alertConfig.email_recipients.join(', ') :
+                (alertConfig.email_recipients || '');
+            
+            const notificationEmailEl = document.getElementById('notification-email');
+            const notificationWebhookEl = document.getElementById('notification-webhook');
+            
+            if (notificationEmailEl) notificationEmailEl.value = emailList;
+            if (notificationWebhookEl) notificationWebhookEl.value = alertConfig.webhook_url || '';
+
+            // SMTP settings - handle nested structure properly
+            const smtp = alertConfig.smtp_settings || {};
+            console.log('SMTP settings from config:', smtp);
+
+            const smtpElements = {
+                enabled: document.getElementById('smtp-enabled'),
+                server: document.getElementById('smtp-server'),
+                port: document.getElementById('smtp-port'),
+                username: document.getElementById('smtp-username'),
+                password: document.getElementById('smtp-password'),
+                fromEmail: document.getElementById('smtp-from-email'),
+                fromName: document.getElementById('smtp-from-name'),
+                useTls: document.getElementById('smtp-use-tls'),
+                useSsl: document.getElementById('smtp-use-ssl')
+            };
+
+            if (smtpElements.enabled) smtpElements.enabled.checked = smtp.enabled || false;
+            if (smtpElements.server) smtpElements.server.value = smtp.server || '';
+            if (smtpElements.port) smtpElements.port.value = smtp.port || 587;
+            if (smtpElements.username) smtpElements.username.value = smtp.username || '';
+            if (smtpElements.password) smtpElements.password.value = smtp.password || '';
+            if (smtpElements.fromEmail) smtpElements.fromEmail.value = smtp.from_email || '';
+            if (smtpElements.fromName) smtpElements.fromName.value = smtp.from_name || 'EOL Alert System';
+            if (smtpElements.useTls) smtpElements.useTls.checked = smtp.use_tls !== false; // default to true
+            if (smtpElements.useSsl) smtpElements.useSsl.checked = smtp.use_ssl || false;
+
+            console.log('All form fields populated successfully');
+
+            // Show/hide SMTP config based on enabled state
+            toggleSMTP();
+            
+        } catch (error) {
+            console.error('Error populating form:', error);
+            console.error('Error type:', error.constructor.name);
+            console.error('Error stack:', error.stack);
+            alert(`Error populating form: ${error.message}`);
+        }
+    }
+
+    function toggleAlerts() {
+        alertConfig.enabled = document.getElementById('alerts-enabled').checked;
+        updatePreview();
+    }
+
+    function toggleSMTP() {
+        const enabled = document.getElementById('smtp-enabled').checked;
+        const configDiv = document.getElementById('smtp-config');
+        configDiv.style.display = enabled ? 'block' : 'none';
+
+        if (alertConfig.smtp_settings) {
+            alertConfig.smtp_settings.enabled = enabled;
+        }
+    }
+
+    function applySMTPPreset() {
+        const preset = document.getElementById('smtp-preset').value;
+        const presets = {
+            gmail: {
+                server: 'smtp.gmail.com',
+                port: 587,
+                use_tls: true,
+                use_ssl: false,
+                instructions: true
+            },
+            outlook: {
+                server: 'smtp-mail.outlook.com',
+                port: 587,
+                use_tls: true,
+                use_ssl: false,
+                instructions: false
+            },
+            yahoo: {
+                server: 'smtp.mail.yahoo.com',
+                port: 587,
+                use_tls: true,
+                use_ssl: false,
+                instructions: false
+            }
+        };
+
+        if (preset && presets[preset]) {
+            const config = presets[preset];
+            document.getElementById('smtp-server').value = config.server;
+            document.getElementById('smtp-port').value = config.port;
+            document.getElementById('smtp-use-tls').checked = config.use_tls;
+            document.getElementById('smtp-use-ssl').checked = config.use_ssl;
+
+            // Update descriptions
+            updatePortDescription(preset);
+            updatePasswordDescription(preset);
+
+            // Show/hide Gmail instructions
+            const gmailInstructions = document.getElementById('gmail-instructions');
+            if (gmailInstructions) {
+                gmailInstructions.style.display = config.instructions ? 'block' : 'none';
+            }
+
+            // Update placeholders
+            if (preset === 'gmail') {
+                document.getElementById('smtp-username').placeholder = 'your-email@gmail.com';
+                document.getElementById('smtp-password').placeholder = 'Enter App Password';
+            } else if (preset === 'outlook') {
+                document.getElementById('smtp-username').placeholder = 'your-email@outlook.com';
+                document.getElementById('smtp-password').placeholder = 'Enter password';
+            } else if (preset === 'yahoo') {
+                document.getElementById('smtp-username').placeholder = 'your-email@yahoo.com';
+                document.getElementById('smtp-password').placeholder = 'Enter App Password';
+            }
+        }
+    }
+
+    function updatePortDescription(provider = null) {
+        const portDesc = document.getElementById('port-description');
+        if (!portDesc) return;
+
+        if (provider === 'gmail') {
+            portDesc.textContent = 'Gmail: 587 (TLS) or 465 (SSL)';
+        } else if (provider === 'outlook') {
+            portDesc.textContent = 'Outlook: 587 (TLS)';
+        } else if (provider === 'yahoo') {
+            portDesc.textContent = 'Yahoo: 587 (TLS) or 465 (SSL)';
+        } else {
+            portDesc.textContent = 'Common ports: 587 (TLS), 465 (SSL), 25 (unencrypted)';
+        }
+    }
+
+    function updatePasswordDescription(provider = null) {
+        const passDesc = document.getElementById('password-description');
+        if (!passDesc) return;
+
+        if (provider === 'gmail') {
+            passDesc.innerHTML = 'For Gmail: Use <strong>App Password</strong>, not your regular password';
+        } else if (provider === 'yahoo') {
+            passDesc.innerHTML = 'For Yahoo: Use <strong>App Password</strong>, not your regular password';
+        } else {
+            passDesc.textContent = 'Enter your email account password';
+        }
+    }
+
+    function updateEncryptionSettings() {
+        const useTLS = document.getElementById('smtp-use-tls').checked;
+        const useSSL = document.getElementById('smtp-use-ssl').checked;
+        const portField = document.getElementById('smtp-port');
+
+        // Prevent both TLS and SSL being enabled
+        if (useTLS && useSSL) {
+            if (event.target.id === 'smtp-use-tls') {
+                document.getElementById('smtp-use-ssl').checked = false;
+            } else {
+                document.getElementById('smtp-use-tls').checked = false;
+            }
+        }
+
+        // Auto-adjust port based on encryption
+        if (useTLS && !useSSL && portField.value == '465') {
+            portField.value = '587';
+        } else if (useSSL && !useTLS && portField.value == '587') {
+            portField.value = '465';
+        }
+    }
+
+    function updatePreview() {
+        if (!alertConfig.enabled) {
+            showDisabledMessage();
+            return;
+        }
+
+        // Update config from form with proper nested structure
+        alertConfig.enabled = document.getElementById('alerts-enabled').checked;
+
+        // Critical alert settings
+        if (!alertConfig.critical) alertConfig.critical = {};
+        alertConfig.critical.period = parseInt(document.getElementById('critical-period').value) || 3;
+        alertConfig.critical.unit = document.getElementById('critical-unit').value || 'months';
+        alertConfig.critical.frequency = document.getElementById('critical-frequency').value || 'weekly';
+
+        // Warning alert settings
+        if (!alertConfig.warning) alertConfig.warning = {};
+        alertConfig.warning.period = parseInt(document.getElementById('warning-period').value) || 6;
+        alertConfig.warning.unit = document.getElementById('warning-unit').value || 'months';
+        alertConfig.warning.frequency = document.getElementById('warning-frequency').value || 'monthly';
+
+        // Info alert settings
+        if (!alertConfig.info) alertConfig.info = {};
+        alertConfig.info.period = parseInt(document.getElementById('info-period').value) || 12;
+        alertConfig.info.unit = document.getElementById('info-unit').value || 'months';
+        alertConfig.info.frequency = document.getElementById('info-frequency').value || 'quarterly';
+
+        // Email settings
+        const emailText = document.getElementById('notification-email').value;
+        alertConfig.email_recipients = emailText ?
+            emailText.split(',').map(email => email.trim()).filter(email => email) : [];
+        alertConfig.webhook_url = document.getElementById('notification-webhook').value || '';
+
+        // SMTP settings with proper nested structure
+        if (!alertConfig.smtp_settings) alertConfig.smtp_settings = {};
+        alertConfig.smtp_settings.enabled = document.getElementById('smtp-enabled').checked;
+        alertConfig.smtp_settings.server = document.getElementById('smtp-server').value || '';
+        alertConfig.smtp_settings.port = parseInt(document.getElementById('smtp-port').value) || 587;
+        alertConfig.smtp_settings.username = document.getElementById('smtp-username').value || '';
+        alertConfig.smtp_settings.password = document.getElementById('smtp-password').value || '';
+        alertConfig.smtp_settings.from_email = document.getElementById('smtp-from-email').value || '';
+        alertConfig.smtp_settings.from_name = document.getElementById('smtp-from-name').value || 'EOL Alert System';
+        alertConfig.smtp_settings.use_tls = document.getElementById('smtp-use-tls').checked;
+        alertConfig.smtp_settings.use_ssl = document.getElementById('smtp-use-ssl').checked;
+
+        // Updated alertConfig structure
+
+        if (osInventoryData.length === 0) {
+            showNoDataMessage();
+            return;
+        }
+
+        document.getElementById('preview-loading').style.display = 'flex';
+        document.getElementById('preview-content').style.display = 'none';
+        document.getElementById('preview-no-data').style.display = 'none';
+
+        // Simulate processing delay
+        setTimeout(() => {
+            processAlertPreview();
+        }, 500);
+    }
+
+    function processAlertPreview() {
+        const now = new Date();
+        const alertItems = [];
+
+        // Convert periods to days for comparison
+        const criticalDays = convertTodays(alertConfig.critical.period, alertConfig.critical.unit);
+        const warningDays = convertTodays(alertConfig.warning.period, alertConfig.warning.unit);
+        const infoDays = convertTodays(alertConfig.info.period, alertConfig.info.unit);
+
+        osInventoryData.forEach(osItem => {
+            // Mock EOL dates - in real implementation, this would come from EOL database
+            const eolDate = getMockEOLDate(osItem.os_name, osItem.os_version);
+
+            if (eolDate) {
+                const daysUntilEOL = Math.ceil((eolDate - now) / (1000 * 60 * 60 * 24));
+
+                let alertLevel = null;
+                if (daysUntilEOL <= criticalDays && daysUntilEOL >= 0) {
+                    alertLevel = 'critical';
+                } else if (daysUntilEOL <= warningDays && daysUntilEOL >= 0) {
+                    alertLevel = 'warning';
+                } else if (daysUntilEOL <= infoDays && daysUntilEOL >= 0) {
+                    alertLevel = 'info';
+                }
+
+                if (alertLevel) {
+                    alertItems.push({
+                        computer: osItem.computer_name || osItem.computer || 'Unknown',
+                        osName: osItem.os_name || 'Unknown OS',
+                        version: osItem.os_version || 'Unknown',
+                        eolDate: eolDate,
+                        daysUntilEOL: daysUntilEOL,
+                        alertLevel: alertLevel
+                    });
+                }
+            }
+        });
+
+        // Sort by days until EOL (most urgent first)
+        alertItems.sort((a, b) => a.daysUntilEOL - b.daysUntilEOL);
+
+        displayPreview(alertItems);
+        updateSummaryCards(alertItems);
+    }
+
+    function convertTodays(period, unit) {
+        switch (unit) {
+            case 'weeks': return period * 7;
+            case 'months': return period * 30; // Approximate
+            case 'years': return period * 365; // Approximate
+            default: return period * 30;
+        }
+    }
+
+    function getMockEOLDate(osName, osVersion) {
+        // Mock EOL dates for demonstration
+        const mockDates = {
+            'Windows Server 2012': new Date('2023-10-10'),
+            'Windows Server 2012 R2': new Date('2023-10-10'),
+            'Windows Server 2016': new Date('2027-01-12'),
+            'Windows Server 2019': new Date('2029-01-09'),
+            'Windows Server 2022': new Date('2031-10-14'),
+            'Windows 10': new Date('2025-10-14'),
+            'Windows 11': new Date('2031-10-14'),
+            'Ubuntu 18.04': new Date('2023-05-31'),
+            'Ubuntu 20.04': new Date('2025-04-30'),
+            'Ubuntu 22.04': new Date('2027-04-30'),
+            'CentOS 7': new Date('2024-06-30'),
+            'CentOS 8': new Date('2021-12-31'),
+            'RHEL 7': new Date('2024-06-30'),
+            'RHEL 8': new Date('2029-05-31'),
+            'RHEL 9': new Date('2032-05-31')
+        };
+
+        // Try exact match first
+        let key = osName;
+        if (mockDates[key]) return mockDates[key];
+
+        // Try with version
+        key = `${osName} ${osVersion}`;
+        if (mockDates[key]) return mockDates[key];
+
+        // Try partial matches
+        for (const [mockKey, date] of Object.entries(mockDates)) {
+            if (osName.toLowerCase().includes(mockKey.toLowerCase()) ||
+                mockKey.toLowerCase().includes(osName.toLowerCase())) {
+                return date;
+            }
+        }
+
+        // Default future date if no match
+        return new Date(Date.now() + (Math.random() * 3 + 1) * 365 * 24 * 60 * 60 * 1000);
+    }
+
+    function displayPreview(alertItems) {
+        // Store the current alert items globally for test emails
+        currentAlertItems = alertItems;
+
+        const tbody = document.getElementById('preview-table-body');
+        tbody.innerHTML = '';
+
+        if (alertItems.length === 0) {
+            showNoAlertsMessage();
+            return;
+        }
+
+        alertItems.forEach(item => {
+            const row = document.createElement('tr');
+
+            const badgeClass = item.alertLevel === 'critical' ? 'eol-critical' :
+                item.alertLevel === 'warning' ? 'eol-warning' : 'eol-info';
+            const badgeText = item.alertLevel.charAt(0).toUpperCase() + item.alertLevel.slice(1);
+
+            row.innerHTML = `
+                <td>${item.computer}</td>
+                <td>${item.osName}</td>
+                <td>${item.version}</td>
+                <td>${item.eolDate.toLocaleDateString()}</td>
+                <td>${item.daysUntilEOL}</td>
+                <td><span class="eol-badge ${badgeClass}">${badgeText}</span></td>
+            `;
+
+            tbody.appendChild(row);
+        });
+
+        document.getElementById('preview-count').textContent = `${alertItems.length} OS instances`;
+        document.getElementById('preview-loading').style.display = 'none';
+        document.getElementById('preview-content').style.display = 'block';
+        document.getElementById('preview-no-data').style.display = 'none';
+    }
+
+    function updateSummaryCards(alertItems) {
+        const critical = alertItems.filter(item => item.alertLevel === 'critical').length;
+        const warning = alertItems.filter(item => item.alertLevel === 'warning').length;
+        const info = alertItems.filter(item => item.alertLevel === 'info').length;
+        const total = osInventoryData.length;
+
+        document.getElementById('critical-alerts').textContent = critical;
+        document.getElementById('warning-alerts').textContent = warning;
+        document.getElementById('info-alerts').textContent = info;
+        document.getElementById('total-os').textContent = total;
+    }
+
+    function showNoDataMessage() {
+        document.getElementById('preview-loading').style.display = 'none';
+        document.getElementById('preview-content').style.display = 'none';
+        document.getElementById('preview-no-data').style.display = 'block';
+        document.getElementById('preview-count').textContent = '0 OS instances';
+
+        // Reset summary cards
+        document.getElementById('critical-alerts').textContent = '—';
+        document.getElementById('warning-alerts').textContent = '—';
+        document.getElementById('info-alerts').textContent = '—';
+        document.getElementById('total-os').textContent = '—';
+    }
+
+    function showNoAlertsMessage() {
+        const tbody = document.getElementById('preview-table-body');
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-4">
+                    <i class="fas fa-check-circle text-success fa-2x mb-2"></i>
+                    <p class="text-muted mb-0">No alerts triggered with current settings</p>
+                </td>
+            </tr>
+        `;
+
+        document.getElementById('preview-count').textContent = '0 alerts';
+        document.getElementById('preview-loading').style.display = 'none';
+        document.getElementById('preview-content').style.display = 'block';
+        document.getElementById('preview-no-data').style.display = 'none';
+    }
+
+    function showDisabledMessage() {
+        const tbody = document.getElementById('preview-table-body');
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-4">
+                    <i class="fas fa-power-off text-muted fa-2x mb-2"></i>
+                    <p class="text-muted mb-0">Alerts are currently disabled</p>
+                </td>
+            </tr>
+        `;
+
+        document.getElementById('preview-count').textContent = 'Alerts disabled';
+        document.getElementById('preview-loading').style.display = 'none';
+        document.getElementById('preview-content').style.display = 'block';
+        document.getElementById('preview-no-data').style.display = 'none';
+    }
+
+    function saveAlertConfiguration() {
+        console.log('Saving alert configuration...');
+
+        // First update the alertConfig object from the form
+        updatePreview();
+
+        // Alert config to save (removed verbose logging)
+
+        // Validate required SMTP fields if SMTP is enabled
+        if (alertConfig.smtp_settings && alertConfig.smtp_settings.enabled) {
+            if (!alertConfig.smtp_settings.server || !alertConfig.smtp_settings.from_email) {
+                showSaveError('SMTP is enabled but missing required fields (server, from email)');
+                return;
+            }
+        }
+
+        // Save to backend (Cosmos DB)
+        fetch('/api/alerts/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(alertConfig)
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Save response received
+                if (data.success) {
+                    showSaveSuccess();
+                    // Also save to localStorage as backup
+                    localStorage.setItem('eol_alert_config', JSON.stringify(alertConfig));
+                    console.log('Configuration saved successfully to Cosmos DB');
+                } else {
+                    throw new Error(data.message || 'Failed to save configuration to Cosmos DB');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving to Cosmos DB:', error);
+
+                let errorMessage = 'Error saving configuration to Cosmos DB.';
+                if (error.message.includes('500')) {
+                    errorMessage += ' Server error - check Cosmos DB connection.';
+                } else if (error.message.includes('400')) {
+                    errorMessage += ' Invalid configuration data.';
+                } else {
+                    errorMessage += ` Details: ${error.message}`;
+                }
+
+                // Try localStorage as fallback
+                try {
+                    localStorage.setItem('eol_alert_config', JSON.stringify(alertConfig));
+                    showSaveSuccess();
+                    console.warn('Saved to localStorage as fallback after Cosmos DB error');
+                    errorMessage += ' Configuration saved to local storage as backup.';
+                    alert(errorMessage);
+                } catch (localError) {
+                    console.error('Error saving alert configuration to localStorage:', localError);
+                    showSaveError(errorMessage + ' Local storage also failed.');
+                }
+            });
+    }
+
+    function showSaveSuccess() {
+        const btn = document.querySelector('.btn-create-alert');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
+        btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.style.background = '';
+        }, 2000);
+    }
+
+    function showSaveError(message) {
+        const btn = document.querySelector('.btn-create-alert');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Error!';
+        btn.style.background = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.style.background = '';
+        }, 3000);
+
+        alert(message);
+    }
+
+    async function reloadAlertConfiguration() {
+        console.log('Reloading alert configuration from Cosmos DB...');
+
+        const btn = document.querySelector('.btn-secondary');
+        const originalText = btn.innerHTML;
+
+        try {
+            // Show loading state
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Reloading...';
+            btn.disabled = true;
+
+            console.log('Sending reload request to /api/alerts/config/reload...');
+
+            const response = await fetch('/api/alerts/config/reload', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            // Reload response status check
+            // Reload response validation
+            // Reload response headers check
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Response error text:', errorText);
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            }
+
+            const data = await response.json();
+            // Reload response data received
+            console.log('Data success:', data.success);
+            console.log('Data data:', data.data);
+
+            if (data.success && data.data) {
+                // Reset alertConfig to fresh data from Cosmos DB
+                alertConfig = {
+                    enabled: data.data.enabled || false,
+                    critical: data.data.critical || { period: 3, unit: 'months', frequency: 'weekly' },
+                    warning: data.data.warning || { period: 6, unit: 'months', frequency: 'monthly' },
+                    info: data.data.info || { period: 12, unit: 'months', frequency: 'quarterly' },
+                    email_recipients: data.data.email_recipients || [],
+                    webhook_url: data.data.webhook_url || '',
+                    smtp_settings: data.data.smtp_settings || {
+                        enabled: false,
+                        server: '',
+                        port: 587,
+                        username: '',
+                        password: '',
+                        use_tls: true,
+                        use_ssl: false,
+                        from_email: '',
+                        from_name: 'EOL Alert System'
+                    },
+                    last_sent: data.data.last_sent || {}
+                };
+
+                console.log('Configuration reloaded from Cosmos DB:', alertConfig);
+
+                // Repopulate the form with fresh data
+                populateConfigForm();
+
+                // Update preview
+                updatePreview();
+
+                // Show success feedback
+                btn.innerHTML = '<i class="fas fa-check me-2"></i>Reloaded!';
+                btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                    btn.disabled = false;
+                }, 2000);
+
+            } else {
+                throw new Error(data.message || 'Failed to reload configuration from Cosmos DB');
+            }
+
+        } catch (error) {
+            console.error('Error reloading configuration:', error);
+            console.error('Error type:', typeof error);
+            console.error('Error constructor:', error.constructor.name);
+            console.error('Error stack:', error.stack);
+
+            // Show error feedback
+            btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Error!';
+            btn.style.background = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.background = '';
+                btn.disabled = false;
+            }, 3000);
+
+            // Show detailed error message with more debugging info
+            let errorMessage = 'Error reloading configuration from Cosmos DB.\n\n';
+            
+            if (error.message) {
+                errorMessage += `Error Message: ${error.message}\n`;
+            }
+            
+            if (error.message && error.message.includes('500')) {
+                errorMessage += '\nThis is a server error. Possible causes:\n';
+                errorMessage += '• Cosmos DB connection issues\n';
+                errorMessage += '• Invalid Cosmos DB configuration\n';
+                errorMessage += '• Authentication problems\n';
+                errorMessage += '• Container not found\n';
+            } else if (error.message && error.message.includes('404')) {
+                errorMessage += '\nConfiguration not found in Cosmos DB.\n';
+                errorMessage += 'This might be the first time using the system.\n';
+            } else if (error.message && error.message.includes('Failed to fetch')) {
+                errorMessage += '\nNetwork error - cannot reach the server.\n';
+                errorMessage += 'Check if the application is running.\n';
+            } else {
+                errorMessage += `\nTechnical Details: ${error.message || 'Unknown error'}\n`;
+                errorMessage += `Error Type: ${error.constructor.name}\n`;
+            }
+
+            alert(errorMessage);
+        }
+    }
+
+    // Enhanced error reporting function
+    function reportError(context, error) {
+        console.error(`=== ERROR in ${context} ===`);
+        console.error('Error message:', error.message);
+        console.error('Error type:', error.constructor.name);
+        console.error('Error stack:', error.stack);
+        console.error('Current alertConfig:', alertConfig);
+        console.error('================================');
+    }
+
+    async function testSMTPConnection() {
+        const resultDiv = document.getElementById('smtp-test-result');
+        const smtpData = {
+            enabled: document.getElementById('smtp-enabled').checked,
+            server: document.getElementById('smtp-server').value,
+            port: parseInt(document.getElementById('smtp-port').value) || 587,
+            username: document.getElementById('smtp-username').value,
+            password: document.getElementById('smtp-password').value,
+            use_tls: document.getElementById('smtp-use-tls').checked,
+            use_ssl: document.getElementById('smtp-use-ssl').checked,
+            from_email: document.getElementById('smtp-from-email').value,
+            from_name: document.getElementById('smtp-from-name').value
+        };
+
+        try {
+            resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin me-2"></i>Testing connection...</div>';
+
+            const response = await fetch('/api/alerts/smtp/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(smtpData)
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-2"></i>${data.message}</div>`;
+            } else {
+                let errorMessage = data.message;
+                let suggestions = '';
+
+                // Provide Gmail-specific error suggestions
+                if (smtpData.server.includes('gmail.com')) {
+                    if (errorMessage.includes('authentication') || errorMessage.includes('password')) {
+                        suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Use an App Password, not your regular password</li><li>Enable 2-factor authentication first</li><li>Generate App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></li></ul>';
+                    } else if (errorMessage.includes('connection') || errorMessage.includes('timeout')) {
+                        suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Use port 587 with TLS enabled</li><li>Or use port 465 with SSL enabled</li><li>Check your internet connection</li></ul>';
+                    } else if (errorMessage.includes('SSL') || errorMessage.includes('TLS')) {
+                        suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Enable TLS for port 587</li><li>Enable SSL for port 465</li><li>Don\'t enable both TLS and SSL</li></ul>';
+                    }
+                }
+
+                resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times me-2"></i>${errorMessage}${suggestions}</div>`;
+            }
+        } catch (error) {
+            resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times me-2"></i>Error: ${error.message}</div>`;
+        }
+
+        // Clear result after 8 seconds (longer for detailed error messages)
+        setTimeout(() => {
+            resultDiv.innerHTML = '';
+        }, 8000);
+    }
+
+    function generateAlertEmailBody() {
+        if (!currentAlertItems || currentAlertItems.length === 0) {
+            return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+                    .header { background-color: #2563eb; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+                    .content { margin: 20px 0; }
+                    .footer { margin-top: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 8px; color: #6b7280; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>End-of-Life Alert</h1>
+                    <p>No end-of-life alerts currently triggered based on your configuration.</p>
+                </div>
+                <div class="content">
+                    <p>All operating systems are currently within acceptable timeframes based on your alert configuration settings.</p>
+                </div>
+                <div class="footer">
+                    <p><em>This is an automated alert from the End-of-Life Monitoring System.</em></p>
+                </div>
+            </body>
+            </html>
+            `;
+        }
+
+        // Group alerts by level
+        const critical = currentAlertItems.filter(item => item.alertLevel === 'critical');
+        const warning = currentAlertItems.filter(item => item.alertLevel === 'warning');
+        const info = currentAlertItems.filter(item => item.alertLevel === 'info');
+
+        // Generate HTML email content that matches the UI preview
+        let htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    margin: 20px; 
+                    line-height: 1.6; 
+                    color: #333;
+                }
+                .header { 
+                    background: linear-gradient(135deg, #f59e0b 0%, #e67e22 50%, #d35400 100%); 
+                    color: white; 
+                    padding: 25px; 
+                    border-radius: 12px; 
+                    margin-bottom: 25px; 
+                    text-align: center;
+                }
+                .header h1 { 
+                    margin: 0 0 10px 0; 
+                    font-size: 28px; 
+                    font-weight: 700;
+                }
+                .header p { 
+                    margin: 0; 
+                    font-size: 16px; 
+                    opacity: 0.95;
+                }
+                .summary { 
+                    display: flex; 
+                    justify-content: space-around; 
+                    margin: 25px 0; 
+                    background: #f8fafc; 
+                    padding: 20px; 
+                    border-radius: 8px;
+                }
+                .summary-item { 
+                    text-align: center; 
+                    padding: 15px;
+                }
+                .summary-value { 
+                    font-size: 24px; 
+                    font-weight: 700; 
+                    margin: 5px 0;
+                }
+                .summary-label { 
+                    font-size: 12px; 
+                    color: #6b7280; 
+                    text-transform: uppercase; 
+                    letter-spacing: 0.5px;
+                }
+                .critical { color: #dc2626; }
+                .warning { color: #d97706; }
+                .info { color: #2563eb; }
+                .alert-table { 
+                    width: 100%; 
+                    border-collapse: separate; 
+                    border-spacing: 0; 
+                    margin: 25px 0; 
+                    border-radius: 8px; 
+                    overflow: hidden; 
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                    border: 1px solid #e2e8f0;
+                }
+                .alert-table th { 
+                    background-color: #f1f5f9; 
+                    color: #374151; 
+                    padding: 15px 12px; 
+                    text-align: left; 
+                    font-weight: 600; 
+                    font-size: 13px; 
+                    text-transform: uppercase; 
+                    letter-spacing: 0.5px;
+                    border-bottom: 2px solid #e2e8f0;
+                    position: sticky;
+                    top: 0;
+                }
+                .alert-table th:first-child {
+                    border-top-left-radius: 8px;
+                }
+                .alert-table th:last-child {
+                    border-top-right-radius: 8px;
+                }
+                .alert-table td { 
+                    padding: 12px; 
+                    border-bottom: 1px solid #f1f5f9; 
+                    vertical-align: middle;
+                    font-size: 14px;
+                }
+                .alert-table tbody tr:nth-child(even) { 
+                    background-color: #f9fafb; 
+                }
+                .alert-table tbody tr:hover { 
+                    background-color: #f3f4f6; 
+                }
+                .computer-name {
+                    font-weight: 600;
+                    color: #1f2937;
+                }
+                .days-count {
+                    font-weight: 600;
+                    color: #374151;
+                }
+                .eol-date {
+                    color: #6b7280;
+                }
+                .eol-badge { 
+                    font-size: 11px; 
+                    font-weight: 600; 
+                    padding: 4px 8px; 
+                    border-radius: 4px; 
+                    text-transform: uppercase; 
+                    letter-spacing: 0.5px; 
+                    display: inline-block;
+                }
+                .eol-critical { 
+                    background-color: #fef2f2; 
+                    color: #dc2626; 
+                    border: 1px solid #fecaca; 
+                }
+                .eol-warning { 
+                    background-color: #fffbeb; 
+                    color: #d97706; 
+                    border: 1px solid #fed7aa; 
+                }
+                .eol-info { 
+                    background-color: #eff6ff; 
+                    color: #2563eb; 
+                    border: 1px solid #bfdbfe; 
+                }
+                .recommendations { 
+                    background: #f8fafc; 
+                    padding: 25px; 
+                    border-radius: 8px; 
+                    margin: 25px 0; 
+                    border-left: 4px solid #3b82f6;
+                }
+                .recommendations h3 { 
+                    margin-top: 0; 
+                    color: #1f2937; 
+                    font-size: 18px;
+                }
+                .recommendations ul { 
+                    margin: 15px 0; 
+                    padding-left: 20px;
+                }
+                .recommendations li { 
+                    margin: 8px 0; 
+                    color: #4b5563;
+                }
+                .footer { 
+                    margin-top: 30px; 
+                    padding: 20px; 
+                    background-color: #f1f5f9; 
+                    border-radius: 8px; 
+                    color: #6b7280; 
+                    text-align: center; 
+                    font-size: 14px;
+                }
+                .footer em { 
+                    font-style: italic; 
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🔔 End-of-Life Alert</h1>
+                <p>The following operating systems are approaching their end-of-life dates and require attention.</p>
+            </div>
+            
+            <div class="summary">
+                <div class="summary-item">
+                    <div class="summary-value critical">${critical.length}</div>
+                    <div class="summary-label">Critical Alerts</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value warning">${warning.length}</div>
+                    <div class="summary-label">Warning Alerts</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value info">${info.length}</div>
+                    <div class="summary-label">Info Alerts</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">${currentAlertItems.length}</div>
+                    <div class="summary-label">Total Alerts</div>
+                </div>
+            </div>
+            
+            <table class="alert-table">
+                <thead>
+                    <tr>
+                        <th>Computer Name</th>
+                        <th>Operating System</th>
+                        <th>Version</th>
+                        <th>End-of-Life Date</th>
+                        <th>Days Remaining</th>
+                        <th>Alert Level</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        // Add all alert items to the table, sorted by alert level and days until EOL
+        const sortedItems = [...currentAlertItems].sort((a, b) => {
+            const levelOrder = { 'critical': 0, 'warning': 1, 'info': 2 };
+            if (levelOrder[a.alertLevel] !== levelOrder[b.alertLevel]) {
+                return levelOrder[a.alertLevel] - levelOrder[b.alertLevel];
+            }
+            return a.daysUntilEOL - b.daysUntilEOL;
+        });
+
+        sortedItems.forEach(item => {
+            const badgeClass = item.alertLevel === 'critical' ? 'eol-critical' : 
+                              item.alertLevel === 'warning' ? 'eol-warning' : 'eol-info';
+            const badgeText = item.alertLevel.charAt(0).toUpperCase() + item.alertLevel.slice(1);
+            
+            // Format the EOL date consistently
+            const eolDateFormatted = item.eolDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+            
+            // Add urgency styling based on days until EOL
+            let daysStyle = '';
+            if (item.daysUntilEOL <= 30) {
+                daysStyle = 'color: #dc2626; font-weight: 700;'; // Red for very urgent
+            } else if (item.daysUntilEOL <= 90) {
+                daysStyle = 'color: #d97706; font-weight: 600;'; // Orange for urgent
+            } else {
+                daysStyle = 'color: #374151; font-weight: 600;'; // Normal for future
+            }
+            
+            htmlContent += `
+                    <tr>
+                        <td><span class="computer-name">${item.computer}</span></td>
+                        <td>${item.osName}</td>
+                        <td>${item.version}</td>
+                        <td><span class="eol-date">${eolDateFormatted}</span></td>
+                        <td><span class="days-count" style="${daysStyle}">${item.daysUntilEOL} days</span></td>
+                        <td><span class="eol-badge ${badgeClass}">${badgeText}</span></td>
+                    </tr>`;
+        });        htmlContent += `
+                </tbody>
+            </table>
+            
+            <!-- Detailed Breakdown by Alert Level -->
+            <div style="margin: 30px 0;">
+                <h3 style="color: #1f2937; font-size: 18px; margin-bottom: 20px;">📊 Detailed Breakdown</h3>
+                
+                ${critical.length > 0 ? `
+                <div style="margin-bottom: 20px; padding: 15px; background-color: #fef2f2; border-left: 4px solid #dc2626; border-radius: 6px;">
+                    <h4 style="color: #dc2626; margin: 0 0 10px 0; font-size: 16px;">🚨 Critical Alerts (${critical.length})</h4>
+                    <p style="margin: 0; color: #7f1d1d; font-size: 14px;">
+                        These systems are within ${alertConfig.critical ? alertConfig.critical.period + ' ' + alertConfig.critical.unit : '3 months'} of their end-of-life date and require immediate attention.
+                    </p>
+                    <ul style="margin: 10px 0 0 20px; color: #7f1d1d;">
+                        ${critical.slice(0, 5).map(item => `<li><strong>${item.computer}</strong> - ${item.osName} (${item.daysUntilEOL} days remaining)</li>`).join('')}
+                        ${critical.length > 5 ? `<li><em>... and ${critical.length - 5} more systems</em></li>` : ''}
+                    </ul>
+                </div>
+                ` : ''}
+                
+                ${warning.length > 0 ? `
+                <div style="margin-bottom: 20px; padding: 15px; background-color: #fffbeb; border-left: 4px solid #d97706; border-radius: 6px;">
+                    <h4 style="color: #d97706; margin: 0 0 10px 0; font-size: 16px;">⚠️ Warning Alerts (${warning.length})</h4>
+                    <p style="margin: 0; color: #92400e; font-size: 14px;">
+                        These systems are within ${alertConfig.warning ? alertConfig.warning.period + ' ' + alertConfig.warning.unit : '6 months'} of their end-of-life date and should be planned for upgrade.
+                    </p>
+                    <ul style="margin: 10px 0 0 20px; color: #92400e;">
+                        ${warning.slice(0, 3).map(item => `<li><strong>${item.computer}</strong> - ${item.osName} (${item.daysUntilEOL} days remaining)</li>`).join('')}
+                        ${warning.length > 3 ? `<li><em>... and ${warning.length - 3} more systems</em></li>` : ''}
+                    </ul>
+                </div>
+                ` : ''}
+                
+                ${info.length > 0 ? `
+                <div style="margin-bottom: 20px; padding: 15px; background-color: #eff6ff; border-left: 4px solid #2563eb; border-radius: 6px;">
+                    <h4 style="color: #2563eb; margin: 0 0 10px 0; font-size: 16px;">ℹ️ Informational Alerts (${info.length})</h4>
+                    <p style="margin: 0; color: #1e40af; font-size: 14px;">
+                        These systems are within ${alertConfig.info ? alertConfig.info.period + ' ' + alertConfig.info.unit : '12 months'} of their end-of-life date for your planning awareness.
+                    </p>
+                    <ul style="margin: 10px 0 0 20px; color: #1e40af;">
+                        ${info.slice(0, 3).map(item => `<li><strong>${item.computer}</strong> - ${item.osName} (${item.daysUntilEOL} days remaining)</li>`).join('')}
+                        ${info.length > 3 ? `<li><em>... and ${info.length - 3} more systems</em></li>` : ''}
+                    </ul>
+                </div>
+                ` : ''}
+            </div>
+            
+            <div class="recommendations">
+                <h3>📋 Recommended Actions</h3>
+                
+                ${critical.length > 0 ? `
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #dc2626; margin: 0 0 10px 0;">🚨 Immediate Actions Required (Critical Systems)</h4>
+                    <ul>
+                        <li><strong>Immediate Planning</strong>: Begin migration/upgrade planning for ${critical.length} critical system${critical.length > 1 ? 's' : ''}</li>
+                        <li><strong>Risk Assessment</strong>: Evaluate business impact of systems going EOL</li>
+                        <li><strong>Emergency Support</strong>: Contact vendors for extended support options</li>
+                        <li><strong>Backup Plans</strong>: Ensure data backup and recovery plans are current</li>
+                    </ul>
+                </div>
+                ` : ''}
+                
+                ${warning.length > 0 ? `
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #d97706; margin: 0 0 10px 0;">⚠️ Planning Required (Warning Systems)</h4>
+                    <ul>
+                        <li><strong>Upgrade Planning</strong>: Schedule upgrades for ${warning.length} system${warning.length > 1 ? 's' : ''} in warning status</li>
+                        <li><strong>Budget Approval</strong>: Begin budget planning for hardware/software upgrades</li>
+                        <li><strong>Testing Phase</strong>: Start testing new OS versions in staging environments</li>
+                        <li><strong>Resource Allocation</strong>: Assign team members for migration projects</li>
+                    </ul>
+                </div>
+                ` : ''}
+                
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #374151; margin: 0 0 10px 0;">📋 General Best Practices</h4>
+                    <ul>
+                        <li><strong>Inventory Management</strong>: Keep OS inventory up-to-date for accurate monitoring</li>
+                        <li><strong>Security Monitoring</strong>: Increase security monitoring for EOL systems</li>
+                        <li><strong>Documentation</strong>: Document all system dependencies and configurations</li>
+                        <li><strong>Stakeholder Communication</strong>: Inform business stakeholders of upcoming changes</li>
+                        <li><strong>Maintenance Windows</strong>: Schedule regular maintenance for system updates</li>
+                    </ul>
+                </div>
+                
+                <div style="background-color: #f0f9ff; padding: 15px; border-radius: 6px; border-left: 4px solid #0ea5e9;">
+                    <h4 style="color: #0ea5e9; margin: 0 0 10px 0;">💡 Pro Tips</h4>
+                    <ul style="margin: 0; color: #075985;">
+                        <li>Set calendar reminders 6 months before each EOL date</li>
+                        <li>Consider cloud migration for older on-premises systems</li>
+                        <li>Evaluate containerization options for application portability</li>
+                        <li>Review and update disaster recovery plans during upgrades</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Next Steps Summary -->
+            <div style="margin: 30px 0; padding: 20px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <h3 style="color: #1f2937; margin: 0 0 15px 0; font-size: 18px;">🎯 Next Steps Summary</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="color: #4b5563; margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Immediate Actions</h4>
+                        <ul style="margin: 0; color: #374151; font-size: 14px;">
+                            ${critical.length > 0 ? `<li>Review ${critical.length} critical system${critical.length > 1 ? 's' : ''}</li>` : ''}
+                            <li>Contact IT team or system administrators</li>
+                            <li>Schedule emergency planning meeting</li>
+                            <li>Review extended support options</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: #4b5563; margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">This Week</h4>
+                        <ul style="margin: 0; color: #374151; font-size: 14px;">
+                            <li>Create migration project plans</li>
+                            <li>Assess budget requirements</li>
+                            <li>Identify testing environments</li>
+                            <li>Document system dependencies</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <p><em>This alert was generated automatically by the End-of-Life Monitoring System.</em></p>
+                <p>Generated on ${new Date().toLocaleString()}</p>
+                <hr style="border: none; border-top: 1px solid #d1d5db; margin: 15px 0;">
+                <p style="font-size: 13px; color: #9ca3af;">
+                    📧 <strong>Need Help?</strong> Contact your IT administrator or system management team for assistance with EOL planning and migration strategies.
+                    <br>
+                    🔄 <strong>Alert Frequency:</strong> This alert is sent ${alertConfig.critical ? alertConfig.critical.frequency : 'weekly'} for critical systems, ${alertConfig.warning ? alertConfig.warning.frequency : 'monthly'} for warnings.
+                    <br>
+                    ⚙️ <strong>Manage Settings:</strong> Visit the Alert Management dashboard to modify notification preferences and alert thresholds.
+                </p>
+            </div>
+        </body>
+        </html>
+        `;
+
+        return htmlContent;
+    }
+
+    async function sendTestEmail() {
+        const resultDiv = document.getElementById('smtp-test-result');
+        const recipients = document.getElementById('notification-email').value;
+
+        if (!recipients.trim()) {
+            resultDiv.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Please enter email recipients first</div>';
+            setTimeout(() => resultDiv.innerHTML = '', 3000);
+            return;
+        }
+
+        try {
+            resultDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin me-2"></i>Sending test email...</div>';
+
+            const emailList = recipients.split(',').map(email => email.trim()).filter(email => email);
+
+            // Generate HTML email body from current alert preview (matches UI exactly)
+            const emailBody = generateAlertEmailBody();
+            const subjectTemplate = document.getElementById('subject_template')?.value || 'End-of-Life Alert Test';
+            const emailSubject = currentAlertItems.length > 0 ?
+                `EOL Alert - ${currentAlertItems.length} Systems Require Attention` :
+                'End-of-Life Alert Test (No Active Alerts)';
+
+            const response = await fetch('/api/alerts/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    recipients: emailList,
+                    level: 'info',
+                    custom_subject: emailSubject,
+                    custom_body: emailBody,
+                    is_html: true  // Flag to indicate this is already HTML
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-2"></i>${data.message} (sent to ${data.recipients_count} recipients)</div>`;
+            } else {
+                resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times me-2"></i>${data.message}</div>`;
+            }
+        } catch (error) {
+            resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times me-2"></i>Error: ${error.message}</div>`;
+        }
+
+        // Clear result after 7 seconds
+        setTimeout(() => {
+            resultDiv.innerHTML = '';
+        }, 7000);
+    }
+
+    // Notification History Functions
+    let notificationHistory = [];
+    let filteredNotifications = [];
+
+    async function loadNotificationHistory() {
+        const loadingEl = document.getElementById('notification-loading');
+        const noDataEl = document.getElementById('notification-no-data');
+        const tableBody = document.getElementById('notification-history-body');
+
+        try {
+            loadingEl.style.display = 'block';
+            noDataEl.style.display = 'none';
+
+            const response = await fetch('/api/notifications/history');
+            const data = await response.json();
+
+            if (data.success) {
+                notificationHistory = data.notifications || [];
+                filteredNotifications = [...notificationHistory];
+                updateNotificationStats();
+                renderNotificationHistory();
+            } else {
+                console.error('Error loading notification history:', data.message);
+                noDataEl.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error loading notification history:', error);
+            noDataEl.style.display = 'block';
+        } finally {
+            loadingEl.style.display = 'none';
+        }
+    }
+
+    function updateNotificationStats() {
+        const totalEl = document.getElementById('total-notifications');
+        const successfulEl = document.getElementById('successful-notifications');
+        const failedEl = document.getElementById('failed-notifications');
+        const lastEl = document.getElementById('last-notification');
+
+        const total = notificationHistory.length;
+        const successful = notificationHistory.filter(n => n.status === 'success').length;
+        const failed = notificationHistory.filter(n => n.status === 'failed').length;
+        
+        let lastNotification = '—';
+        if (notificationHistory.length > 0) {
+            const latest = notificationHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+            lastNotification = new Date(latest.timestamp).toLocaleDateString();
+        }
+
+        totalEl.textContent = total.toLocaleString();
+        successfulEl.textContent = successful.toLocaleString();
+        failedEl.textContent = failed.toLocaleString();
+        lastEl.textContent = lastNotification;
+    }
+
+    function renderNotificationHistory() {
+        const tableBody = document.getElementById('notification-history-body');
+        const noDataEl = document.getElementById('notification-no-data');
+
+        if (filteredNotifications.length === 0) {
+            tableBody.innerHTML = '';
+            noDataEl.style.display = 'block';
+            return;
+        }
+
+        noDataEl.style.display = 'none';
+
+        const rows = filteredNotifications.map(notification => {
+            const timestamp = new Date(notification.timestamp);
+            const alertTypeClass = `alert-type-${notification.alert_type}`;
+            const statusClass = notification.status === 'success' ? 'status-success' : 'status-failed';
+            const statusIcon = notification.status === 'success' ? 'fas fa-check' : 'fas fa-times';
+
+            return `
+                <tr>
+                    <td>
+                        <div class="fw-semibold">${timestamp.toLocaleDateString()}</div>
+                        <small class="text-muted">${timestamp.toLocaleTimeString()}</small>
+                    </td>
+                    <td>
+                        <span class="alert-type-badge ${alertTypeClass}">
+                            ${notification.alert_type}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="fw-semibold">${notification.recipient_count}</div>
+                        <small class="text-muted">${notification.recipients ? notification.recipients.slice(0, 2).join(', ') : 'Unknown'}</small>
+                        ${notification.recipients && notification.recipients.length > 2 ? `<small class="text-muted">... +${notification.recipients.length - 2} more</small>` : ''}
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary">${notification.items_count || 0}</span>
+                    </td>
+                    <td>
+                        <span class="status-badge ${statusClass}">
+                            <i class="${statusIcon}"></i>
+                            ${notification.status}
+                        </span>
+                        ${notification.error_message ? `<br><small class="text-danger">${notification.error_message}</small>` : ''}
+                    </td>
+                    <td>
+                        <div class="notification-actions">
+                            <button class="notification-action-btn" onclick="viewNotificationDetails('${notification.id}')" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="notification-action-btn" onclick="resendNotification('${notification.id}')" title="Resend">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        tableBody.innerHTML = rows;
+    }
+
+    function filterNotifications() {
+        const typeFilter = document.getElementById('filter-type').value;
+        const statusFilter = document.getElementById('filter-status').value;
+        const dateFromFilter = document.getElementById('filter-date-from').value;
+        const dateToFilter = document.getElementById('filter-date-to').value;
+
+        filteredNotifications = notificationHistory.filter(notification => {
+            // Type filter
+            if (typeFilter && notification.alert_type !== typeFilter) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter && notification.status !== statusFilter) {
+                return false;
+            }
+
+            // Date range filter
+            const notificationDate = new Date(notification.timestamp).toISOString().split('T')[0];
+            if (dateFromFilter && notificationDate < dateFromFilter) {
+                return false;
+            }
+            if (dateToFilter && notificationDate > dateToFilter) {
+                return false;
+            }
+
+            return true;
+        });
+
+        renderNotificationHistory();
+    }
+
+    function refreshNotificationHistory() {
+        loadNotificationHistory();
+    }
+
+    function exportNotificationHistory() {
+        if (filteredNotifications.length === 0) {
+            alert('No notifications to export');
+            return;
+        }
+
+        const csv = [
+            ['Date', 'Time', 'Alert Type', 'Recipients', 'Items Count', 'Status', 'Error Message'].join(','),
+            ...filteredNotifications.map(n => [
+                new Date(n.timestamp).toLocaleDateString(),
+                new Date(n.timestamp).toLocaleTimeString(),
+                n.alert_type,
+                n.recipient_count,
+                n.items_count || 0,
+                n.status,
+                (n.error_message || '').replace(/,/g, ';')
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `notification-history-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function viewNotificationDetails(notificationId) {
+        const notification = notificationHistory.find(n => n.id === notificationId);
+        if (!notification) {
+            alert('Notification not found');
+            return;
+        }
+
+        // Create a modal or detailed view (simplified for now)
+        alert(`Notification Details:\n\nID: ${notification.id}\nType: ${notification.alert_type}\nTimestamp: ${new Date(notification.timestamp).toLocaleString()}\nStatus: ${notification.status}\nRecipients: ${notification.recipients ? notification.recipients.join(', ') : 'Unknown'}\nItems: ${notification.items_count || 0}`);
+    }
+
+    function resendNotification(notificationId) {
+        const notification = notificationHistory.find(n => n.id === notificationId);
+        if (!notification) {
+            alert('Notification not found');
+            return;
+        }
+
+        if (confirm(`Resend ${notification.alert_type} notification to ${notification.recipient_count} recipients?`)) {
+            // Implement resend logic here
+            alert('Resend functionality would be implemented here');
+        }
+    }
+
+    // Load notification history when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add a small delay to ensure other components are loaded first
+        setTimeout(() => {
+            loadNotificationHistory();
+        }, 1000);
+    });
+</script>
+{% endblock %}

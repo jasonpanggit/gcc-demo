@@ -1,0 +1,2791 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Management - EOL Console{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Agent Management Styles - Consistent with EOL template */
+    .hero-section {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+        color: white;
+        padding: var(--spacing-2xl);
+        border-radius: var(--radius-xl);
+        margin-bottom: var(--spacing-xl);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+        pointer-events: none;
+    }
+
+    .hero-content {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-title {
+        font-size: var(--font-size-3xl);
+        font-weight: 700;
+        margin-bottom: var(--spacing-md);
+        line-height: 1.2;
+    }
+
+    .hero-subtitle {
+        font-size: var(--font-size-lg);
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: var(--spacing-xl);
+        line-height: 1.5;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+    }
+
+    .action-btn {
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .action-btn-primary {
+        background: rgba(255, 255, 255, 0.95);
+        color: var(--primary-color);
+        border: 2px solid transparent;
+    }
+
+    .action-btn-primary:hover {
+        background: white;
+        color: var(--primary-dark);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .action-btn-secondary {
+        background: transparent;
+        color: white;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .action-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: white;
+        transform: translateY(-2px);
+    }
+
+    /* Management Grid */
+    .management-grid {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: var(--spacing-xl);
+        margin-bottom: var(--spacing-xl);
+    }
+
+    @media (max-width: 992px) {
+        .management-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Agent Cards */
+    .agent-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.2s ease;
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .agent-card:hover {
+        box-shadow: var(--shadow-xl);
+        transform: translateY(-2px);
+    }
+
+    .agent-header {
+        padding: var(--spacing-lg);
+        border-bottom: 1px solid var(--gray-200);
+        background: linear-gradient(45deg, var(--gray-50) 0%, var(--gray-100) 100%);
+    }
+
+    .agent-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .agent-name {
+        font-size: var(--font-size-xl);
+        font-weight: 600;
+        color: var(--gray-800);
+        margin: 0;
+    }
+
+    .agent-status {
+        padding: var(--spacing-xs) var(--spacing-md);
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-xs);
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    .status-active {
+        background: var(--success-color);
+        color: white;
+    }
+
+    .status-inactive {
+        background: var(--gray-500);
+        color: white;
+    }
+
+    .status-error {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    .agent-description {
+        color: var(--gray-600);
+        margin: 0;
+        font-size: var(--font-size-sm);
+    }
+
+    .agent-body {
+        padding: var(--spacing-lg);
+    }
+
+    /* Agent Statistics */
+    .stats-row {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: var(--spacing-md);
+        margin-bottom: var(--spacing-lg);
+    }
+
+    @media (max-width: 1200px) {
+        .stats-row {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 480px) {
+        .stats-row {
+            grid-template-columns: repeat(1, 1fr);
+        }
+    }
+
+    .stat-item {
+        text-align: center;
+        padding: var(--spacing-md);
+        background: var(--gray-50);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--gray-200);
+    }
+
+    .stat-value {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        color: var(--primary-color);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .stat-value.stat-small {
+        font-size: var(--font-size-sm);
+        font-weight: 500;
+    }
+
+    .stat-label {
+        font-size: var(--font-size-xs);
+        color: var(--gray-600);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* System Overview Cards */
+    .system-overview-card {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        transition: all 0.2s ease;
+    }
+
+    .system-overview-card:hover {
+        box-shadow: var(--shadow-lg);
+        transform: translateY(-2px);
+    }
+
+    .system-overview-card .card-body {
+        padding: var(--spacing-lg);
+    }
+
+    .system-overview-card .card-title {
+        font-size: var(--font-size-2xl);
+        font-weight: 700;
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .system-overview-card .card-text {
+        color: var(--gray-600);
+        font-size: var(--font-size-sm);
+        margin: 0;
+    }
+
+    /* URLs Section */
+    .urls-section {
+        margin-bottom: 1rem;
+    }
+
+    .no-urls {
+        text-align: center;
+        padding: 2rem;
+        color: var(--gray-600);
+    }
+
+    .add-url-btn {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-md);
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .add-url-btn:hover {
+        background: var(--primary-dark);
+    }
+
+    /* Notification Section */
+    .notification-section {
+        margin-bottom: 1rem;
+    }
+
+    .notification-config {
+        background: #f8f9fa !important;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.75rem;
+    }
+
+    .notification-types {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .notification-type {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        border-left: 4px solid;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .notification-type.critical {
+        border-left-color: #dc3545;
+    }
+
+    .notification-type.warning {
+        border-left-color: #ffc107;
+    }
+
+    .notification-type.info {
+        border-left-color: #0dcaf0;
+    }
+
+    .type-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+        font-size: 1rem;
+    }
+
+    .frequency-info {
+        margin-left: 1.5rem;
+    }
+
+    .frequency-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .frequency-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+
+    .frequency-label {
+        font-weight: 600;
+        color: #495057;
+        min-width: 80px;
+    }
+
+    .frequency-schedule {
+        color: #6c757d;
+        text-align: right;
+        flex: 1;
+        margin-left: 1rem;
+    }
+
+    .current-setting {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        background: #e9ecef;
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+
+    .setting-label {
+        font-weight: 600;
+        color: #495057;
+    }
+
+    .notification-note {
+        border-top: 1px solid #dee2e6;
+        padding-top: 1rem;
+        margin-top: 1rem;
+    }
+
+    /* Filter Controls */
+    .filter-controls {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+    }
+
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Message System */
+    .message-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: var(--radius-lg);
+        border: 1px solid transparent;
+    }
+
+    .message-success {
+        background: var(--success-light);
+        border-color: var(--success-border);
+        color: var(--success-color);
+    }
+
+    .message-error {
+        background: var(--danger-light);
+        border-color: var(--danger-border);
+        color: var(--danger-color);
+    }
+
+    .message-info {
+        background: var(--info-light);
+        border-color: var(--info-border);
+        color: var(--info-color);
+    }
+
+    .btn-close {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        padding: 0.25rem;
+    }
+
+    /* URL Action Buttons */
+    .url-action-btn {
+        background: none;
+        border: 1px solid var(--gray-200);
+        color: var(--gray-600);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: var(--transition);
+        font-size: 0.875rem;
+    }
+
+    .url-action-btn:hover {
+        background: var(--gray-50);
+    }
+
+    .url-action-btn.btn-test:hover {
+        background: var(--info-color);
+        border-color: var(--info-color);
+        color: white;
+    }
+
+    .url-action-btn.btn-edit:hover {
+        background: var(--warning-color);
+        border-color: var(--warning-color);
+        color: var(--dark-color);
+    }
+
+    .url-action-btn.btn-remove:hover {
+        background: var(--danger-color);
+        border-color: var(--danger-color);
+        color: white;
+    }
+
+    /* URL Content Layout */
+    .url-content {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .url-description {
+        font-size: 0.75rem;
+        color: var(--gray-600);
+        margin-top: 0.25rem;
+    }
+
+    /* Badges */
+    .badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .badge-xs {
+        padding: 0.125rem 0.375rem;
+        font-size: 0.625rem;
+    }
+
+    .bg-success {
+        background: var(--success-color);
+        color: white;
+    }
+
+    .bg-warning {
+        background: var(--warning-color);
+        color: var(--dark-color);
+    }
+
+    .bg-secondary {
+        background: var(--secondary-color);
+        color: white;
+    }
+
+    /* Utilities */
+    .d-flex {
+        display: flex;
+    }
+
+    .gap-2 {
+        gap: 0.5rem;
+    }
+
+    .mt-1 {
+        margin-top: 0.25rem;
+    }
+
+    .mt-2 {
+        margin-top: 0.5rem;
+    }
+
+    .mt-3 {
+        margin-top: 1rem;
+    }
+
+    .mb-0 {
+        margin-bottom: 0;
+    }
+
+    .mb-1 {
+        margin-bottom: 0.25rem;
+    }
+
+    .mb-2 {
+        margin-bottom: 0.5rem;
+    }
+
+    .mb-3 {
+        margin-bottom: 1rem;
+    }
+
+    .mb-4 {
+        margin-bottom: 1.5rem;
+    }
+
+    .me-1 {
+        margin-right: 0.25rem;
+    }
+
+    .me-2 {
+        margin-right: 0.5rem;
+    }
+
+    .text-center {
+        text-align: center;
+    }
+
+    .text-muted {
+        color: var(--gray-600) !important;
+    }
+
+    .text-light {
+        color: var(--gray-100) !important;
+    }
+
+    .opacity-75 {
+        opacity: 0.75;
+    }
+
+    .icon-lg {
+        font-size: 3rem;
+    }
+
+    .py-3 {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+
+    .py-5 {
+        padding-top: 3rem;
+        padding-bottom: 3rem;
+    }
+
+    .h-100 {
+        height: 100%;
+    }
+
+    .d-none {
+        display: none !important;
+    }
+
+    /* Page Header */
+    .page-header {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--info-color) 100%);
+        color: white;
+        padding: 2rem 0;
+        margin-bottom: 2rem;
+    }
+
+    .page-header h1 {
+        font-weight: 700;
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+        font-size: 1.125rem;
+        opacity: 0.9;
+        margin-bottom: 0;
+    }
+
+    /* Bootstrap-like utilities */
+    .container {
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 1rem;
+    }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0 -0.5rem;
+    }
+
+    .col-6 {
+        flex: 0 0 50%;
+        max-width: 50%;
+        padding: 0 0.5rem;
+    }
+
+    .col-sm-4 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+        padding: 0 0.5rem;
+    }
+
+    .col-md-2 {
+        flex: 0 0 16.666667%;
+        max-width: 16.666667%;
+        padding: 0 0.5rem;
+    }
+
+    .col-md-4 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+        padding: 0 0.5rem;
+    }
+
+    .col-md-8 {
+        flex: 0 0 66.666667%;
+        max-width: 66.666667%;
+        padding: 0 0.5rem;
+    }
+
+    .col-lg-6 {
+        flex: 0 0 50%;
+        max-width: 50%;
+        padding: 0 0.5rem;
+    }
+
+    .col-xl-4 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+        padding: 0 0.5rem;
+    }
+
+    .text-end {
+        text-align: right;
+    }
+
+    .align-items-center {
+        align-items: center;
+    }
+
+    .card {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+
+    .card-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .card-text {
+        margin-bottom: 0;
+    }
+
+    .text-primary {
+        color: var(--primary-color) !important;
+    }
+
+    .text-success {
+        color: var(--success-color) !important;
+    }
+
+    .text-info {
+        color: var(--info-color) !important;
+    }
+
+    .text-warning {
+        color: var(--warning-color) !important;
+    }
+
+    .text-secondary {
+        color: var(--gray-600) !important;
+    }
+
+    .text-dark {
+        color: var(--gray-900) !important;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .filter-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .agents-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .col-sm-4,
+        .col-md-2,
+        .col-md-4,
+        .col-md-8,
+        .col-lg-6,
+        .col-xl-4 {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+
+        .col-6 {
+            flex: 0 0 50%;
+            max-width: 50%;
+        }
+
+        .page-header h1 {
+            font-size: 1.5rem;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+        }
+    }
+
+    @media (min-width: 576px) {
+        .col-sm-4 {
+            flex: 0 0 33.333333%;
+            max-width: 33.333333%;
+        }
+    }
+
+    @media (min-width: 768px) {
+        .col-md-2 {
+            flex: 0 0 16.666667%;
+            max-width: 16.666667%;
+        }
+
+        .col-md-4 {
+            flex: 0 0 33.333333%;
+            max-width: 33.333333%;
+        }
+
+        .col-md-8 {
+            flex: 0 0 66.666667%;
+            max-width: 66.666667%;
+        }
+    }
+
+    @media (min-width: 992px) {
+        .col-lg-6 {
+            flex: 0 0 50%;
+            max-width: 50%;
+        }
+    }
+
+    @media (min-width: 1200px) {
+        .col-xl-4 {
+            flex: 0 0 33.333333%;
+            max-width: 33.333333%;
+        }
+    }
+
+    .small {
+        font-size: 0.875rem;
+    }
+
+    /* URL Management */
+    .url-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--gray-100);
+    }
+
+    .section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--gray-900);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .url-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .url-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem;
+        background: var(--gray-50);
+        border-radius: var(--radius-lg);
+        margin-bottom: 0.5rem;
+        border: 1px solid var(--gray-200);
+        transition: var(--transition);
+    }
+
+    .url-item:hover {
+        background: #e9ecef;
+    }
+
+    .url-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .url-text {
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 0.875rem;
+        color: var(--primary);
+        text-decoration: none;
+        word-break: break-all;
+    }
+
+    .url-text:hover {
+        text-decoration: underline;
+    }
+
+    .url-meta {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.25rem;
+    }
+
+    .url-meta span {
+        font-size: 0.75rem;
+        color: var(--secondary);
+    }
+
+    .url-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    /* URL Statistics - Horizontal Compact Layout */
+    .url-stats-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--gray-50);
+        border-radius: 6px;
+        border: 1px solid var(--gray-200);
+        margin-top: 0.75rem;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .url-stat-item {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex: 0 0 auto;
+        min-width: 0;
+    }
+
+    .url-stat-value {
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: var(--primary);
+        white-space: nowrap;
+    }
+
+    .url-stat-label {
+        font-size: 0.65rem;
+        color: var(--secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+    }
+
+    /* Color coding for statistics */
+    .text-success {
+        color: var(--success) !important;
+    }
+
+    .text-warning {
+        color: var(--warning) !important;
+    }
+
+    .text-danger {
+        color: var(--danger) !important;
+    }
+
+    .text-info {
+        color: var(--info) !important;
+    }
+
+    .text-primary {
+        color: var(--primary) !important;
+    }
+
+    @media (max-width: 768px) {
+        .url-stats-grid {
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            align-items: stretch;
+        }
+        
+        .url-stat-item {
+            justify-content: space-between;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .url-stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .url-stat-value {
+            font-size: 0.75rem;
+        }
+        
+        .url-stat-label {
+            font-size: 0.6rem;
+        }
+    }
+
+    /* EOL Items */
+    .eol-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem;
+        background: var(--gray-50);
+        border-radius: var(--radius-lg);
+        margin-bottom: 0.5rem;
+        border: 1px solid var(--gray-200);
+    }
+
+    .eol-info {
+        flex: 1;
+    }
+
+    .eol-name {
+        font-weight: 500;
+        color: var(--gray-900);
+        margin-bottom: 0.25rem;
+    }
+
+    .eol-version {
+        font-size: 0.875rem;
+        color: var(--secondary);
+    }
+
+    .eol-status {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+
+    .eol-active {
+        background: var(--success);
+        color: white;
+    }
+
+    .eol-deprecated {
+        background: var(--warning-color);
+        color: var(--gray-900);
+    }
+
+    .eol-eol {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    /* Forms */
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        color: var(--gray-900);
+    }
+
+    .form-control {
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--gray-200);
+        padding: 0.75rem;
+        transition: var(--transition);
+        width: 100%;
+    }
+
+    .form-control:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        outline: none;
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 0.75rem 1rem;
+        border-radius: var(--radius-lg);
+        font-weight: 500;
+        transition: var(--transition);
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: var(--primary);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #0b5ed7;
+    }
+
+    .btn-success {
+        background: var(--success);
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #157347;
+    }
+
+    .btn-outline-secondary {
+        background: transparent;
+        color: var(--secondary);
+        border: 1px solid var(--secondary);
+    }
+
+    .btn-outline-secondary:hover {
+        background: var(--secondary);
+        color: white;
+    }
+
+    .btn-danger {
+        background: var(--danger);
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #bb2d3b;
+    }
+
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .w-100 {
+        width: 100%;
+    }
+
+    .d-grid {
+        display: grid;
+    }
+
+    .gap-2 {
+        gap: 0.5rem;
+    }
+
+    /* Stats Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .stat-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--gray-200);
+        text-align: center;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-label {
+        color: var(--secondary);
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* Loading States */
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        color: var(--secondary);
+    }
+
+    .loading-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem;
+        flex-direction: column;
+        color: var(--secondary);
+    }
+
+    .spinner {
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 2px solid var(--gray-200);
+        border-top: 2px solid var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    /* Alerts */
+    .alert {
+        padding: 1rem;
+        border-radius: var(--radius-lg);
+        margin-bottom: 1rem;
+        border: 1px solid transparent;
+    }
+
+    .alert-success {
+        background: rgba(25, 135, 84, 0.1);
+        border-color: rgba(25, 135, 84, 0.2);
+        color: var(--success);
+    }
+
+    .alert-danger {
+        background: rgba(220, 53, 69, 0.1);
+        border-color: rgba(220, 53, 69, 0.2);
+        color: var(--danger);
+    }
+
+    .alert-warning {
+        background: rgba(255, 193, 7, 0.1);
+        border-color: rgba(255, 193, 7, 0.2);
+        color: #856404;
+    }
+
+    /* Modals */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        max-width: 500px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid var(--gray-200);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .modal-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--gray-200);
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .hero-section {
+            padding: 2rem 0;
+        }
+
+        .hero-section h1 {
+            font-size: 2rem;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .agent-header {
+            padding: 1rem;
+        }
+
+        .agent-body {
+            padding: 1rem;
+        }
+    }
+
+    /* Button Styles */
+    .btn {
+        font-weight: 500;
+        cursor: pointer;
+        transition: var(--transition);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        justify-content: center;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #0b5ed7;
+    }
+
+    .btn-secondary {
+        background: var(--secondary-color);
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #5c636a;
+    }
+
+    .btn-outline-light {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .btn-outline-light:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        text-decoration: none;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 480px) {
+        .stats-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) and (min-width: 481px) {
+        .stats-row {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .page-header h1 {
+            font-size: 1.5rem;
+        }
+
+        .filter-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .url-content {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .url-actions {
+            align-self: flex-end;
+        }
+    }
+
+    /* Section margins for full-width layout */
+    .row.mb-4 {
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl) !important;
+    }
+
+    .management-grid {
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+
+    #messageContainer {
+        margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title">
+                    <i class="fas fa-robot me-3"></i>
+                    Agent Management
+                </h1>
+                <p class="hero-subtitle">
+                    Monitor and configure your EOL search agents. Track performance, 
+                    manage configurations, and optimize agent orchestration workflows for intelligent software lifecycle analysis.
+                </p>
+                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                    <button class="btn btn-outline-light" onclick="agentManager.refreshAgents()">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh Agents
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="container-fluid px-0">
+    <!-- Message Container -->
+    <div id="messageContainer"></div>
+
+    <!-- System Overview Stats -->
+    <div class="row mb-4">
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-primary mb-1" id="totalAgents">0</h3>
+                    <p class="card-text small text-muted mb-0">Total Agents</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-success mb-1" id="activeAgents">0</h3>
+                    <p class="card-text small text-muted mb-0">Active</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-info mb-1" id="totalQueries">0</h3>
+                    <p class="card-text small text-muted mb-0">Total Queries</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-danger mb-1" id="totalErrors">0</h3>
+                    <p class="card-text small text-muted mb-0">Total Errors</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-success mb-1" id="successRate">0%</h3>
+                    <p class="card-text small text-muted mb-0">Success Rate</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-warning mb-1" id="avgConfidence">0%</h3>
+                    <p class="card-text small text-muted mb-0">Avg Accuracy</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-secondary mb-1" id="totalUrls">0</h3>
+                    <p class="card-text small text-muted mb-0">Total URLs</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-sm-4 col-6 mb-3">
+            <div class="card system-overview-card text-center h-100">
+                <div class="card-body py-3">
+                    <h3 class="card-title text-dark mb-1" id="avgResponseTime">0ms</h3>
+                    <p class="card-text small text-muted mb-0">Avg Response</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Filter Controls -->
+    <div class="filter-controls">
+        <div class="filter-grid">
+            <div class="filter-group">
+                <label for="statusFilter" class="form-label">Status</label>
+                <select id="statusFilter" class="form-control" onchange="agentManager.applyFilters()">
+                    <option value="all">All Agents</option>
+                    <option value="active">Active Only</option>
+                    <option value="inactive">Inactive Only</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="sortBy" class="form-label">Sort By</label>
+                <select id="sortBy" class="form-control" onchange="agentManager.applyFilters()">
+                    <option value="name">Agent Name</option>
+                    <option value="queries">Query Count</option>
+                    <option value="errors">Error Count</option>
+                    <option value="success_rate">Success Rate</option>
+                    <option value="accuracy">Accuracy</option>
+                    <option value="urls">URL Count</option>
+                    <option value="response_time">Response Time</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="searchFilter" class="form-label">Search</label>
+                <input type="text" id="searchFilter" class="form-control" placeholder="Search agents..."
+                    oninput="agentManager.applyFilters()">
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingContainer" class="loading-container">
+        <div class="spinner"></div>
+        <h4 class="text-muted">Loading agents...</h4>
+    </div>
+
+    <!-- Agents Container -->
+    <div id="agentsContainer" class="row d-none">
+        <!-- Agent cards will be dynamically inserted here -->
+    </div>
+
+    <!-- No Agents State -->
+    <div id="noAgentsContainer" class="text-center py-5" style="display: none;">
+        <i class="fas fa-robot text-muted icon-lg"></i>
+        <h4 class="mt-3">No Agents Found</h4>
+        <p class="text-muted">No agents match your current filter criteria.</p>
+        <button class="btn btn-primary" onclick="agentManager.refreshAgents()">
+            <i class="fas fa-sync-alt"></i>Refresh Agents
+        </button>
+    </div>
+</div>
+
+<!-- URL Test Results Modal -->
+<div class="modal fade" id="testResultsModal" tabindex="-1" aria-labelledby="testResultsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="testResultsModalLabel">
+                    <i class="fas fa-vial me-2"></i>URL Test Results
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="testResults">
+                    <div class="text-center py-4">
+                        <div class="spinner"></div>
+                        <div class="mt-3">Testing URL connectivity and response...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="retestButton" onclick="agentManager.retestUrl()"
+                    style="display: none;">
+                    <i class="fas fa-redo"></i>Test Again
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Details Modal -->
+<div class="modal fade" id="agentDetailsModal" tabindex="-1" aria-labelledby="agentDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title" id="agentDetailsModalLabel">
+                    <i class="fas fa-robot me-2"></i>Agent Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="agentDetailsContent">
+                    <!-- Agent details will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/agent-config.js"></script>
+<script>
+    // Advanced Agent Management System
+    // Uses agent-config.js for standardized agent display names
+    // - AGENT_DISPLAY_MAPPING: Maps standardized names to user-friendly display names
+    // - getAgentDisplayName(): Gets display name for an agent
+    // - Agent data includes both display name (for UI) and standardizedName (for API calls)
+    
+    class AgentManager {
+        constructor() {
+            this.agents = [];
+            this.filteredAgents = [];
+            this.systemStats = {
+                totalAgents: 0,
+                activeAgents: 0,
+                totalQueries: 0,
+                avgConfidence: 0,
+                totalUrls: 0,
+                avgResponseTime: 0
+            };
+            this.filters = {
+                status: 'all',
+                performance: 'all',
+                sortBy: 'name',
+                search: ''
+            };
+            this.init();
+        }
+
+        async init() {
+            // Log available agent display mappings for debugging
+            if (typeof AGENT_DISPLAY_MAPPING !== 'undefined') {
+                console.log('Agent display mappings loaded:', AGENT_DISPLAY_MAPPING);
+            } else {
+                console.warn('agent-config.js not loaded or AGENT_DISPLAY_MAPPING not available');
+            }
+            
+            this.showLoading();
+            await this.loadAgents();
+            this.setupEventListeners();
+            this.hideLoading();
+        }
+
+        setupEventListeners() {
+            // Auto-refresh every 3 minutes (reduced from 60 seconds to minimize Cosmos DB load)
+            setInterval(() => this.loadAgents(true), 180000);
+
+            // Note: urlForm is not present in this template, only add listener if it exists
+            const urlForm = document.getElementById('urlForm');
+            if (urlForm) {
+                urlForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.saveUrl();
+                });
+            }
+
+            // Filter change listeners are handled by onchange attributes in HTML
+        }
+
+        async loadAgents(silent = false) {
+            try {
+                if (!silent) {
+                    this.showLoading();
+                }
+
+                console.log('Fetching agents and real statistics...');
+                const [agentsResponse, statsResponse] = await Promise.all([
+                    fetch('/api/agents/list'),
+                    fetch('/api/cache/stats/enhanced')
+                ]);
+                
+                if (!agentsResponse.ok) {
+                    throw new Error(`Agents API HTTP ${agentsResponse.status}: ${agentsResponse.statusText}`);
+                }
+
+                const agentsData = await agentsResponse.json();
+                
+                // Get real statistics data (optional, graceful fallback)
+                let realStats = null;
+                if (statsResponse.ok) {
+                    try {
+                        realStats = await statsResponse.json();
+                    } catch (e) {
+                        console.warn('Failed to parse statistics response:', e);
+                    }
+                } else {
+                    console.warn('Statistics API not available, using basic agent data');
+                }
+                
+                this.processAgentData(agentsData, realStats);
+                
+                this.updateSystemStats();
+                this.applyFilters();
+
+                if (!silent) {
+                    this.hideLoading();
+                    this.showMessage(`Loaded ${this.agents.length} agents successfully`, 'success');
+                }
+
+            } catch (error) {
+                console.error('Error loading agents:', error);
+                this.agents = [];
+                this.filteredAgents = [];
+
+                let errorMessage = 'Failed to load agents: ' + error.message;
+                if (error.message.includes('HTTP 500')) {
+                    errorMessage = 'Agent orchestrator is not initialized. The system may still be starting up.';
+                }
+
+                this.showMessage(errorMessage, 'error');
+                this.renderAgents();
+                if (!silent) this.hideLoading();
+            }
+        }
+
+        processAgentData(data, realStats = null) {
+            let agents = [];
+
+            // Define agents to exclude from the UI
+            const excludedAgents = ['software_inventory', 'os_inventory', 'bing_search', 'openai', 'inventory'];
+
+            if (data.success && data.agents && typeof data.agents === 'object') {
+                
+                // Filter out excluded agents and process the rest
+                agents = Object.entries(data.agents)
+                    .filter(([name, agentData]) => {
+                        const isExcluded = excludedAgents.includes(name);
+                        return !isExcluded;
+                    })
+                    .map(([name, agentData]) => {
+                        
+                        // Use standardized display name from agent-config.js
+                        const displayName = typeof getAgentDisplayName === 'function' 
+                            ? getAgentDisplayName(name) 
+                            : (name.charAt(0).toUpperCase() + name.slice(1));
+                        
+                        // Generate description based on agent type and display name
+                        const agentType = agentData.type || 'EOL Agent';
+                        const description = `${displayName} - ${agentType === 'EOL Agent' ? 'End-of-life monitoring agent' : agentType}`;
+                        
+                        // Special handling for endoflife agent - use actual URL stats instead of configured URLs
+                        let processedUrls;
+                        if (name === 'endoflife' && realStats?.agent_stats?.agents?.endoflife?.url_stats) {
+                            // For endoflife agent, create URLs from actual usage statistics
+                            const endoflifeUrlStats = realStats.agent_stats.agents.endoflife.url_stats;
+                            processedUrls = Object.entries(endoflifeUrlStats)
+                                .filter(([url, stats]) => url.startsWith('https://endoflife.date/api'))
+                                .map(([url, stats], index) => ({
+                                    url: url,
+                                    description: this.getUrlDescription(url, index),
+                                    priority: index + 1,
+                                    active: true,
+                                    timeout: 30,
+                                    statistics: {
+                                        query_count: stats.request_count || 0,
+                                        error_count: stats.error_count || 0,
+                                        success_count: (stats.request_count || 0) - (stats.error_count || 0),
+                                        success_rate: stats.request_count > 0 ? 
+                                            (((stats.request_count - (stats.error_count || 0)) / stats.request_count) * 100) : 0,
+                                        accuracy_rate: stats.hit_rate || 0,
+                                        avg_response_time: stats.avg_response_time_ms || 0,
+                                        fastest_response: stats.min_response_time_ms || 0,
+                                        slowest_response: stats.max_response_time_ms || 0,
+                                        uptime_percentage: this.calculateUrlUptimeFromStats(stats),
+                                        last_used: stats.last_accessed || null,
+                                        first_used: null,
+                                        cache_hits: stats.cache_hits || 0,
+                                        cache_misses: stats.cache_misses || 0,
+                                        cache_hit_rate: stats.hit_rate || 0,
+                                        data_freshness_score: 0,
+                                        coverage_score: 0,
+                                        recent_queries: 0,
+                                        recent_errors: 0,
+                                        recent_avg_response: 0
+                                    }
+                                }));
+                        } else {
+                            // Standard URL processing for other agents
+                            processedUrls = this.processUrls(agentData.urls || [], realStats);
+                        }
+                        
+                        // Aggregate URL statistics to agent level
+                        const aggregatedStats = this.aggregateUrlStatistics(processedUrls);
+                        
+                        // Get real agent statistics if available
+                        const agentStats = realStats?.agent_stats?.agents?.[name] || {};
+                        
+                        return {
+                            id: name,
+                            name: displayName, // Use standardized display name
+                            standardizedName: name, // Keep original name for API calls
+                            type: agentType,
+                            description: description,
+                            active: agentData.active || false,
+                            statistics: {
+                                // For single-URL agents like endoflife, ensure consistency between agent and URL stats
+                                // Use real agent statistics when available (primary source)
+                                usage_count: agentStats.request_count || 0,
+                                error_count: agentStats.error_count || 0,
+                                success_count: (agentStats.request_count || 0) - (agentStats.error_count || 0),
+                                average_confidence: agentStats.avg_accuracy || aggregatedStats.avg_accuracy || 0,
+                                success_rate: this.calculateSuccessRate(agentStats, aggregatedStats),
+                                response_time: agentStats.avg_response_time_ms || aggregatedStats.avg_response_time || 0,
+                                uptime_percentage: this.calculateUptimePercentage(agentStats, aggregatedStats),
+                                last_used: agentStats.last_request_time || aggregatedStats.most_recent_use || null,
+                                
+                                // Additional agent-level metrics
+                                url_count: processedUrls.length,
+                                active_url_count: processedUrls.filter(url => url.active).length,
+                                data_quality_score: aggregatedStats.avg_data_quality || Math.random() * 0.3 + 0.7,
+                                cache_hit_rate: agentStats.cache_hit_rate || 0
+                            },
+                            urls: processedUrls,
+                            lastModified: new Date().toISOString()
+                        };
+                    });
+            } else {
+                // Handle unexpected data structure
+            }
+
+            this.agents = agents;
+        }
+
+        processUrls(urls, realStats = null) {
+            // If URLs are simple strings, convert to objects with metadata and real statistics
+            return urls.map((url, index) => {
+                const urlObj = typeof url === 'string' ? { url } : url;
+                
+                // Try to find real statistics for this URL
+                let urlStats = null;
+                if (realStats && realStats.agent_stats && realStats.agent_stats.agents) {
+                    // Look through all agents for URL statistics
+                    for (const [agentName, agentData] of Object.entries(realStats.agent_stats.agents)) {
+                        if (agentData.url_stats) {
+                            for (const [urlKey, stats] of Object.entries(agentData.url_stats)) {
+                                // Check for exact match first
+                                if (stats.url === urlObj.url || urlKey === urlObj.url) {
+                                    urlStats = stats;
+                                    break;
+                                }
+                                // Special handling for endoflife agent - match multiple URL patterns
+                                if (urlObj.url && urlObj.url.startsWith('https://endoflife.date')) {
+                                    // Match any endoflife.date URL (API endpoints, homepage, etc.)
+                                    if (stats.url && (
+                                        stats.url.startsWith('https://endoflife.date/api') ||
+                                        stats.url === 'https://endoflife.date/' ||
+                                        stats.url.startsWith('https://endoflife.date')
+                                    )) {
+                                        urlStats = stats;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (urlStats) break;
+                    }
+                    
+                    // Fallback: if no URL match found for endoflife agent, aggregate all its stats
+                    if (!urlStats && urlObj.url && urlObj.url.startsWith('https://endoflife.date')) {
+                        const endoflifeAgentData = realStats.agent_stats.agents.endoflife;
+                        if (endoflifeAgentData) {
+                            // Create aggregated stats from all endoflife agent requests
+                            // Use agent-level data directly to ensure consistency
+                            urlStats = {
+                                url: urlObj.url,
+                                request_count: endoflifeAgentData.request_count || 0,
+                                hit_rate: endoflifeAgentData.cache_hit_rate || 0,
+                                avg_response_time_ms: endoflifeAgentData.avg_response_time_ms || 0,
+                                min_response_time_ms: endoflifeAgentData.min_response_time_ms || 0,
+                                max_response_time_ms: endoflifeAgentData.max_response_time_ms || 0,
+                                error_rate: endoflifeAgentData.error_rate || 0,
+                                cache_hits: endoflifeAgentData.cache_hits || 0,
+                                cache_misses: endoflifeAgentData.cache_misses || 0,
+                                error_count: endoflifeAgentData.error_count || 0,
+                                last_accessed: endoflifeAgentData.last_request_time || null
+                            };
+                        }
+                    }
+                }
+                
+                // Use real statistics when available, otherwise use zero values
+                // For consistency, ensure URL stats match agent stats for single-URL agents
+                const queryCount = urlStats?.request_count || 0;
+                const errorCount = urlStats?.error_count || 0;
+                const successCount = queryCount - errorCount;
+                const successRate = queryCount > 0 ? ((queryCount - errorCount) / queryCount * 100) : 0;
+                const avgResponseTime = urlStats?.avg_response_time_ms || 0;
+                
+                return {
+                    url: urlObj.url,
+                    description: urlObj.description || this.getUrlDescription(urlObj.url, index),
+                    priority: urlObj.priority || (index + 1),
+                    active: urlObj.active !== undefined ? urlObj.active : true,
+                    timeout: urlObj.timeout || 30,
+                    statistics: {
+                        // Core URL metrics - using real data
+                        query_count: queryCount,
+                        error_count: errorCount,
+                        success_count: successCount,
+                        success_rate: successRate,
+                        accuracy_rate: this.calculateAccuracyRate(urlStats),
+                        avg_response_time: avgResponseTime,
+                        
+                        // Performance metrics - using real data when available
+                        fastest_response: urlStats?.min_response_time_ms || 0,
+                        slowest_response: urlStats?.max_response_time_ms || 0,
+                        uptime_percentage: this.calculateUrlUptimePercentage(urlStats),
+                        
+                        // Usage patterns - using real data when available
+                        last_used: urlStats?.last_accessed || null,
+                        first_used: urlStats?.first_used || null,
+                        
+                        // Cache performance
+                        cache_hits: urlStats?.cache_hits || 0,
+                        cache_misses: urlStats?.cache_misses || 0,
+                        cache_hit_rate: urlStats?.hit_rate || 0,
+                        
+                        // Data quality metrics - using real data when available
+                        data_freshness_score: urlStats?.data_freshness_score || 0,
+                        coverage_score: urlStats?.coverage_score || 0,
+                        
+                        // Recent performance (last 24h) - using real data when available
+                        recent_queries: urlStats?.recent_queries || 0,
+                        recent_errors: urlStats?.recent_errors || 0,
+                        recent_avg_response: urlStats?.recent_avg_response || 0
+                    }
+                };
+            });
+        }
+
+        calculateAccuracyRate(urlStats) {
+            // Calculate accuracy rate for URLs (typically cache hit rate or similar)
+            if (!urlStats) return 0;
+            
+            if (urlStats.hit_rate !== undefined) {
+                // Handle hit rate - could be decimal (0-1) or percentage (0-100)
+                let hitRate = urlStats.hit_rate;
+                if (hitRate > 100) {
+                    hitRate = 100; // Cap at 100%
+                } else if (hitRate <= 1 && hitRate > 0) {
+                    hitRate = hitRate * 100; // Convert decimal to percentage
+                }
+                return Math.max(0, Math.min(100, hitRate));
+            } else if (urlStats.cache_hits !== undefined && urlStats.request_count > 0) {
+                // Calculate from cache hits vs total requests
+                return Math.max(0, Math.min(100, (urlStats.cache_hits / urlStats.request_count) * 100));
+            } else if (urlStats.success_count !== undefined && urlStats.query_count > 0) {
+                // Calculate from successful queries
+                return Math.max(0, Math.min(100, (urlStats.success_count / urlStats.query_count) * 100));
+            } else {
+                // Default for active URLs
+                return 0;
+            }
+        }
+
+        calculateUrlUptimePercentage(urlStats) {
+            // Calculate uptime percentage for individual URLs
+            if (!urlStats) return 100; // Default to 100% for URLs without stats
+            
+            if (urlStats.error_rate !== undefined) {
+                // Handle error rate (should be 0-1 decimal)
+                let errorRate = urlStats.error_rate;
+                if (errorRate > 1) {
+                    errorRate = errorRate / 100; // Convert percentage to decimal if needed
+                }
+                return Math.max(0, Math.min(100, (1 - errorRate) * 100));
+            } else if (urlStats.request_count > 0 && urlStats.error_count !== undefined) {
+                // Calculate from request count and error count
+                const successCount = urlStats.request_count - urlStats.error_count;
+                return Math.max(0, Math.min(100, (successCount / urlStats.request_count) * 100));
+            } else {
+                // Default to high uptime for active URLs
+                return 100;
+            }
+        }
+
+        calculateUrlUptimeFromStats(stats) {
+            // Calculate uptime percentage specifically for endoflife URL stats
+            if (!stats) return 100;
+            
+            if (stats.request_count > 0 && stats.error_count !== undefined) {
+                const successCount = stats.request_count - stats.error_count;
+                return Math.max(0, Math.min(100, (successCount / stats.request_count) * 100));
+            } else if (stats.error_rate !== undefined) {
+                let errorRate = stats.error_rate;
+                if (errorRate > 1) {
+                    errorRate = errorRate / 100;
+                }
+                return Math.max(0, Math.min(100, (1 - errorRate) * 100));
+            } else {
+                return 100;
+            }
+        }
+
+        calculateSuccessRate(agentStats, aggregatedStats) {
+            // Calculate success rate from agent statistics
+            if (agentStats.error_rate !== undefined && agentStats.request_count > 0) {
+                // If error_rate is already a percentage (0-100), convert to decimal first
+                let errorRate = agentStats.error_rate;
+                if (errorRate > 1) {
+                    errorRate = errorRate / 100; // Convert percentage to decimal
+                }
+                return Math.max(0, Math.min(100, (1 - errorRate) * 100));
+            } else if (agentStats.request_count > 0 && agentStats.error_count !== undefined) {
+                // Calculate from request count and error count
+                const successCount = agentStats.request_count - agentStats.error_count;
+                return Math.max(0, Math.min(100, (successCount / agentStats.request_count) * 100));
+            } else {
+                // Fallback to aggregated stats
+                return Math.max(0, Math.min(100, aggregatedStats.avg_success_rate || 0));
+            }
+        }
+
+        calculateUptimePercentage(agentStats, aggregatedStats) {
+            // Calculate uptime percentage
+            if (agentStats.uptime_percentage !== undefined) {
+                // If uptime is already a percentage > 1, assume it's in range 0-100
+                let uptime = agentStats.uptime_percentage;
+                if (uptime > 100) {
+                    uptime = 100; // Cap at 100%
+                } else if (uptime <= 1 && uptime > 0) {
+                    uptime = uptime * 100; // Convert decimal to percentage
+                }
+                return Math.max(0, Math.min(100, uptime));
+            } else if (agentStats.error_rate !== undefined) {
+                // Estimate uptime from error rate (inverse relationship)
+                let errorRate = agentStats.error_rate;
+                if (errorRate > 1) {
+                    errorRate = errorRate / 100; // Convert percentage to decimal
+                }
+                return Math.max(0, Math.min(100, (1 - errorRate) * 100));
+            } else {
+                // Fallback: Use aggregated stats or default to high uptime for active agents
+                return Math.max(0, Math.min(100, aggregatedStats.avg_uptime || 95));
+            }
+        }
+
+        getUrlDescription(url, index) {
+            // Helper method to generate better descriptions for URLs
+            if (!url) return `EOL Data Source ${index + 1}`;
+            
+            // Handle EOL identifier patterns
+            if (url.startsWith('EOL:')) {
+                return `${url.replace('EOL:', '').toUpperCase()} Agent`;
+            }
+            
+            // Extract meaningful description from actual URLs
+            try {
+                const urlObj = new URL(url);
+                const hostname = urlObj.hostname;
+                
+                if (hostname.includes('microsoft.com') || hostname.includes('learn.microsoft.com')) {
+                    return 'Microsoft Official Documentation';
+                } else if (hostname.includes('endoflife.date')) {
+                    return 'EndOfLife.date Database';
+                } else if (hostname.includes('ubuntu.com') || hostname.includes('wiki.ubuntu.com')) {
+                    return 'Ubuntu Official Documentation';
+                } else if (hostname.includes('redhat.com') || hostname.includes('access.redhat.com')) {
+                    return 'Red Hat Official Documentation';
+                } else if (hostname.includes('oracle.com')) {
+                    return 'Oracle Official Documentation';
+                } else if (hostname.includes('vmware.com')) {
+                    return 'VMware Official Documentation';
+                } else if (hostname.includes('apache.org')) {
+                    return 'Apache Foundation Documentation';
+                } else if (hostname.includes('nodejs.org')) {
+                    return 'Node.js Official Documentation';
+                } else if (hostname.includes('postgresql.org')) {
+                    return 'PostgreSQL Official Documentation';
+                } else if (hostname.includes('php.net')) {
+                    return 'PHP Official Documentation';
+                } else if (hostname.includes('python.org')) {
+                    return 'Python Official Documentation';
+                } else {
+                    // Generic description based on hostname
+                    return `${hostname.replace('www.', '').split('.')[0].toUpperCase()} Documentation`;
+                }
+            } catch (e) {
+                // If URL parsing fails, return generic description
+                return `EOL Data Source ${index + 1}`;
+            }
+        }
+
+        aggregateUrlStatistics(urls) {
+            if (!urls || urls.length === 0) {
+                return {
+                    total_queries: 0,
+                    total_errors: 0,
+                    total_success: 0,
+                    avg_success_rate: 0,
+                    avg_accuracy: 0,
+                    avg_response_time: 0,
+                    avg_uptime: 0,
+                    most_recent_use: null,
+                    avg_data_quality: 0
+                };
+            }
+
+            const activeUrls = urls.filter(url => url.active);
+            if (activeUrls.length === 0) {
+                return this.aggregateUrlStatistics([]); // Return empty stats
+            }
+
+            // Aggregate statistics from all active URLs
+            const totals = activeUrls.reduce((acc, url) => {
+                const stats = url.statistics || {};
+                return {
+                    queries: acc.queries + (stats.query_count || 0),
+                    errors: acc.errors + (stats.error_count || 0),
+                    success: acc.success + (stats.success_count || 0),
+                    response_times: [...acc.response_times, stats.avg_response_time || 0],
+                    success_rates: [...acc.success_rates, stats.success_rate || 0],
+                    accuracy_rates: [...acc.accuracy_rates, stats.accuracy_rate || 0],
+                    uptime_rates: [...acc.uptime_rates, stats.uptime_percentage || 0],
+                    last_used_dates: [...acc.last_used_dates, stats.last_used].filter(Boolean),
+                    data_quality: [...acc.data_quality, (stats.data_freshness_score || 0) * 0.6 + (stats.coverage_score || 0) * 0.4]
+                };
+            }, {
+                queries: 0,
+                errors: 0,
+                success: 0,
+                response_times: [],
+                success_rates: [],
+                accuracy_rates: [],
+                uptime_rates: [],
+                last_used_dates: [],
+                data_quality: []
+            });
+
+            // Calculate averages
+            const avgResponseTime = totals.response_times.length > 0 
+                ? Math.round(totals.response_times.reduce((a, b) => a + b, 0) / totals.response_times.length)
+                : 0;
+            
+            const avgSuccessRate = totals.success_rates.length > 0
+                ? totals.success_rates.reduce((a, b) => a + b, 0) / totals.success_rates.length
+                : 0;
+            
+            const avgAccuracy = totals.accuracy_rates.length > 0
+                ? totals.accuracy_rates.reduce((a, b) => a + b, 0) / totals.accuracy_rates.length
+                : 0;
+            
+            const avgUptime = totals.uptime_rates.length > 0
+                ? totals.uptime_rates.reduce((a, b) => a + b, 0) / totals.uptime_rates.length
+                : 0;
+            
+            const avgDataQuality = totals.data_quality.length > 0
+                ? totals.data_quality.reduce((a, b) => a + b, 0) / totals.data_quality.length
+                : 0;
+
+            // Find most recent usage
+            const mostRecentUse = totals.last_used_dates.length > 0
+                ? totals.last_used_dates.sort().pop()
+                : null;
+
+            return {
+                total_queries: totals.queries,
+                total_errors: totals.errors,
+                total_success: totals.success,
+                avg_success_rate: avgSuccessRate,
+                avg_accuracy: avgAccuracy, // Already a percentage
+                avg_response_time: avgResponseTime,
+                avg_uptime: avgUptime,
+                most_recent_use: mostRecentUse,
+                avg_data_quality: avgDataQuality
+            };
+        }
+
+        updateSystemStats() {
+            if (!Array.isArray(this.agents)) return;
+
+            this.systemStats.totalAgents = this.agents.length;
+            this.systemStats.activeAgents = this.agents.filter(agent => agent.active).length;
+            
+            // Aggregate statistics from all agents
+            this.systemStats.totalQueries = this.agents.reduce((sum, agent) =>
+                sum + (agent.statistics?.usage_count || 0), 0);
+            
+            this.systemStats.totalErrors = this.agents.reduce((sum, agent) =>
+                sum + (agent.statistics?.error_count || 0), 0);
+            
+            this.systemStats.totalUrls = this.agents.reduce((sum, agent) =>
+                sum + (agent.urls?.length || 0), 0);
+
+            // Calculate average confidence (accuracy)
+            const confidences = this.agents
+                .map(agent => agent.statistics?.average_confidence || 0)
+                .filter(conf => conf > 0);
+
+            this.systemStats.avgConfidence = confidences.length > 0
+                ? (confidences.reduce((a, b) => a + b, 0) / confidences.length)
+                : 0;
+
+            // Calculate average response time
+            const responseTimes = this.agents
+                .map(agent => agent.statistics?.response_time || 0)
+                .filter(time => time > 0);
+
+            this.systemStats.avgResponseTime = responseTimes.length > 0
+                ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+                : 0;
+
+            // Calculate overall success rate
+            const totalQueries = this.systemStats.totalQueries;
+            const totalErrors = this.systemStats.totalErrors;
+            this.systemStats.successRate = totalQueries > 0 
+                ? ((totalQueries - totalErrors) / totalQueries * 100)
+                : 0;
+
+            this.updateSystemOverview();
+        }
+
+        updateSystemOverview() {
+            // Safely update elements only if they exist
+            const updateElement = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                }
+            };
+
+            updateElement('totalAgents', this.systemStats.totalAgents);
+            updateElement('activeAgents', this.systemStats.activeAgents);
+            updateElement('totalQueries', this.systemStats.totalQueries.toLocaleString());
+            updateElement('avgConfidence', this.systemStats.avgConfidence.toFixed(1) + '%');
+            updateElement('totalUrls', this.systemStats.totalUrls);
+            updateElement('avgResponseTime', this.systemStats.avgResponseTime.toFixed(4) + 'ms');
+            updateElement('successRate', this.systemStats.successRate?.toFixed(1) + '%' || 'N/A');
+            updateElement('totalErrors', this.systemStats.totalErrors?.toLocaleString() || '0');
+        }
+
+        applyFilters() {
+            // Get filter values safely
+            const statusFilter = document.getElementById('statusFilter');
+            const sortByFilter = document.getElementById('sortBy');
+            const searchFilter = document.getElementById('searchFilter');
+
+            this.filters.status = statusFilter ? statusFilter.value : 'all';
+            this.filters.sortBy = sortByFilter ? sortByFilter.value : 'name';
+            this.filters.search = searchFilter ? searchFilter.value.toLowerCase() : '';
+
+            // Apply filters
+            this.filteredAgents = this.agents.filter(agent => {
+                // Status filter
+                if (this.filters.status !== 'all') {
+                    const isActive = agent.active;
+                    if (this.filters.status === 'active' && !isActive) return false;
+                    if (this.filters.status === 'inactive' && isActive) return false;
+                }
+
+                // Search filter
+                if (this.filters.search) {
+                    const searchText = `${agent.name} ${agent.type} ${agent.description}`.toLowerCase();
+                    if (!searchText.includes(this.filters.search)) return false;
+                }
+
+                return true;
+            });
+
+            // Apply sorting
+            this.filteredAgents.sort((a, b) => {
+                switch (this.filters.sortBy) {
+                    case 'queries':
+                        return (b.statistics?.usage_count || 0) - (a.statistics?.usage_count || 0);
+                    case 'errors':
+                        return (b.statistics?.error_count || 0) - (a.statistics?.error_count || 0);
+                    case 'success_rate':
+                        return (b.statistics?.success_rate || 0) - (a.statistics?.success_rate || 0);
+                    case 'accuracy':
+                        return (b.statistics?.average_confidence || 0) - (a.statistics?.average_confidence || 0);
+                    case 'response_time':
+                        return (a.statistics?.response_time || 0) - (b.statistics?.response_time || 0); // Lower is better
+                    case 'urls':
+                        return (b.urls?.length || 0) - (a.urls?.length || 0);
+                    default: // name
+                        return a.name.localeCompare(b.name);
+                }
+            });
+
+            console.log('After filtering and sorting:', this.filteredAgents.length, 'agents');
+            this.renderAgents();
+        }
+
+        renderAgents() {
+            const container = document.getElementById('agentsContainer');
+            const noAgentsContainer = document.getElementById('noAgentsContainer');
+
+            // If containers don't exist, exit gracefully
+            if (!container || !noAgentsContainer) {
+                console.warn('Agent containers not found in DOM');
+                return;
+            }
+
+            if (!this.filteredAgents || this.filteredAgents.length === 0) {
+                container.style.display = 'none';
+                container.classList.add('d-none');
+                noAgentsContainer.style.display = 'block';
+                return;
+            }
+
+            container.style.display = 'block';
+            container.classList.remove('d-none');
+            noAgentsContainer.style.display = 'none';
+
+            const renderedHTML = this.filteredAgents.map(agent => this.renderAgentCard(agent)).join('');
+            container.innerHTML = renderedHTML;
+        }
+
+        renderAgentCard(agent) {
+            const stats = agent.statistics || {};
+            const urls = agent.urls || [];
+            const lastUsedFormatted = stats.last_used ?
+                new Date(stats.last_used).toLocaleDateString() : 'Never';
+
+            return `
+            <div class="col-12 mb-4">
+                <div class="agent-card">
+                    <!-- Agent Header -->
+                    <div class="agent-header">
+                        <div class="agent-title">
+                            <div>
+                                <h3 class="agent-name">${agent.name}</h3>
+                                <p class="text-light opacity-75 mb-0">${agent.type}</p>
+                            </div>
+                            <span class="agent-status ${agent.active ? 'status-active' : 'status-inactive'}">
+                                ${agent.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Agent Body -->
+                    <div class="agent-body">
+                        <!-- Enhanced Statistics Row -->
+                        <div class="stats-row">
+                            <div class="stat-item">
+                                <div class="stat-value">${(stats.usage_count || 0).toLocaleString()}</div>
+                                <div class="stat-label">Total Queries</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value text-danger">${(stats.error_count || 0).toLocaleString()}</div>
+                                <div class="stat-label">Errors</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value ${(stats.success_rate || 0) >= 90 ? 'text-success' : (stats.success_rate || 0) >= 70 ? 'text-warning' : 'text-danger'}">${(stats.success_rate || 0).toFixed(1)}%</div>
+                                <div class="stat-label">Success Rate</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value ${(stats.average_confidence || 0) >= 90 ? 'text-success' : (stats.average_confidence || 0) >= 70 ? 'text-warning' : 'text-danger'}">${(stats.average_confidence || 0).toFixed(1)}%</div>
+                                <div class="stat-label">Accuracy</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${(stats.response_time || 0).toFixed(4)}ms</div>
+                                <div class="stat-label">Avg Response</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value stat-small">${lastUsedFormatted}</div>
+                                <div class="stat-label">Last Used</div>
+                            </div>
+                        </div>
+
+                        <!-- URLs Section -->
+                        <div class="urls-section">
+                            <div class="section-header">
+                                <h4 class="section-title" 
+                                    style="cursor: pointer; user-select: none;" 
+                                    data-bs-toggle="collapse" 
+                                    data-bs-target="#urls-${agent.id}" 
+                                    aria-expanded="false" 
+                                    aria-controls="urls-${agent.id}"
+                                    title="Click to expand/collapse URLs & Performance section">
+                                    <i class="fas fa-link me-1"></i>
+                                    ${agent.id === 'endoflife' ? 'Active API Endpoints' : 'URLs & Performance'} (${urls.length})
+                                    <i class="fas fa-chevron-down ms-2 collapse-icon" style="transition: transform 0.2s;"></i>
+                                </h4>
+                                ${agent.id === 'endoflife' ? '' : `
+                                <button class="add-url-btn" onclick="agentManager.showAddUrlModal('${agent.id}')">
+                                    <i class="fas fa-plus me-1"></i>Add
+                                </button>
+                                `}
+                            </div>
+
+                            <div class="collapse" id="urls-${agent.id}">
+                                ${agent.id === 'endoflife' && urls.length > 0 ? `
+                                    <div class="alert alert-info mb-3" style="margin: 0.75rem; font-size: 0.875rem;">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        These API endpoints are dynamically generated from actual usage statistics, not static configuration.
+                                    </div>
+                                ` : ''}
+                                ${urls.length === 0 ? `
+                                    <div class="no-urls">
+                                        <i class="fas fa-link mb-2 text-muted"></i>
+                                        <p class="mb-0">${agent.id === 'endoflife' ? 'No API endpoints accessed yet' : 'No URLs configured'}</p>
+                                        <small class="text-muted">${agent.id === 'endoflife' ? 'Endpoints will appear here after API usage' : 'Add URLs to enable this agent'}</small>
+                                    </div>
+                                ` : `
+                                    <div class="url-list">
+                                        ${urls.map(urlObj => this.renderUrlItem(agent.id, urlObj)).join('')}
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Notification Frequency Section -->
+                        <div class="notification-section">
+                            <div class="section-header">
+                                <h4 class="section-title" 
+                                    style="cursor: pointer; user-select: none;" 
+                                    data-bs-toggle="collapse" 
+                                    data-bs-target="#notifications-${agent.id}" 
+                                    aria-expanded="false" 
+                                    aria-controls="notifications-${agent.id}"
+                                    title="Click to expand/collapse Notification Settings">
+                                    <i class="fas fa-bell me-1"></i>
+                                    Notification Settings
+                                    <i class="fas fa-chevron-down ms-2 collapse-icon" style="transition: transform 0.2s;"></i>
+                                </h4>
+                            </div>
+
+                            <div class="collapse" id="notifications-${agent.id}">
+                                <div class="notification-config" style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin: 0.75rem;">
+                                    <div class="alert alert-info mb-3" style="font-size: 0.875rem;">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        Notifications are checked once daily at 9:00 AM UTC. Alerts will be sent based on the frequency settings below.
+                                    </div>
+                                    
+                                    <div class="notification-types">
+                                        <div class="notification-type critical">
+                                            <div class="type-header">
+                                                <i class="fas fa-exclamation-triangle text-danger me-2"></i>
+                                                <strong>Critical Alerts</strong>
+                                                <span class="badge bg-danger ms-2">High Priority</span>
+                                            </div>
+                                            <div class="frequency-info">
+                                                <div class="frequency-grid">
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Daily:</span>
+                                                        <span class="frequency-schedule">Every day at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Weekly:</span>
+                                                        <span class="frequency-schedule">Every Monday at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Monthly:</span>
+                                                        <span class="frequency-schedule">1st of every month at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Quarterly:</span>
+                                                        <span class="frequency-schedule">1st of Jan, Apr, Jul, Oct at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Yearly:</span>
+                                                        <span class="frequency-schedule">January 1st at 9:00 AM UTC</span>
+                                                    </div>
+                                                </div>
+                                                <div class="current-setting">
+                                                    <span class="setting-label">Current Setting:</span>
+                                                    <span class="badge bg-warning text-dark">Weekly (Default)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="notification-type warning">
+                                            <div class="type-header">
+                                                <i class="fas fa-exclamation-circle text-warning me-2"></i>
+                                                <strong>Warning Alerts</strong>
+                                                <span class="badge bg-warning text-dark ms-2">Medium Priority</span>
+                                            </div>
+                                            <div class="frequency-info">
+                                                <div class="frequency-grid">
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Daily:</span>
+                                                        <span class="frequency-schedule">Every day at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Weekly:</span>
+                                                        <span class="frequency-schedule">Every Monday at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Monthly:</span>
+                                                        <span class="frequency-schedule">1st of every month at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Quarterly:</span>
+                                                        <span class="frequency-schedule">1st of Jan, Apr, Jul, Oct at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Yearly:</span>
+                                                        <span class="frequency-schedule">January 1st at 9:00 AM UTC</span>
+                                                    </div>
+                                                </div>
+                                                <div class="current-setting">
+                                                    <span class="setting-label">Current Setting:</span>
+                                                    <span class="badge bg-info">Monthly (Default)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="notification-type info">
+                                            <div class="type-header">
+                                                <i class="fas fa-info-circle text-info me-2"></i>
+                                                <strong>Info Alerts</strong>
+                                                <span class="badge bg-info ms-2">Low Priority</span>
+                                            </div>
+                                            <div class="frequency-info">
+                                                <div class="frequency-grid">
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Daily:</span>
+                                                        <span class="frequency-schedule">Every day at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Weekly:</span>
+                                                        <span class="frequency-schedule">Every Monday at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Monthly:</span>
+                                                        <span class="frequency-schedule">1st of every month at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Quarterly:</span>
+                                                        <span class="frequency-schedule">1st of Jan, Apr, Jul, Oct at 9:00 AM UTC</span>
+                                                    </div>
+                                                    <div class="frequency-item">
+                                                        <span class="frequency-label">Yearly:</span>
+                                                        <span class="frequency-schedule">January 1st at 9:00 AM UTC</span>
+                                                    </div>
+                                                </div>
+                                                <div class="current-setting">
+                                                    <span class="setting-label">Current Setting:</span>
+                                                    <span class="badge bg-secondary">Quarterly (Default)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="notification-note mt-3">
+                                        <small class="text-muted">
+                                            <i class="fas fa-clock me-1"></i>
+                                            The system performs a single daily check at 9:00 AM UTC to determine if notifications should be sent based on the configured frequency for each alert type.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        }
+
+        renderUrlItem(agentId, urlObj) {
+            const stats = urlObj.statistics || {};
+            const successRate = stats.success_rate || 0; // Already a percentage (0-100)
+            const accuracyRate = stats.accuracy_rate || 0; // Already a percentage (0-100)
+            const lastUsed = stats.last_used ? new Date(stats.last_used).toLocaleDateString() : 'Never';
+            
+            return `
+            <div class="url-item" style="flex-direction: column; padding: 1rem;">
+                <!-- URL Header -->
+                <div class="url-content" style="width: 100%; margin-bottom: 0.75rem;">
+                    <div class="url-info">
+                        <div class="url-text">${urlObj.url}</div>
+                        ${urlObj.description ? `<div class="url-description">${urlObj.description}</div>` : ''}
+                        <div class="d-flex gap-2 mt-1">
+                            <span class="badge ${urlObj.active ? 'bg-success' : 'bg-warning'} badge-xs">
+                                ${urlObj.active ? 'Active' : 'Inactive'}
+                            </span>
+                            ${agentId === 'endoflife' ? `
+                            <span class="badge bg-info badge-xs">
+                                <i class="fas fa-chart-line me-1"></i>Usage-Based
+                            </span>
+                            ` : `
+                            <span class="badge bg-secondary badge-xs">
+                                Priority ${urlObj.priority}
+                            </span>
+                            `}
+                            <span class="badge ${successRate >= 90 ? 'bg-success' : successRate >= 70 ? 'bg-warning' : 'bg-danger'} badge-xs">
+                                ${successRate.toFixed(1)}% Success
+                            </span>
+                            <span class="badge ${accuracyRate >= 90 ? 'bg-success' : accuracyRate >= 70 ? 'bg-warning' : 'bg-danger'} badge-xs">
+                                ${accuracyRate.toFixed(1)}% Accuracy
+                            </span>
+                        </div>
+                    </div>
+                    <div class="url-actions">
+                        <button class="url-action-btn btn-test" 
+                                onclick="agentManager.testUrl('${agentId}', '${urlObj.url}')"
+                                title="Test URL">
+                            <i class="fas fa-vial"></i>
+                        </button>
+                        ${agentId !== 'endoflife' ? `
+                        <button class="url-action-btn btn-edit" 
+                                onclick="agentManager.editUrl('${agentId}', '${urlObj.url}')"
+                                title="Edit URL Configuration">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="url-action-btn btn-remove" 
+                                onclick="agentManager.removeUrl('${agentId}', '${urlObj.url}')"
+                                title="Remove URL">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <!-- URL Performance Metrics -->
+                <div class="url-stats-grid">
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Queries:</div>
+                        <div class="url-stat-value" style="color: #0d6efd;">${(stats.query_count || 0).toLocaleString()}</div>
+                    </div>
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Errors:</div>
+                        <div class="url-stat-value" style="color: #dc3545;">${(stats.error_count || 0).toLocaleString()}</div>
+                    </div>
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Success:</div>
+                        <div class="url-stat-value" style="color: #198754;">${(stats.success_count || 0).toLocaleString()}</div>
+                    </div>
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Response:</div>
+                        <div class="url-stat-value" style="color: #6f42c1;">${(stats.avg_response_time || 0).toFixed(4)}ms</div>
+                    </div>
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Uptime:</div>
+                        <div class="url-stat-value" style="color: #fd7e14;">${(stats.uptime_percentage || 0).toFixed(1)}%</div>
+                    </div>
+                    <div class="url-stat-item">
+                        <div class="url-stat-label">Last Used:</div>
+                        <div class="url-stat-value" style="color: #20c997;">${lastUsed}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        }
+
+        // URL Management Methods
+        showAddUrlModal(agentId) {
+            // Find the agent to get both display name and standardized name
+            const agent = this.agents.find(a => a.id === agentId);
+            const displayName = agent ? agent.name : agentId;
+            const standardizedName = agent ? agent.standardizedName : agentId;
+            
+            const url = prompt(`Enter URL for agent ${displayName}:`);
+            if (url) {
+                this.showMessage(`URL management not yet implemented for ${displayName}`, 'info');
+                // Future: Use standardizedName for API calls
+            }
+        }
+
+        editUrl(agentId, url) {
+            const agent = this.agents.find(a => a.id === agentId);
+            const displayName = agent ? agent.name : agentId;
+            this.showMessage(`URL editing not yet implemented for ${displayName}`, 'info');
+        }
+
+        removeUrl(agentId, url) {
+            const agent = this.agents.find(a => a.id === agentId);
+            const displayName = agent ? agent.name : agentId;
+            if (confirm(`Remove URL: ${url} from ${displayName}?`)) {
+                this.showMessage(`URL removal not yet implemented for ${displayName}`, 'info');
+            }
+        }
+
+        testUrl(agentId, url) {
+            const agent = this.agents.find(a => a.id === agentId);
+            const displayName = agent ? agent.name : agentId;
+            
+            // Validate URL format
+            if (!url || typeof url !== 'string') {
+                this.showMessage(`Invalid URL provided for ${displayName}`, 'error');
+                return;
+            }
+            
+            // Ensure URL has protocol
+            let testUrl = url.trim();
+            if (!testUrl.match(/^https?:\/\//)) {
+                testUrl = 'https://' + testUrl;
+            }
+            
+            try {
+                // Open URL in new tab
+                window.open(testUrl, '_blank', 'noopener,noreferrer');
+                this.showMessage(`Opened ${testUrl} in new tab for ${displayName}`, 'success');
+            } catch (error) {
+                console.error('Error opening URL:', error);
+                this.showMessage(`Failed to open URL for ${displayName}: ${error.message}`, 'error');
+            }
+        }
+
+        saveUrl() {
+            this.showMessage('URL saving not yet implemented', 'info');
+        }
+
+        retestUrl() {
+            this.showMessage('URL retesting not yet implemented', 'info');
+        }
+
+        // Utility Methods
+        refreshAgents() {
+            this.loadAgents();
+        }
+
+        showLoading() {
+            const loadingContainer = document.getElementById('loadingContainer');
+            const agentsContainer = document.getElementById('agentsContainer');
+            const noAgentsContainer = document.getElementById('noAgentsContainer');
+
+            if (loadingContainer) loadingContainer.style.display = 'flex';
+            if (agentsContainer) agentsContainer.style.display = 'none';
+            if (noAgentsContainer) noAgentsContainer.style.display = 'none';
+        }
+
+        hideLoading() {
+            const loadingContainer = document.getElementById('loadingContainer');
+            if (loadingContainer) {
+                loadingContainer.style.display = 'none';
+            }
+        }
+
+        showMessage(text, type = 'info') {
+            const container = document.getElementById('messageContainer');
+            const alertClass = type === 'error' ? 'message-error' :
+                type === 'success' ? 'message-success' : 'message-info';
+            const icon = type === 'error' ? 'fa-exclamation-circle' :
+                type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message-bar ${alertClass}`;
+            messageDiv.innerHTML = `
+            <i class="fas ${icon}"></i>
+            <span>${text}</span>
+            <button type="button" class="btn-close" onclick="this.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+
+            container.appendChild(messageDiv);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (messageDiv.parentElement) {
+                    messageDiv.remove();
+                }
+            }, 5000);
+        }
+    }
+
+    // Global instance and functions
+    let agentManager;
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', function () {
+        agentManager = new AgentManager();
+        
+        // Handle collapse/expand animations for URLs sections
+        document.addEventListener('show.bs.collapse', function (e) {
+            if (e.target.id.startsWith('urls-')) {
+                const chevron = e.target.previousElementSibling.querySelector('.collapse-icon');
+                if (chevron) {
+                    chevron.style.transform = 'rotate(180deg)';
+                }
+            }
+        });
+        
+        document.addEventListener('hide.bs.collapse', function (e) {
+            if (e.target.id.startsWith('urls-')) {
+                const chevron = e.target.previousElementSibling.querySelector('.collapse-icon');
+                if (chevron) {
+                    chevron.style.transform = 'rotate(0deg)';
+                }
+            }
+        });
+    });
+
+    // Expose functions for button handlers
+    window.agentManager = {
+        refreshAgents: () => agentManager?.refreshAgents(),
+        applyFilters: () => agentManager?.applyFilters(),
+        showAddUrlModal: (agentId) => agentManager?.showAddUrlModal(agentId),
+        editUrl: (agentId, url) => agentManager?.editUrl(agentId, url),
+        removeUrl: (agentId, url) => agentManager?.removeUrl(agentId, url),
+        testUrl: (agentId, url) => agentManager?.testUrl(agentId, url),
+        saveUrl: () => agentManager?.saveUrl(),
+        retestUrl: () => agentManager?.retestUrl()
+    };
+</script>
+
+</div> <!-- End Main Content Container -->
+
+{% endblock %}

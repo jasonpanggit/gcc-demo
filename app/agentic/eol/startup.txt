@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Speedy, idempotent startup for Azure App Service (Linux)
+export PYTHONUNBUFFERED=1
+export PORT="${PORT:-8000}"
+
+# Resolve app directory (location of this script) and ensure we run from there
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$APP_DIR"
+export PYTHONPATH="${PYTHONPATH:-$APP_DIR}"
+
+VENV_DIR="/home/site/antenv"
+
+if [ ! -d "$VENV_DIR" ]; then
+	echo "[startup] Creating virtual env at $VENV_DIR"
+	python -m venv "$VENV_DIR"
+	"$VENV_DIR/bin/pip" install --upgrade pip
+	if [ -f "$APP_DIR/requirements.txt" ]; then
+		echo "[startup] Installing dependencies from requirements.txt"
+		"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
+	else
+		echo "[startup] WARNING: requirements.txt not found at $APP_DIR"
+	fi
+else
+	echo "[startup] Using existing virtual env at $VENV_DIR"
+fi
+
+echo "[startup] Launching app with uvicorn from venv"
+exec "$VENV_DIR/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$PORT" --log-level warning
