@@ -146,12 +146,7 @@ resource "azurerm_cosmosdb_sql_container" "container" {
   default_ttl = 2592000  # 30 days in seconds
 
   # Throughput configuration (only for non-serverless)
-  dynamic "throughput" {
-    for_each = var.cosmos_db_serverless ? [] : [var.cosmos_db_throughput]
-    content {
-      throughput = throughput.value
-    }
-  }
+  throughput = var.cosmos_db_serverless ? null : var.cosmos_db_throughput
 
   # Indexing policy optimized for cache queries
   indexing_policy {

@@ -65,6 +65,8 @@ arc_service_principal_subscription_scope = false
 # AZURE MONITOR
 # ==============================================================================
 deploy_azure_monitor_private_link_scope = false
+azure_monitor_query_access_mode         = "Open"      # Open or PrivateOnly
+azure_monitor_ingestion_access_mode     = "Open"      # Open or PrivateOnly
 #log_analytics_workspace_retention_days = 30
 #log_analytics_workspace_sku = "PerGB2018"
 
@@ -89,7 +91,8 @@ deploy_nongen_vnet = false
 # ==============================================================================
 # NON-GEN SERVICES
 # ==============================================================================
-deploy_nongen_firewall = false
+deploy_nongen_firewall              = false
+nongen_firewall_dns_proxy_enabled   = false
 
 # ==============================================================================
 # VNET PEERING

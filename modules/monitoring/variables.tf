@@ -73,3 +73,29 @@ variable "onprem_vnet_id" {
   type        = string
   default     = null
 }
+
+# ============================================================================
+# AZURE MONITOR ACCESS MODE VARIABLES
+# ============================================================================
+
+variable "azure_monitor_query_access_mode" {
+  description = "The query access mode for Azure Monitor Private Link Scope. Valid values are 'Open' or 'PrivateOnly'"
+  type        = string
+  default     = "Open"
+  
+  validation {
+    condition     = contains(["Open", "PrivateOnly"], var.azure_monitor_query_access_mode)
+    error_message = "The azure_monitor_query_access_mode must be either 'Open' or 'PrivateOnly'."
+  }
+}
+
+variable "azure_monitor_ingestion_access_mode" {
+  description = "The ingestion access mode for Azure Monitor Private Link Scope. Valid values are 'Open' or 'PrivateOnly'"
+  type        = string
+  default     = "Open"
+  
+  validation {
+    condition     = contains(["Open", "PrivateOnly"], var.azure_monitor_ingestion_access_mode)
+    error_message = "The azure_monitor_ingestion_access_mode must be either 'Open' or 'PrivateOnly'."
+  }
+}

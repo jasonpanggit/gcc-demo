@@ -723,6 +723,17 @@ resource "azurerm_firewall_policy" "afwp_nongen" {
   resource_group_name = var.resource_group_name
   location            = var.location
 
+  # DNS Proxy Configuration
+  dynamic "dns" {
+    for_each = var.nongen_firewall_dns_proxy_enabled ? [1] : []
+    content {
+      proxy_enabled = true
+    }
+  }
+
+  # Threat Intel Mode - Alert to match deployed configuration
+  threat_intelligence_mode = "Alert"
+
   tags = {
     Environment = var.environment
     Project     = var.project_name
@@ -956,6 +967,250 @@ resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_avd_rules_nong
         "*.wd.microsoft.com",
         "*.defender.microsoft.com"
       ]
+    }
+  }
+}
+
+# ============================================================================
+# AGENTIC APPLICATION FIREWALL RULES (Non-Gen)
+# ============================================================================
+
+# Agentic Egress Rules - Priority 1300 to match deployed configuration
+resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_agentic_egress" {
+  count              = var.deploy_nongen_vnet && var.deploy_nongen_firewall && var.deploy_agentic_app ? 1 : 0
+  name               = "agentic-egress"
+  firewall_policy_id = azurerm_firewall_policy.afwp_nongen[0].id
+  priority           = 1300
+
+  # Core Agentic Application Rules
+  application_rule_collection {
+    name     = "agentic-core-egress"
+    priority = 100
+    action   = "Allow"
+
+    # End of Life API
+    rule {
+      name = "endoflife-date"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "endoflife.date",
+        "*.endoflife.date"
+      ]
+    }
+
+    # Azure Core Services
+    rule {
+      name = "azure-core"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "login.microsoftonline.com",
+        "management.azure.com"
+      ]
+    }
+
+    # Python PyPI
+    rule {
+      name = "python-pypi"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "pypi.org",
+        "*.pypi.org",
+        "files.pythonhosted.org",
+        "*.files.pythonhosted.org"
+      ]
+    }
+
+    # Azure App Service
+    rule {
+      name = "azure-appservice"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.azurewebsites.net",
+        "*.scm.azurewebsites.net",
+        "*.appservice.azure.com"
+      ]
+    }
+
+    # Microsoft Vendor Sites
+    rule {
+      name = "microsoft-vendor"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "learn.microsoft.com",
+        "docs.microsoft.com",
+        "support.microsoft.com",
+        "www.microsoft.com",
+        "techcommunity.microsoft.com"
+      ]
+    }
+
+    # Linux Vendors
+    rule {
+      name = "linux-vendors"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "access.redhat.com",
+        "www.redhat.com",
+        "ubuntu.com",
+        "wiki.ubuntu.com",
+        "canonical.com",
+        "*.canonical.com"
+      ]
+    }
+
+    # Azure Monitoring Services
+    rule {
+      name = "azure-monitoring"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "dc.applicationinsights.microsoft.com",
+        "dc.applicationinsights.azure.com",
+        "dc.services.visualstudio.com",
+        "*.ods.opinsights.azure.com",
+        "*.oms.opinsights.azure.com",
+        "*.monitoring.azure.com",
+        "api.loganalytics.io",
+        "*.api.loganalytics.io"
+      ]
+    }
+
+    # Development Dependencies
+    rule {
+      name = "autogen-deps"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "github.com",
+        "*.github.com",
+        "raw.githubusercontent.com",
+        "*.githubusercontent.com",
+        "api.github.com",
+        "registry.npmjs.org",
+        "*.registry.npmjs.org"
+      ]
+    }
+  }
+
+  # Microsoft Oryx SDK Rules
+  application_rule_collection {
+    name     = "agentic-oryx-egress"
+    priority = 150
+    action   = "Allow"
+
+    rule {
+      name = "microsoft-oryx-sdk"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "oryxsdks-cdn.azureedge.net",
+        "*.azureedge.net",
+        "oryx-cdn.microsoft.io",
+        "*.oryx-cdn.microsoft.io"
+      ]
+    }
+  }
+
+  # SMTP Egress (placeholder with dummy rule - matches deployed config structure)
+  application_rule_collection {
+    name     = "agentic-smtp-egress"
+    priority = 160
+    action   = "Allow"
+    
+    # Placeholder rule - empty in actual deployment but required by Terraform
+    rule {
+      name = "placeholder-rule"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["127.0.0.1"]  # Localhost only - effectively disabled
+      destination_fqdns = ["localhost"]
+    }
+  }
+}
+
+# Agentic SMTP Network Rules - Priority 1350 to match deployed configuration
+resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_agentic_smtp_network" {
+  count              = var.deploy_nongen_vnet && var.deploy_nongen_firewall && var.deploy_agentic_app ? 1 : 0
+  name               = "agentic-smtp-network"
+  firewall_policy_id = azurerm_firewall_policy.afwp_nongen[0].id
+  priority           = 1350
+
+  # SMTP Network Rules
+  network_rule_collection {
+    name     = "smtp-tcp-egress"
+    priority = 100
+    action   = "Allow"
+
+    # SMTP over TLS (port 587)
+    rule {
+      name                  = "allow-smtp-tcp"
+      protocols             = ["TCP"]
+      source_addresses      = ["*"]
+      destination_fqdns     = [
+        "smtp.gmail.com",
+        "smtp-mail.outlook.com",
+        "smtp.mail.yahoo.com",
+        "smtp.office365.com"
+      ]
+      destination_ports     = ["587"]
+    }
+
+    # SMTP SSL (port 465)
+    rule {
+      name                  = "allow-smtp-ssl-tcp"
+      protocols             = ["TCP"]
+      source_addresses      = ["*"]
+      destination_fqdns     = [
+        "smtp.gmail.com",
+        "smtp-mail.outlook.com",
+        "smtp.mail.yahoo.com",
+        "smtp.office365.com"
+      ]
+      destination_ports     = ["465"]
+    }
+
+    # SMTP to any IP (catch-all for SMTP services)
+    rule {
+      name                  = "allow-smtp-ip-tcp"
+      protocols             = ["TCP"]
+      source_addresses      = ["*"]
+      destination_addresses = ["*"]
+      destination_ports     = ["587"]
     }
   }
 }

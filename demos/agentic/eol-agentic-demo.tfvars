@@ -31,6 +31,8 @@ deploy_bastion = true
 
 # Azure Monitor - Centralized logging and monitoring
 deploy_azure_monitor_private_link_scope = true
+azure_monitor_query_access_mode         = "Open"      # Open or PrivateOnly
+azure_monitor_ingestion_access_mode     = "Open"      # Open or PrivateOnly
 
 # Script Storage - Required for Arc onboarding and VM extensions
 deploy_script_storage = true
@@ -38,15 +40,16 @@ deploy_script_storage = true
 # ==============================================================================
 # HUB FIREWALL CONFIGURATION
 # ==============================================================================
-# Azure Firewall with explicit proxy for both Agentic app egress and Arc onboarding
+# Hub firewall configuration - Currently disabled as hub firewall is not deployed
+# Only nongen firewall is deployed in the current Azure environment
 
-deploy_hub_firewall                    = true
-hub_firewall_explicit_proxy            = true
-hub_firewall_explicit_proxy_nat        = true
-hub_firewall_dns_proxy_enabled         = true
-hub_firewall_explicit_proxy_http_port  = 8080
-hub_firewall_explicit_proxy_https_port = 8443
-hub_firewall_arc_rules                 = true
+deploy_hub_firewall                    = false # Hub firewall
+hub_firewall_explicit_proxy            = false # Explicit proxy 
+hub_firewall_explicit_proxy_nat        = false # Explicit proxy NAT 
+hub_firewall_dns_proxy_enabled         = false # DNS proxy
+hub_firewall_explicit_proxy_http_port  = 8080  # HTTP port
+hub_firewall_explicit_proxy_https_port = 8443  # HTTPS port 
+hub_firewall_arc_rules                 = false # Arc rules
 
 # ==============================================================================
 # AGENTIC APPLICATION CONFIGURATION
@@ -58,6 +61,9 @@ deploy_nongen_vnet = true
 
 # Non-Gen Firewall - Dedicated firewall for agentic app egress
 deploy_nongen_firewall = true
+
+# Non-Gen Firewall DNS proxy - Enable to match deployed configuration
+nongen_firewall_dns_proxy_enabled = true
 
 # Enable agentic firewall rules for Azure App Service dependencies
 nongen_firewall_agentic_rules = true
@@ -79,7 +85,7 @@ deploy_agentic_private_endpoints = true
 # Azure Arc setup for external server onboarding through hub firewall
 
 # Arc Private Connectivity
-deploy_arc_private_link_scope = true # Private link scope for Arc services
+deploy_arc_private_link_scope = false # Private link scope for Arc services
 
 # Arc Service Principal for automated onboarding
 deploy_arc_service_principal             = true # Service principal for Arc onboarding
@@ -89,13 +95,13 @@ arc_service_principal_subscription_scope = true # Subscription-level permissions
 # ON-PREMISES SIMULATION 
 # ==============================================================================
 # Optional simulated on-premises environment for testing Arc connectivity
-# Enable these if you want to test with a simulated on-premises Windows Server
+# Currently disabled as these resources are not deployed in Azure
 
 # On-premises VNet and connectivity
-deploy_onprem_vnet        = true # On-premises simulation VNet
-deploy_hub_onprem_peering = true # Hub-to-OnPrem VNet peering
+deploy_onprem_vnet        = false # On-premises simulation VNet - NOT DEPLOYED
+deploy_hub_onprem_peering = false # Hub-to-OnPrem VNet peering - NOT DEPLOYED
 
 # Windows Server with Azure Arc (for testing)
-deploy_onprem_windows_server_2025 = true # Windows Server 2025 VM
-onprem_windows_arc_onboarding     = true # Arc onboarding via Hub Firewall proxy
-onprem_windows_arc_auto_upgrade   = true # Automatic Arc agent upgrades
+deploy_onprem_windows_server_2025 = false # Windows Server 2025 VM - NOT DEPLOYED
+onprem_windows_arc_onboarding     = false # Arc onboarding via Hub Firewall proxy - NOT DEPLOYED
+onprem_windows_arc_auto_upgrade   = false # Automatic Arc agent upgrades - NOT DEPLOYED

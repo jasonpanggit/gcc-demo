@@ -134,6 +134,18 @@ variable "nongen_firewall_agentic_rules" {
   default     = false
 }
 
+variable "nongen_firewall_dns_proxy_enabled" {
+  description = "Enable DNS proxy on Non-Gen Azure Firewall"
+  type        = bool
+  default     = false
+}
+
+variable "deploy_agentic_app" {
+  description = "Deploy the EOL agentic web app and dependencies"
+  type        = bool
+  default     = false
+}
+
 variable "onprem_vnet_address_space" {
   description = "Address space for on-premises VNet"
   type        = list(string)

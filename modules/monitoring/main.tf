@@ -38,8 +38,8 @@ resource "azurerm_monitor_private_link_scope" "ampls_hub" {
   count                 = var.deploy_hub_vnet && var.deploy_azure_monitor_private_link_scope ? 1 : 0
   name                  = "pls-monitor-${var.project_name}-${var.environment}"
   resource_group_name   = var.resource_group_name
-  ingestion_access_mode = "Open"
-  query_access_mode     = "Open"
+  ingestion_access_mode = var.azure_monitor_ingestion_access_mode
+  query_access_mode     = var.azure_monitor_query_access_mode
 
   tags = {
     Environment = var.environment

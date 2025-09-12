@@ -51,6 +51,11 @@ output "log_analytics_workspace_id" {
   value       = var.deploy_azure_monitor_private_link_scope ? module.monitoring[0].log_analytics_workspace_id : null
 }
 
+output "log_analytics_workspace_guid" {
+  description = "Log Analytics workspace GUID (for application configuration)"
+  value       = var.deploy_azure_monitor_private_link_scope ? module.monitoring[0].log_analytics_workspace_guid : null
+}
+
 # Arc Configuration (if deployed)
 output "arc_private_link_scope_id" {
   description = "Azure Arc private link scope ID"
@@ -93,6 +98,31 @@ output "agentic_app_principal_id" {
 output "agentic_aoai_endpoint" {
   description = "Azure OpenAI endpoint URL"
   value       = var.deploy_agentic_app && var.deploy_aoai ? module.agentic[0].aoai_endpoint : null
+}
+
+output "agentic_aoai_deployment_name" {
+  description = "Azure OpenAI deployment name"
+  value       = var.deploy_agentic_app && var.deploy_aoai ? module.agentic[0].aoai_deployment_name : null
+}
+
+output "agentic_app_service_name" {
+  description = "Agentic application service name"
+  value       = var.deploy_agentic_app ? module.agentic[0].app_service_name : null
+}
+
+output "agentic_cosmos_db_endpoint" {
+  description = "Agentic Cosmos DB endpoint"
+  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_endpoint : null
+}
+
+output "agentic_cosmos_db_database_name" {
+  description = "Agentic Cosmos DB database name"
+  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_database_name : null
+}
+
+output "agentic_cosmos_db_container_name" {
+  description = "Agentic Cosmos DB container name"
+  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_container_name : null
 }
 
 # EOL Solution Configuration

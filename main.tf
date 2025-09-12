@@ -144,13 +144,15 @@ module "firewall" {
   hub_firewall_arc_rules                 = var.hub_firewall_arc_rules
 
   # Non-Gen firewall variables
-  deploy_nongen_vnet            = var.deploy_nongen_vnet
-  deploy_nongen_firewall        = var.deploy_nongen_firewall
-  nongen_firewall_subnet_id     = var.deploy_hub_vnet && var.deploy_nongen_vnet ? module.networking[0].nongen_firewall_subnet_id : null
-  nongen_firewall_avd_rules     = var.deploy_nongen_avd
-  nongen_firewall_agentic_rules = var.nongen_firewall_agentic_rules
-  onprem_vnet_address_space     = var.onprem_vnet_address_space
-  hub_vnet_address_space        = var.hub_vnet_address_space
+  deploy_nongen_vnet                   = var.deploy_nongen_vnet
+  deploy_nongen_firewall               = var.deploy_nongen_firewall
+  nongen_firewall_subnet_id            = var.deploy_hub_vnet && var.deploy_nongen_vnet ? module.networking[0].nongen_firewall_subnet_id : null
+  nongen_firewall_avd_rules            = var.deploy_nongen_avd
+  nongen_firewall_agentic_rules        = var.nongen_firewall_agentic_rules
+  nongen_firewall_dns_proxy_enabled    = var.nongen_firewall_dns_proxy_enabled
+  deploy_agentic_app                   = var.deploy_agentic_app
+  onprem_vnet_address_space            = var.onprem_vnet_address_space
+  hub_vnet_address_space               = var.hub_vnet_address_space
 
   tags = {
     Environment = var.environment
@@ -331,6 +333,8 @@ module "monitoring" {
   deploy_onprem_vnet                      = var.deploy_onprem_vnet
   onprem_windows_arc_onboarding           = var.onprem_windows_arc_onboarding
   onprem_vnet_id                          = var.deploy_onprem_vnet && var.deploy_hub_vnet ? module.networking[0].onprem_vnet_id : null
+  azure_monitor_query_access_mode         = var.azure_monitor_query_access_mode
+  azure_monitor_ingestion_access_mode     = var.azure_monitor_ingestion_access_mode
 
   depends_on = [module.networking]
 }

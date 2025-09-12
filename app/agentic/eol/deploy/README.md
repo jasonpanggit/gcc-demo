@@ -18,6 +18,37 @@ A comprehensive software End-of-Life (EOL) analysis application built with FastA
 - **AutoGen Framework**: Multi-agent AI conversations for complex analysis
 - **Containerized Deployment**: Docker support for consistent deployments
 - **Health Monitoring**: Built-in health checks and monitoring capabilities
+
+## 🔧 Configuration Management
+
+### Generate appsettings.json from Terraform
+
+This directory includes `generate-appsettings.sh` to automatically create configuration files from Terraform outputs.
+
+#### Prerequisites
+- Terraform installed and project deployed
+- jq installed (`brew install jq` on macOS)
+- Agentic module deployed (`deploy_agentic_app = true`)
+
+#### Usage
+```bash
+# Generate appsettings.json
+./generate-appsettings.sh
+
+# Generate to custom location
+./generate-appsettings.sh appsettings.production.json
+```
+
+The script maps Terraform outputs to application settings:
+- Azure subscription and resource group information
+- Azure OpenAI endpoint and deployment details
+- Cosmos DB connection information
+- Log Analytics workspace configuration
+
+#### Files
+- `generate-appsettings.sh` - Generation script
+- `appsettings.json.example` - Template structure
+- Generated files are ignored by Git for security
 - **Scalable Architecture**: Designed for enterprise-scale deployments
 
 ## 📦 Deployment Configuration

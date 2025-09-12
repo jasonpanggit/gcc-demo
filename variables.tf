@@ -339,6 +339,26 @@ variable "deploy_azure_monitor_private_link_scope" {
   default     = false
 }
 
+variable "azure_monitor_query_access_mode" {
+  description = "Access mode for Azure Monitor query operations. Valid values are 'Open' or 'PrivateOnly'"
+  type        = string
+  default     = "Open"
+  validation {
+    condition     = contains(["Open", "PrivateOnly"], var.azure_monitor_query_access_mode)
+    error_message = "The azure_monitor_query_access_mode must be either 'Open' or 'PrivateOnly'."
+  }
+}
+
+variable "azure_monitor_ingestion_access_mode" {
+  description = "Access mode for Azure Monitor ingestion operations. Valid values are 'Open' or 'PrivateOnly'"
+  type        = string
+  default     = "Open"
+  validation {
+    condition     = contains(["Open", "PrivateOnly"], var.azure_monitor_ingestion_access_mode)
+    error_message = "The azure_monitor_ingestion_access_mode must be either 'Open' or 'PrivateOnly'."
+  }
+}
+
 # Agentic App Feature Flags
 variable "deploy_agentic_app" {
   description = "Deploy the EOL agentic web app and dependencies"
@@ -633,6 +653,12 @@ variable "deploy_nongen_firewall" {
 
 variable "nongen_firewall_agentic_rules" {
   description = "Enable firewall policy rules required for the agentic app including Oryx SDK CDN"
+  type        = bool
+  default     = false
+}
+
+variable "nongen_firewall_dns_proxy_enabled" {
+  description = "Enable DNS proxy on Non-Gen Azure Firewall"
   type        = bool
   default     = false
 }
