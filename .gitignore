@@ -69,6 +69,10 @@ backup/
 # Virtual environments
 .venv/
 
+# Project TODO file
+# Ignore TODO.md in any directory
+TODO.md
+
 # Ignore appsettings.json files but keep the example
 # ignore any appsettings*.json
 appsettings*.json
