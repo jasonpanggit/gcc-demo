@@ -2589,111 +2589,173 @@
             let cosmosItems = 0;
             let hitRate = 0;
 
-            // Count from agent caches
-            if (cacheStatus.success) {
-                totalCacheItems += cacheStatus.total_cached_items || 0;
-                activeAgents = cacheStatus.cache_capable_agents || 0;
-
-                // Add Cosmos DB items if available
-                if (cacheStatus.cosmos_db_stats && cacheStatus.cosmos_db_stats.success) {
-                    cosmosItems = cacheStatus.cosmos_db_stats.total_items || 0;
-                    totalCacheItems += cosmosItems;
-                    expiredItems += cacheStatus.cosmos_db_stats.expired_items || 0;
+            // Count from cache status (fixed data structure)
+            if (cacheStatus.success && cacheStatus.data) {
+                // Count EOL cache items
+                if (cacheStatus.data.eol_cache) {
+                    totalCacheItems += cacheStatus.data.eol_cache.total_items || 0;
+                    expiredItems += cacheStatus.data.eol_cache.expired_items || 0;
                 }
-
-                // Update Cosmos DB health indicator
-                const cosmosHealthElement = document.getElementById('cosmos-health');
-                if (cosmosHealthElement) {
-                    if (cacheStatus.cosmos_db_available) {
-                        if (cosmosItems > 0) {
-                            cosmosHealthElement.className = 'cache-health healthy';
-                            cosmosHealthElement.textContent = `${cosmosItems} items`;
-                        } else {
-                            cosmosHealthElement.className = 'cache-health warning';
-                            cosmosHealthElement.textContent = 'Ready';
-                        }
-                    } else {
-                        cosmosHealthElement.className = 'cache-health error';
-                        cosmosHealthElement.textContent = 'Unavailable';
-                    }
-                }
-
-                // Update other health badges with readable content
-                const agentsBadge = document.getElementById('agents-health');
-                if (agentsBadge) {
-                    const agentsText = activeAgents > 0 ? `${activeAgents} agents` : 'Ready';
-                    agentsBadge.className = `cache-health ${activeAgents > 0 ? 'healthy' : 'warning'}`;
-                    agentsBadge.textContent = agentsText;
-                }
-
-                const inventoryBadge = document.getElementById('inventory-health');
-                if (inventoryBadge) {
-                    const invText = (inventoryStats && inventoryStats.cache_stats && inventoryStats.cache_stats.cached) ? 'Active' : 'Ready';
-                    inventoryBadge.className = `cache-health ${(inventoryStats && inventoryStats.cache_stats && inventoryStats.cache_stats.cached) ? 'healthy' : 'warning'}`;
-                    inventoryBadge.textContent = invText;
+                
+                // Count active agents
+                if (cacheStatus.data.agents) {
+                    activeAgents = Object.keys(cacheStatus.data.agents).length;
                 }
             }
 
-            // Count from inventory cache
-            if (inventoryStats.success && inventoryStats.cache_stats.cached) {
+            // Count from inventory stats
+            if (inventoryStats.success && inventoryStats.cache_stats) {
                 totalCacheItems += inventoryStats.cache_stats.items_count || 0;
                 if (inventoryStats.cache_stats.expired) {
                     expiredItems += inventoryStats.cache_stats.items_count || 0;
                 }
             }
 
-            // Calculate cache hit rate from enhanced statistics
+            // Count from enhanced stats and calculate hit rate
             if (enhancedStats && enhancedStats.performance_summary) {
                 hitRate = enhancedStats.performance_summary.overall_hit_rate || 0;
-            } else {
-                // Fallback calculation from available data
-                const totalRequests = (enhancedStats?.agent_stats?.summary?.total_requests || 0) + 
-                                    (inventoryStats?.enhanced_stats?.total_requests || 0);
-                const totalHits = (enhancedStats?.agent_stats?.summary?.total_cache_hits || 0) + 
-                                (inventoryStats?.enhanced_stats?.hits || 0);
-                hitRate = totalRequests > 0 ? (totalHits / totalRequests * 100) : 0;
+                
+                // Add cosmos stats items
+                if (enhancedStats.cosmos_stats) {
+                    cosmosItems = enhancedStats.cosmos_stats.total_requests || 0;
+                    totalCacheItems += enhancedStats.cosmos_stats.hits || 0;
+                }
+            }
+
+            console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
+
+            console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
+
+            // Calculate total requests from enhanced stats
+            let totalRequests = 0;
+            if (enhancedStats && enhancedStats.performance_summary) {
+                totalRequests = enhancedStats.performance_summary.total_requests || 0;
+            }
+
+            // Update health indicators based on API availability (not data content)
+            const cosmosHealthElement = document.getElementById('cosmos-health');
+            if (cosmosHealthElement) {
+                // Cosmos is available if we got enhanced stats with cosmos_stats section
+                const cosmosAvailable = enhancedStats && enhancedStats.cosmos_stats;
+                if (cosmosAvailable) {
+                    cosmosHealthElement.className = 'cache-health healthy';
+                    cosmosHealthElement.textContent = cosmosItems > 0 ? `${cosmosItems} requests` : 'Available';
+                } else {
+                    cosmosHealthElement.className = 'cache-health unavailable';
+                    cosmosHealthElement.textContent = 'Unavailable';
+                }
+            }
+
+            const agentsBadge = document.getElementById('agents-health');
+            if (agentsBadge) {
+                // Agents are available if we got cache status with agents
+                const agentsAvailable = cacheStatus.success && cacheStatus.data && cacheStatus.data.agents;
+                if (agentsAvailable) {
+                    agentsBadge.className = 'cache-health healthy';
+                    agentsBadge.textContent = activeAgents > 0 ? `${activeAgents} agents` : 'Available';
+                } else {
+                    agentsBadge.className = 'cache-health unavailable';
+                    agentsBadge.textContent = 'Unavailable';
+                }
+            }
+
+            const inventoryBadge = document.getElementById('inventory-health');
+            if (inventoryBadge) {
+                // Inventory is available if we got inventory stats response
+                const inventoryAvailable = inventoryStats && inventoryStats.success;
+                if (inventoryAvailable) {
+                    inventoryBadge.className = 'cache-health healthy';
+                    const itemCount = inventoryStats.cache_stats.items_count || 0;
+                    inventoryBadge.textContent = itemCount > 0 ? `${itemCount} items` : 'Available';
+                } else {
+                    inventoryBadge.className = 'cache-health unavailable';
+                    inventoryBadge.textContent = 'Unavailable';
+                }
             }
 
             // Calculate average response time from enhanced statistics
             let avgResponseTime = 0;
             if (enhancedStats && enhancedStats.performance_summary) {
-                avgResponseTime = enhancedStats.performance_summary.avg_response_time || 0;
+                avgResponseTime = enhancedStats.performance_summary.avg_response_time_ms || 0;
             }
 
-            // Calculate total cache size (approximate)
-            let totalCacheSize = totalCacheItems > 0 ? `${totalCacheItems} items` : '--';
-            
             // Update top-level statistics display with real data (with null checks)
             const totalCacheSizeEl = document.getElementById('total-cache-size');
             if (totalCacheSizeEl) {
+                const totalCacheSize = totalCacheItems > 0 ? `${totalCacheItems} items` : '--';
+                console.log('Updating total-cache-size:', totalCacheSize);
                 totalCacheSizeEl.textContent = totalCacheSize;
+            } else {
+                console.log('total-cache-size element not found');
             }
             
             const cacheHitRateEl = document.getElementById('cache-hit-rate');
             if (cacheHitRateEl) {
-                cacheHitRateEl.textContent = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+                const hitRateText = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+                console.log('Updating cache-hit-rate:', hitRateText);
+                cacheHitRateEl.textContent = hitRateText;
+            } else {
+                console.log('cache-hit-rate element not found');
             }
             
             const avgResponseTimeEl = document.getElementById('avg-response-time');
             if (avgResponseTimeEl) {
-                avgResponseTimeEl.textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
+                const responseTimeText = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
+                console.log('Updating avg-response-time:', responseTimeText);
+                avgResponseTimeEl.textContent = responseTimeText;
+            } else {
+                console.log('avg-response-time element not found');
             }
             
-            // Update secondary overview elements (for other sections)
+            // Update overview elements with correct mappings
+            // total-cache-items actually displays "Total Agent Requests"
             const totalCacheItemsEl = document.getElementById('total-cache-items');
             if (totalCacheItemsEl) {
-                totalCacheItemsEl.textContent = totalCacheItems.toLocaleString();
+                console.log('Updating total-cache-items (Total Agent Requests):', totalRequests);
+                totalCacheItemsEl.textContent = totalRequests.toLocaleString();
             }
             
+            // active-agents displays "Active Agents"
             const activeAgentsEl = document.getElementById('active-agents');
             if (activeAgentsEl) {
+                console.log('Updating active-agents:', activeAgents);
                 activeAgentsEl.textContent = activeAgents;
+            } else {
+                console.log('active-agents element not found');
             }
             
-            // Use correct element ID (total-errors, not expired-items)
+            // total-errors displays "Total Errors"
             const totalErrorsEl = document.getElementById('total-errors');
             if (totalErrorsEl) {
-                totalErrorsEl.textContent = expiredItems;
+                const totalErrors = enhancedStats?.performance_summary?.total_errors || 0;
+                console.log('Updating total-errors:', totalErrors);
+                totalErrorsEl.textContent = totalErrors;
+            }
+
+            // Update performance dashboard elements
+            const totalRequestsEl = document.getElementById('total-requests');
+            if (totalRequestsEl) {
+                console.log('Updating total-requests (Performance Dashboard):', totalRequests);
+                totalRequestsEl.textContent = totalRequests.toLocaleString();
+            }
+
+            const overallErrorRateEl = document.getElementById('overall-error-rate');
+            if (overallErrorRateEl) {
+                const errorRate = enhancedStats?.performance_summary?.overall_error_rate || 0;
+                console.log('Updating overall-error-rate:', errorRate);
+                overallErrorRateEl.textContent = `${errorRate.toFixed(1)}%`;
+            }
+
+            const overallHitRateEl = document.getElementById('overall-hit-rate');
+            if (overallHitRateEl) {
+                console.log('Updating overall-hit-rate:', hitRate);
+                overallHitRateEl.textContent = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+            }
+
+            const overallResponseTimeEl = document.getElementById('overall-response-time');
+            if (overallResponseTimeEl) {
+                console.log('Updating overall-response-time:', avgResponseTime);
+                overallResponseTimeEl.textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
             }
 
             // Add performance metrics display if enhanced stats are available
@@ -2763,27 +2825,35 @@
         console.log('=== Testing Cache Endpoints ===');
         
         try {
-            console.log('Testing /cache/status...');
-            const cacheStatus = await fetch('/api/cache/status');
-            console.log('Cache status:', cacheStatus.status, await cacheStatus.json());
+            console.log('Testing /api/cache/status...');
+            const cacheStatusResponse = await fetch('/api/cache/status');
+            const cacheStatus = await cacheStatusResponse.json();
+            console.log('Cache status:', cacheStatusResponse.status, cacheStatus);
+            console.log('Agents available:', cacheStatus.data?.agents ? Object.keys(cacheStatus.data.agents) : 'None');
+            console.log('EOL cache items:', cacheStatus.data?.eol_cache?.total_items || 0);
         } catch (e) {
             console.error('Cache status failed:', e);
         }
         
         try {
-            console.log('Testing /cache/stats/enhanced...');
-            const enhancedStats = await fetch('/api/cache/stats/enhanced');
-            const enhancedData = await enhancedStats.json();
-            console.log('Enhanced stats:', enhancedStats.status, enhancedData);
-            console.log('Available agents:', Object.keys(enhancedData?.agent_stats?.agents || {}));
+            console.log('Testing /api/cache/stats/enhanced...');
+            const enhancedStatsResponse = await fetch('/api/cache/stats/enhanced');
+            const enhancedStats = await enhancedStatsResponse.json();
+            console.log('Enhanced stats:', enhancedStatsResponse.status, enhancedStats);
+            console.log('Available agents:', Object.keys(enhancedStats?.agent_stats?.agents || {}));
+            console.log('Overall hit rate:', enhancedStats?.performance_summary?.overall_hit_rate || 0);
+            console.log('Avg response time:', enhancedStats?.performance_summary?.avg_response_time_ms || 0);
+            console.log('Cosmos stats:', enhancedStats?.cosmos_stats || 'None');
         } catch (e) {
             console.error('Enhanced stats failed:', e);
         }
         
         try {
-            console.log('Testing /cache/inventory/stats...');
-            const inventoryStats = await fetch('/api/cache/inventory/stats');
-            console.log('Inventory stats:', inventoryStats.status, await inventoryStats.json());
+            console.log('Testing /api/cache/inventory/stats...');
+            const inventoryStatsResponse = await fetch('/api/cache/inventory/stats');
+            const inventoryStats = await inventoryStatsResponse.json();
+            console.log('Inventory stats:', inventoryStatsResponse.status, inventoryStats);
+            console.log('Cache stats:', inventoryStats?.cache_stats || 'None');
         } catch (e) {
             console.error('Inventory stats failed:', e);
         }

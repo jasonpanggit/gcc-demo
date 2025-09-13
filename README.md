@@ -11,6 +11,9 @@ Opinionated Terraform landing zone for hybrid network + governance scenarios. Pi
 | Azure Route Server + NVA (FRR) | networking + compute (linux) |
 | Windows Servers (2016 VPN / 2025 Arc) | compute module + scripts |
 | Azure Arc (Private Link Scope) | arc + identity modules + Arc script |
+| Azure Monitor Private Link Scope | monitoring module |
+| AI-Powered Agentic Applications | agentic module + EOL app |
+| Azure Virtual Desktop (AVD) | avd module |
 | Script & Extension Storage | storage module |
 
 ## 🧪 Demo Scenarios (demos/)
@@ -18,9 +21,11 @@ Each demo tfvars file toggles only the components needed for that scenario (cost
 
 | Key | File | Focus | Approx Cost* | Deploy Time* |
 |-----|------|-------|--------------|--------------|
+| agentic-eol | `demos/agentic/eol-agentic-demo.tfvars` | AI-powered EOL analysis app with Azure OpenAI | ~$200/mo | 25-35m |
 | arc | `demos/arc/arc-demo.tfvars` | Azure Arc onboarding (Win 2025) | ~$150/mo | 30-40m |
 | vpn | `demos/vpn/vpn-demo.tfvars` | Site‑to‑Site VPN (Win 2016 RRAS) | ~$1,250/mo | 45-60m |
 | expressroute | `demos/expressroute/expressroute-demo.tfvars` | ExpressRoute + Route Server | ~$800–2,000/mo | 30-45m (+ provider) |
+| avd | `demos/avd/avd-demo.tfvars` | Azure Virtual Desktop environment | ~$500/mo | 20-30m |
 | hub-onprem | `demos/hub-spoke/hub-onprem-basic-demo.tfvars` | Minimal hub + on‑prem simulation | ~$0 | <5m |
 | hub-non-gen | `demos/hub-spoke/hub-non-gen-basic-demo.tfvars` | Basic hub + spoke | ~$0 | <5m |
 | hub-non-gen-gen | `demos/hub-spoke/hub-non-gen-gen-basic-demo.tfvars` | Dual spokes (Gen / Non‑Gen) | ~$0 | <5m |
@@ -130,13 +135,16 @@ The rest of this document retains deeper architectural and configuration detail 
 ## 🔧 Modular Architecture
 
 ### Core Modules
-1. **Networking** - VNets, subnets, peering, Route Server
-2. **Compute** - Windows Server 2016/2025 VMs with automation
-3. **Gateways** - VPN Gateway, ExpressRoute Gateway, Local Network Gateway
-4. **Firewall** - Azure Firewall with policies and rules
-5. **Storage** - Storage accounts for scripts and automation
-6. **Identity** - Service principals and role assignments for Azure Arc
+1. **Agentic** - AI-powered applications with Azure OpenAI and multi-agent workflows
+2. **Networking** - VNets, subnets, peering, Route Server
+3. **Compute** - Windows Server 2016/2025 VMs with automation
+4. **Gateways** - VPN Gateway, ExpressRoute Gateway, Local Network Gateway
+5. **Firewall** - Azure Firewall with configurable DNS proxy and policies
+6. **Storage** - Storage accounts for scripts and automation
 7. **Arc** - Azure Arc private link scope and hybrid connectivity
+8. **AVD** - Azure Virtual Desktop infrastructure and session hosts
+9. **Monitoring** - Log Analytics, Application Insights, and private link scopes
+10. **Routing** - Custom route tables and BGP configurations
 
 ### Windows Server Options
 - **Windows Server 2016**: Optimized for Site-to-Site VPN scenarios

@@ -553,38 +553,51 @@
     }
 
     function updateStats(cacheStatus, inventoryStats, enhancedStats, health) {
-        // Active Agents
+        console.log('updateStats called with:', { cacheStatus, inventoryStats, enhancedStats, health });
+        
+        // Active Agents - count from cacheStatus.data.agents
         let activeAgents = 0;
-        if (cacheStatus && cacheStatus.success) {
-            activeAgents = cacheStatus.cache_capable_agents || 
-                         (cacheStatus.agents_with_cache && cacheStatus.agents_with_cache.length) || 0;
+        if (cacheStatus && cacheStatus.success && cacheStatus.data && cacheStatus.data.agents) {
+            activeAgents = Object.keys(cacheStatus.data.agents).length;
         }
+        console.log('Active agents calculated:', activeAgents);
         document.getElementById('dash-active-agents').textContent = activeAgents;
 
-        // Total cached items
+        // Total cached items - sum from multiple sources
         let totalCache = 0;
-        if (cacheStatus && cacheStatus.success) {
-            totalCache += cacheStatus.total_cached_items || 0;
-            if (cacheStatus.cosmos_db_stats && cacheStatus.cosmos_db_stats.success) {
-                totalCache += cacheStatus.cosmos_db_stats.total_items || 0;
-            }
+        
+        // Add EOL cache items from cacheStatus
+        if (cacheStatus && cacheStatus.success && cacheStatus.data && cacheStatus.data.eol_cache) {
+            totalCache += cacheStatus.data.eol_cache.total_items || 0;
         }
-        if (inventoryStats && inventoryStats.success && inventoryStats.cache_stats && inventoryStats.cache_stats.cached) {
+        
+        // Add inventory cache items from inventoryStats
+        if (inventoryStats && inventoryStats.success && inventoryStats.cache_stats) {
             totalCache += inventoryStats.cache_stats.items_count || 0;
         }
+        
+        // Add enhanced stats cache hits
+        if (enhancedStats && enhancedStats.cosmos_stats) {
+            totalCache += enhancedStats.cosmos_stats.hits || 0;
+        }
+        
+        console.log('Total cache calculated:', totalCache);
         document.getElementById('dash-total-cache').textContent = totalCache.toLocaleString();
 
-        // AI Sessions
+        // AI Sessions - get from enhanced stats performance summary (correct path)
         let sessions = 0;
-        if (cacheStatus && cacheStatus.autogen_sessions) {
-            sessions = cacheStatus.autogen_sessions;
-        } else if (enhancedStats && enhancedStats.session_stats) {
-            sessions = enhancedStats.session_stats.active_sessions || 0;
+        if (enhancedStats && enhancedStats.performance_summary) {
+            sessions = enhancedStats.performance_summary.total_requests || 0;
         }
+        console.log('AI sessions calculated:', sessions);
         document.getElementById('dash-autogen-sessions').textContent = sessions;
 
-        // Database items
-        const cosmosItems = (cacheStatus && cacheStatus.cosmos_db_stats && cacheStatus.cosmos_db_stats.total_items) || 0;
+        // Database items - get from enhanced stats cosmos total requests
+        let cosmosItems = 0;
+        if (enhancedStats && enhancedStats.cosmos_stats) {
+            cosmosItems = enhancedStats.cosmos_stats.total_requests || 0;
+        }
+        console.log('Cosmos items calculated:', cosmosItems);
         document.getElementById('dash-cosmos-items').textContent = cosmosItems.toLocaleString();
 
         // Health status
@@ -593,7 +606,7 @@
         healthElement.textContent = isHealthy ? 'OK' : (health && health.status) || 'Unknown';
         healthElement.className = isHealthy ? 'badge bg-success' : 'badge bg-danger';
 
-        // Cache performance
+        // Cache performance - from enhanced stats performance summary
         let cachePerformance = 'Good';
         let avgResponseTime = 0;
         
@@ -608,27 +621,30 @@
         document.getElementById('dash-cache-performance').textContent = cachePerformance;
         document.getElementById('dash-avg-response').textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '—';
 
-        // Expiring items
+        // Expiring items - from cache status and inventory stats
         let expiring = 0;
-        if (cacheStatus && cacheStatus.cosmos_db_stats) {
-            expiring += cacheStatus.cosmos_db_stats.expired_items || 0;
+        if (cacheStatus && cacheStatus.success && cacheStatus.data && cacheStatus.data.eol_cache) {
+            expiring += cacheStatus.data.eol_cache.expired_items || 0;
         }
-        if (inventoryStats && inventoryStats.cache_stats && inventoryStats.cache_stats.expired) {
+        if (inventoryStats && inventoryStats.success && inventoryStats.cache_stats && inventoryStats.cache_stats.expired) {
             expiring += inventoryStats.cache_stats.items_count || 0;
         }
+        console.log('Expiring items calculated:', expiring);
         document.getElementById('dash-expiring').textContent = expiring || '0';
     }
 
     function updateRecentActivity(enhancedStats, cacheStatus) {
+        console.log('updateRecentActivity called with:', { enhancedStats, cacheStatus });
         const tbody = document.getElementById('recent-activity');
         tbody.innerHTML = '';
 
         let recentActivity = [];
-        const enhancedData = enhancedStats || (cacheStatus && cacheStatus.enhanced_stats);
 
-        // Collect activity from various sources
-        if (enhancedData && enhancedData.agent_stats && enhancedData.agent_stats.agents) {
-            const agents = enhancedData.agent_stats.agents;
+        // Collect activity from enhanced stats (correct path based on API response)
+        if (enhancedStats && enhancedStats.agent_stats && enhancedStats.agent_stats.agents) {
+            const agents = enhancedStats.agent_stats.agents;
+            console.log('Processing agents from enhanced stats:', Object.keys(agents));
+            
             for (const [agentName, agentData] of Object.entries(agents)) {
                 if (agentData.recent_requests && agentData.recent_requests.length > 0) {
                     const recentRequests = agentData.recent_requests.slice(-2).map(req => ({
@@ -642,6 +658,8 @@
                 }
             }
         }
+
+        console.log('Recent activity collected:', recentActivity.length, 'items');
 
         // Sort by timestamp and show latest 8
         recentActivity.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
