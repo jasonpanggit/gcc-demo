@@ -125,6 +125,61 @@ output "agentic_cosmos_db_container_name" {
   value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_container_name : null
 }
 
+# ============================================================================
+# AGENTIC ACR OUTPUTS
+# ============================================================================
+
+output "agentic_acr_name" {
+  description = "Agentic Azure Container Registry name"
+  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_name : null
+}
+
+output "agentic_acr_login_server" {
+  description = "Agentic Azure Container Registry login server URL"
+  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_login_server : null
+}
+
+output "agentic_acr_admin_username" {
+  description = "Agentic Azure Container Registry admin username"
+  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_admin_username : null
+}
+
+# ============================================================================
+# AGENTIC BING SEARCH OUTPUTS
+# ============================================================================
+
+output "agentic_bing_search_name" {
+  description = "Agentic Bing Search Cognitive Services account name"
+  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_name : null
+}
+
+output "agentic_bing_search_endpoint" {
+  description = "Agentic Bing Search Cognitive Services endpoint"
+  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_endpoint : null
+}
+
+output "agentic_bing_search_key1" {
+  description = "Agentic Bing Search Cognitive Services primary key"
+  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_key1 : null
+  sensitive   = true
+}
+
+# AGENTIC AZURE AI OUTPUTS
+output "agentic_azure_ai_foundry_name" {
+  description = "Agentic Azure AI Foundry name"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_name : null
+}
+
+output "agentic_azure_ai_foundry_endpoint" {
+  description = "Agentic Azure AI Foundry endpoint"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_endpoint : null
+}
+
+output "agentic_azure_ai_foundry_id" {
+  description = "Agentic Azure AI Foundry resource ID"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_id : null
+}
+
 # EOL Solution Configuration
 output "eol_solution_config" {
   description = "Configuration parameters for EOL solution deployment"

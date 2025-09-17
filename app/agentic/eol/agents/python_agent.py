@@ -35,8 +35,7 @@ class PythonEOLAgent(BaseEOLAgent):
     """Agent for scraping Python official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "python"
+        super().__init__("python")
         
         self.timeout = 15
         self.headers = {

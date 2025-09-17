@@ -16,7 +16,7 @@ from .ubuntu_agent import UbuntuEOLAgent
 from .inventory_agent import InventoryAgent
 from .os_inventory_agent import OSInventoryAgent
 from .software_inventory_agent import SoftwareInventoryAgent
-from .bing_agent import BingEOLAgent
+from .azure_ai_agent import AzureAIAgentEOLAgent
 from .oracle_agent import OracleEOLAgent
 from .vmware_agent import VMwareEOLAgent
 from .apache_agent import ApacheEOLAgent
@@ -46,6 +46,9 @@ class EOLOrchestratorAgent:
         # Replace Cosmos-backed comms with in-memory log (per process)
         self._comms_log: List[Dict[str, Any]] = []
         self.agent_name = "eol_orchestrator"
+        
+        # EOL Response Tracking - Track all agent responses for detailed history
+        self.eol_agent_responses = []
 
         # Initialize only essential agents for EOL analysis
         self.agents = {
@@ -66,7 +69,7 @@ class EOLOrchestratorAgent:
             "postgresql": PostgreSQLEOLAgent(),
             "php": PHPEOLAgent(),
             "python": PythonEOLAgent(),
-            "bing_search": BingEOLAgent(),
+            "azure_ai": AzureAIAgentEOLAgent(),
         }
         
         # Agent routing map for efficient lookups
@@ -422,6 +425,18 @@ class EOLOrchestratorAgent:
                 # Include communication history in response for frontend display
                 best_result["communications"] = self.get_recent_communications()
                 
+                # Track the EOL agent response for history
+                start_time = time.time()
+                response_time = time.time() - start_time
+                self._track_eol_agent_response(
+                    agent_name=best_result.get("agent_used", "unknown"),
+                    software_name=software_name,
+                    software_version=version,
+                    eol_result=best_result,
+                    response_time=response_time,
+                    query_type="autonomous_search"
+                )
+                
                 logger.info(f"✅ EOL data found for {software_name} (confidence: {best_confidence:.2f}, agent: {best_result.get('agent_used', 'unknown')})")
                 return best_result
             
@@ -436,6 +451,19 @@ class EOLOrchestratorAgent:
                 "agent_used": "orchestrator",
                 "communications": self.get_recent_communications()
             }
+            
+            # Track the failed search for history
+            start_time = time.time()
+            response_time = time.time() - start_time
+            self._track_eol_agent_response(
+                agent_name="orchestrator",
+                software_name=software_name,
+                software_version=version,
+                eol_result=failure_response,
+                response_time=response_time,
+                query_type="autonomous_search"
+            )
+            
             return failure_response
             
         except Exception as e:
@@ -846,6 +874,49 @@ class EOLOrchestratorAgent:
                 "success": False,
                 "error": f"Failed to get cache status: {str(e)}"
             }
+    
+    def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
+        """Track EOL agent responses for comprehensive history tracking"""
+        try:
+            # Create comprehensive response tracking entry
+            response_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "agent_name": agent_name,
+                "software_name": software_name,
+                "software_version": software_version or "Not specified",
+                "query_type": query_type,
+                "response_time": response_time,
+                "success": eol_result.get("success", False),
+                "eol_data": eol_result.get("data", {}),
+                "error": eol_result.get("error", {}),
+                "confidence": eol_result.get("data", {}).get("confidence", 0),
+                "source_url": eol_result.get("data", {}).get("source_url", ""),
+                "agent_used": eol_result.get("data", {}).get("agent_used", agent_name),
+                "session_id": self.session_id,
+                "orchestrator_type": "eol_orchestrator"
+            }
+            
+            # Add to tracking list
+            self.eol_agent_responses.append(response_entry)
+            
+            # Keep only the last 50 responses to prevent memory issues
+            if len(self.eol_agent_responses) > 50:
+                self.eol_agent_responses = self.eol_agent_responses[-50:]
+                
+            # Log the tracking for debugging
+            logger.info(f"📊 [EOL Orchestrator] Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error tracking EOL agent response: {e}")
+    
+    def get_eol_agent_responses(self) -> List[Dict[str, Any]]:
+        """Get all tracked EOL agent responses for this session"""
+        return self.eol_agent_responses.copy()
+    
+    def clear_eol_agent_responses(self) -> None:
+        """Clear all tracked EOL agent responses"""
+        self.eol_agent_responses.clear()
+        logger.info("🧹 [EOL Orchestrator] Cleared EOL agent response tracking history")
 
 # Backward compatibility alias
 OrchestratorAgent = EOLOrchestratorAgent

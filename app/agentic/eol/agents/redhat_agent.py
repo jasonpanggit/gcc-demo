@@ -37,8 +37,7 @@ class RedHatEOLAgent(BaseEOLAgent):
     """Agent for scraping Red Hat official EOL information"""
     
     def __init__(self):
-        # Agent identification
-        self.agent_name = "redhat"
+        super().__init__("redhat")
         
         self.timeout = 15
         self.headers = {

@@ -35,8 +35,7 @@ class VMwareEOLAgent(BaseEOLAgent):
     """Agent for scraping VMware official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "vmware"
+        super().__init__("vmware")
         
         self.timeout = 15
         self.headers = {

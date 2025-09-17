@@ -84,7 +84,7 @@ class OpenAIAgent:
             token = self._credential.get_token("https://cognitiveservices.azure.com/.default")
             
             client = AzureOpenAI(
-                api_version="2024-06-01",
+                api_version="2024-08-01-preview",  # Updated for consistency with Magentic-One
                 azure_endpoint=config.azure.aoai_endpoint,
                 azure_ad_token=token.token
             )
@@ -146,7 +146,7 @@ class OpenAIAgent:
             - php: PHP language and frameworks
             - python: Python language and packages
             - os: General operating system queries
-            - bing: Web search for unknown software
+            - azure_ai: Web search for unknown software
             - endoflife: Generic EOL database
 
             QUERY CATEGORIES:

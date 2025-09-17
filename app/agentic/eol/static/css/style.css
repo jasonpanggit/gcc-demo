@@ -218,7 +218,7 @@ body {
 
 .message-bubble {
     display: inline-block;
-    max-width: 80%;
+    max-width: 100%;
     padding: 0.75rem 1rem;
     border-radius: 1rem;
     position: relative;
@@ -229,6 +229,8 @@ body {
     background: var(--primary-color);
     color: white;
     border-bottom-right-radius: 0.25rem;
+    max-width: 80%;
+    margin-left: auto;
 }
 
 .message.assistant .message-bubble {
@@ -236,6 +238,7 @@ body {
     color: var(--dark-color);
     border: 1px solid #dee2e6;
     border-bottom-left-radius: 0.25rem;
+    max-width: 100%;
 }
 
 .message-time {
@@ -482,8 +485,12 @@ body {
         height: 50vh;
     }
 
-    .message-bubble {
-        max-width: 90%;
+    .message.user .message-bubble {
+        max-width: 85%;
+    }
+
+    .message.assistant .message-bubble {
+        max-width: 100%;
     }
 
     .card:hover {
@@ -492,6 +499,21 @@ body {
 
     .feature-card:hover {
         transform: none;
+    }
+
+    /* Hero section responsive styles */
+    .hero-section {
+        padding: var(--spacing-md);
+        margin-bottom: var(--spacing-md);
+    }
+
+    .hero-title {
+        font-size: var(--font-size-xl);
+    }
+
+    .hero-subtitle {
+        font-size: var(--font-size-sm);
+        margin-bottom: var(--spacing-sm);
     }
 }
 
@@ -513,6 +535,47 @@ body {
     clip: rect(0, 0, 0, 0) !important;
     white-space: nowrap !important;
     border: 0 !important;
+}
+
+/* Hero Section Styles - Consistent across all templates */
+.hero-section {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+    color: white;
+    padding: var(--spacing-2xl);
+    border-radius: var(--radius-xl);
+    margin-bottom: var(--spacing-xl);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+    pointer-events: none;
+}
+
+.hero-content {
+    position: relative;
+    z-index: 2;
+}
+
+.hero-title {
+    font-size: var(--font-size-3xl);
+    font-weight: 700;
+    margin-bottom: var(--spacing-md);
+    line-height: 1.2;
+}
+
+.hero-subtitle {
+    font-size: var(--font-size-lg);
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: var(--spacing-xl);
+    line-height: 1.5;
 }
 
 /* Dark mode support (future enhancement) */

@@ -315,6 +315,8 @@ class MicrosoftEOLAgent(BaseEOLAgent):
         """Check static EOL data for Microsoft products"""
         software_lower = software_name.lower().replace(" ", "-")
         
+        logger.debug(f"Microsoft agent checking static data for: '{software_name}' -> '{software_lower}', version: {version}")
+        
         # Special handling for Edge browser variations
         edge_variations = [
             "microsoft-edge", "edge", "ms-edge", "msedge", 
@@ -347,11 +349,28 @@ class MicrosoftEOLAgent(BaseEOLAgent):
             if version_key in self.static_eol_data:
                 return self.static_eol_data[version_key]
         
-        # Special handling for Windows Server with version 10.0 -> map to 2025
+        # Special handling for Windows Server with version 10.0 -> map to correct version based on name
         if "windows-server" in software_lower and version and version.startswith("10.0"):
-            # For Windows Server 2025, the name should contain "2025" or default to latest (2025)
+            # For Windows Server with 10.0, need to check the actual OS name to determine version
+            # Windows Server 2025 should be mapped correctly based on name containing "2025"
+            logger.info(f"Detected Windows Server with version 10.0, software_name: '{software_name}', checking for year in name")
             if "2025" in software_lower and "windows-server-2025" in self.static_eol_data:
+                logger.info(f"Mapped Windows Server 10.0 to Windows Server 2025 based on name containing '2025'")
                 return self.static_eol_data["windows-server-2025"]
+            elif "2022" in software_lower and "windows-server-2022" in self.static_eol_data:
+                logger.info(f"Mapped Windows Server 10.0 to Windows Server 2022 based on name containing '2022'")
+                return self.static_eol_data["windows-server-2022"]
+            elif "2019" in software_lower and "windows-server-2019" in self.static_eol_data:
+                logger.info(f"Mapped Windows Server 10.0 to Windows Server 2019 based on name containing '2019'")
+                return self.static_eol_data["windows-server-2019"]
+            elif "2016" in software_lower and "windows-server-2016" in self.static_eol_data:
+                logger.info(f"Mapped Windows Server 10.0 to Windows Server 2016 based on name containing '2016'")
+                return self.static_eol_data["windows-server-2016"]
+            else:
+                # Default to 2025 for Windows Server 10.0 if no specific version found in name
+                # This is because Windows Server 2025 is the latest and most likely for new deployments
+                logger.info(f"Windows Server with version 10.0 detected but no specific year in name '{software_name}' - defaulting to Windows Server 2025")
+                return self.static_eol_data.get("windows-server-2025")
         
         # Improved partial matches with better precision
         for key, data in self.static_eol_data.items():
@@ -360,23 +379,27 @@ class MicrosoftEOLAgent(BaseEOLAgent):
             
             # For Windows Server, require exact version match in partial matching
             if "windows" in software_parts and "server" in software_parts:
+                logger.debug(f"Checking Windows Server partial match: software_parts={software_parts}, key_parts={key_parts}")
                 # Look for version numbers in both
                 software_version = None
                 key_version = None
                 
                 for part in software_parts:
-                    if part.isdigit():
+                    if part.isdigit() and len(part) == 4:  # Look for 4-digit years like 2025, 2022, etc.
                         software_version = part
                         break
                 
                 for part in key_parts:
-                    if part.isdigit():
+                    if part.isdigit() and len(part) == 4:  # Look for 4-digit years like 2025, 2022, etc.
                         key_version = part
                         break
+                
+                logger.debug(f"Extracted versions: software_version={software_version}, key_version={key_version}")
                 
                 # If both have versions, they must match exactly
                 if software_version and key_version:
                     if software_version == key_version:
+                        logger.info(f"Found exact Windows Server version match: {software_version} -> {key}")
                         return data
                     else:
                         continue  # Skip this key if versions don't match

@@ -1120,6 +1120,20 @@ resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_agentic_egress
         "*.registry.npmjs.org"
       ]
     }
+
+    # Testing and Development APIs
+    rule {
+      name = "testing-apis"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "httpbin.org",
+        "*.httpbin.org"
+      ]
+    }
   }
 
   # Microsoft Oryx SDK Rules

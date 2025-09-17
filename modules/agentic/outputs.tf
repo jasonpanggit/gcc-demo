@@ -98,3 +98,60 @@ output "app_chat_url" {
   value       = var.deploy_agentic_app ? "https://${azurerm_linux_web_app.app[0].default_hostname}/chat-ui" : null
 }
 
+# ============================================================================
+# AZURE CONTAINER REGISTRY OUTPUTS
+# ============================================================================
+
+output "acr_name" {
+  description = "Azure Container Registry name"
+  value       = var.deploy_agentic_app && var.deploy_acr ? azurerm_container_registry.acr[0].name : null
+}
+
+output "acr_login_server" {
+  description = "Azure Container Registry login server URL"
+  value       = var.deploy_agentic_app && var.deploy_acr ? azurerm_container_registry.acr[0].login_server : null
+}
+
+output "acr_admin_username" {
+  description = "Azure Container Registry admin username"
+  value       = var.deploy_agentic_app && var.deploy_acr && var.acr_admin_enabled ? azurerm_container_registry.acr[0].admin_username : null
+}
+
+output "acr_admin_password" {
+  description = "Azure Container Registry admin password"
+  value       = var.deploy_agentic_app && var.deploy_acr && var.acr_admin_enabled ? azurerm_container_registry.acr[0].admin_password : null
+  sensitive   = true
+}
+
+# ============================================================================
+# BING SEARCH API OUTPUTS - DEPRECATED
+# ============================================================================
+
+output "bing_search_name" {
+  description = "Bing Search Cognitive Services account name (DEPRECATED)"
+  value       = var.deploy_agentic_app && var.deploy_bing_search ? azurerm_cognitive_account.bing_search[0].name : null
+}
+
+output "bing_search_endpoint" {
+  description = "Bing Search Cognitive Services endpoint (DEPRECATED)"
+  value       = var.deploy_agentic_app && var.deploy_bing_search ? azurerm_cognitive_account.bing_search[0].endpoint : null
+}
+
+# ============================================================================
+# AZURE AI AGENT SERVICE OUTPUTS
+# ============================================================================
+
+output "azure_ai_foundry_name" {
+  description = "Azure AI Foundry service name"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? azurerm_cognitive_account.ai_foundry[0].name : null
+}
+
+output "azure_ai_foundry_endpoint" {
+  description = "Azure AI Foundry service endpoint"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? azurerm_cognitive_account.ai_foundry[0].endpoint : null
+}
+
+output "azure_ai_foundry_id" {
+  description = "Azure AI Foundry service resource ID"
+  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? azurerm_cognitive_account.ai_foundry[0].id : null
+}

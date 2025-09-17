@@ -5,6 +5,10 @@
 # ============================================================================
 # This script reads Terraform outputs and generates an appsettings.json file
 # for the agentic EOL application based on the deployed infrastructure.
+# 
+# Generates Azure AI Agent Service configuration from Terraform outputs.
+# Requires deploy_azure_ai_agent=true in Terraform variables for Azure AI
+# settings to be populated, otherwise they will show as "NOT_SET".
 #
 # Usage:
 #   ./generate-appsettings.sh [output-file]
@@ -116,12 +120,27 @@ generate_appsettings() {
     local environment=$(jq -r '.environment.value // "production"' "$tf_outputs")
     local aoai_deployment=$(jq -r '.agentic_aoai_deployment_name.value // "NOT_SET"' "$tf_outputs")
     
+    # Extract ACR values (keep existing ACR logic)
+    local acr_name=$(jq -r '.agentic_acr_name.value // "NOT_SET"' "$tf_outputs")
+    local acr_login_server=$(jq -r '.agentic_acr_login_server.value // "NOT_SET"' "$tf_outputs")
+    
+    # Azure AI Agent Service settings
+    # Extract from Terraform outputs when Azure AI Agent Service is deployed
+    local azure_ai_project_name=$(jq -r '.agentic_azure_ai_foundry_name.value // "NOT_SET"' "$tf_outputs")
+    local azure_ai_endpoint=$(jq -r '.agentic_azure_ai_foundry_endpoint.value // "NOT_SET"' "$tf_outputs")
+    
     # Check if agentic module outputs are available
     local has_agentic_outputs=$(jq -r 'has("agentic_app_url")' "$tf_outputs")
     
     if [[ "$has_agentic_outputs" != "true" ]]; then
         log_warn "Agentic module outputs not found. Make sure deploy_agentic_app is set to true."
         log_warn "Some values will use placeholder defaults."
+    fi
+    
+    # Check if Azure AI Agent Service is enabled
+    local azure_ai_enabled=$(jq -r '.agentic_azure_ai_foundry_name.value != null and .agentic_azure_ai_foundry_name.value != "NOT_SET"' "$tf_outputs")
+    if [[ "$azure_ai_enabled" != "true" ]]; then
+        log_warn "Azure AI Agent Service not deployed. Set deploy_azure_ai_agent=true to enable."
     fi
     
     # Generate the appsettings.json content
@@ -144,7 +163,12 @@ generate_appsettings() {
   "LOG_ANALYTICS_WORKSPACE_ID": "${log_analytics_workspace_id}",
   "AZURE_COSMOS_DB_ENDPOINT": "${cosmos_db_endpoint}",
   "AZURE_COSMOS_DB_DATABASE": "${cosmos_db_database}",
-  "AZURE_COSMOS_DB_CONTAINER": "${cosmos_db_container}"
+  "AZURE_COSMOS_DB_CONTAINER": "${cosmos_db_container}",
+  "AZURE_CONTAINER_REGISTRY": "${acr_name}",
+  "IMAGE_NAME": "eol-app",
+  "IMAGE_TAG": "latest",
+  "AZURE_AI_PROJECT_NAME": "${azure_ai_project_name}",
+  "AZURE_AI_ENDPOINT": "${azure_ai_endpoint}"
 }
 EOF
     

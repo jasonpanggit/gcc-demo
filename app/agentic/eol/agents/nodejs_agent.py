@@ -34,8 +34,7 @@ except Exception:
 class NodeJSEOLAgent(BaseEOLAgent):
     """Agent for scraping Node.js official EOL information"""
     def __init__(self):
-        # Agent identification
-        self.agent_name = "nodejs"
+        super().__init__("nodejs")
         
         self.timeout = 15
         self.headers = {

@@ -373,6 +373,20 @@ module "agentic" {
   cosmos_db_automatic_failover = var.cosmos_db_automatic_failover
   cosmos_db_geo_location       = var.cosmos_db_geo_location
 
+  # Azure Container Registry configuration
+  deploy_acr       = var.deploy_acr
+  acr_sku          = var.acr_sku
+  acr_admin_enabled = var.acr_admin_enabled
+
+  # Bing Search API configuration (DEPRECATED)
+  deploy_bing_search    = var.deploy_bing_search
+  bing_search_sku_name  = var.bing_search_sku_name
+
+  # Azure AI Agent Service configuration (Modern replacement)
+  deploy_azure_ai_agent        = var.deploy_azure_ai_agent
+  azure_ai_foundry_sku_name    = var.azure_ai_foundry_sku_name
+  azure_ai_foundry_name        = var.azure_ai_foundry_name
+
   enable_teams_integration = false
 
   tags = {

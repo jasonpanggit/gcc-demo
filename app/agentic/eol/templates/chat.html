@@ -4,58 +4,19 @@
 
 {% block extra_head %}
 <style>
-    /* Chat Interface Styles - Consistent with EOL template */
-    .hero-section {
-        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
-        color: white;
-        padding: var(--spacing-lg) var(--spacing-2xl); /* Reduced vertical padding from 2xl to lg */
-        border-radius: var(--radius-xl);
-        margin-bottom: var(--spacing-lg); /* Reduced margin from xl to lg */
-        position: relative;
-        overflow: hidden;
-    }
-
-    .hero-section::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
-        pointer-events: none;
-    }
-
-    .hero-content {
-        position: relative;
-        z-index: 2;
-    }
-
-    .hero-title {
-        font-size: var(--font-size-2xl); /* Reduced from 3xl to 2xl */
-        font-weight: 700;
-        margin-bottom: var(--spacing-sm); /* Reduced from md to sm */
-        line-height: 1.2;
-        color: white;
-    }
-
-    .hero-subtitle {
-        font-size: var(--font-size-md); /* Reduced from lg to md */
-        color: rgba(255, 255, 255, 0.9);
-        margin-bottom: var(--spacing-md); /* Reduced from xl to md */
-        line-height: 1.5;
-    }
-
+    /* Chat Interface Styles - Consistent with platform design */
     .chat-container {
+        padding: 0;
+        margin-bottom: var(--spacing-xl);
         display: flex;
-        gap: 0;
-        border-radius: var(--radius-xl);
+        gap: var(--spacing-lg);
+        border-radius: var(--radius-lg);
         overflow: hidden;
-        box-shadow: var(--shadow-lg);
+        box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
-        height: calc(100vh - 200px); /* Fixed height to ensure input area is visible */
-        min-height: 600px; /* Minimum height */
-        max-height: 800px; /* Maximum height to prevent overflow */
+        height: calc(100vh - 300px);
+        min-height: 600px;
+        max-height: 800px;
     }
 
     .chat-main {
@@ -63,7 +24,7 @@
         display: flex;
         flex-direction: column;
         background: white;
-        min-height: 0; /* Ensure flexbox shrinking works properly */
+        min-height: 0;
     }
 
     .chat-header {
@@ -80,21 +41,13 @@
         padding: var(--spacing-lg);
         overflow-y: auto;
         background: var(--gray-50);
-        min-height: 200px; /* Reduced minimum height to ensure input area is visible */
-        max-height: calc(100% - 200px); /* Ensure space for input area */
+        min-height: 200px;
+        max-height: calc(100% - 200px);
     }
 
     .message-group {
         margin-bottom: var(--spacing-lg);
-    }
-
-    .message-bubble {
-        max-width: 80%;
-        padding: var(--spacing-md) var(--spacing-lg);
-        border-radius: var(--radius-lg);
-        margin-bottom: var(--spacing-sm);
-        position: relative;
-        animation: fadeIn 0.3s ease;
+        width: 100%;
     }
 
     .message-user {
@@ -107,6 +60,29 @@
         background: white;
         border: 1px solid var(--gray-200);
         color: var(--gray-800);
+    }
+
+    .message-bubble {
+        width: 100%;
+        padding: var(--spacing-md) var(--spacing-lg);
+        border-radius: var(--radius-lg);
+        margin-bottom: var(--spacing-sm);
+        position: relative;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .message-user .message-bubble {
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+        color: white;
+        margin-left: auto;
+        text-align: left;
+    }
+
+    .message-assistant .message-bubble {
+        background: white;
+        color: #374151;
+        border: 1px solid #e5e7eb;
+        margin-right: auto;
     }
 
     .message-system {
@@ -130,6 +106,18 @@
         margin-left: auto;
     }
 
+    .message-user .message-time {
+        color: rgba(255, 255, 255, 0.8);
+    }
+
+    .message-assistant .message-time {
+        color: #9ca3af;
+    }
+
+    .message-system .message-time {
+        color: #6b7280;
+    }
+
     .message-content {
         line-height: 1.6;
     }
@@ -148,10 +136,14 @@
         background: white;
         border-top: 1px solid var(--gray-200);
         padding: var(--spacing-lg);
-        flex-shrink: 0; /* Prevent input area from shrinking */
-        position: relative; /* Ensure it stays in place */
-        min-height: 120px; /* Ensure minimum height for visibility */
-        z-index: 10; /* Ensure it stays on top */
+        flex-shrink: 0;
+        /* Prevent input area from shrinking */
+        position: relative;
+        /* Ensure it stays in place */
+        min-height: 120px;
+        /* Ensure minimum height for visibility */
+        z-index: 10;
+        /* Ensure it stays on top */
     }
 
     .input-group-modern {
@@ -244,7 +236,8 @@
         gap: var(--spacing-sm);
         margin-bottom: var(--spacing-md);
         flex-wrap: wrap;
-        padding: var(--spacing-sm) 0; /* Add some vertical padding for better visibility */
+        padding: var(--spacing-sm) 0;
+        /* Add some vertical padding for better visibility */
     }
 
     .quick-action {
@@ -256,52 +249,46 @@
         font-size: var(--font-size-sm);
         cursor: pointer;
         transition: all 0.2s ease;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Add subtle shadow for better visibility */
-        font-weight: 500; /* Make text slightly bolder */
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        /* Add subtle shadow for better visibility */
+        font-weight: 500;
+        /* Make text slightly bolder */
     }
 
     .quick-action:hover {
         background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
         color: white;
         border-color: var(--primary-color);
-        transform: translateY(-1px); /* Slight lift effect */
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3); /* Enhanced shadow on hover */
+        transform: translateY(-1px);
+        /* Slight lift effect */
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        /* Enhanced shadow on hover */
     }
 
     @media (max-width: 768px) {
         .chat-messages {
-            height: calc(100vh - 250px); /* Better mobile height calculation with more space for input */
-            min-height: 300px; /* Reduced for mobile to ensure input is visible */
+            height: calc(100vh - 250px);
+            min-height: 300px;
         }
 
-        .message-bubble {
-            max-width: 95%;
+        .message-user .message-bubble {
+            max-width: 85%;
         }
-        
-        .hero-section {
-            padding: var(--spacing-md); /* Even more compact on mobile */
-            margin-bottom: var(--spacing-md);
-        }
-        
-        .hero-title {
-            font-size: var(--font-size-xl); /* Smaller on mobile */
-        }
-        
-        .hero-subtitle {
-            font-size: var(--font-size-sm); /* Smaller on mobile */
-            margin-bottom: var(--spacing-sm);
+
+        .message-assistant .message-bubble {
+            max-width: 85%;
         }
 
         .quick-actions {
-            justify-content: center; /* Center on mobile */
+            justify-content: center;
         }
 
         .quick-action {
-            flex: 1; /* Make buttons stretch on mobile */
-            min-width: 0; /* Allow text wrapping */
+            flex: 1;
+            min-width: 0;
             text-align: center;
-            padding: var(--spacing-xs) var(--spacing-sm); /* Smaller padding on mobile */
-            font-size: 0.75rem; /* Smaller text on mobile */
+            padding: 0.5rem 0.75rem;
+            font-size: 0.8rem;
         }
     }
 
@@ -313,11 +300,13 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         border: 1px solid #e9ecef;
         margin: 1rem 0;
+        width: 100%;
     }
 
     .table-responsive {
         overflow-x: auto;
         max-height: 70vh;
+        width: 100%;
     }
 
     .inventory-table {
@@ -1057,6 +1046,7 @@
 
     .paginated-content {
         position: relative;
+        width: 100%;
     }
 
     .content-preview {
@@ -1067,6 +1057,7 @@
         margin-top: 0.5rem;
         font-size: 0.9em;
         color: #856404;
+        width: 100%;
     }
 
     .content-summary {
@@ -1076,6 +1067,7 @@
 
     .paginated-content-area {
         min-height: 200px;
+        width: 100%;
         max-height: 600px;
         overflow-y: auto;
         padding: 0.5rem;
@@ -1093,6 +1085,7 @@
         margin: var(--spacing-lg, 1.5rem) 0;
         border: 1px solid var(--gray-200, #e2e8f0);
         box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
+        width: 100%;
     }
 
     .pagination-controls {
@@ -1101,6 +1094,8 @@
         align-items: center;
         gap: var(--spacing-lg, 1.5rem);
         flex-wrap: wrap;
+        width: 100%;
+        max-width: 100%;
     }
 
     .pagination-info-section {
@@ -1277,8 +1272,8 @@
         gap: 0.5rem;
         flex: 1;
         justify-content: center;
-        max-width: calc(100% - 400px);
-        /* Reserve space for indicator and quick jump */
+        width: 100%;
+        /* Use full width for better content display */
         flex-wrap: nowrap;
         overflow-x: auto;
     }
@@ -1414,8 +1409,8 @@
     /* Responsive Pagination */
     @media (max-width: 992px) {
         .pagination-navigation {
-            max-width: calc(100% - 300px);
-            /* Adjust for smaller screens */
+            width: 100%;
+            /* Use full width on smaller screens */
         }
 
         .pagination-quick-jump {
@@ -2052,7 +2047,7 @@
 <div class="hero-section fade-in">
     <div class="hero-content">
         <div class="row align-items-center">
-            <div class="col-lg-8">
+            <div class="col-lg-12">
                 <h1 class="hero-title">
                     <i class="fas fa-robot me-3"></i>
                     AI Assistant
@@ -2067,96 +2062,100 @@
 </div>
 
 <!-- Chat Interface -->
-<div class="chat-container fade-in">
-    <!-- Main Chat Area -->
-    <div class="chat-main">
-        <div class="chat-header">
-            <h5 class="mb-0">
-                <i class="fas fa-comments me-2"></i>
-                Multi-Agent Conversation
-            </h5>
-            <div>
-                <span class="badge bg-light text-dark me-2" id="conversationStats">Ready to start</span>
-                <button class="btn btn-sm btn-outline-light" onclick="clearConversation()">
-                    <i class="fas fa-trash me-1"></i>Clear
-                </button>
-            </div>
-        </div>
-
-        <div class="chat-messages" id="chatMessages">
-            <div class="text-center text-muted py-5">
-                <div class="mb-3">
-                    <i class="fas fa-robot fa-3x text-primary mb-3"></i>
+<div class="container-fluid px-0">
+    <div class="chat-container fade-in">
+        <!-- Main Chat Area -->
+        <div class="chat-main">
+            <div class="chat-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Multi-Agent Conversation
+                </h5>
+                <div>
+                    <span class="badge bg-light text-dark me-2" id="conversationStats">Ready to start</span>
+                    <button class="btn btn-sm btn-outline-light" onclick="clearConversation()">
+                        <i class="fas fa-trash me-1"></i>Clear
+                    </button>
                 </div>
-                <h5>Welcome to the AI Assistant!</h5>
-                <p class="mb-4">Ask about your software inventory, EOL risks, or get expert recommendations.</p>
             </div>
-        </div>
 
-        <div class="chat-input-area">
-            <!-- Quick actions moved above input -->
-            <div class="quick-actions mb-3">
-                <!-- <div class="quick-action" onclick="sendQuickMessage('Show my inventory')">
+            <div class="chat-messages" id="chatMessages">
+                <div class="text-center text-muted py-5">
+                    <div class="mb-3">
+                        <i class="fas fa-robot fa-3x text-primary mb-3"></i>
+                    </div>
+                    <h5>Welcome to the AI Assistant!</h5>
+                    <p class="mb-4">Ask about your software inventory, EOL risks, or get expert recommendations.</p>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <!-- Quick actions moved above input -->
+                <div class="quick-actions mb-3">
+                    <!-- <div class="quick-action" onclick="sendQuickMessage('Show my inventory')">
                     <i class="fas fa-list me-1"></i>Show my inventory
                 </div> -->
-                <div class="quick-action" onclick="sendQuickMessage('What software do I have?')">
-                    <i class="fas fa-exclamation-triangle me-1"></i>What software do I have?
+                    <div class="quick-action" onclick="sendQuickMessage('What software do I have in my inventory?')">
+                        <i class="fas fa-exclamation-triangle me-1"></i>What software do I have in my inventory?
+                    </div>
+                    <div class="quick-action"
+                        onclick="sendQuickMessage('What operating systems do I have in my inventory?')">
+                        <i class="fab fa-windows me-1"></i>What OS versions do I have in my inventory?
+                    </div>
+                    <div class="quick-action" onclick="sendQuickMessage('Show my OS inventory with EOL dates')">
+                        <i class="fas fa-desktop me-1"></i><i class="fas fa-calendar-times me-1"></i>Show my OS
+                        inventory with EOL dates
+                    </div>
+                    <div class="quick-action"
+                        onclick="sendQuickMessage('What is the EOL date of Windows Server 2016?')">
+                        <i class="fas fa-server me-1"></i><i class="fas fa-calendar-times me-1"></i>What is the EOL date
+                        of Windows Server 2016?
+                    </div>
                 </div>
-                <div class="quick-action" onclick="sendQuickMessage('What OS versions do I have?')">
-                    <i class="fab fa-windows me-1"></i>What OS versions do I have?
-                </div>
-                <div class="quick-action" onclick="sendQuickMessage('Show my OS inventory with EOL dates')">
-                    <i class="fas fa-desktop me-1"></i><i class="fas fa-calendar-times me-1"></i>Show my OS inventory with EOL dates
-                </div>
-                <div class="quick-action" onclick="sendQuickMessage('What is the EOL date of Windows Server 2025?')">
-                    <i class="fas fa-server me-1"></i><i class="fas fa-calendar-times me-1"></i>What is the EOL date of Windows Server 2025?
+
+                <!-- Main input field -->
+                <div class="input-group-modern">
+                    <textarea class="form-control chat-input" id="messageInput"
+                        placeholder="Type your message here... (Press Ctrl+Enter to send)" rows="1"
+                        onkeydown="handleKeyDown(event)" oninput="autoResizeTextarea(this)"></textarea>
+                    <button class="btn btn-primary send-button" onclick="sendMessage()" id="sendButton">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <!-- Main input field -->
-            <div class="input-group-modern">
-                <textarea class="form-control chat-input" id="messageInput"
-                    placeholder="Type your message here... (Press Ctrl+Enter to send)" rows="1"
-                    onkeydown="handleKeyDown(event)" oninput="autoResizeTextarea(this)"></textarea>
-                <button class="btn btn-primary send-button" onclick="sendMessage()" id="sendButton">
-                    <i class="fas fa-paper-plane"></i>
+    <!-- Agent Communications (moved below chat, non-collapsible) -->
+    <div class="card mt-3">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5><i class="fas fa-comments"></i> Live Agent Communications</h5>
+                    <small class="text-muted">Real-time view of AutoGen tasks and agent coordination during
+                        searches</small>
+                </div>
+                <button class="btn btn-sm btn-outline-primary" onclick="clearCommunicationsStream()">
+                    <i class="fas fa-broom"></i> Clear
                 </button>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Agent Communications (moved below chat, non-collapsible) -->
-<div class="card mt-3">
-    <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h5><i class="fas fa-comments"></i> Live Agent Communications</h5>
-                <small class="text-muted">Real-time view of AutoGen tasks and agent coordination during
-                    searches</small>
+            <div id="communicationsDebugInfo" style="font-size: 0.8em; color: #6c757d; margin-top: 0.5rem;">
+                🔄 Polling: <span id="pollingStatus">Inactive</span> |
+                📊 Count: <span id="communicationCount">0</span> |
+                🕒 Last Update: <span id="lastUpdate">Never</span>
             </div>
-            <button class="btn btn-sm btn-outline-primary" onclick="clearCommunicationsStream()">
-                <i class="fas fa-broom"></i> Clear
-            </button>
         </div>
-        <div id="communicationsDebugInfo" style="font-size: 0.8em; color: #6c757d; margin-top: 0.5rem;">
-            🔄 Polling: <span id="pollingStatus">Inactive</span> | 
-            📊 Count: <span id="communicationCount">0</span> | 
-            🕒 Last Update: <span id="lastUpdate">Never</span>
-        </div>
-    </div>
-    <div class="card-body" style="overflow-x: hidden; max-width: 100%;">
-        <div id="communicationsStream" class="agent-communications" style="max-width: 100%; overflow-x: hidden; height: 450px; overflow-y: auto;">
-            <div class="text-center text-muted py-3">
-                <i class="fas fa-robot fa-2x mb-2"></i>
-                <p>⚙️ AutoGen tasks and results will appear here</p>
-                <p><small>Watch real-time task execution and agent coordination during searches</small></p>
+        <div class="card-body" style="overflow-x: hidden; max-width: 100%;">
+            <div id="communicationsStream" class="agent-communications"
+                style="max-width: 100%; overflow-x: hidden; height: 450px; overflow-y: auto;">
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-robot fa-2x mb-2"></i>
+                    <p>⚙️ AutoGen tasks and results will appear here</p>
+                    <p><small>Watch real-time task execution and agent coordination during searches</small></p>
+                </div>
             </div>
         </div>
     </div>
-</div>
-</div>
-</div>
 </div>
 
 <script>
@@ -2164,12 +2163,12 @@
     let currentSessionId = null;
     let totalExchanges = 0;
     let agentsInvolved = [];
-    
+
     // Real-time communication polling variables
     let communicationPollingInterval = null;
     let lastCommunicationCount = 0;
     let searchInProgress = false;
-    
+
     // Toggle to control whether the chat pane should auto-scroll when new messages arrive.
     // Set to false to disable automatic scrolling (user preference: manual scroll).
     // let CHAT_AUTO_SCROLL = false;
@@ -2193,57 +2192,57 @@
     // Real-time communication polling functions
     async function startCommunicationPolling() {
         console.log('🚀 Starting real-time communication polling for chat');
-        
+
         // Update debug info
         const pollingStatus = document.getElementById('pollingStatus');
         if (pollingStatus) pollingStatus.textContent = 'Active';
-        
+
         if (communicationPollingInterval) {
             clearInterval(communicationPollingInterval);
         }
-        
+
         communicationPollingInterval = setInterval(async () => {
             if (!searchInProgress) {
                 console.log('🛑 Search completed, stopping polling');
                 clearInterval(communicationPollingInterval);
                 communicationPollingInterval = null;
-                
+
                 // Update debug info
                 const pollingStatus = document.getElementById('pollingStatus');
                 if (pollingStatus) pollingStatus.textContent = 'Completed';
                 return;
             }
-            
+
             try {
                 const response = await fetch('/api/communications/chat');
                 const data = await response.json();
-                
+
                 // Update debug info
                 const communicationCount = document.getElementById('communicationCount');
                 const lastUpdate = document.getElementById('lastUpdate');
                 if (communicationCount) communicationCount.textContent = data.count || 0;
                 if (lastUpdate) lastUpdate.textContent = new Date().toLocaleTimeString();
-                
+
                 if (data.success && data.communications && data.count > lastCommunicationCount) {
                     console.log(`📡 New communications detected: ${data.count} (was ${lastCommunicationCount})`);
                     const newCommunications = data.communications.slice(lastCommunicationCount);
-                    
+
                     // Display new communications
                     if (typeof displayAgentCommunications === 'function') {
-                        displayAgentCommunications(newCommunications, { 
-                            containerId: 'communicationsStream', 
-                            showFlow: true, 
-                            autoExpand: false, 
+                        displayAgentCommunications(newCommunications, {
+                            containerId: 'communicationsStream',
+                            showFlow: true,
+                            autoExpand: false,
                             autoScroll: false,
                             append: true  // Append instead of replace
                         });
                     }
-                    
+
                     lastCommunicationCount = data.count;
                 }
             } catch (error) {
                 console.error('💥 Error polling communications:', error);
-                
+
                 // Update debug info
                 const lastUpdate = document.getElementById('lastUpdate');
                 if (lastUpdate) lastUpdate.textContent = 'Error';
@@ -2258,7 +2257,7 @@
             communicationPollingInterval = null;
         }
         searchInProgress = false;
-        
+
         // Update debug info
         const pollingStatus = document.getElementById('pollingStatus');
         if (pollingStatus) pollingStatus.textContent = 'Inactive';
@@ -2277,16 +2276,16 @@
             if (!response.ok) {
                 console.error('Backend chat communications clear failed:', response.statusText);
             }
-            
+
             // Reset polling counter
             lastCommunicationCount = 0;
-            
+
             // Reset debug info
             const communicationCount = document.getElementById('communicationCount');
             const lastUpdate = document.getElementById('lastUpdate');
             if (communicationCount) communicationCount.textContent = '0';
             if (lastUpdate) lastUpdate.textContent = 'Cleared';
-            
+
         } catch (error) {
             console.error('Error clearing backend chat communications:', error.message);
         }
@@ -2466,7 +2465,7 @@
         // Add user message to chat (only if not a confirmation)
         if (!confirmed) {
             addMessageToChat('user', message);
-            
+
             // Clear previous communications and start real-time polling
             await clearCommunicationsStream();
             searchInProgress = true;
@@ -2597,7 +2596,7 @@
         } finally {
             // Stop real-time polling
             stopCommunicationPolling();
-            
+
             // Restore send button to ready state
             setSendButtonReady();
             messageInput.focus();
@@ -2651,7 +2650,7 @@
         messageGroup.appendChild(messageDiv);
 
         chatMessages.appendChild(messageGroup);
-        
+
         // Auto-scroll to the new message
         messageGroup.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
@@ -2948,13 +2947,116 @@
     }
 
     function formatInventoryAsTable(content) {
-        // DISABLED: Table formatting removed - rollback to regular chat response
-        return null;
+        // Re-enabled for inventory table support
+        // HTML tables are now generated directly by the inventory tools
+        return content; // Pass through HTML content as-is
     }
 
     function formatSectionAsTable(content, preferredHeaders = null) {
-        // DISABLED: Table formatting removed - rollback to regular chat response  
-        return null;
+        // Re-enabled for table support  
+        return content; // Pass through HTML content as-is
+    }
+
+    function enableTablePagination(tableId, pageSize = 25) {
+        /**
+         * Enable pagination for inventory tables
+         */
+        const table = document.getElementById(tableId);
+        if (!table) {
+            console.warn('Table not found for pagination:', tableId);
+            return;
+        }
+
+        const tbody = table.querySelector('tbody');
+        if (!tbody) {
+            console.warn('Table body not found for pagination:', tableId);
+            return;
+        }
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length <= pageSize) {
+            // No pagination needed if rows fit in one page
+            return;
+        }
+
+        let currentPage = 1;
+        const totalPages = Math.ceil(rows.length / pageSize);
+
+        // Create pagination container
+        const paginationContainer = document.createElement('div');
+        paginationContainer.className = 'pagination-container mt-3 d-flex justify-content-between align-items-center';
+        paginationContainer.innerHTML = `
+            <div class="pagination-info">
+                <small class="text-muted">
+                    Showing <span id="${tableId}-start">1</span> to 
+                    <span id="${tableId}-end">${Math.min(pageSize, rows.length)}</span> of 
+                    <span id="${tableId}-total">${rows.length}</span> items
+                </small>
+            </div>
+            <nav>
+                <ul class="pagination pagination-sm mb-0" id="${tableId}-pagination">
+                    <li class="page-item" id="${tableId}-prev">
+                        <a class="page-link" href="#" onclick="changePage('${tableId}', ${currentPage - 1}); return false;">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                    </li>
+                    <li class="page-item" id="${tableId}-next">
+                        <a class="page-link" href="#" onclick="changePage('${tableId}', ${currentPage + 1}); return false;">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        `;
+
+        // Insert pagination container after table
+        table.parentNode.insertBefore(paginationContainer, table.nextSibling);
+
+        // Function to update page display
+        window.changePage = function (tableId, page) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const totalPages = Math.ceil(rows.length / pageSize);
+
+            if (page < 1 || page > totalPages) return;
+
+            currentPage = page;
+
+            // Hide all rows
+            rows.forEach(row => row.style.display = 'none');
+
+            // Show rows for current page
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            for (let i = start; i < end && i < rows.length; i++) {
+                rows[i].style.display = '';
+            }
+
+            // Update pagination info
+            document.getElementById(`${tableId}-start`).textContent = start + 1;
+            document.getElementById(`${tableId}-end`).textContent = Math.min(end, rows.length);
+            document.getElementById(`${tableId}-total`).textContent = rows.length;
+
+            // Update pagination buttons
+            const prevBtn = document.getElementById(`${tableId}-prev`);
+            const nextBtn = document.getElementById(`${tableId}-next`);
+
+            if (currentPage <= 1) {
+                prevBtn.classList.add('disabled');
+            } else {
+                prevBtn.classList.remove('disabled');
+            }
+
+            if (currentPage >= totalPages) {
+                nextBtn.classList.add('disabled');
+            } else {
+                nextBtn.classList.remove('disabled');
+            }
+        };
+
+        // Initialize first page
+        window.changePage(tableId, 1);
     }
 
     function escapeHtml(text) {

@@ -33,8 +33,7 @@ class OracleEOLAgent(BaseEOLAgent):
     """Agent for scraping Oracle official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "oracle"
+        super().__init__("oracle")
         
         self.timeout = 15
         self.headers = {

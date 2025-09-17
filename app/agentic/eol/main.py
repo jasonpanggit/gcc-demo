@@ -1506,7 +1506,7 @@ async def get_chat_communications():
     try:
         orchestrator = get_chat_orchestrator()
         if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
-            communications = orchestrator.get_agent_communications()
+            communications = await orchestrator.get_agent_communications()
             return {
                 "success": True,
                 "communications": communications,
@@ -1527,6 +1527,96 @@ async def get_chat_communications():
             "error": str(e),
             "communications": [],
             "count": 0
+        }
+
+
+@app.get("/api/eol-agent-responses")
+async def get_eol_agent_responses():
+    """Get all tracked EOL agent responses from both Chat and EOL orchestrators"""
+    try:
+        all_responses = []
+        
+        # Get responses from Chat orchestrator
+        chat_orchestrator = get_chat_orchestrator()
+        if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
+            chat_responses = chat_orchestrator.get_eol_agent_responses()
+            # Mark these as from chat orchestrator
+            for response in chat_responses:
+                response['orchestrator_type'] = 'chat_orchestrator'
+            all_responses.extend(chat_responses)
+            logger.info(f"🔍 [API] Chat orchestrator returned {len(chat_responses)} EOL responses")
+        else:
+            logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
+        
+        # Get responses from EOL orchestrator
+        eol_orchestrator = get_eol_orchestrator()
+        if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
+            eol_responses = eol_orchestrator.get_eol_agent_responses()
+            # Mark these as from eol orchestrator
+            for response in eol_responses:
+                response['orchestrator_type'] = 'eol_orchestrator'
+            all_responses.extend(eol_responses)
+            logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
+        else:
+            logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
+        
+        # Sort by timestamp (newest first)
+        all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
+        
+        return {
+            "success": True,
+            "responses": all_responses,
+            "count": len(all_responses),
+            "timestamp": datetime.utcnow().isoformat(),
+            "sources": {
+                "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
+                "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Error getting EOL agent responses: %s", e)
+        return {
+            "success": False,
+            "error": str(e),
+            "responses": [],
+            "count": 0
+        }
+
+
+@app.post("/api/eol-agent-responses/clear")
+async def clear_eol_agent_responses():
+    """Clear all tracked EOL agent responses from both orchestrators"""
+    try:
+        cleared_count = 0
+        
+        # Clear from Chat orchestrator
+        chat_orchestrator = get_chat_orchestrator()
+        if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
+            chat_responses_before = len(chat_orchestrator.get_eol_agent_responses()) if hasattr(chat_orchestrator, 'get_eol_agent_responses') else 0
+            chat_orchestrator.clear_eol_agent_responses()
+            cleared_count += chat_responses_before
+        
+        # Clear from EOL orchestrator
+        eol_orchestrator = get_eol_orchestrator()
+        if eol_orchestrator and hasattr(eol_orchestrator, 'clear_eol_agent_responses'):
+            eol_responses_before = len(eol_orchestrator.get_eol_agent_responses()) if hasattr(eol_orchestrator, 'get_eol_agent_responses') else 0
+            eol_orchestrator.clear_eol_agent_responses()
+            cleared_count += eol_responses_before
+        
+        return {
+            "success": True,
+            "message": f"EOL agent responses cleared successfully. {cleared_count} responses cleared.",
+            "cleared_count": cleared_count
+        }
+        
+    except Exception as e:
+        logger.error("Error clearing EOL agent responses: %s", e)
+        return {
+            "success": False,
+            "error": str(e)
         }
 
 
@@ -1726,7 +1816,7 @@ async def get_webscraping_cache_details():
         total_cached_items = 0
         
         # Get cache details from each web scraping agent
-        for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python"]:
+        for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai", "websurfer"]:
             agent = orchestrator.agents.get(agent_name)
             if agent:
                 agent_cache_info = {
@@ -2428,8 +2518,13 @@ async def autogen_chat(req: AutoGenChatRequest):
         
         logger.info(f"✅ AutoGen Chat Complete - Agents: {response.agents_involved}, Exchanges: {response.total_exchanges}")
         logger.info(f"[DEBUG] Agent communications count: {len(response.agent_communications)}")
+        logger.info(f"[DEBUG] Raw agents_involved from result: {cleaned_result.get('agents_involved', [])}")
         if response.agent_communications:
             logger.info(f"[DEBUG] First agent communication: {response.agent_communications[0]}")
+            # Debug: show agent_name field specifically
+            first_comm = response.agent_communications[0]
+            if isinstance(first_comm, dict) and 'agent_name' in first_comm:
+                logger.info(f"[DEBUG] First agent_name: {first_comm['agent_name']}")
         return response
         
     except HTTPException:
@@ -2474,7 +2569,7 @@ async def get_agent_communications(session_id: str):
             return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
         
         # Get ALL communications for debugging
-        all_communications = chat_orch.get_agent_communications()
+        all_communications = await chat_orch.get_agent_communications()
         
         # Filter communications by session_id
         session_communications = [
@@ -2508,7 +2603,7 @@ async def debug_agent_communications():
         if chat_orch is None:
             return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
         
-        all_communications = chat_orch.get_agent_communications()
+        all_communications = await chat_orch.get_agent_communications()
         
         return {
             "total_communications": len(all_communications),
@@ -2695,6 +2790,12 @@ async def inventory_ui(request: Request):
 async def eol_ui(request: Request):
     """EOL search page"""
     return templates.TemplateResponse("eol.html", {"request": request})
+
+
+@app.get("/eol-searches", response_class=HTMLResponse)
+async def eol_searches_ui(request: Request):
+    """EOL search history page"""
+    return templates.TemplateResponse("eol-searches.html", {"request": request})
 
 
 @app.get("/chat", response_class=HTMLResponse)
@@ -3088,7 +3189,9 @@ async def validate_cache_system():
         ('microsoft_agent', 'MicrosoftEOLAgent'),
         ('endoflife_agent', 'EndOfLifeAgent'),
         ('ubuntu_agent', 'UbuntuEOLAgent'),
-        ('redhat_agent', 'RedHatEOLAgent')
+        ('redhat_agent', 'RedHatEOLAgent'),
+        ('azure_ai_agent', 'AzureAIAgentEOLAgent'),
+        ('websurfer_agent', 'WebsurferEOLAgent')
     ]
     
     working_agents = 0

@@ -1,30 +1,103 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Speedy, idempotent startup for Azure App Service (Linux)
+# Simplified startup for Azure App Service - uses pre-installed dependencies from Docker build
 export PYTHONUNBUFFERED=1
 export PORT="${PORT:-8000}"
 
-# Resolve app directory (location of this script) and ensure we run from there
+# Resolve app directory and ensure we run from there
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$APP_DIR"
 export PYTHONPATH="${PYTHONPATH:-$APP_DIR}"
 
-VENV_DIR="/home/site/antenv"
+echo "[startup] 🚀 Starting from directory: $APP_DIR"
+echo "[startup] 📂 Current working directory: $(pwd)"
 
-if [ ! -d "$VENV_DIR" ]; then
-	echo "[startup] Creating virtual env at $VENV_DIR"
-	python -m venv "$VENV_DIR"
-	"$VENV_DIR/bin/pip" install --upgrade pip
-	if [ -f "$APP_DIR/requirements.txt" ]; then
-		echo "[startup] Installing dependencies from requirements.txt"
-		"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
-	else
-		echo "[startup] WARNING: requirements.txt not found at $APP_DIR"
-	fi
+# Create additional temp directories if they don't exist and we have permissions
+echo "[startup] 🔧 Setting up temporary directories..."
+for temp_dir in "/tmp" "/temp" "/tmp/playwright" "/app/temp"; do
+    if [ ! -d "$temp_dir" ]; then
+        mkdir -p "$temp_dir" 2>/dev/null || echo "[startup] ⚠️ Could not create $temp_dir (permission issue - continuing)"
+    fi
+    chmod 755 "$temp_dir" 2>/dev/null || echo "[startup] ⚠️ Could not set permissions on $temp_dir (continuing)"
+done
+
+echo "[startup] 📂 Available temporary directories:"
+ls -la /tmp 2>/dev/null || echo "[startup] ⚠️ /tmp not accessible"
+ls -la /temp 2>/dev/null || echo "[startup] 💡 /temp not found (this is normal)"
+
+# Set Playwright environment variables 
+# Use the pre-configured path from Docker build
+export PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+export NODE_OPTIONS="--max-old-space-size=4096"
+export CONTAINER_MODE=true
+
+# Set additional environment variables for Azure App Service compatibility
+export TEMP="${TEMP:-/tmp}"
+export TMP="${TMP:-/tmp}"
+export TMPDIR="${TMPDIR:-/tmp}"
+
+echo "[startup] 📂 Using Playwright browsers path: $PLAYWRIGHT_BROWSERS_PATH"
+echo "[startup] 📂 Temp directories: TEMP=$TEMP, TMP=$TMP, TMPDIR=$TMPDIR"
+
+# Check if Playwright browsers are available (they should be from Docker build)
+if [ -d "$PLAYWRIGHT_BROWSERS_PATH" ] && [ "$(ls -A "$PLAYWRIGHT_BROWSERS_PATH" 2>/dev/null)" ]; then
+    echo "[startup] ✅ Playwright browsers found at $PLAYWRIGHT_BROWSERS_PATH"
 else
-	echo "[startup] Using existing virtual env at $VENV_DIR"
+    echo "[startup] ⚠️ Playwright browsers not found - attempting runtime installation..."
+    python3 -m playwright install chromium || echo "[startup] ⚠️ Browser installation failed, continuing with fallback mode"
 fi
 
-echo "[startup] Launching app with uvicorn from venv"
-exec "$VENV_DIR/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$PORT" --log-level warning
+# Test Playwright availability with system Python
+echo "[startup] 🔍 Testing Playwright browser availability..."
+
+# First, check if the Chromium binary exists and can load its dependencies
+if [ -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+    CHROME_BINARY=$(find "$PLAYWRIGHT_BROWSERS_PATH" -name "chrome" -type f 2>/dev/null | head -1)
+    if [ -n "$CHROME_BINARY" ]; then
+        echo "[startup] 📍 Found Chrome binary: $CHROME_BINARY"
+        # Test if Chrome can load its dependencies
+        echo "[startup] 🔍 Testing Chrome binary dependencies..."
+        ldd "$CHROME_BINARY" | grep "not found" && echo "[startup] ⚠️ Missing dependencies detected" || echo "[startup] ✅ All Chrome dependencies found"
+    else
+        echo "[startup] ⚠️ Chrome binary not found in $PLAYWRIGHT_BROWSERS_PATH"
+    fi
+fi
+
+timeout 30 python3 -c "
+try:
+    from playwright.sync_api import sync_playwright
+    print('[startup] 🌐 Initializing Playwright...')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--single-process',
+                '--disable-gpu'
+            ]
+        )
+        page = browser.new_page()
+        page.goto('data:text/html,<h1>Test</h1>', timeout=10000)
+        content = page.content()
+        browser.close()
+        print(f'[startup] ✅ Playwright browser test successful! Content length: {len(content)}')
+except Exception as e:
+    print(f'[startup] ⚠️ Playwright browser test failed: {e}')
+    print('[startup] 💡 Application will use fallback mode without browser automation')
+    # Additional diagnostic information
+    import os
+    print(f'[startup] 🔍 PLAYWRIGHT_BROWSERS_PATH: {os.environ.get(\"PLAYWRIGHT_BROWSERS_PATH\", \"Not set\")}')
+    try:
+        import playwright
+        print(f'[startup] 🔍 Playwright version: {playwright.__version__}')
+    except:
+        print('[startup] 🔍 Playwright import failed')
+" || echo "[startup] ⚠️ Playwright browser test timed out or failed - continuing with fallback mode"
+
+echo "[startup] 🚀 Starting web application with system Python..."
+exec python3 -m uvicorn main:app --host 0.0.0.0 --port "$PORT"

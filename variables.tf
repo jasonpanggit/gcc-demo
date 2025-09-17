@@ -434,6 +434,78 @@ variable "cosmos_db_geo_location" {
   default     = null
 }
 
+# ============================================================================
+# AZURE CONTAINER REGISTRY CONFIGURATION FOR AGENTIC APP
+# ============================================================================
+
+variable "deploy_acr" {
+  description = "Deploy Azure Container Registry for agentic app container images"
+  type        = bool
+  default     = false
+}
+
+variable "acr_sku" {
+  description = "Azure Container Registry SKU"
+  type        = string
+  default     = "Basic"
+  validation {
+    condition     = contains(["Basic", "Standard", "Premium"], var.acr_sku)
+    error_message = "ACR SKU must be Basic, Standard, or Premium."
+  }
+}
+
+variable "acr_admin_enabled" {
+  description = "Enable admin user for Azure Container Registry"
+  type        = bool
+  default     = true
+}
+
+# ============================================================================
+# BING SEARCH API CONFIGURATION FOR AGENTIC APP
+# ============================================================================
+
+variable "deploy_bing_search" {
+  description = "Deploy Bing Search API (Cognitive Services) for agentic app web searches - DEPRECATED"
+  type        = bool
+  default     = false
+}
+
+variable "bing_search_sku_name" {
+  description = "Bing Search Cognitive Services SKU"
+  type        = string
+  default     = "S0"
+  validation {
+    condition     = contains(["S0", "S1", "S2", "S3", "S4", "S5", "S6"], var.bing_search_sku_name)
+    error_message = "Bing Search SKU must be a valid Cognitive Services SKU (S0-S6)."
+  }
+}
+
+# ============================================================================
+# AZURE AI AGENT SERVICE VARIABLES
+# ============================================================================
+
+variable "deploy_azure_ai_agent" {
+  description = "Deploy Azure AI Agent Service (Modern replacement for Bing Search)"
+  type        = bool
+  default     = true
+}
+
+variable "azure_ai_foundry_sku_name" {
+  description = "Azure AI Foundry SKU"
+  type        = string
+  default     = "S0"
+  validation {
+    condition     = contains(["F0", "S0", "S1", "S2", "S3", "S4", "S5", "S6"], var.azure_ai_foundry_sku_name)
+    error_message = "Azure AI Foundry SKU must be a valid Cognitive Services SKU (F0, S0-S6)."
+  }
+}
+
+variable "azure_ai_foundry_name" {
+  description = "Azure AI Foundry service name (optional, will be generated if not provided)"
+  type        = string
+  default     = null
+}
+
 // variable "deploy_search" removed (Azure AI Search no longer used)
 
 variable "log_analytics_workspace_retention_days" {

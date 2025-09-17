@@ -370,6 +370,11 @@ resource "azurerm_linux_web_app" "app" {
     AZURE_COSMOS_ENDPOINT   = try(azurerm_cosmosdb_account.cosmos[0].endpoint, "")
     AZURE_COSMOS_DATABASE   = var.cosmos_db_database_name
     AZURE_COSMOS_CONTAINER  = var.cosmos_db_container_name
+    # Bing Search settings (using managed identity - no API key needed) - DEPRECATED
+    BING_SEARCH_ENDPOINT    = try(azurerm_cognitive_account.bing_search[0].endpoint, "")
+    # Azure AI Agent Service settings (Modern replacement for Bing Search)
+    AZURE_AI_PROJECT_ENDPOINT = try(azurerm_cognitive_account.ai_foundry[0].endpoint, "")
+    AZURE_AI_PROJECT_NAME     = try(azurerm_cognitive_account.ai_foundry[0].name, "")
   # Deprecated services removed: Azure AI Search
     # Log Analytics workspace for software inventory  
     LOG_ANALYTICS_WORKSPACE_ID          = var.workspace_guid
@@ -421,6 +426,15 @@ resource "azurerm_role_assignment" "app_cosmos_contributor" {
   depends_on           = [azurerm_linux_web_app.app, azurerm_cosmosdb_account.cosmos]
 }
 
+# Role assignment for App Service to access Bing Search with managed identity
+resource "azurerm_role_assignment" "app_bing_search_user" {
+  count                = var.deploy_agentic_app && var.deploy_bing_search ? 1 : 0
+  scope                = azurerm_cognitive_account.bing_search[0].id
+  role_definition_name = "Cognitive Services User"
+  principal_id         = azurerm_linux_web_app.app[0].identity[0].principal_id
+  depends_on           = [azurerm_linux_web_app.app, azurerm_cognitive_account.bing_search]
+}
+
 
 # Optional: Bot Channels Registration for Teams
 resource "azurerm_bot_channels_registration" "bot" {
@@ -439,4 +453,78 @@ resource "azurerm_bot_channel_ms_teams" "bot_teams" {
   bot_name            = azurerm_bot_channels_registration.bot[0].name
   location            = azurerm_bot_channels_registration.bot[0].location
   resource_group_name = var.resource_group_name
+}
+
+# ============================================================================
+# AZURE CONTAINER REGISTRY
+# ============================================================================
+
+resource "azurerm_container_registry" "acr" {
+  count                     = var.deploy_agentic_app && var.deploy_acr ? 1 : 0
+  name                      = coalesce(var.acr_name, "acr${replace(var.project_name, "-", "")}${var.environment}")
+  resource_group_name       = var.resource_group_name
+  location                  = var.location
+  sku                       = var.acr_sku
+  admin_enabled             = var.acr_admin_enabled
+  public_network_access_enabled = !var.deploy_agentic_private_endpoints
+  
+  tags = var.tags
+}
+
+# ============================================================================
+# BING SEARCH API (COGNITIVE SERVICES) - DEPRECATED
+# ============================================================================
+# NOTE: Bing Search API is deprecated. Microsoft recommends migrating to
+# "Grounding with Bing Search via Azure AI Agent Service"
+
+resource "azurerm_cognitive_account" "bing_search" {
+  count                         = var.deploy_agentic_app && var.deploy_bing_search ? 1 : 0
+  name                          = coalesce(var.bing_search_name, "bing-${var.agentic_app_name}-${var.project_name}-${var.environment}")
+  location                      = "global"  # Bing Search is a global service
+  resource_group_name           = var.resource_group_name
+  kind                          = "Bing.Search.v7"
+  sku_name                      = var.bing_search_sku_name
+  public_network_access_enabled = !var.deploy_agentic_private_endpoints
+  tags                          = var.tags
+
+  # Network ACLs not supported for Bing Search
+}
+
+# ============================================================================
+# AZURE AI AGENT SERVICE (MODERN REPLACEMENT FOR BING SEARCH)
+# ============================================================================
+
+# Azure AI Services (Multi-service account for Azure AI Foundry)
+resource "azurerm_cognitive_account" "ai_foundry" {
+  count                         = var.deploy_agentic_app && var.deploy_azure_ai_agent ? 1 : 0
+  name                          = coalesce(var.azure_ai_foundry_name, "ai-foundry-${var.agentic_app_name}-${var.project_name}-${var.environment}")
+  location                      = var.location
+  resource_group_name           = var.resource_group_name
+  kind                          = "CognitiveServices"  # Multi-service account for Azure AI
+  sku_name                      = var.azure_ai_foundry_sku_name
+  custom_subdomain_name         = coalesce(var.azure_ai_foundry_name, "ai-foundry-${var.agentic_app_name}-${var.project_name}-${var.environment}")
+  public_network_access_enabled = !var.deploy_agentic_private_endpoints
+  tags                          = merge(var.tags, {
+    Purpose = "Azure AI Agent Service with Grounding"
+    Replaces = "Deprecated Bing Search API"
+  })
+
+  dynamic "network_acls" {
+    for_each = var.deploy_agentic_private_endpoints ? [1] : []
+    content {
+      default_action = "Deny"
+      virtual_network_rules {
+        subnet_id = var.agentic_subnet_id
+      }
+    }
+  }
+}
+
+# Role assignment for App Service to access Azure AI Foundry
+resource "azurerm_role_assignment" "app_ai_foundry_user" {
+  count                = var.deploy_agentic_app && var.deploy_azure_ai_agent ? 1 : 0
+  scope                = azurerm_cognitive_account.ai_foundry[0].id
+  role_definition_name = "Cognitive Services User"
+  principal_id         = azurerm_linux_web_app.app[0].identity[0].principal_id
+  depends_on           = [azurerm_linux_web_app.app, azurerm_cognitive_account.ai_foundry]
 }

@@ -205,15 +205,8 @@ class SoftwareInventoryAgent:
         if software_filter:
             query += f'| where SoftwareName contains "{software_filter}"\n'
 
-        # Complete the query with proper KQL syntax
+        # Complete the query with proper KQL syntax - return per-computer data for better inventory visibility
         query += f"""
-        | summarize 
-            SoftwareVersion = any(CurrentVersion),
-            SoftwareType = any(SoftwareType),
-            LastSeen = max(TimeGenerated),
-            ComputerCount = dcount(Computer),
-            Computer = any(Computer)
-          by SoftwareName, CurrentVersion, Publisher
         | extend 
             NormalizedPublisher = case(
                 Publisher contains "Microsoft", "Microsoft Corporation",
@@ -222,9 +215,9 @@ class SoftwareInventoryAgent:
                 Publisher
             ),
             ActualSoftwareType = coalesce(SoftwareType, "Application")
-        | project SoftwareName, SoftwareVersion, NormalizedPublisher, ActualSoftwareType, 
-                 LastSeen, ComputerCount, Computer
-        | order by ComputerCount desc, SoftwareName asc
+        | project SoftwareName, CurrentVersion, NormalizedPublisher, ActualSoftwareType, 
+                 TimeGenerated, Computer
+        | order by SoftwareName asc, Computer asc
         | take {limit}
         """
 
@@ -268,19 +261,9 @@ class SoftwareInventoryAgent:
                 
                 for row_index, row in enumerate(table.rows):
                     try:
-                        # Handle the Computers array from make_set()
-                        computers_data = row[6] if row[6] else []
-                        if isinstance(computers_data, str):
-                            # Sometimes KQL returns JSON string, parse it
-                            import json
-                            try:
-                                computers_list = json.loads(computers_data)
-                            except:
-                                computers_list = [computers_data] if computers_data else []
-                        elif isinstance(computers_data, list):
-                            computers_list = computers_data
-                        else:
-                            computers_list = [str(computers_data)] if computers_data else []
+                        # Row mapping for non-aggregated query:
+                        # row[0] = SoftwareName, row[1] = CurrentVersion, row[2] = NormalizedPublisher, 
+                        # row[3] = ActualSoftwareType, row[4] = TimeGenerated, row[5] = Computer
                         
                         item = {
                             "name": row[0] if row[0] else "Unknown",
@@ -289,8 +272,8 @@ class SoftwareInventoryAgent:
                             "software_type": row[3] if row[3] else "Unknown",
                             "install_date": None,  # Not available in ConfigurationData
                             "last_seen": row[4].isoformat() if row[4] else None,
-                            "computer_count": int(row[5]) if row[5] else 0,
-                            "computer": row[6] if row[6] else "Unknown",
+                            "computer_count": 1,  # Each row represents one computer installation
+                            "computer": row[5] if row[5] else "Unknown",
                             "source": "log_analytics_configurationdata",
                         }
                         results.append(item)

@@ -15,10 +15,15 @@ class BaseEOLAgent(ABC):
         self.agent_name = agent_name or self.__class__.__name__.replace('EOLAgent', '').lower()
     
     @abstractmethod
-    async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Dict[str, Any]:
+    async def get_eol_data(self, software_name: str, version: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Abstract method that each agent must implement.
         Must return a standardized response format.
+        
+        Args:
+            software_name: Name of the software to check
+            version: Optional version to check
+            **kwargs: Additional parameters that specific agents may need (e.g., technology_context)
         """
         pass
     

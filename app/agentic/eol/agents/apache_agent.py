@@ -35,8 +35,7 @@ class ApacheEOLAgent(BaseEOLAgent):
     """Agent for scraping Apache official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "apache"
+        super().__init__("apache")
         
         self.timeout = 15
         self.headers = {

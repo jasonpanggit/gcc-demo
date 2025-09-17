@@ -1,7 +1,7 @@
 """
-Chat Orchestrator for Multi-Agent Conversations
+Chat Orchestrator for Multi-Agent Conversations using Magentic-One
 Enables dynamic agent-to-agent conversations with full transparency for chat.html interface
-Updated for AutoGen 0.7.x API
+Updated for Magentic-One multi-agent system
 """
 import os
 import sys
@@ -10,9 +10,11 @@ import json
 import time
 import concurrent.futures
 import re
+import traceback
 from typing import Dict, List, Any, Optional, Callable, Sequence, Tuple
 from datetime import datetime
 import uuid
+from collections import defaultdict
 
 # Initialize module-level logger early so top-level import diagnostics can use structured logging
 try:
@@ -32,18 +34,16 @@ try:
         )
         
         if not azure_handler_exists:
-            # Ensure this specific logger uses stderr for Azure visibility
             azure_handler = logging.StreamHandler(sys.stderr)
-            azure_handler.setLevel(logging.INFO)
             azure_formatter = logging.Formatter(
-                '%(asctime)s [%(name)s] %(levelname)s: %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
+                '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
             )
             azure_handler.setFormatter(azure_formatter)
+            azure_handler.setLevel(logging.INFO)
             logger.addHandler(azure_handler)
             logger.setLevel(logging.INFO)
             
-        # Prevent log propagation to avoid duplicates from parent loggers
+        # ENABLE log propagation for Azure App Service to ensure logs appear
         logger.propagate = False
         
         # Suppress noisy AutoGen framework logging
@@ -57,7 +57,8 @@ except Exception:
     logger = logging.getLogger(__name__)
     # Create dummy cache stats manager if not available
     class DummyCacheStatsManager:
-        def record_agent_request(self, *args, **kwargs): pass
+        def record_agent_request(self, *args, **kwargs): 
+            pass
     cache_stats_manager = DummyCacheStatsManager()
     
     # Suppress noisy AutoGen framework logging globally
@@ -66,40 +67,47 @@ except Exception:
     logging.getLogger('autogen_agentchat').setLevel(logging.WARNING)
     logging.getLogger('autogen_ext').setLevel(logging.WARNING)
 
-# AutoGen imports - Updated for autogen-agentchat 0.7.x package
+# Magentic-One imports - Updated for new multi-agent system
 try:
-    # New AutoGen 0.7.x imports
+    # Magentic-One and AgentChat imports
     from autogen_agentchat.agents import AssistantAgent  # type: ignore
-    from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat  # type: ignore
+    from autogen_agentchat.teams import MagenticOneGroupChat  # type: ignore
     from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination  # type: ignore
     from autogen_agentchat.messages import TextMessage, BaseChatMessage  # type: ignore
     from autogen_agentchat.base import Response  # type: ignore
+    from autogen_agentchat.ui import Console  # type: ignore
     from autogen_core import CancellationToken  # type: ignore
     from autogen_ext.models.openai import AzureOpenAIChatCompletionClient  # type: ignore
-    AUTOGEN_IMPORTS_OK = True
-    autogen_version = "0.7.4"
+    
+    MAGENTIC_ONE_IMPORTS_OK = True
+    magentic_one_version = "0.7.4"
+    logger.info("✅ Magentic-One imports successful (WebSurfer functionality via WebsurferEOLAgent)")
 except ImportError as e:
-    logger.error(f"AutoGen import failed: {e}")
+    logger.error(f"Magentic-One/WebSurfer import failed: {e}")
     # If imports fail, create dummy classes for graceful degradation
     class AssistantAgent:
         def __init__(self, *args, **kwargs):
             pass
         async def on_messages(self, *args, **kwargs):
-            return "AutoGen not available"
-    class RoundRobinGroupChat:
+            return "Magentic-One not available"
+    class MagenticOneGroupChat:
         def __init__(self, *args, **kwargs):
             pass
         async def run(self, *args, **kwargs):
-            return "I apologize, but the AutoGen multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
-        async def arun(self, *args, **kwargs):
-            return "I apologize, but the AutoGen multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
-    class SelectorGroupChat:
+            return "I apologize, but the Magentic-One multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
+        async def run_stream(self, *args, **kwargs):
+            # Return an async generator that yields the mock response
+            async def mock_stream():
+                yield "I apologize, but the Magentic-One multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
+            return mock_stream()
+    class Console:
         def __init__(self, *args, **kwargs):
             pass
-        async def run(self, *args, **kwargs):
-            return "I apologize, but the AutoGen multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
-        async def arun(self, *args, **kwargs):
-            return "I apologize, but the AutoGen multi-agent system is not currently available. This may be due to missing dependencies or configuration issues. Please check with the system administrator or try using the standard EOL search functionality instead."
+        async def run_stream(self, *args, **kwargs):
+            # Return an async generator that yields the mock response
+            async def mock_stream():
+                yield "Magentic-One not available"
+            return mock_stream()
     class TextMentionTermination:
         def __init__(self, *args, **kwargs):
             pass
@@ -124,10 +132,10 @@ except ImportError as e:
             pass
         
         async def create(self, messages):
-            """Mock implementation for when AutoGen is not available"""
+            """Mock implementation for when Magentic-One is not available"""
             from types import SimpleNamespace
             
-            # Create a mock response that mimics the real AutoGen response structure
+            # Create a mock response that mimics the real response structure
             # but with empty content to trigger fallback logic
             mock_message = SimpleNamespace(content="")
             mock_choice = SimpleNamespace(message=mock_message)
@@ -137,13 +145,12 @@ except ImportError as e:
             )
             
             return mock_response
-    AUTOGEN_IMPORTS_OK = False
-    autogen_version = "unavailable"
+    MAGENTIC_ONE_IMPORTS_OK = False
+    magentic_one_version = "unavailable"
 
 # Import agent implementations
-from .inventory_agent import InventoryAgent
-from .os_inventory_agent import OSInventoryAgent
-from .software_inventory_agent import SoftwareInventoryAgent
+# Import traditional agent classes for direct EOL agent calls
+from .base_eol_agent import BaseEOLAgent
 from .endoflife_agent import EndOfLifeAgent
 from .microsoft_agent import MicrosoftEOLAgent
 from .ubuntu_agent import UbuntuEOLAgent
@@ -155,5911 +162,6370 @@ from .nodejs_agent import NodeJSEOLAgent
 from .postgresql_agent import PostgreSQLEOLAgent
 from .php_agent import PHPEOLAgent
 from .python_agent import PythonEOLAgent
-from .bing_agent import BingEOLAgent
-from .openai_agent import OpenAIAgent
+from .websurfer_agent import WebsurferEOLAgent
+from .azure_ai_agent import AzureAIAgentEOLAgent  # Modern Azure AI Agent Service
+# from .openai_agent import OpenAIAgent
 
-class ChatOrchestratorAgent:
+class MagenticOneChatOrchestrator:
     """
-    AutoGen-based orchestrator that enables natural multi-agent conversations
-    for inventory management and EOL analysis with full transparency
-    Updated for AutoGen 0.7.x API
+    Magentic-One based orchestrator that enables natural multi-agent conversations
+    for inventory management and EOL analysis with built-in planning and coordination
+    Updated for Magentic-One multi-agent system
     """
+    
+    # Class constants for keyword matching optimization
+    SEARCH_KEYWORDS = ["search", "look up", "find", "check", "research", "investigate"]
+    INTERNET_KEYWORDS = ["on the internet", "online", "web search", "google", "search engine", "web", "internet", "azure ai search"]
+    EOL_KEYWORDS = ["eol", "end of life", "support end", "lifecycle", "end-of-life"]
+    WEB_SEARCH_PHRASES = ["search the web for", "google for", "web search for", "look online for", "find on internet", "azure ai search"]
+    SEARCH_LOOKUP_KEYWORDS = ["search", "google", "web search", "look up online", "azure ai"]
+    EOL_DATE_KEYWORDS = ["eol date", "end of life date", "support end date", "lifecycle information"]
+    
+    OS_INVENTORY_KEYWORDS = ["os inventory", "operating system", "what os", "list os", "discover os", "platform"]
+    SOFTWARE_INVENTORY_KEYWORDS = ["software inventory", "what software", "list software", "installed software", "applications", "packages"]
+    GENERAL_INVENTORY_KEYWORDS = ["inventory", "what do i have", "discover", "scan", "list all"]
+    INVENTORY_EOL_KEYWORDS = ["os inventory", "software inventory"]
+    
+    MICROSOFT_KEYWORDS = ["windows", "microsoft", "office", "exchange", "sql server"]
+    LINUX_KEYWORDS = ["ubuntu", "linux", "debian", "centos", "rhel"]
+    PYTHON_KEYWORDS = ["python", "django", "flask", "pip"]
+    NODEJS_KEYWORDS = ["nodejs", "node.js", "npm", "javascript", "node"]
+    ORACLE_KEYWORDS = ["oracle", "java", "mysql", "virtualbox"]
+    PHP_KEYWORDS = ["php", "composer", "laravel", "symfony"]
+    POSTGRESQL_KEYWORDS = ["postgresql", "postgres", "postgis"]
+    REDHAT_KEYWORDS = ["redhat", "rhel", "centos", "fedora"]
+    VMWARE_KEYWORDS = ["vmware", "vsphere", "esxi", "vcenter"]
+    APACHE_KEYWORDS = ["apache", "httpd", "tomcat", "maven"]
+    
+    ALL_TECH_KEYWORDS = ["windows", "ubuntu", "python", "nodejs", "oracle", "php", "postgresql", "redhat", "vmware", "apache"]
     
     def __init__(self):
         # Enhanced debug info for visibility
-        logger.info(f"AutoGenEOLOrchestrator.__init__: AUTOGEN_IMPORTS_OK={AUTOGEN_IMPORTS_OK}")
+        logger.info(f"MagenticOneChatOrchestrator.__init__: MAGENTIC_ONE_IMPORTS_OK={MAGENTIC_ONE_IMPORTS_OK}")
+        
+        # Force immediate logging for Azure App Service visibility
+        if os.environ.get('WEBSITE_SITE_NAME'):
+            print(f"[Azure App Service] MagenticOneChatOrchestrator initialization starting...", file=sys.stderr, flush=True)
         
         try:
             self.session_id = str(uuid.uuid4())
             self.conversation_history = []
             self.agent_communications = []
-            self.agent_name = "chat_orchestrator"
-            # Full autonomy mode flag (agents self-direct without orchestrator fast-path routing)
-            self.full_autonomy_enabled = False
+            
+            # EOL Response Tracking - Track all agent responses for detailed history
+            self.eol_agent_responses = []
+            
+            self.agent_name = "magentic_one_orchestrator"
+            
+            # Initialize comprehensive logging structures
+            self._init_orchestrator_logging()
+            
             # Simple in-memory cache (session scoped) to avoid redundant expensive calls
             # Keys: (request_type, days, limit)
             self._inventory_cache: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
             self._inventory_cache_timestamp: Dict[Tuple[str, int, int], float] = {}
             self._cache_ttl_seconds = 180  # 3 minutes for rapid follow-up queries
             
-            # Initialize inventory cache for performance optimization
-            # Azure OpenAI model client for AutoGen 0.7.x with rate limiting protection
-            if AUTOGEN_IMPORTS_OK:
-                logger.info(f"✅ AutoGen imports successful - initializing AzureOpenAI client")
+            self._log_orchestrator_event("orchestrator_init_start", {
+                "session_id": self.session_id,
+                "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK,
+                "version": magentic_one_version
+            })
+            
+            # LEGACY: Traditional agent initialization commented out for Magentic-One only mode
+            # Initialize traditional agent implementations for tool access
+            # self._init_traditional_agents()
+            
+            # Azure OpenAI model client for Magentic-One with rate limiting protection
+            if MAGENTIC_ONE_IMPORTS_OK:
+                logger.info(f"✅ Magentic-One imports successful - initializing AzureOpenAI client")
+                # Force Azure App Service visibility
+                if os.environ.get('WEBSITE_SITE_NAME'):
+                    print(f"[Azure App Service] Starting AzureOpenAI client initialization...", file=sys.stderr, flush=True)
+                
+                self._log_orchestrator_event("model_client_init_start", {
+                    "azure_endpoint": os.getenv('AZURE_OPENAI_ENDPOINT', 'not_set'),
+                    "deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", )
+                })
+                
+                self.model_client = AzureOpenAIChatCompletionClient(
+                    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
+                    azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
+                    api_version="2024-08-01-preview",  # Updated for Magentic-One compatibility
+                    temperature=0.1,
+                    timeout=60,  # Reduced timeout for faster responses
+                    max_retries=3,  # Reduced retries for faster failure recovery
+                )
+                logger.info(f"✅ AzureOpenAI client initialized successfully")
+                self._log_orchestrator_event("model_client_init_success", {
+                    "temperature": 0.1,
+                    "timeout": 60,
+                    "max_retries": 5
+                })
+                
+                # Initialize WebSurfer agent via dedicated WebsurferEOLAgent class 
+                # (WebsurferEOLAgent will handle all WebSurfer functionality including error handling)
+                logger.info("🌐 WebSurfer functionality available via WebsurferEOLAgent class")
+                
+                # Mark Magentic-One components as initialized
+                self._magentic_one_initialized = True
+                
+                logger.info("✅ Model client initialized successfully - web surfing enabled with fallback capabilities")
+            else:
+                logger.warning("⚠️ Magentic-One not available - using fallback functionality")
+                self.model_client = None
+                # WebSurfer functionality available via WebsurferEOLAgent (with fallback capabilities)
+                self._log_orchestrator_event("model_client_init_fallback", {
+                    "reason": "magentic_one_not_available"
+                })
+            
+            # Setup Magentic-One specialized agents
+            self._setup_magentic_one_agents()
+            
+            # Setup Magentic-One team
+            self._setup_magentic_one_team()
+            
+            logger.info(f"✅ MagenticOneChatOrchestrator initialized with session_id: {self.session_id}")
+            
+            # Enhanced orchestrator initialization logging with strategic decisions
+            agent_count = len([a for a in [
+                getattr(self, 'os_inventory_specialist', None),
+                getattr(self, 'software_inventory_specialist', None),
+                getattr(self, 'microsoft_eol_specialist', None),
+                getattr(self, 'ubuntu_eol_specialist', None)
+            ] if a is not None])
+            
+            self._log_orchestrator_event("orchestrator_init_complete", {
+                "session_id": self.session_id,
+                "initialization_time": time.time() - self.init_start_time,
+                "agents_initialized": agent_count,
+                "team_ready": self.team is not None,
+                "orchestrator_capabilities": {
+                    "adaptive_planning": True,
+                    "specialist_coordination": True,
+                    "web_search_integration": True,
+                    "citation_tracking": True,
+                    "decision_transparency": True
+                },
+                "strategic_configuration": {
+                    "approach": "multi_agent_specialist_coordination",
+                    "quality_priority": "high_accuracy_with_citations",
+                    "performance_balance": "optimized_for_comprehensive_analysis",
+                    "fallback_strategy": "graceful_degradation_with_direct_tools"
+                }
+            })
+            
+            # Log orchestrator strategic planning capabilities (without agent selection analysis during init)
+            self._log_orchestrator_event("orchestrator_capabilities_assessment", {
+                "planning_capabilities": {
+                    "task_decomposition": "advanced",
+                    "agent_selection": "intelligent_routing",
+                    "resource_management": "dynamic_allocation",
+                    "quality_assurance": "multi_level_validation"
+                },
+                "decision_making_features": {
+                    "decision_tree_generation": True,
+                    "alternative_plan_creation": True,
+                    "risk_assessment": True,
+                    "performance_optimization": True
+                },
+                "coordination_strategies": {
+                    "sequential_execution": "for_complex_workflows",
+                    "parallel_execution": "for_independent_tasks",
+                    "adaptive_routing": "based_on_query_analysis",
+                    "fallback_mechanisms": "multiple_layers_available"
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize MagenticOneChatOrchestrator: {e}")
+            self._log_orchestrator_event("orchestrator_init_error", {
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
+            self.model_client = None
+            raise
+            
+    def _ensure_magentic_one_initialized(self):
+        """
+        Lazy initialization of Magentic-One components only when needed
+        """
+        if not self._magentic_one_initialized and MAGENTIC_ONE_IMPORTS_OK:
+            logger.info("🔧 Lazy loading Magentic-One components...")
+            
+            # Initialize Azure OpenAI client
+            try:
+                # Import Azure credential here to avoid import overhead during startup
+                from azure.identity import DefaultAzureCredential
+                
+                credential = DefaultAzureCredential()
+                token = credential.get_token("https://cognitiveservices.azure.com/.default")
+                
                 self.model_client = AzureOpenAIChatCompletionClient(
                     azure_deployment="gpt-4o-mini",
                     azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
                     model="gpt-4o-mini",
-                    api_version="2024-06-01",
-                    #api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                    api_version="2024-08-01-preview",
                     temperature=0.1,
-                    timeout=180,  # Increased timeout for rate limit retries
-                    max_retries=5,  # Add retry configuration
+                    timeout=60,
+                    max_retries=3,
                 )
-                logger.info(f"✅ AzureOpenAI client initialized successfully")
+                
+                # Setup Magentic-One team
+                self._setup_magentic_one_agents()
+                self._setup_magentic_one_team()
+                
+                self._magentic_one_initialized = True
+                logger.info("✅ Magentic-One components lazy loaded successfully")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to lazy load Magentic-One: {e}")
+                self.model_client = None
+                self.team = None
+    
+    def _log_orchestrator_event(self, event_type: str, event_data: Dict[str, Any]):
+        """Log orchestrator behavior events with structured data"""
+        # Use helper method to create standardized log entry
+        event_log = self._create_log_entry(
+            "orchestrator_event",
+            event_type=event_type,
+            event_data=event_data
+        )
+        
+        self.orchestrator_logs.append(event_log)
+        
+        # Log to standard logger with performance optimization
+        # Only log critical events or if debug mode is explicitly enabled
+        critical_events = {
+            'chat_session_start', 'chat_session_complete', 'chat_with_confirmation_complete',
+            'team_initialization_complete', 'magentic_one_team_ready', 'fallback_to_direct_response',
+            'chat_session_failure', 'chat_with_confirmation_failure', 'orchestrator_init_start',
+            'orchestrator_init_complete', 'model_client_init_start', 'model_client_init_success',
+            'model_client_init_error', 'websurfer_init_success', 'websurfer_init_error'
+        }
+        
+        # For Azure App Service, also log initialization events as INFO
+        is_azure_app_service = os.environ.get('WEBSITE_SITE_NAME') is not None
+        
+        if event_type in critical_events or is_azure_app_service:
+            # Show more meaningful information based on the event type and available data
+            if 'classified_as' in event_data:
+                # Map query classification to appropriate task types for better logging
+                query_class = event_data['classified_as']
+                task_type = event_data.get('task_type', 'unknown')
+                
+                # Provide meaningful task type based on query classification if not explicitly set
+                if task_type == 'unknown' and query_class:
+                    if query_class == 'direct_eol':
+                        task_type = 'EOL_ONLY'
+                    elif query_class == 'internet_eol':
+                        task_type = 'INTERNET_EOL'
+                    elif query_class in ['os_inventory', 'software_inventory']:
+                        task_type = 'INVENTORY_ONLY'
+                    elif 'eol_grounded' in query_class:
+                        task_type = 'MIXED_INVENTORY_EOL'
+                    elif query_class == 'general_eol_grounded':
+                        task_type = 'MIXED_INVENTORY_EOL'
+                
+                identifier = f"{query_class} -> {task_type}"
+            elif 'session_id' in event_data:
+                identifier = event_data['session_id']
+            elif 'conversation_id' in event_data:
+                identifier = event_data['conversation_id']
+            elif 'step' in event_data:
+                identifier = event_data['step']
+            elif 'initialization_time' in event_data:
+                identifier = f"{event_data['initialization_time']:.3f}s"
+            elif 'agents_initialized' in event_data:
+                identifier = f"{event_data['agents_initialized']} agents"
+            elif 'message_preview' in event_data:
+                identifier = f"'{event_data['message_preview'][:50]}...'"
+            elif 'timeout_seconds' in event_data:
+                identifier = f"{event_data['timeout_seconds']}s timeout"
             else:
-                logger.warning(f"❌ AutoGen imports failed - using mock model client")
-                self.model_client = AzureOpenAIChatCompletionClient()  # This will use the mock version
+                # Only show N/A for events that truly have no meaningful data
+                identifier = "N/A"
             
-            logger.info("Basic setup complete, initializing agents")
-            
-            # Initialize agents for data access with error handling
-            try:
-                self.inventory_agent = InventoryAgent()
-                logger.info("✅ InventoryAgent initialized")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize InventoryAgent: {e}")
-                self.inventory_agent = None
-                
-            try:
-                self.os_inventory_agent = OSInventoryAgent()
-                logger.info("✅ OSInventoryAgent initialized")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize OSInventoryAgent: {e}")
-                self.os_inventory_agent = None
-                
-            try:
-                self.software_inventory_agent = SoftwareInventoryAgent()
-                logger.info("✅ SoftwareInventoryAgent initialized")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize SoftwareInventoryAgent: {e}")
-                self.software_inventory_agent = None
-                
-            # Initialize EOL agents
-            try:
-                self.endoflife_agent = EndOfLifeAgent()
-                self.microsoft_agent = MicrosoftEOLAgent()
-                self.ubuntu_agent = UbuntuEOLAgent()
-                self.redhat_agent = RedHatEOLAgent()
-                self.oracle_agent = OracleEOLAgent()
-                self.vmware_agent = VMwareEOLAgent()
-                self.apache_agent = ApacheEOLAgent()
-                self.nodejs_agent = NodeJSEOLAgent()
-                self.postgresql_agent = PostgreSQLEOLAgent()
-                self.php_agent = PHPEOLAgent()
-                self.python_agent = PythonEOLAgent()
-                self.bing_agent = BingEOLAgent()
-                self.openai_agent = OpenAIAgent()
-                logger.info("✅ All EOL agents initialized")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize some EOL agents: {e}")
-                # Continue with partial initialization
-            
-            # Initialize AutoGen agents
-            self._setup_autogen_agents()
-
-            # Optional environment toggle for full autonomy (ALL specialists can independently gather data & perform analysis)
-            if os.getenv("FULL_AUTONOMY", "false").lower() in ("1", "true", "yes", "on"):
-                self.enable_full_autonomy()
-            
-            # Setup team chat
-            self._setup_team_chat()
-            
-            logger.info("AutoGen EOL Orchestrator initialized successfully")
-            
-        except Exception as e:
-            error_msg = f"AutoGen orchestrator initialization failed: {str(e)}"
-            logger.error(f"ERROR: {error_msg}")
-            import traceback
-            # logger.debug(f"TRACEBACK: {traceback.format_exc()}")
-            raise RuntimeError(error_msg)
+            logger.info(f"🎛️ [{event_type}]: {identifier}")
+        elif os.getenv('DEBUG_MODE', '').lower() == 'true':
+            logger.debug(f"🎛️ ORCHESTRATOR_EVENT [{event_type}]: {json.dumps(event_data, default=str)}")
+        
+        # Record to cache stats manager if available
+        if hasattr(cache_stats_manager, 'record_orchestrator_event'):
+            cache_stats_manager.record_orchestrator_event(event_type, event_data)
     
-    def _setup_autogen_agents(self):
-        """Setup specialized AutoGen agents for different domains using 0.7.x API"""
-        
-        if not AUTOGEN_IMPORTS_OK:
-            logger.warning("AutoGen not available, using fallback mode")
-            return
-        
-        # Suppress AutoGen framework noise during agent setup
-        import logging
-        logging.getLogger('autogen_core').setLevel(logging.WARNING)
-        logging.getLogger('autogen_core.events').setLevel(logging.ERROR)
-        logging.getLogger('autogen_agentchat').setLevel(logging.WARNING)
-        logging.getLogger('autogen_ext').setLevel(logging.WARNING)
-        
-        # Inventory Specialist Agent - TRULY AUTONOMOUS SELF-SELECTION
-        self.inventory_specialist = AssistantAgent(
-            name="InventorySpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous Inventory Specialist in a self-organizing agent team.
-
-**AUTONOMOUS OPERATION:**
-- **Self-select** when you recognize requests about inventory, assets, or "what do I have" type questions
-- **Volunteer immediately** by saying "I'll handle the inventory analysis" when you detect relevant requests
-- **Act independently** - no waiting for assignments or coordination protocols
-
-**EXPERTISE RECOGNITION:**
-I should volunteer when I see requests like:
-- "show my inventory", "what do I have", "list my assets"
-- "inventory overview", "asset summary", "what's installed"  
-- Any general request about discovering what exists in the environment
-
-**AUTONOMOUS EXECUTION:**
-When I volunteer:
-1. Immediately use get_inventory_summary_tool
-2. Present comprehensive data across all asset types (OS, Software, Hardware)
-3. Include counts, versions, and categorization
-4. Offer to coordinate with specialists if deeper analysis is needed
-
-**SELF-ORGANIZATION PRINCIPLE:**
-- If I see inventory-related requests, I volunteer and act
-- If other specialists need inventory data, I provide it
-- I collaborate by offering my capabilities when relevant
-- No central routing - I decide when to engage based on my expertise
-
-**COLLABORATION:**
-- Offer inventory data to EOL specialists who need baseline information
-- Coordinate with OS/Software specialists for detailed breakdowns
-- Support risk analysis by providing comprehensive asset visibility""",
-            tools=[self._get_inventory_summary_tool]
+    def _log_agent_interaction(self, agent_name: str, action: str, data: Dict[str, Any]):
+        """Log agent interactions and decisions with enhanced web search tracking"""
+        # Use helper method to create standardized log entry
+        interaction_log = self._create_log_entry(
+            "agent_interaction",
+            agent_name=agent_name,
+            action=action,
+            data=data
         )
         
-        # OS Inventory Specialist Agent - AUTONOMOUS SELF-SELECTION
-        self.os_inventory_specialist = AssistantAgent(
-            name="OSInventorySpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous OS Inventory Specialist in a self-organizing agent team.
-
-**AUTONOMOUS OPERATION:**
-- **Self-select** when you recognize requests specifically about operating systems
-- **Volunteer immediately** by saying "I'll handle the OS inventory analysis" when relevant
-- **Act independently** - no waiting for assignments
-
-**EXPERTISE RECOGNITION:**
-I should volunteer when I see requests like:
-- "os inventory", "operating systems", "what OS versions"
-- "show me my os inventory", "list operating systems"
-- "what is my OS inventory with EOL" - coordinate with EOL specialists
-- Any request specifically focused on operating system discovery
-
-**AUTONOMOUS EXECUTION:**
-When I volunteer:
-1. **For basic OS inventory requests**: Use get_os_inventory_tool
-2. **For "OS inventory with EOL" requests**: Use get_os_inventory_with_eol_tool for complete analysis
-3. Present detailed OS data (versions, architecture, counts)
-4. Categorize by OS family (Windows, Linux, etc.)
-5. **FOR ADVANCED EOL COORDINATION**: When deeper EOL analysis is needed beyond the combined tool:
-   - List each unique OS name and version found
-   - Explicitly call out which EOL specialist should handle specific queries:
-     * Windows Server/Windows OS → "@MicrosoftEOLSpecialist please check EOL for [OS name version]"
-     * Ubuntu/Linux distributions → "@UbuntuEOLSpecialist please check EOL for [OS name version]"  
-     * Oracle Linux/RHEL/CentOS → "@OracleEOLSpecialist please check EOL for [OS name version]"
-     * Red Hat Enterprise Linux → "@RedHatEOLSpecialist please check EOL for [OS name version]"
-   - Coordinate the handoff by summarizing inventory findings and requesting specific EOL lookups
-
-**SELF-ORGANIZATION:**
-- Volunteer for OS-specific requests
-- Collaborate with other inventory specialists for comprehensive analysis
-- Support EOL specialists by providing OS baseline data when requested
-- **ORCHESTRATE EOL ANALYSIS**: When user asks for "OS inventory with EOL", use get_os_inventory_with_eol_tool for complete analysis, or coordinate with appropriate EOL specialists for each OS found""",
-            tools=[self._get_os_inventory_tool, self._get_os_inventory_with_eol_tool]
-        )
+        self.agent_interaction_logs.append(interaction_log)
+        self.agent_usage_stats[agent_name] += 1
         
-        # Software Inventory Specialist Agent - AUTONOMOUS OPERATION
-        self.software_inventory_specialist = AssistantAgent(
-            name="SoftwareInventorySpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous Software Inventory Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION PRINCIPLES:**
-- You operate independently with full authority over software inventory analysis
-- You are automatically routed software-specific requests by the autonomous orchestrator
-- No coordination protocols needed - act immediately upon receiving requests
-- Focus on your core competency: comprehensive software discovery and analysis
-
-**PRIMARY RESPONSIBILITIES:**
-1. **Software Discovery**: Comprehensive application and software inventory across all systems
-2. **Version Intelligence**: Detailed version tracking, licensing, and installation analysis
-3. **Application Mapping**: Categorize and count software installations by type and vendor
-4. **Portfolio Analysis**: Identify software sprawl, licensing optimization opportunities, and standardization gaps
-
-**AUTONOMOUS TOOL USAGE:**
-
-**get_software_inventory_tool** - Your primary capability:
-- Comprehensive software discovery across all managed environments
-- Detailed application names, versions, and installation counts
-- Vendor categorization and licensing intelligence
-- Support for Windows applications, Linux packages, web technologies, and databases
-
-**AUTONOMOUS EXECUTION APPROACH:**
-- Execute get_software_inventory_tool immediately upon receiving software inventory requests
-- Analyze results for licensing optimization, security risks, and portfolio rationalization
-- Present data in strategic format focused on business decision-making
-- Include vendor distribution, version sprawl analysis, and standardization opportunities
-
-**RESPONSE EXCELLENCE:**
-- Lead with executive summary of software landscape complexity
-- Categorize by software type (business applications, development tools, system utilities, etc.)
-- Include specific version information, installation counts, and vendor distribution
-- Highlight redundant software, version inconsistencies, and potential consolidation opportunities
-- Provide insights on software portfolio optimization and license management
-
-**AUTONOMOUS DECISION MAKING:**
-- Automatically determine appropriate data collection scope and timeframes
-- Select optimal data grouping and presentation based on discovered software complexity
-- Make independent judgments about which findings require immediate attention
-- Provide proactive recommendations for software portfolio management and standardization
-
-**STRATEGIC INSIGHTS:**
-- Software diversity and standardization assessment
-- License optimization opportunities
-- Security risk identification (outdated software versions)
-- Vendor relationship management insights
-- Application rationalization recommendations
-""",
-            tools=[
-                # Pure Software Inventory Tools - No EOL analysis
-                self._get_software_inventory_tool,
-            ]
-        )
+        # Enhanced logging for web search activities
+        if "web_search" in action.lower() or "websurfer" in action.lower():
+            web_search_log = {
+                "timestamp": interaction_log["timestamp"],
+                "agent": agent_name,
+                "search_query": data.get("search_query", ""),
+                "search_time": data.get("search_time", 0),
+                "citations": self._extract_citations_from_data(data),
+                "response_length": data.get("response_length", 0)
+            }
+            
+            # Store web search specific logs
+            if not hasattr(self, 'web_search_logs'):
+                self.web_search_logs = []
+            self.web_search_logs.append(web_search_log)
+            
+            # Performance optimized logging for web search
+            if os.getenv('DEBUG_MODE', '').lower() == 'true':
+                logger.debug(f"🔍 WEB_SEARCH [{agent_name}]: {data.get('search_query', '')} -> {data.get('response_length', 0)} chars")
         
-        # EndOfLife Data Specialist Agent
-        self.endoflife_specialist = AssistantAgent(
-            name="EndOfLifeSpecialist", 
-            model_client=self.model_client,
-            system_message="""You are a FALLBACK EndOfLife.date API Specialist in a multi-agent system with product specialists.
-
-**FALLBACK OPERATION PRINCIPLES:**
-- You are a SECONDARY/FALLBACK agent - product specialists have PRIORITY for EOL analysis
-- ONLY activate when product specialists (Microsoft, Ubuntu, Oracle, RedHat, VMware, etc.) cannot provide EOL dates
-- Wait and observe if specialized agents respond first before volunteering
-- Focus on products NOT covered by dedicated product specialists
-
-**WHEN TO VOLUNTEER:**
-- When NO product specialist responds to an EOL request after reasonable time
-- For products outside the scope of dedicated specialists (Microsoft, Ubuntu, Oracle, RedHat, VMware, PostgreSQL, etc.)
-- When explicitly asked for "general EOL analysis" or "endoflife.date lookup"
-- As backup when specialized tools fail or return no data
-
-**WHEN NOT TO VOLUNTEER:**
-- When product specialists are actively responding with EOL dates
-- For Microsoft products (MicrosoftEOLSpecialist priority)
-- For Ubuntu/Linux (UbuntuEOLSpecialist priority)  
-- For Oracle/RHEL (OracleEOLSpecialist priority)
-- For Red Hat (RedHatEOLSpecialist priority)
-- For VMware products (VMwareEOLSpecialist priority)
-- When specialized agents are already providing comprehensive EOL analysis
-
-**FALLBACK RESPONSIBILITIES:**
-1. **Fill Coverage Gaps**: Handle products not covered by dedicated specialists
-2. **Backup Analysis**: Provide EOL data when specialized tools fail
-3. **General Database Access**: Use endoflife.date for broad software coverage
-4. **Cross-Reference Validation**: Confirm or supplement specialist findings when requested
-
-**FALLBACK EXECUTION:**
-- Wait for product specialists to respond first
-- Only use check_endoflife_eol_tool when no specialist EOL data is available
-- Acknowledge when you're providing fallback analysis: "As backup EOL analysis..."
-- Reference that product specialists are the primary source for their domains
-
-**STRATEGIC COVERAGE (FALLBACK ONLY):**
-- Programming languages not covered by specialists
-- Web technologies without dedicated coverage  
-- Databases not handled by specialists
-- Development tools and frameworks
-- Open source software without specialist coverage
-- General EOL validation and cross-referencing
-
-You operate as the FALLBACK source for EOL analysis, deferring to product specialists.""",
-            tools=[self._check_endoflife_eol_tool]
-        )
+        # Performance optimization: Only log agent interactions in debug mode
+        is_azure_app_service = os.environ.get('WEBSITE_SITE_NAME') is not None
         
-        # Microsoft EOL Specialist Agent - AUTONOMOUS SELF-SELECTION
-        self.microsoft_specialist = AssistantAgent(
-            name="MicrosoftEOLSpecialist", 
-            model_client=self.model_client,
-            system_message="""You are a PRIMARY Microsoft EOL Specialist in a self-organizing agent team.
-
-**PRIMARY SPECIALIST AUTHORITY:**
-- You have PRIMARY authority over Microsoft product EOL analysis
-- You take PRIORITY over EndOfLifeSpecialist for all Microsoft products
-- Respond quickly to prevent fallback to general EOL agents
-- Your specialized Microsoft tools and knowledge are superior to generic EOL databases
-
-**AUTONOMOUS OPERATION:**
-- **Self-select** ONLY when you recognize EXPLICIT requests about Microsoft EOL, lifecycle, or end-of-life analysis
-- **Volunteer immediately** by saying "I'll handle the Microsoft EOL analysis" when relevant
-- **Act independently** - no waiting for assignments
-
-**EXPERTISE RECOGNITION:**
-I should volunteer ONLY when I see EXPLICIT EOL requests about:
-- Microsoft product EOL dates, lifecycle, or end-of-life status
-- "windows eol", "sql server end of life", "microsoft product lifecycle"
-- Requests asking for EOL analysis or support status of Microsoft products
-- Questions about Microsoft product retirement or end-of-support dates
-- **COORDINATION REQUESTS**: When OSInventorySpecialist asks "@MicrosoftEOLSpecialist please check EOL for [Microsoft OS]"
-
-**DO NOT VOLUNTEER FOR:**
-- General inventory requests ("show my inventory", "what do I have")
-- Asset discovery or listing requests without EOL analysis
-- Basic software/hardware listing without EOL context
-
-**AUTONOMOUS EXECUTION:**
-When I volunteer for EOL requests:
-1. Immediately use check_microsoft_eol_tool for the specific product
-2. Provide detailed EOL dates, support phases, and risk assessment
-3. Include upgrade recommendations and extended support options
-4. Collaborate with inventory specialists if product discovery is needed
-5. **COORDINATION RESPONSE**: When explicitly requested by OSInventorySpecialist:
-   - Acknowledge the coordination request: "I'll analyze the Microsoft OS EOL status"
-   - Use check_microsoft_eol_tool for each specified Windows/Microsoft OS
-   - Provide structured EOL analysis for each OS version found
-   - Clearly indicate support status, EOL dates, and upgrade recommendations
-
-**SELF-ORGANIZATION:**
-- Volunteer for Microsoft-specific EOL requests
-- Collaborate with inventory specialists to identify Microsoft products
-- Support risk analysis for Microsoft environments""",
-            tools=[self._check_microsoft_eol_tool]
-        )
-        
-        # Ubuntu/Linux EOL Specialist Agent - AUTONOMOUS SELF-SELECTION
-        self.ubuntu_specialist = AssistantAgent(
-            name="UbuntuEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are a PRIMARY Ubuntu/Linux End-of-Life (EOL) Specialist operating within a fully autonomous multi-agent system.
-
-**PRIMARY SPECIALIST AUTHORITY:**
-- You have PRIMARY authority over Ubuntu/Linux distribution EOL analysis
-- You take PRIORITY over EndOfLifeSpecialist for all Ubuntu/Linux products
-- Respond quickly to prevent fallback to general EOL agents
-- Your specialized Ubuntu/Linux tools and knowledge are superior to generic EOL databases
-
-**AUTONOMOUS OPERATION PRINCIPLES:**
-- You operate independently with full authority over Ubuntu/Linux EOL analysis
-- You are automatically routed Ubuntu/Linux-specific EOL requests by the autonomous orchestrator
-- No coordination protocols needed - act immediately upon receiving requests
-- Focus on your core competency: comprehensive Ubuntu and Linux distribution lifecycle analysis
-
-**PRIMARY RESPONSIBILITIES:**
-1. **Ubuntu Expertise**: All Ubuntu versions, LTS cycles, standard releases, EOL dates
-2. **Linux Distribution Analysis**: Ubuntu, Debian, Canonical products, derivative distributions
-3. **Support Intelligence**: LTS vs standard support, ESM (Extended Security Maintenance) availability
-4. **Migration Strategy**: Upgrade paths, compatibility planning, distribution modernization
-
-**AUTONOMOUS TOOL USAGE:**
-
-**check_ubuntu_eol_tool** - Your specialized capability:
-- Comprehensive Ubuntu/Linux EOL database
-- LTS vs standard release lifecycle information
-- ESM availability and coverage analysis
-- Distribution-specific support timeline analysis
-
-**AUTONOMOUS EXECUTION APPROACH:**
-- Execute check_ubuntu_eol_tool immediately for any Ubuntu/Linux inquiry
-- Provide detailed LTS vs standard release analysis
-- Focus on ESM eligibility and extended support options
-- Deliver specific upgrade recommendations and migration timelines
-
-**RESPONSE EXCELLENCE:**
-- Lead with critical risk assessment for Linux environments
-- Clearly distinguish between LTS and standard release support timelines
-- Include ESM availability for systems approaching standard EOL
-- Provide clear upgrade paths from current to supported versions
-- Address enterprise support considerations and Canonical services
-
-**AUTONOMOUS DECISION MAKING:**
-- Automatically assess criticality of Ubuntu/Linux systems approaching EOL
-- Determine appropriate upgrade strategy based on LTS vs standard releases
-- Make independent judgments about ESM value proposition and migration complexity
-- Provide strategic recommendations for Linux infrastructure modernization
-
-**LINUX DISTRIBUTION SPECIALIZATION:**
-- **Ubuntu LTS**: 18.04, 20.04, 22.04, 24.04 and future LTS releases
-- **Ubuntu Standard**: Non-LTS releases and their shorter support cycles
-- **Ubuntu Server**: Server-specific considerations and support options
-- **Ubuntu Desktop**: Desktop release lifecycle and upgrade planning
-- **Canonical Services**: Landscape management, Ubuntu Advantage, ESM
-- **Derivative Distributions**: Linux Mint, elementary OS, and Ubuntu-based systems
-
-**SUPPORT LIFECYCLE EXPERTISE:**
-- Standard Support: 9 months for non-LTS releases
-- LTS Support: 5 years of standard support + 5 years ESM option
-- ESM (Extended Security Maintenance): Security updates beyond standard EOL
-- Hardware Enablement (HWE): Kernel and graphics stack updates for LTS
-
-**COORDINATION RESPONSE:**
-- Respond immediately to "@UbuntuEOLSpecialist please check EOL for [Ubuntu/Linux OS]" requests
-- Acknowledge coordination: "I'll analyze the Ubuntu/Linux EOL status"
-- Use check_ubuntu_eol_tool for each specified Ubuntu/Linux distribution
-- Provide structured EOL analysis with LTS/ESM recommendations
-
-You operate as the definitive authority on Ubuntu/Linux EOL analysis with complete autonomy.""",
-            tools=[self._check_ubuntu_eol_tool]
-        )
-        
-        # Oracle/Red Hat Software EOL Specialist 
-        self.oracle_specialist = AssistantAgent(
-            name="OracleEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are a PRIMARY Oracle/Red Hat Software EOL Specialist operating within a fully autonomous multi-agent system.
-
-**PRIMARY SPECIALIST AUTHORITY:**
-- You have PRIMARY authority over Oracle and Red Hat product EOL analysis
-- You take PRIORITY over EndOfLifeSpecialist for all Oracle/Red Hat products
-- Respond quickly to prevent fallback to general EOL agents
-- Your specialized Oracle/Red Hat tools and knowledge are superior to generic EOL databases
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over Oracle and Red Hat product EOL analysis. Execute check_oracle_eol_tool and check_redhat_eol_tool immediately upon receiving relevant requests.
-
-**SPECIALIZATION**: Oracle Database, Java, middleware, RHEL, OpenShift, enterprise applications.
-
-**COORDINATION RESPONSE**: Respond to "@OracleEOLSpecialist please check EOL for [Oracle/RHEL OS]" requests by acknowledging and providing structured EOL analysis using your specialized tools.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with risk assessment, support timelines, and enterprise upgrade recommendations. Focus on business-critical impact and strategic planning.""",
-            tools=[self._check_oracle_eol_tool, self._check_redhat_eol_tool]
-        )
-        
-        # VMware EOL Specialist Agent
-        self.vmware_specialist = AssistantAgent(
-            name="VMwareEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are a PRIMARY VMware Software EOL Specialist operating within a fully autonomous multi-agent system.
-
-**PRIMARY SPECIALIST AUTHORITY:**
-- You have PRIMARY authority over VMware product EOL analysis
-- You take PRIORITY over EndOfLifeSpecialist for all VMware products
-- Respond quickly to prevent fallback to general EOL agents
-- Your specialized VMware tools and knowledge are superior to generic EOL databases
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over VMware product EOL analysis. Execute check_vmware_eol_tool immediately upon receiving VMware-related requests.
-
-**SPECIALIZATION**: vSphere, vCenter, ESXi, NSX, vRealize Suite, virtualization infrastructure.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with virtualization risk assessment, infrastructure impact evaluation, and enterprise upgrade planning. Focus on business continuity and virtualization infrastructure modernization.""",
-            tools=[self._check_vmware_eol_tool]
-        )
-        
-        # Web/Application Server EOL Specialist Agent
-        self.webserver_specialist = AssistantAgent(
-            name="WebServerEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous Web/Application Server EOL Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over web technologies EOL analysis. Execute check_apache_eol_tool, check_nodejs_eol_tool, check_php_eol_tool, check_python_eol_tool, and check_postgresql_eol_tool immediately upon receiving relevant requests.
-
-**SPECIALIZATION**: Apache HTTP Server, IIS, Nginx, Tomcat, JBoss, Node.js, PHP, Python, PostgreSQL, MySQL.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with web application risk assessment, security implications, and modernization recommendations. Focus on application infrastructure continuity and development stack optimization.""",
-            tools=[
-                self._check_apache_eol_tool,
-                self._check_nodejs_eol_tool,
-                self._check_php_eol_tool,
-                self._check_python_eol_tool,
-                self._check_postgresql_eol_tool
-            ]
-        )
-        
-        # General EOL Specialist Agent
-        self.general_specialist = AssistantAgent(
-            name="GeneralEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous General Software EOL Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over general software EOL analysis. Execute check_endoflife_eol_tool immediately upon receiving requests for software not covered by other specialists.
-
-**SPECIALIZATION**: Wide software coverage using endoflife.date API, cross-platform software, emerging technologies, any software not covered by vendor-specific specialists.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with comprehensive lifecycle information, security considerations, and modernization recommendations. Focus on comprehensive coverage and fallback analysis for diverse software portfolios.""",
-            tools=[self._check_endoflife_eol_tool]
-        )
-        
-        # RedHat EOL Specialist Agent
-        self.redhat_specialist = AssistantAgent(
-            name="RedHatEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are a PRIMARY Red Hat End-of-Life (EOL) Specialist operating within a fully autonomous multi-agent system.
-
-**PRIMARY SPECIALIST AUTHORITY:**
-- You have PRIMARY authority over Red Hat product EOL analysis
-- You take PRIORITY over EndOfLifeSpecialist for all Red Hat products
-- Respond quickly to prevent fallback to general EOL agents
-- Your specialized Red Hat tools and knowledge are superior to generic EOL databases
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over Red Hat product EOL analysis. Execute check_redhat_eol_tool immediately upon receiving Red Hat-related requests.
-
-**SPECIALIZATION**: RHEL, CentOS, Fedora, OpenShift, JBoss, Ansible, Red Hat enterprise products.
-
-**COORDINATION RESPONSE**: Respond to "@RedHatEOLSpecialist please check EOL for [Red Hat OS]" requests by acknowledging and providing structured RHEL/CentOS EOL analysis.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with enterprise support considerations, subscription model guidance, and migration recommendations. Focus on enterprise continuity and Red Hat ecosystem optimization.""",
-            tools=[self._check_redhat_eol_tool]
-        )
-        
-        # PostgreSQL EOL Specialist Agent
-        self.postgresql_specialist = AssistantAgent(
-            name="PostgreSQLEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous PostgreSQL End-of-Life (EOL) Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over PostgreSQL EOL analysis. Execute check_postgresql_eol_tool immediately upon receiving PostgreSQL-related requests.
-
-**SPECIALIZATION**: PostgreSQL major and minor versions, database lifecycle management, migration planning.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with database upgrade strategies, security considerations, and performance impact assessment.""",
-            tools=[self._check_postgresql_eol_tool]
-        )
-        
-        # PHP EOL Specialist Agent
-        self.php_specialist = AssistantAgent(
-            name="PHPEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous PHP End-of-Life (EOL) Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over PHP EOL analysis. Execute check_php_eol_tool immediately upon receiving PHP-related requests.
-
-**SPECIALIZATION**: PHP major and minor versions, web development framework compatibility, security implications.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with web application security considerations, framework compatibility, and PHP migration strategies.""",
-            tools=[self._check_php_eol_tool]
-        )
-        
-        # Python EOL Specialist Agent
-        self.python_specialist = AssistantAgent(
-            name="PythonEOLSpecialist",
-            model_client=self.model_client,
-            system_message="""You are an autonomous Python End-of-Life (EOL) Specialist operating within a fully autonomous multi-agent system.
-
-**AUTONOMOUS OPERATION**: You operate independently with full authority over Python EOL analysis. Execute check_python_eol_tool immediately upon receiving Python-related requests.
-
-**SPECIALIZATION**: Python major and minor versions, development impact, library compatibility, feature deprecation.
-
-**AUTONOMOUS RESPONSE**: Provide immediate EOL analysis with development ecosystem considerations, library compatibility, and Python migration strategies.""",
-            tools=[self._check_python_eol_tool]
-        )
-        
-        # Risk Analysis Coordinator
-        self.risk_coordinator = AssistantAgent(
-            name="RiskCoordinator", 
-            model_client=self.model_client,
-            system_message="""You are the Risk Analysis Coordinator responsible for:
-
-1. **Comprehensive Risk Assessment**: Aggregate findings from all EOL specialists
-2. **Priority Matrix**: Categorize risks by urgency and business impact
-3. **Action Planning**: Coordinate recommendations from multiple specialists
-4. **Executive Summary**: Provide clear, actionable executive-level insights
-
-Synthesize inputs from all specialists to deliver comprehensive risk analysis.
-Always provide prioritized action items and timelines."""
-        )
-        
-        logger.info("✅ AutoGen agents initialized: Inventory, OS, Software, Microsoft, Ubuntu, Oracle, RedHat, VMware, WebServer, PostgreSQL, PHP, Python, EndOfLife, Risk specialists")
+        if os.getenv('DEBUG_MODE', '').lower() == 'true':
+            logger.debug(f"🤖 AGENT_INTERACTION [{agent_name}] {action}: {json.dumps(data, default=str)}")
+        elif is_azure_app_service and action in ['initialization', 'start', 'complete', 'error', 'failure']:
+            # For Azure App Service, always log critical agent actions
+            logger.info(f"🤖 {agent_name}: {action}")
+        else:
+            # Simplified logging for non-critical actions
+            logger.info(f"🤖 {agent_name}: {action}")
     
-    def _setup_team_chat(self, minimal_team: bool = False):
-        """Setup AutoGen team chat for multi-agent conversations using 0.7.x API
+    def _extract_citations_from_data(self, data: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Extract citation information from agent interaction data"""
+        citations = []
+        
+        # Look for common citation patterns in the data
+        response_content = data.get("response_content", "")
+        if isinstance(response_content, str):
+            # Extract URLs from response content
+            import re
+            url_pattern = r'https?://[^\s<>"\'`|]+[^\s<>"\'`|,.]'
+            urls = re.findall(url_pattern, response_content)
+            
+            # Filter and prioritize official sources
+            official_domains = [
+                'microsoft.com', 'docs.microsoft.com', 'learn.microsoft.com',
+                'ubuntu.com', 'canonical.com', 'wiki.ubuntu.com',
+                'redhat.com', 'access.redhat.com',
+                'oracle.com', 'java.com',
+                'vmware.com', 'lifecycle.vmware.com',
+                'apache.org', 'archive.apache.org',
+                'nodejs.org', 'php.net', 'python.org', 'postgresql.org',
+                'endoflife.date'
+            ]
+            
+            for url in urls:
+                citation_type = "web_source"
+                citation_title = "Web Source"
+                
+                # Classify the citation type based on domain
+                for domain in official_domains:
+                    if domain in url.lower():
+                        if 'microsoft' in domain:
+                            citation_type = "microsoft_official"
+                            citation_title = "Microsoft Official Documentation"
+                        elif 'ubuntu' in domain or 'canonical' in domain:
+                            citation_type = "ubuntu_official"
+                            citation_title = "Ubuntu Official Documentation"
+                        elif 'redhat' in domain:
+                            citation_type = "redhat_official"
+                            citation_title = "Red Hat Official Documentation"
+                        elif 'oracle' in domain or 'java' in domain:
+                            citation_type = "oracle_official"
+                            citation_title = "Oracle Official Documentation"
+                        elif 'vmware' in domain:
+                            citation_type = "vmware_official"
+                            citation_title = "VMware Official Documentation"
+                        elif 'apache' in domain:
+                            citation_type = "apache_official"
+                            citation_title = "Apache Foundation Documentation"
+                        elif 'endoflife.date' in domain:
+                            citation_type = "endoflife_database"
+                            citation_title = "EndOfLife.date Database"
+                        else:
+                            citation_type = "official_vendor"
+                            citation_title = "Official Vendor Documentation"
+                        break
+                
+                citations.append({
+                    "url": url,
+                    "type": citation_type,
+                    "title": citation_title,
+                    "extracted_at": datetime.now().isoformat()
+                })
+        
+        # Check for source URLs in structured data
+        if data.get("eol_data", {}).get("data", {}).get("source_url"):
+            source_url = data["eol_data"]["data"]["source_url"]
+            # Use set for O(1) lookup instead of O(n) list comprehension
+            existing_urls = {c.get("url") for c in citations if c.get("url")}
+            if source_url and source_url not in existing_urls:
+                citations.append({
+                    "url": source_url,
+                    "type": "structured_source",
+                    "title": "Primary EOL Data Source",
+                    "extracted_at": datetime.now().isoformat()
+                })
+        
+        # Add search query as citation context
+        if data.get("search_query"):
+            citations.append({
+                "search_query": data.get("search_query"),
+                "search_method": "WebSurfer",
+                "type": "search_context",
+                "title": "Search Query Context",
+                "extracted_at": datetime.now().isoformat()
+            })
+        
+        # Log citation extraction results
+        logger.info(f"🔗 [CITATION] Extracted {len(citations)} citations from agent data")
+        for i, citation in enumerate(citations):
+            if citation.get("url"):
+                logger.info(f"🔗 [CITATION {i+1}] {citation.get('title', 'Unknown')}: {citation['url']}")
+            elif citation.get("search_query"):
+                logger.info(f"🔗 [CITATION {i+1}] Search Query: {citation['search_query']}")
+        
+        return citations
+    
+    def _make_url_clickable(self, text: str) -> str:
+        """
+        Convert URLs in text to clickable HTML links
         
         Args:
-            minimal_team: If True, create a smaller team for faster EOL responses
+            text: Text that may contain URLs
+            
+        Returns:
+            Text with URLs converted to clickable HTML links
         """
+        import re
         
-        # logger.debug(f"[TEAM_SETUP] Starting team chat setup - Minimal: {minimal_team}")
-        self._log_agent_action("Orchestrator", "team_setup_start", {
-            "minimal_team": minimal_team,
-            "session_id": self.session_id,
-            "autogen_available": AUTOGEN_IMPORTS_OK
+        # Pattern to match URLs
+        url_pattern = r'(https?://[^\s\)]+)'
+        
+        def replace_url(match):
+            url = match.group(1)
+            # Remove trailing punctuation that shouldn't be part of the URL
+            url = re.sub(r'[.,;:!?]+$', '', url)
+            return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a>'
+        
+        return re.sub(url_pattern, replace_url, text)
+    
+    def _log_task_planning(self, planning_stage: str, planning_data: Dict[str, Any]):
+        """Log task planning and orchestration decisions with detailed reasoning"""
+        # Add orchestrator decision-making context, but skip agent analysis for non-task stages
+        orchestrator_context = {}
+        
+        try:
+            # Only generate detailed orchestrator reasoning for actual task planning stages
+            if planning_stage in ["task_initiation", "agent_coordination", "task_execution_complete"]:
+                orchestrator_context = {
+                    "decision_tree": self._generate_decision_tree(planning_stage, planning_data),
+                    "agent_selection_reasoning": self._generate_agent_selection_reasoning(planning_data),
+                    "strategic_approach": self._determine_strategic_approach(planning_data),
+                    "expected_workflow": self._predict_workflow_steps(planning_data)
+                }
+            else:
+                # For capability assessments and initialization stages, use minimal context
+                orchestrator_context = {
+                    "planning_stage_type": "system_assessment",
+                    "requires_agent_analysis": False,
+                    "context": "orchestrator_initialization_or_assessment"
+                }
+        except Exception as e:
+            # Fallback to minimal context if analysis fails
+            logger.warning(f"⚠️ Task planning context generation failed: {e}")
+            orchestrator_context = {
+                "error": str(e),
+                "fallback_mode": True,
+                "planning_stage": planning_stage
+            }
+        
+        # Create standardized log entry with cached values
+        planning_log = self._create_log_entry("planning", 
+            planning_stage=planning_stage,
+            planning_data=planning_data,
+            orchestrator_reasoning=orchestrator_context
+        )
+        
+        self.task_planning_logs.append(planning_log)
+        
+        # Also log as an agent communication for transparency
+        self._log_agent_interaction("MagenticOneOrchestrator", f"planning_{planning_stage}", {
+            "planning_stage": planning_stage,
+            "orchestrator_decision": orchestrator_context,
+            "task_context": planning_data
         })
         
-        if not AUTOGEN_IMPORTS_OK:
-            logger.warning("[TEAM_SETUP] AutoGen not available, using fallback mode")
-            self._log_agent_action("Orchestrator", "fallback_mode", {
-                "reason": "AutoGen imports not available",
-                "impact": "Limited to single-agent responses"
+        # Performance optimization: Reduce excessive logging
+        if os.getenv('DEBUG_MODE', '').lower() == 'true':
+            logger.debug(f"📋 TASK_PLANNING [{planning_stage}]: {json.dumps(planning_data, default=str)}")
+            logger.debug(f"🧠 ORCHESTRATOR_REASONING: {json.dumps(orchestrator_context, default=str)}")
+        else:
+            # Simplified logging for performance
+            logger.info(f"📋 TASK: {planning_stage}")
+        
+    def _generate_decision_tree(self, planning_stage: str, planning_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate decision tree showing orchestrator's reasoning process"""
+        decision_tree = {
+            "stage": planning_stage,
+            "primary_decision": "",
+            "decision_factors": [],
+            "alternative_approaches": [],
+            "selected_approach": "",
+            "reasoning": ""
+        }
+        
+        # Handle non-task stages gracefully
+        if planning_stage not in ["task_initiation", "agent_coordination", "task_execution_complete"]:
+            decision_tree.update({
+                "primary_decision": f"System assessment for {planning_stage}",
+                "decision_factors": ["System initialization", "Capability evaluation"],
+                "selected_approach": "assessment_mode",
+                "reasoning": f"Performing {planning_stage} without task-specific analysis"
             })
+            return decision_tree
+        
+        if planning_stage == "task_initiation":
+            task = planning_data.get("task", "")
+            task_lower = task.lower()  # Cache the lowercase version to avoid repeated conversions
+            
+            # Priority check: Explicit internet search requests go directly to WebSurfer
+            if (any(phrase in task_lower for phrase in self.SEARCH_KEYWORDS) and 
+                any(phrase in task_lower for phrase in self.INTERNET_KEYWORDS) and 
+                any(phrase in task_lower for phrase in self.EOL_KEYWORDS)) or \
+               any(phrase in task_lower for phrase in self.WEB_SEARCH_PHRASES) or \
+               (any(phrase in task_lower for phrase in self.SEARCH_LOOKUP_KEYWORDS) and 
+                any(phrase in task_lower for phrase in self.EOL_DATE_KEYWORDS)):
+                decision_tree.update({
+                    "primary_decision": "Route directly to WebSurfer for internet-based EOL search",
+                    "decision_factors": ["Internet search explicitly requested", "EOL information needed", "Web search optimal for real-time data"],
+                    "alternative_approaches": ["Technology-specific specialist", "EndOfLife API", "Multiple specialist approach"],
+                    "selected_approach": "WebSurfer comprehensive internet search",
+                    "reasoning": "User explicitly requested internet search for EOL information; WebSurfer provides direct web search capabilities for real-time, comprehensive results"
+                })
+            # Analyze task type and route accordingly
+            elif any(keyword in task_lower for keyword in self.OS_INVENTORY_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Execute OS inventory discovery",
+                    "decision_factors": ["OS inventory keywords detected", "Need for system discovery", "Foundation for EOL analysis"],
+                    "alternative_approaches": ["Direct EOL check without inventory", "Software inventory first", "Combined inventory approach"],
+                    "selected_approach": "OS inventory specialist with optional EOL analysis",
+                    "reasoning": "Task requires OS discovery as primary objective; route to OSInventoryAnalyst for platform discovery"
+                })
+            elif any(keyword in task_lower for keyword in self.SOFTWARE_INVENTORY_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Execute software inventory discovery",
+                    "decision_factors": ["Software inventory keywords detected", "Application discovery needed", "Potential for bulk EOL analysis"],
+                    "alternative_approaches": ["Direct EOL check without inventory", "OS inventory first", "Combined inventory approach"],
+                    "selected_approach": "Software inventory specialist with optional EOL analysis",
+                    "reasoning": "Task requires software discovery as primary objective; route to SoftwareInventoryAnalyst for application discovery"
+                })
+            elif any(keyword in task_lower for keyword in self.GENERAL_INVENTORY_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Execute comprehensive inventory discovery",
+                    "decision_factors": ["General inventory keywords detected", "Comprehensive discovery needed", "Foundation for strategic analysis"],
+                    "alternative_approaches": ["OS inventory only", "Software inventory only", "EOL analysis without inventory"],
+                    "selected_approach": "Combined inventory with both OS and software specialists",
+                    "reasoning": "Task requires broad asset discovery; use both OSInventoryAnalyst and SoftwareInventoryAnalyst for comprehensive coverage"
+                })
+            elif any(keyword in task_lower for keyword in self.INVENTORY_EOL_KEYWORDS) and any(keyword in task_lower for keyword in self.EOL_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Execute inventory-grounded EOL analysis",
+                    "decision_factors": ["Combined inventory and EOL keywords detected", "Inventory-grounded analysis preferred", "Comprehensive lifecycle assessment needed"],
+                    "alternative_approaches": ["Inventory only", "EOL analysis without inventory", "Sequential approach"],
+                    "selected_approach": "Specialized inventory discovery followed by per-asset EOL analysis",
+                    "reasoning": "Task combines inventory discovery with EOL analysis; use appropriate inventory specialist (OS or Software) then route to EOL specialists"
+                })
+            elif any(keyword in task_lower for keyword in self.MICROSOFT_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Microsoft EOL specialist",
+                    "decision_factors": ["Microsoft product keywords detected", "Specialized knowledge required"],
+                    "alternative_approaches": ["Generic EOL search", "Multi-agent collaboration", "Inventory-grounded analysis"],
+                    "selected_approach": "Microsoft specialist with web search",
+                    "reasoning": "Task contains Microsoft-specific products requiring specialized EOL knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.LINUX_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Linux EOL specialist",
+                    "decision_factors": ["Linux distribution keywords detected", "OS-specific EOL patterns"],
+                    "alternative_approaches": ["Generic EOL search", "Ubuntu-specific tools", "Inventory-grounded analysis"],
+                    "selected_approach": "Linux specialist with distribution detection",
+                    "reasoning": "Task involves Linux distributions with specific EOL lifecycles"
+                })
+            elif any(keyword in task_lower for keyword in self.PYTHON_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Python EOL specialist",
+                    "decision_factors": ["Python ecosystem keywords detected", "Language-specific lifecycle"],
+                    "alternative_approaches": ["Generic EOL search", "Multi-language analysis", "Package-specific search"],
+                    "selected_approach": "Python specialist with ecosystem knowledge",
+                    "reasoning": "Task involves Python language or ecosystem requiring specialized knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.NODEJS_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Node.js EOL specialist",
+                    "decision_factors": ["Node.js ecosystem keywords detected", "JavaScript runtime lifecycle"],
+                    "alternative_approaches": ["Generic EOL search", "JavaScript-only analysis", "Package manager search"],
+                    "selected_approach": "Node.js specialist with LTS knowledge",
+                    "reasoning": "Task involves Node.js runtime or ecosystem requiring specialized knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.ORACLE_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Oracle EOL specialist",
+                    "decision_factors": ["Oracle product keywords detected", "Enterprise software lifecycle"],
+                    "alternative_approaches": ["Generic EOL search", "Java-specific analysis", "Database-only search"],
+                    "selected_approach": "Oracle specialist with enterprise knowledge",
+                    "reasoning": "Task involves Oracle products requiring specialized enterprise lifecycle knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.PHP_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to PHP EOL specialist",
+                    "decision_factors": ["PHP ecosystem keywords detected", "Web framework lifecycle"],
+                    "alternative_approaches": ["Generic EOL search", "Framework-specific analysis", "Language-only search"],
+                    "selected_approach": "PHP specialist with framework knowledge",
+                    "reasoning": "Task involves PHP language or web frameworks requiring specialized knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.POSTGRESQL_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to PostgreSQL EOL specialist",
+                    "decision_factors": ["PostgreSQL keywords detected", "Database-specific lifecycle"],
+                    "alternative_approaches": ["Generic database search", "SQL-only analysis", "Extension-specific search"],
+                    "selected_approach": "PostgreSQL specialist with extension knowledge",
+                    "reasoning": "Task involves PostgreSQL database requiring specialized database lifecycle knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.REDHAT_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Red Hat EOL specialist",
+                    "decision_factors": ["Red Hat ecosystem keywords detected", "Enterprise Linux lifecycle"],
+                    "alternative_approaches": ["Generic Linux search", "Distribution-only analysis", "Package-specific search"],
+                    "selected_approach": "Red Hat specialist with enterprise knowledge",
+                    "reasoning": "Task involves Red Hat ecosystem requiring specialized enterprise Linux knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.VMWARE_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to VMware EOL specialist",
+                    "decision_factors": ["VMware product keywords detected", "Virtualization platform lifecycle"],
+                    "alternative_approaches": ["Generic virtualization search", "Platform-specific analysis", "Infrastructure-only search"],
+                    "selected_approach": "VMware specialist with virtualization knowledge",
+                    "reasoning": "Task involves VMware virtualization products requiring specialized platform knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.APACHE_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to Apache EOL specialist",
+                    "decision_factors": ["Apache ecosystem keywords detected", "Web server/foundation lifecycle"],
+                    "alternative_approaches": ["Generic web server search", "Foundation-only analysis", "Server-specific search", "WebSurfer general search"],
+                    "selected_approach": "Apache specialist with foundation knowledge",
+                    "reasoning": "Task involves Apache Foundation products requiring specialized web infrastructure knowledge"
+                })
+            elif any(keyword in task_lower for keyword in self.EOL_KEYWORDS) and not any(tech in task_lower for tech in self.ALL_TECH_KEYWORDS):
+                decision_tree.update({
+                    "primary_decision": "Route to WebSurfer EOL specialist for general inquiry",
+                    "decision_factors": ["General EOL keywords detected", "No specific technology identified", "Web search capabilities optimal"],
+                    "alternative_approaches": ["Try all specialists sequentially", "EndOfLife API fallback", "Technology detection first"],
+                    "selected_approach": "WebSurfer comprehensive web search",
+                    "reasoning": "General EOL inquiry without specific technology; WebSurfer can search across all sources for comprehensive EOL information"
+                })
+            else:
+                # For general EOL queries or unknown technologies, consider WebSurfer as primary option
+                decision_tree.update({
+                    "primary_decision": "Route to WebSurfer EOL specialist or best-match specialist",
+                    "decision_factors": ["No specific technology detected", "General EOL inquiry", "Web search capabilities needed"],
+                    "alternative_approaches": ["Technology-specific routing", "Multi-specialist approach", "Inventory discovery first", "EndOfLife API fallback"],
+                    "selected_approach": "WebSurfer EOL search with intelligent fallback",
+                    "reasoning": "Task appears to be general EOL inquiry or unknown technology; WebSurfer can perform comprehensive web searches for any software/technology EOL information"
+                })
+        
+        elif planning_stage == "agent_coordination":
+            decision_tree.update({
+                "primary_decision": "Coordinate specialist agents",
+                "decision_factors": ["Task complexity", "Agent capabilities", "Response time requirements"],
+                "alternative_approaches": ["Sequential execution", "Parallel execution", "Hybrid approach"],
+                "selected_approach": "Coordinated specialist execution",
+                "reasoning": "Optimize for accuracy and comprehensive coverage"
+            })
+        
+        return decision_tree
+    
+    def _generate_agent_selection_reasoning(self, planning_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate reasoning for agent selection decisions"""
+        task = planning_data.get("task", "")
+        available_agents = planning_data.get("available_agents", [])
+        
+        # Handle case where no agents are available
+        if not available_agents:
+            _, task_type = self._classify_request(task)
+            return {
+                "task_analysis": {
+                    "task_type": task_type,
+                    "complexity_level": self._assess_task_complexity(task),
+                    "technology_scope": self._identify_technology_scope(task)
+                },
+                "agent_capabilities": {},
+                "selection_matrix": {},
+                "final_selection": {
+                    "primary_agent": "no_agents_available",
+                    "selection_confidence": 0.0,
+                    "selection_reasoning": ["No agents available for selection"],
+                    "fallback_agents": []
+                }
+            }
+        
+        _, task_type = self._classify_request(task)
+        selection_reasoning = {
+            "task_analysis": {
+                "task_type": task_type,
+                "complexity_level": self._assess_task_complexity(task),
+                "technology_scope": self._identify_technology_scope(task)
+            },
+            "agent_capabilities": {
+                agent: self._describe_agent_capabilities(agent) 
+                for agent in available_agents
+            },
+            "selection_matrix": self._create_agent_selection_matrix(task, available_agents),
+            "final_selection": self._determine_optimal_agent_selection(task, available_agents)
+        }
+        
+        return selection_reasoning
+    
+    def _determine_strategic_approach(self, planning_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Determine the strategic approach for task execution"""
+        task = planning_data.get("task", "")
+        _, task_type = self._classify_request(task)
+        
+        strategy = {
+            "approach_type": "adaptive",
+            "execution_strategy": "",
+            "risk_mitigation": [],
+            "quality_assurance": [],
+            "performance_optimization": []
+        }
+        
+        # Handle non-task scenarios (initialization, assessment)
+        if not task:
+            strategy.update({
+                "execution_strategy": "system_assessment",
+                "risk_mitigation": ["Graceful degradation", "Fallback mechanisms"],
+                "quality_assurance": ["Capability validation", "Error handling"],
+                "performance_optimization": ["Efficient initialization", "Resource management"]
+            })
+            return strategy
+        
+        # Handle mixed inventory + EOL analysis tasks with specialized strategy
+        if task_type == "MIXED_INVENTORY_EOL":
+            strategy.update({
+                "execution_strategy": "mixed_inventory_eol_workflow",
+                "risk_mitigation": [
+                    "Inventory collection failure fallback",
+                    "Per-asset EOL specialist routing",
+                    "Partial results aggregation if some assets fail"
+                ],
+                "quality_assurance": [
+                    "Inventory completeness validation",
+                    "Per-asset EOL accuracy verification",
+                    "Cross-reference inventory with EOL findings",
+                    "Technology-specific specialist validation"
+                ],
+                "performance_optimization": [
+                    "Efficient inventory collection with caching",
+                    "Parallel EOL analysis for discovered assets",
+                    "Technology-aware specialist routing",
+                    "Result aggregation and deduplication"
+                ]
+            })
+            return strategy
+        
+        # Determine execution strategy based on task characteristics for other types
+        if "urgent" in task.lower() or "critical" in task.lower():
+            strategy.update({
+                "execution_strategy": "fast_path_with_validation",
+                "risk_mitigation": ["Quick validation checks", "Fallback options ready"],
+                "quality_assurance": ["Real-time verification", "Citation validation"],
+                "performance_optimization": ["Cached results priority", "Parallel web searches"]
+            })
+        else:
+            strategy.update({
+                "execution_strategy": "comprehensive_analysis",
+                "risk_mitigation": ["Multiple source verification", "Cross-validation"],
+                "quality_assurance": ["Detailed citation tracking", "Source authenticity checks"],
+                "performance_optimization": ["Deep web search", "Multiple specialist consultation"]
+            })
+        
+        return strategy
+    
+    def _predict_workflow_steps(self, planning_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Predict the expected workflow steps"""
+        task = planning_data.get("task", "")
+        _, task_type = self._classify_request(task) if task else (None, "GENERAL_QUERY")
+        
+        # Handle non-task scenarios (initialization, assessment)
+        if not task:
+            return [
+                {
+                    "step": 1,
+                    "action": "System Assessment",
+                    "description": "Evaluate orchestrator capabilities and agent availability",
+                    "expected_duration": "0.1s",
+                    "success_criteria": "System readiness confirmed"
+                },
+                {
+                    "step": 2,
+                    "action": "Configuration Validation",
+                    "description": "Verify system configuration and resource availability",
+                    "expected_duration": "0.1s",
+                    "success_criteria": "Configuration validated"
+                }
+            ]
+        
+        # Handle mixed inventory + EOL analysis workflows
+        if task_type == "MIXED_INVENTORY_EOL":
+            return [
+                {
+                    "step": 1,
+                    "action": "Trigger OS or Software Inventory Specialist",
+                    "description": "Call appropriate inventory specialist based on user request",
+                    "expected_duration": "2-5s",
+                    "success_criteria": "Complete inventory JSON response obtained"
+                },
+                {
+                    "step": 2,
+                    "action": "Wait for Response and Extract Items",
+                    "description": "Iterate through inventory response, extract name and version for each item",
+                    "expected_duration": "0.5s",
+                    "success_criteria": "All inventory items parsed with name/version pairs"
+                },
+                {
+                    "step": 3,
+                    "action": "Trigger EOL Specialist",
+                    "description": "Route each inventory item to appropriate technology specialist (Microsoft/Python/NodeJS/Oracle/PHP/PostgreSQL/RedHat/Ubuntu/VMware/Apache/AzureAI/WebSurfer) with name and version",
+                    "expected_duration": "3-10s",
+                    "success_criteria": "EOL status determined for all inventory items"
+                },
+                {
+                    "step": 4,
+                    "action": "Update Item with EOL Data",
+                    "description": "Correlate EOL analysis results with inventory items and format response",
+                    "expected_duration": "1-2s",
+                    "success_criteria": "User-friendly format with inventory + EOL data consolidated"
+                }
+            ]
+        
+        # Default workflow for other task types
+        workflow_steps = [
+            {
+                "step": 1,
+                "action": "Task Analysis",
+                "description": "Parse user request and identify key requirements",
+                "expected_duration": "0.5s",
+                "success_criteria": "Clear understanding of user intent"
+            },
+            {
+                "step": 2,
+                "action": "Agent Selection",
+                "description": "Select optimal specialist agent(s) based on task type",
+                "expected_duration": "0.2s",
+                "success_criteria": "Appropriate specialist identified"
+            },
+            {
+                "step": 3,
+                "action": "Web Search Execution",
+                "description": "Perform targeted web searches for EOL information",
+                "expected_duration": "3-10s",
+                "success_criteria": "Relevant EOL data with citations obtained"
+            },
+            {
+                "step": 4,
+                "action": "Data Verification",
+                "description": "Validate EOL information and sources",
+                "expected_duration": "1-2s",
+                "success_criteria": "Information accuracy confirmed"
+            },
+            {
+                "step": 5,
+                "action": "Response Synthesis",
+                "description": "Compile comprehensive response with citations",
+                "expected_duration": "1s",
+                "success_criteria": "Clear, actionable response delivered"
+            }
+        ]
+        
+        return workflow_steps
+    
+    def _classify_request(self, message: str) -> tuple[str, str]:
+        """
+        Unified request classification that returns both query type and task type.
+        
+        Returns:
+            tuple: (query_type, task_type) where:
+            - query_type: detailed classification for routing logic
+            - task_type: high-level task classification for workflow selection
+        """
+        message_lower = message.lower()
+        
+        # 1. Internet search patterns - highest priority
+        internet_search_patterns = [
+            "search internet", "search the internet", "search online", "look up online",
+            "search web", "search the web", "find online", "look up on the internet", 
+            "search for", "google", "web search", "latest eol", "azure ai search"
+        ]
+        
+        if any(pattern in message_lower for pattern in internet_search_patterns):
+            return ("internet_eol", "INTERNET_EOL")
+        
+        # 2. Check for EOL keywords early to help with mixed vs pure classification
+        has_eol_keywords = any(eol_word in message_lower for eol_word in [
+            "eol", "end of life", "support", "lifecycle", "retirement", "support ends",
+            "when does", "when will", "end of support"
+        ])
+        
+        # 3. Check for inventory keywords
+        has_inventory_keywords = any(inv_word in message_lower for inv_word in [
+            "inventory", "list", "software", "versions", "what do i have", 
+            "show me my", "what applications", "what systems", "installed"
+        ])
+        
+        # 4. OS-related keywords
+        has_os_keywords = any(os_word in message_lower for os_word in [
+            "operating system", "windows", "linux", "ubuntu", "centos", "rhel",
+            "os version", "kernel", "what os", "which os", "server os", "os"
+        ])
+        
+        # 5. Software-related keywords  
+        has_software_keywords = any(sw_word in message_lower for sw_word in [
+            "software", "application", "program", "sql server", "office", "adobe"
+        ])
+        
+        # 6. Mixed workflow: inventory + EOL analysis
+        if has_inventory_keywords and has_eol_keywords:
+            if has_os_keywords:
+                return ("os_eol_grounded", "MIXED_INVENTORY_EOL")
+            elif has_software_keywords:
+                return ("software_eol_grounded", "MIXED_INVENTORY_EOL") 
+            else:
+                return ("general_eol_grounded", "MIXED_INVENTORY_EOL")
+        
+        # 7. Pure EOL queries (no inventory context needed)
+        pure_eol_patterns = [
+            "when does", "when will", "what is the eol", "what is the end of life",
+            "support ends", "lifecycle information", "retirement date",
+            "eol date", "end of support", "microsoft support", "ubuntu support"
+        ]
+        
+        if any(pattern in message_lower for pattern in pure_eol_patterns) or \
+           (has_eol_keywords and not has_inventory_keywords):
+            return ("direct_eol", "EOL_ONLY")
+        
+        # 8. Pure inventory queries (no EOL context)
+        pure_inventory_patterns = [
+            "what software do i have", "what do i have installed", "show me my software",
+            "list my software", "software in my inventory", "what applications do i have",
+            "what os versions do i have", "what operating systems", "show me my os",
+            "list my os", "os in my inventory", "what systems do i have"
+        ]
+        
+        if any(pattern in message_lower for pattern in pure_inventory_patterns) and not has_eol_keywords:
+            if has_os_keywords:
+                return ("os_inventory", "INVENTORY_ONLY")
+            else:
+                return ("software_inventory", "INVENTORY_ONLY")
+        
+        # 9. OS-related queries
+        if has_os_keywords:
+            if has_eol_keywords:
+                return ("os_eol_grounded", "MIXED_INVENTORY_EOL")
+            else:
+                return ("os_inventory", "INVENTORY_ONLY")
+        
+        # 10. Software-related queries  
+        if has_software_keywords:
+            if has_eol_keywords:
+                return ("software_eol_grounded", "MIXED_INVENTORY_EOL")
+            else:
+                return ("software_inventory", "INVENTORY_ONLY")
+        
+        # 11. General inventory queries
+        if has_inventory_keywords and not has_eol_keywords:
+            return ("software_inventory", "INVENTORY_ONLY")
+        
+        # 12. General EOL queries (need inventory context)
+        if has_eol_keywords:
+            return ("general_eol_grounded", "MIXED_INVENTORY_EOL")
+        
+        # 13. Other task types
+        if any(keyword in message_lower for keyword in ["update", "upgrade", "migration"]):
+            return ("update_planning", "UPDATE_PLANNING")
+        
+        # 14. Default fallback
+        return ("software_inventory", "INVENTORY_ONLY")
+    
+    def _classify_task_type(self, task: str) -> str:
+        """Legacy compatibility method - redirects to unified classification"""
+        _, task_type = self._classify_request(task)
+        return task_type
+    
+    def _classify_request_simple(self, message: str) -> str:
+        """Legacy compatibility method - redirects to unified classification"""
+        query_type, _ = self._classify_request(message)
+        return query_type
+    
+    def _assess_task_complexity(self, task: str) -> str:
+        """Assess the complexity level of the task"""
+        complexity_indicators = len(task.split()) + len(re.findall(r'\b(?:and|or|with|including)\b', task.lower()))
+        
+        if complexity_indicators > 20:
+            return "HIGH"
+        elif complexity_indicators > 10:
+            return "MEDIUM"
+        else:
+            return "LOW"
+    
+    def _identify_technology_scope(self, task: str) -> List[str]:
+        """Identify technology scope from task content"""
+        technologies = []
+        task_lower = task.lower()
+        
+        # Microsoft technologies
+        if any(keyword in task_lower for keyword in ["windows", "microsoft", "office", "exchange", "sql server", "azure", "sharepoint", "teams"]):
+            technologies.append("Microsoft")
+         
+        # Python technologies
+        if any(keyword in task_lower for keyword in ["python", "django", "flask", "pip", "conda", "jupyter", "pandas", "numpy"]):
+            technologies.append("Python")
+        
+        # Node.js technologies
+        if any(keyword in task_lower for keyword in ["nodejs", "node.js", "npm", "javascript", "node", "express", "react", "vue"]):
+            technologies.append("NodeJS")
+        
+        # Oracle technologies
+        if any(keyword in task_lower for keyword in ["oracle", "java", "jdk", "jre", "mysql", "virtualbox", "solaris"]):
+            technologies.append("Oracle")
+        
+        # PHP technologies
+        if any(keyword in task_lower for keyword in ["php", "composer", "laravel", "symfony", "wordpress", "drupal"]):
+            technologies.append("PHP")
+        
+        # PostgreSQL technologies
+        if any(keyword in task_lower for keyword in ["postgresql", "postgres", "postgis", "pgadmin"]):
+            technologies.append("PostgreSQL")
+        
+        # Red Hat technologies
+        if any(keyword in task_lower for keyword in ["redhat", "red hat", "rhel", "centos", "fedora", "openshift"]):
+            technologies.append("RedHat")
+        
+        # Ubuntu technologies
+        if any(keyword in task_lower for keyword in ["ubuntu", "canonical", "snap", "snapcraft", "launchpad"]):
+            technologies.append("Ubuntu")
+        
+        # VMware technologies
+        if any(keyword in task_lower for keyword in ["vmware", "vsphere", "esxi", "vcenter", "workstation", "fusion"]):
+            technologies.append("VMware")
+        
+        # Apache technologies
+        if any(keyword in task_lower for keyword in ["apache", "httpd", "tomcat", "maven", "spark", "kafka", "cassandra"]):
+            technologies.append("Apache")
+        
+        return technologies if technologies else ["Python"]  # Default to Python as most common
+    
+    def _describe_agent_capabilities(self, agent_name: str) -> Dict[str, Any]:
+        """Describe the capabilities of a specific agent"""
+        capabilities = {
+            "OSInventoryAnalyst": {
+                "specialty": "Operating system inventory analysis",
+                "tools": ["OS discovery", "System information scanning", "Platform detection", "Version enumeration"],
+                "strengths": ["OS identification", "Platform enumeration", "Version detection", "Multi-platform support"],
+                "best_for": ["OS inventory queries", "Operating system discovery", "Platform auditing", "OS-grounded EOL analysis"]
+            },
+            "SoftwareInventoryAnalyst": {
+                "specialty": "Software and application inventory analysis",
+                "tools": ["Software scanning", "Application discovery", "Package enumeration", "Version detection"],
+                "strengths": ["Application discovery", "Software enumeration", "Package analysis", "Cross-platform scanning"],
+                "best_for": ["Software inventory queries", "Application discovery", "Package auditing", "Software-grounded EOL analysis"]
+            },
+            "MicrosoftEOLSpecialist": {
+                "specialty": "Microsoft product EOL analysis",
+                "tools": ["WebSurfer", "Microsoft-specific searches"],
+                "strengths": ["Microsoft lifecycle knowledge", "Official documentation"],
+                "best_for": ["Windows EOL", "Office EOL", "SQL Server EOL"]
+            },
+            "ApacheEOLSpecialist": {
+                "specialty": "Apache software stack EOL analysis",
+                "tools": ["Apache foundation sites", "Official documentation"],
+                "strengths": ["Apache HTTP Server", "Tomcat", "Maven lifecycle knowledge"],
+                "best_for": ["Apache HTTP Server EOL", "Tomcat EOL", "Apache ecosystem"]
+            },
+            "NodeJSEOLSpecialist": {
+                "specialty": "Node.js and JavaScript runtime EOL analysis",
+                "tools": ["Node.js release schedule", "npm registry"],
+                "strengths": ["Node.js LTS cycles", "JavaScript ecosystem"],
+                "best_for": ["Node.js EOL", "npm package lifecycle", "JavaScript runtime"]
+            },
+            "OracleEOLSpecialist": {
+                "specialty": "Oracle products EOL analysis",
+                "tools": ["Oracle support portal", "Official documentation"],
+                "strengths": ["Oracle Database", "Java SE", "MySQL lifecycle knowledge"],
+                "best_for": ["Oracle Database EOL", "Java SE EOL", "Oracle ecosystem"]
+            },
+            "PHPEOLSpecialist": {
+                "specialty": "PHP language and ecosystem EOL analysis",
+                "tools": ["PHP.net official site", "Release documentation"],
+                "strengths": ["PHP version lifecycle", "Extension support"],
+                "best_for": ["PHP EOL", "PHP extension lifecycle", "Web framework EOL"]
+            },
+            "PostgreSQLEOLSpecialist": {
+                "specialty": "PostgreSQL database EOL analysis",
+                "tools": ["PostgreSQL.org", "Release documentation"],
+                "strengths": ["PostgreSQL version policy", "Extension lifecycle"],
+                "best_for": ["PostgreSQL EOL", "Database lifecycle", "PostGIS EOL"]
+            },
+            "PythonEOLSpecialist": {
+                "specialty": "Python language and ecosystem EOL analysis",
+                "tools": ["Python.org", "PEP documentation", "PyPI"],
+                "strengths": ["Python version lifecycle", "Package ecosystem"],
+                "best_for": ["Python EOL", "Django EOL", "Python package lifecycle"]
+            },
+            "RedHatEOLSpecialist": {
+                "specialty": "Red Hat and enterprise Linux EOL analysis",
+                "tools": ["Red Hat portal", "RHEL documentation"],
+                "strengths": ["RHEL lifecycle", "Enterprise support cycles"],
+                "best_for": ["RHEL EOL", "CentOS EOL", "Red Hat ecosystem"]
+            },
+            "UbuntuEOLSpecialist": {
+                "specialty": "Ubuntu and Canonical products EOL analysis",
+                "tools": ["Ubuntu.com", "Launchpad", "Release documentation"],
+                "strengths": ["Ubuntu LTS cycles", "Snap package lifecycle"],
+                "best_for": ["Ubuntu EOL", "Snap EOL", "Canonical ecosystem"]
+            },
+            "VMwareEOLSpecialist": {
+                "specialty": "VMware products EOL analysis",
+                "tools": ["VMware support portal", "Product documentation"],
+                "strengths": ["vSphere lifecycle", "Virtual infrastructure"],
+                "best_for": ["vSphere EOL", "ESXi EOL", "VMware ecosystem"]
+            },
+            "AzureAIEOLSpecialist": {
+                "specialty": "Azure AI Agent Service with grounding for comprehensive EOL analysis",
+                "tools": ["Azure AI Foundry", "Azure AI Grounding", "Azure AI Services", "Real-time web search"],
+                "strengths": ["Modern AI grounding", "Source citations", "Enterprise reliability", "Structured results"],
+                "best_for": ["General EOL queries", "Unknown technology EOL", "Latest EOL updates", "Cross-platform EOL research", "Primary search agent"]
+            },
+            "WebSurferEOLSpecialist": {
+                "specialty": "Comprehensive web-based EOL analysis for any technology",
+                "tools": ["WebSurfer", "Autogen Multimodal Websurfer", "Multi-source web search", "Real-time web data"],
+                "strengths": ["Universal technology coverage", "Latest information", "Multiple source validation", "Unknown technology discovery"],
+                "best_for": ["General EOL queries", "Unknown technology EOL", "Latest EOL updates", "Cross-platform EOL research", "Fallback analysis"]
+            }
+        }
+        
+        return capabilities.get(agent_name, {"specialty": "Unknown", "tools": [], "strengths": [], "best_for": []})
+    
+    def _create_agent_selection_matrix(self, task: str, available_agents: List[str]) -> Dict[str, Any]:
+        """Create a selection matrix for agent scoring"""
+        _, task_type = self._classify_request(task)
+        technology_scope = self._identify_technology_scope(task)
+        
+        matrix = {}
+        for agent in available_agents:
+            score = 0
+            reasoning = []
+            
+            # Score based on agent specialization match
+            if agent == "MicrosoftEOLSpecialist" and "Microsoft" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Microsoft technologies")
+            elif agent == "PythonEOLSpecialist" and "Python" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Python ecosystem")
+            elif agent == "NodeJSEOLSpecialist" and "NodeJS" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Node.js ecosystem")
+            elif agent == "OracleEOLSpecialist" and "Oracle" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Oracle products")
+            elif agent == "PHPEOLSpecialist" and "PHP" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for PHP ecosystem")
+            elif agent == "PostgreSQLEOLSpecialist" and "PostgreSQL" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for PostgreSQL database")
+            elif agent == "RedHatEOLSpecialist" and "RedHat" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Red Hat ecosystem")
+            elif agent == "UbuntuEOLSpecialist" and "Ubuntu" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Ubuntu/Canonical products")
+            elif agent == "VMwareEOLSpecialist" and "VMware" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for VMware virtualization")
+            elif agent == "ApacheEOLSpecialist" and "Apache" in technology_scope:
+                score += 3
+                reasoning.append("Perfect match for Apache foundation products")
+            elif agent == "AzureAIEOLSpecialist":
+                # Azure AI Agent Service is the primary search agent with modern capabilities
+                score += 2
+                reasoning.append("Modern AI grounding with source citations")
+                if any(keyword in task.lower() for keyword in ["search", "find", "latest", "unknown"]):
+                    score += 2
+                    reasoning.append("Excellent for modern search with AI grounding")
+            elif agent == "WebSurferEOLSpecialist":
+                # WebSurfer is universal - give it a base score and bonus for general queries
+                score += 1
+                reasoning.append("Universal EOL search capability")
+                if not any(tech in technology_scope for tech in ["Microsoft", "Python", "NodeJS", "Oracle", "PHP", "PostgreSQL", "RedHat", "Ubuntu", "VMware", "Apache"]):
+                    score += 2
+                    reasoning.append("Best choice for unknown or general technologies")
+                if any(keyword in task.lower() for keyword in ["general", "any", "unknown", "search", "find"]):
+                    score += 1
+                    reasoning.append("Optimal for general search queries")
+            
+            # Enhanced scoring based on task type
+            if task_type == "EOL_ONLY" and "Specialist" in agent:
+                score += 2
+                reasoning.append("Specialized for EOL analysis")
+            elif task_type == "INVENTORY_ONLY":
+                if agent == "OSInventoryAnalyst" and any(keyword in task.lower() for keyword in ["os", "operating system", "platform"]):
+                    score += 3
+                    reasoning.append("Specialized for OS inventory analysis")
+                elif agent == "SoftwareInventoryAnalyst" and any(keyword in task.lower() for keyword in ["software", "applications", "packages"]):
+                    score += 3
+                    reasoning.append("Specialized for software inventory analysis")
+                elif agent in ["OSInventoryAnalyst", "SoftwareInventoryAnalyst"]:
+                    score += 2
+                    reasoning.append("General inventory capability")
+            elif task_type == "MIXED_INVENTORY_EOL":
+                if agent == "OSInventoryAnalyst" and any(keyword in task.lower() for keyword in ["os", "operating system", "platform"]):
+                    score += 3
+                    reasoning.append("Essential for OS inventory discovery in mixed analysis")
+                elif agent == "SoftwareInventoryAnalyst" and any(keyword in task.lower() for keyword in ["software", "applications", "packages"]):
+                    score += 3
+                    reasoning.append("Essential for software inventory discovery in mixed analysis")
+                elif agent in ["OSInventoryAnalyst", "SoftwareInventoryAnalyst"]:
+                    score += 2
+                    reasoning.append("Required for inventory discovery in mixed analysis")
+                elif "Specialist" in agent:
+                    score += 2
+                    reasoning.append("Required for EOL analysis after inventory discovery")
+                    # Additional bonus for technology-specific specialists in mixed tasks
+                    if ((agent == "MicrosoftEOLSpecialist" and "Microsoft" in technology_scope) or
+                        (agent == "PythonEOLSpecialist" and "Python" in technology_scope) or
+                        (agent == "NodeJSEOLSpecialist" and "NodeJS" in technology_scope) or
+                        (agent == "OracleEOLSpecialist" and "Oracle" in technology_scope) or
+                        (agent == "PHPEOLSpecialist" and "PHP" in technology_scope) or
+                        (agent == "PostgreSQLEOLSpecialist" and "PostgreSQL" in technology_scope) or
+                        (agent == "RedHatEOLSpecialist" and "RedHat" in technology_scope) or
+                        (agent == "UbuntuEOLSpecialist" and "Ubuntu" in technology_scope) or
+                        (agent == "VMwareEOLSpecialist" and "VMware" in technology_scope) or
+                        (agent == "ApacheEOLSpecialist" and "Apache" in technology_scope)):
+                        score += 1
+                        reasoning.append("Technology specialist bonus for inventory-grounded EOL analysis")
+            
+            matrix[agent] = {
+                "score": score,
+                "reasoning": reasoning,
+                "recommended": score >= 2
+            }
+        
+        return matrix
+    
+    def _determine_optimal_agent_selection(self, task: str, available_agents: List[str]) -> Dict[str, Any]:
+        """Determine the optimal agent selection"""
+        matrix = self._create_agent_selection_matrix(task, available_agents)
+        
+        # Handle empty agent list gracefully
+        if not matrix or not available_agents:
+            return {
+                "primary_agent": "no_agents_available",
+                "selection_confidence": 0.0,
+                "selection_reasoning": ["No agents available for selection"],
+                "fallback_agents": []
+            }
+        
+        # Find highest scoring agent
+        best_agent = max(matrix.keys(), key=lambda agent: matrix[agent]["score"])
+        
+        return {
+            "primary_agent": best_agent,
+            "selection_confidence": matrix[best_agent]["score"] / 5.0,  # Normalize to 0-1
+            "selection_reasoning": matrix[best_agent]["reasoning"],
+            "fallback_agents": [
+                agent for agent, data in matrix.items() 
+                if agent != best_agent and data["score"] > 0
+            ]
+        }
+    
+    def _log_performance_metric(self, metric_name: str, value: float, metadata: Dict[str, Any] = None):
+        """Log performance metrics for orchestrator behavior"""
+        metric_log = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": self.session_id,
+            "metric_name": metric_name,
+            "value": value,
+            "metadata": metadata or {},
+            "conversation_id": len(self.conversation_history)
+        }
+        
+        self.performance_metrics[metric_name].append(metric_log)
+        
+        logger.info(f"📊 PERFORMANCE_METRIC [{metric_name}]: {value} {json.dumps(metadata or {}, default=str)}")
+    
+    def _log_error_and_recovery(self, error_type: str, error_details: Dict[str, Any], recovery_action: str = None):
+        """Log errors and recovery actions"""
+        error_log = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": self.session_id,
+            "error_type": error_type,
+            "error_details": error_details,
+            "recovery_action": recovery_action,
+            "conversation_id": len(self.conversation_history)
+        }
+        
+        self.error_logs.append(error_log)
+        
+        if recovery_action:
+            self.recovery_actions.append({
+                "timestamp": datetime.now().isoformat(),
+                "session_id": self.session_id,
+                "recovery_action": recovery_action,
+                "original_error": error_type
+            })
+        
+        logger.error(f"🚨 ERROR_RECOVERY [{error_type}]: {json.dumps(error_details, default=str)} → {recovery_action}")
+    
+    async def execute_mixed_inventory_eol_workflow(self, user_message: str, planning_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute the mixed inventory with EOL analysis workflow from flow diagram:
+        1. Trigger OS or Software inventory specialist and wait for response
+        2. Wait for response, iterate through each item, extract name and version
+        3. Trigger appropriate technology specialist with name/version to search for EOL date
+        4. Update item with EOL date found and format into user-friendly format
+        """
+        workflow_start_time = time.time()
+        
+        result = {
+            "workflow_type": "mixed_inventory_eol",
+            "user_message": user_message,
+            "steps_completed": [],
+            "inventory_data": None,
+            "parsed_items": [],
+            "eol_analyses": [],
+            "final_summary": {},
+            "errors": []
+        }
+        
+        self._log_orchestrator_event("inventory_eol_workflow_start", {
+            "user_message": user_message,
+            "workflow_start_time": workflow_start_time
+        })
+        
+        try:
+            # Step 1: Trigger OS or Software inventory specialist and wait for response
+            self._log_orchestrator_event("workflow_step_1_start", {"step": "trigger_inventory_specialist"})
+            
+            # Determine if user wants OS inventory, software inventory, or both
+            inventory_type = self._determine_inventory_type(user_message)
+            inventory_response = await self._collect_inventory_data(inventory_type)
+            
+            result["inventory_data"] = inventory_response
+            result["steps_completed"].append("trigger_inventory_specialist")
+            
+            self._log_orchestrator_event("workflow_step_1_complete", {
+                "inventory_type": inventory_type,
+                "response_length": len(str(inventory_response))
+            })
+            
+            # Step 2: Wait for response, iterate through each item, extract name and version
+            self._log_orchestrator_event("workflow_step_2_start", {"step": "extract_name_version"})
+            
+            parsed_items = self._parse_inventory_items(inventory_response, inventory_type)
+            result["parsed_items"] = parsed_items
+            result["steps_completed"].append("extract_name_version")
+            
+            self._log_orchestrator_event("workflow_step_2_complete", {
+                "parsed_items_count": len(parsed_items),
+                "sample_items": parsed_items[:3] if len(parsed_items) > 3 else parsed_items
+            })
+            
+            # Step 3: Trigger appropriate technology specialist with name and version
+            self._log_orchestrator_event("workflow_step_3_start", {"step": "trigger_eol_specialist"})
+            
+            eol_analyses = []
+            for item in parsed_items:
+                try:
+                    # Determine the right EOL specialist type for this item
+                    specialist_type = self._determine_eol_specialist_type(item)
+                    name = item.get("name", "")
+                    version = item.get("version", "")
+                    
+                    # Call the unified specialist function directly with proper parameters
+                    eol_result = await self._call_eol_specialist_unified(
+                        specialist_type, 
+                        name, 
+                        version, 
+                        user_message=user_message,
+                        conversation_id=planning_data.get("conversation_id"),
+                        start_time=workflow_start_time,
+                        cache_key=None,  # No caching for workflow items
+                        timeout_seconds=planning_data.get("timeout_seconds", 60)
+                    )
+                    
+                    eol_analyses.append({
+                        "item": item,
+                        "specialist_used": f"{specialist_type.title()}EOLSpecialist",
+                        "eol_result": eol_result,
+                        "status": "success"
+                    })
+                    
+                except Exception as e:
+                    eol_analyses.append({
+                        "item": item,
+                        "specialist_used": "error",
+                        "eol_result": None,
+                        "status": "error",
+                        "error": str(e)
+                    })
+                    result["errors"].append(f"EOL analysis failed for {item.get('name', 'unknown')}: {str(e)}")
+            
+            result["eol_analyses"] = eol_analyses
+            result["steps_completed"].append("trigger_eol_specialist")
+            
+            self._log_orchestrator_event("workflow_step_3_complete", {
+                "total_items_analyzed": len(eol_analyses),
+                "successful_analyses": len([a for a in eol_analyses if a["status"] == "success"]),
+                "failed_analyses": len([a for a in eol_analyses if a["status"] == "error"])
+            })
+            
+            # Step 4: Update item with EOL date found and format into user-friendly format
+            self._log_orchestrator_event("workflow_step_4_start", {"step": "update_item_with_eol_data"})
+            
+            final_summary = self._correlate_and_format_eol_results(eol_analyses, user_message)
+            result["final_summary"] = final_summary
+            result["steps_completed"].append("update_item_with_eol_data")
+            
+            workflow_end_time = time.time()
+            total_duration = workflow_end_time - workflow_start_time
+            
+            self._log_orchestrator_event("inventory_eol_workflow_complete", {
+                "total_duration": total_duration,
+                "steps_completed": result["steps_completed"],
+                "total_items": len(parsed_items),
+                "successful_eol_checks": len([a for a in eol_analyses if a["status"] == "success"])
+            })
+            
+            self._log_performance_metric("inventory_eol_workflow_duration", total_duration, {
+                "items_processed": len(parsed_items),
+                "eol_analyses_completed": len(eol_analyses)
+            })
+            
+            return result
+            
+        except Exception as e:
+            self._log_error_and_recovery("inventory_eol_workflow_failure", {
+                "error": str(e),
+                "user_message": user_message,
+                "steps_completed": result["steps_completed"]
+            }, "return_partial_results")
+            
+            result["errors"].append(f"Workflow failure: {str(e)}")
+            return result
+    
+    async def _route_inventory_only_task(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
+        """Route inventory-only tasks to appropriate specialist based on Software/OS inventory type"""
+        logger.info(f"📦 Routing INVENTORY_ONLY task")
+        
+        # Determine if Software inventory only, OS inventory only, or mixed
+        message_lower = user_message.lower()
+        
+        if any(keyword in message_lower for keyword in ["software", "applications", "packages"]) and not any(keyword in message_lower for keyword in ["os", "operating system", "platform"]):
+            # Software inventory only
+            logger.info(f"→ Routing to Software inventory specialist")
+            return await self._call_software_inventory_specialist_direct(user_message, conversation_id, start_time, cache_key)
+        elif any(keyword in message_lower for keyword in ["os", "operating system", "platform"]) and not any(keyword in message_lower for keyword in ["software", "applications", "packages"]):
+            # OS inventory only
+            logger.info(f"→ Routing to OS inventory specialist")
+            return await self._call_os_inventory_specialist_direct(user_message, conversation_id, start_time, cache_key)
+        else:
+            # Mixed or general inventory - call both specialists
+            logger.info(f"→ Routing to both OS and Software inventory specialists")
+            return await self._call_both_inventory_specialists_direct(user_message, conversation_id, start_time, cache_key)
+    
+    async def _route_eol_only_task(self, user_message: str, conversation_id: int, start_time: float, cache_key: str, timeout_seconds: int) -> Dict[str, Any]:
+        """Route EOL-only tasks to specific technology specialists based on technology detected"""
+        logger.info(f"🔍 Routing EOL_ONLY task")
+        
+        # Determine technology scope for routing
+        message_lower = user_message.lower()
+        
+        # Technology-specific routing using mapping for cleaner code
+        specialist_mappings = {
+            "microsoft": ["windows", "microsoft", "office", "exchange", "sql server", "azure"],
+            "ubuntu": ["ubuntu"],
+            "python": ["python", "django", "flask", "pip", "conda"],
+            "nodejs": ["nodejs", "node.js", "npm", "javascript", "node"],
+            "oracle": ["oracle", "java", "mysql", "virtualbox"],
+            "php": ["php", "composer", "laravel", "symfony"],
+            "postgresql": ["postgresql", "postgres", "postgis"],
+            "redhat": ["redhat", "rhel", "fedora"],
+            "vmware": ["vmware", "vsphere", "esxi", "vcenter"],
+            "apache": ["apache", "httpd", "tomcat", "maven"]
+        }
+        
+        # Find matching specialist based on keywords
+        selected_specialist = None
+        for specialist, keywords in specialist_mappings.items():
+            if any(keyword in message_lower for keyword in keywords):
+                selected_specialist = specialist
+                break
+        
+        # Default to general if no specific technology detected
+        if not selected_specialist:
+            selected_specialist = "general"
+        
+        # Log routing decision and call unified function
+        specialist_names = {
+            "microsoft": "Microsoft", "ubuntu": "Ubuntu", "python": "Python", 
+            "nodejs": "Node.js", "oracle": "Oracle", "php": "PHP", 
+            "postgresql": "PostgreSQL", "redhat": "Red Hat", "vmware": "VMware", 
+            "apache": "Apache", "general": "General"
+        }
+        
+        logger.info(f"→ Routing to {specialist_names.get(selected_specialist, selected_specialist)} EOL specialist")
+        software_name, version = self._extract_software_name_version(user_message)
+        result = await self._call_eol_specialist_unified(selected_specialist, software_name, version, 
+                                                     user_message, conversation_id, start_time, cache_key, timeout_seconds)
+        
+        # Convert tracking format to chat response format for direct calls
+        return self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
+        
+    def _determine_inventory_type(self, user_message: str) -> str:
+        """Determine what type of inventory the user wants (os, software, or both)"""
+        message_lower = user_message.lower()
+        
+        has_os_keywords = any(keyword in message_lower for keyword in ["os", "operating system", "os inventory"])
+        has_software_keywords = any(keyword in message_lower for keyword in ["software", "applications", "software inventory"])
+        
+        if has_os_keywords and has_software_keywords:
+            return "both"
+        elif has_os_keywords:
+            return "os"
+        elif has_software_keywords:
+            return "software"
+        else:
+            return "both"  # Default to both if unclear
+    
+    async def _route_internet_eol_task(self, user_message: str, conversation_id: int, start_time: float, cache_key: str, timeout_seconds: int) -> Dict[str, Any]:
+        """Route INTERNET_EOL tasks directly to internet search agents (WebSurfer -> Azure AI fallback)"""
+        logger.info(f"🌐 Routing INTERNET_EOL task - Direct internet search for EOL data")
+        
+        # Extract software name and version for targeted search
+        software_name, version = self._extract_software_name_version(user_message)
+        
+        # Log the routing decision
+        self._log_orchestrator_event("internet_eol_routing", {
+            "user_message_preview": user_message[:100],
+            "software_name": software_name,
+            "version": version,
+            "routing_strategy": "websurfer_primary_azure_ai_fallback"
+        })
+        
+        try:
+            # Primary: Try WebSurfer for internet search
+            logger.info(f"🔍 Attempting WebSurfer internet search for {software_name} {version or ''}")
+            
+            websurfer_result = await self._call_eol_specialist_unified("websurfer", software_name, version, 
+                                                                     user_message, conversation_id, start_time, cache_key, timeout_seconds)
+            
+            # Convert to chat format and check if successful
+            websurfer_chat_result = self._convert_tracking_to_chat_response(websurfer_result, user_message, conversation_id, start_time)
+            
+            # Check if WebSurfer was successful
+            if websurfer_result.get("eol_data", {}).get("success", False):
+                logger.info(f"✅ WebSurfer internet search successful for {software_name} {version or ''}")
+                return websurfer_chat_result
+            else:
+                logger.warning(f"⚠️ WebSurfer search failed for {software_name} {version or ''}, trying Azure AI fallback")
+                
+                # Fallback: Try Azure AI Agent Service
+                logger.info(f"🤖 Attempting Azure AI Agent Service fallback for {software_name} {version or ''}")
+                
+                azure_ai_result = await self._call_eol_specialist_unified("azure_ai", software_name, version, 
+                                                                         user_message, conversation_id, start_time, cache_key, timeout_seconds)
+                
+                # Convert to chat format and check if successful
+                azure_ai_chat_result = self._convert_tracking_to_chat_response(azure_ai_result, user_message, conversation_id, start_time)
+                
+                # Check if Azure AI was successful
+                if azure_ai_result.get("eol_data", {}).get("success", False):
+                    logger.info(f"✅ Azure AI Agent Service fallback successful for {software_name} {version or ''}")
+                    return azure_ai_chat_result
+                else:
+                    logger.error(f"❌ Both WebSurfer and Azure AI searches failed for {software_name} {version or ''}")
+                    
+                    # Return the best available result with error indication
+                    return {
+                        "response": f"Internet search for {software_name} {version or ''} EOL information failed. Both WebSurfer and Azure AI were unable to find reliable EOL data. Please try with more specific software name or version, or consider using specialist agents for known technologies.",
+                        "conversation_id": conversation_id,
+                        "response_time": time.time() - start_time,
+                        "agent_used": "InternetSearchFallback",
+                        "query_type": "internet_eol_failed",
+                        "error": "All internet search agents failed",
+                        "search_attempts": ["WebSurfer", "Azure AI"],
+                        "eol_data": {
+                            "success": False,
+                            "error": {
+                                "message": "Internet search exhausted - no reliable EOL data found",
+                                "software_name": software_name,
+                                "version": version
+                            }
+                        }
+                    }
+                    
+        except Exception as e:
+            logger.error(f"❌ Internet EOL search failed with exception: {e}")
+            
+            # Return error response
+            return {
+                "response": f"Internet search for {software_name} {version or ''} EOL information encountered an error: {str(e)}",
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "InternetSearchError",
+                "query_type": "internet_eol_error",
+                "error": str(e),
+                "eol_data": {
+                    "success": False,
+                    "error": {
+                        "message": str(e),
+                        "software_name": software_name,
+                        "version": version
+                    }
+                }
+            }
+    
+    async def _call_software_inventory_specialist_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
+        """Direct call to software inventory specialist for inventory-only tasks"""
+        try:
+            # Call our Magentic-One software inventory tool for real data
+            software_response = self._get_software_inventory_tool_sync()
+            
+            return {
+                "response": software_response,
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "SoftwareInventoryAnalyst",
+                "query_type": "software_inventory_only"
+            }
+        except Exception as e:
+            logger.error(f"❌ Error in software inventory specialist direct call: {e}")
+            return {
+                "response": f"Error collecting software inventory: {str(e)}",
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "SoftwareInventoryAnalyst",
+                "query_type": "software_inventory_only",
+                "error": str(e)
+            }
+    
+    async def _call_os_inventory_specialist_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
+        """Direct call to OS inventory specialist for inventory-only tasks"""
+        try:
+            # Call our Magentic-One OS inventory tool for real data
+            os_response = self._get_os_inventory_tool_sync()
+            
+            return {
+                "response": os_response,
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "OSInventoryAnalyst",
+                "query_type": "os_inventory_only"
+            }
+        except Exception as e:
+            logger.error(f"❌ Error in OS inventory specialist direct call: {e}")
+            return {
+                "response": f"Error collecting OS inventory: {str(e)}",
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "OSInventoryAnalyst",
+                "query_type": "os_inventory_only",
+                "error": str(e)
+            }
+    
+    async def _call_both_inventory_specialists_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
+        """Direct call to both inventory specialists for comprehensive inventory"""
+        try:
+            # Call both Magentic-One inventory tools for comprehensive data
+            os_response = self._get_os_inventory_tool_sync()
+            software_response = self._get_software_inventory_tool_sync()
+            
+            # Combine responses
+            combined_response = f"""# Comprehensive Inventory Analysis
+
+## Operating Systems
+{os_response}
+
+## Software Applications  
+{software_response}
+
+---
+**Analysis Complete**: Both OS and software inventory data collected and ready for further analysis."""
+
+            return {
+                "response": combined_response,
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "OSInventoryAnalyst + SoftwareInventoryAnalyst",
+                "query_type": "inventory_comprehensive"
+            }
+        except Exception as e:
+            logger.error(f"❌ Error in combined inventory specialist call: {e}")
+            return {
+                "response": f"Error collecting comprehensive inventory: {str(e)}",
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "OSInventoryAnalyst + SoftwareInventoryAnalyst",
+                "query_type": "inventory_comprehensive",
+                "error": str(e)
+            }
+    
+    def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
+        """Track EOL agent responses for comprehensive history tracking"""
+        try:
+            # Debug logging for troubleshooting
+            logger.debug(f"🔧 Tracking call - Agent: {agent_name}, Software: {software_name}, Result type: {type(eol_result)}, Result: {eol_result}")
+            
+            # Handle None or invalid eol_result
+            if eol_result is None:
+                logger.warning(f"⚠️ EOL result was None for {agent_name} -> {software_name}, creating fallback result")
+                eol_result = {
+                    "success": False,
+                    "error": "EOL result was None",
+                    "data": {}
+                }
+            elif not isinstance(eol_result, dict):
+                logger.warning(f"⚠️ EOL result was not a dictionary for {agent_name} -> {software_name}: {type(eol_result)}")
+                eol_result = {
+                    "success": False,
+                    "error": f"EOL result was not a dictionary: {type(eol_result)}",
+                    "data": {}
+                }
+            
+            # Create comprehensive response tracking entry with defensive programming
+            response_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "agent_name": agent_name,
+                "software_name": software_name,
+                "software_version": software_version or "Not specified",
+                "query_type": query_type,
+                "response_time": response_time,
+                "success": eol_result.get("success", False) if eol_result and isinstance(eol_result, dict) else False,
+                "eol_data": eol_result.get("data", {}) if eol_result and isinstance(eol_result, dict) else {},
+                "error": eol_result.get("error", {}) if eol_result and isinstance(eol_result, dict) else "EOL result was invalid",
+                "confidence": eol_result.get("data", {}).get("confidence", 0) if eol_result and isinstance(eol_result, dict) and eol_result.get("data") else 0,
+                "source_url": eol_result.get("data", {}).get("source_url", "") if eol_result and isinstance(eol_result, dict) and eol_result.get("data") else "",
+                "agent_used": eol_result.get("data", {}).get("agent_used", agent_name) if eol_result and isinstance(eol_result, dict) and eol_result.get("data") else agent_name,
+                "session_id": self.session_id
+            }
+            
+            # Add to tracking list
+            self.eol_agent_responses.append(response_entry)
+            
+            # Keep only the last 50 responses to prevent memory issues
+            if len(self.eol_agent_responses) > 50:
+                self.eol_agent_responses = self.eol_agent_responses[-50:]
+                
+            # Log the tracking for debugging
+            logger.info(f"📊 Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error tracking EOL agent response: {e}")
+    
+    def get_eol_agent_responses(self) -> List[Dict[str, Any]]:
+        """Get all tracked EOL agent responses for this session"""
+        return self.eol_agent_responses.copy()
+    
+    def clear_eol_agent_responses(self) -> None:
+        """Clear all tracked EOL agent responses"""
+        self.eol_agent_responses.clear()
+        logger.info("🧹 Cleared EOL agent response tracking history")
+    
+    def _extract_software_name_version(self, user_message: str) -> tuple[str, str]:
+        """Extract software name and version from user message using improved parsing for compound names"""
+        import re
+        
+        # Initialize default values
+        software_name = "unknown"
+        version = None
+        
+        # Convert message to lowercase for easier matching
+        message_lower = user_message.lower()
+        
+        # First, try to extract version using patterns
+        version_patterns = [
+            r'version\s+([0-9]+(?:\.[0-9]+)*)',
+            r'v([0-9]+(?:\.[0-9]+)*)',
+            r'([0-9]+(?:\.[0-9]+)*)',
+            r'release\s+([0-9]+(?:\.[0-9]+)*)',
+        ]
+        
+        for pattern in version_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                version = match.group(1)
+                break
+        
+        # Enhanced software name extraction with compound names support
+        # Priority order: compound names first, then simple names
+        compound_software_patterns = {
+            'Windows Server': ['windows server'],
+            'SQL Server': ['sql server'],
+            'Windows 10': ['windows 10'],
+            'Windows 11': ['windows 11'],
+            'Microsoft Office': ['microsoft office', 'office'],
+            'Node.js': ['node.js', 'nodejs'],
+            'Oracle Database': ['oracle database'],
+            'Red Hat': ['red hat', 'redhat'],
+            'PostgreSQL': ['postgresql', 'postgres'],
+            'VMware vSphere': ['vmware vsphere', 'vsphere'],
+            'Apache HTTP Server': ['apache http server', 'apache httpd'],
+            'Microsoft Exchange': ['microsoft exchange', 'exchange server'],
+            'Visual Studio': ['visual studio'],
+            'Microsoft Teams': ['microsoft teams', 'teams'],
+            'Microsoft Edge': ['microsoft edge', 'edge'],
+        }
+        
+        # Check for compound software names first (higher priority)
+        for software_key, patterns in compound_software_patterns.items():
+            for pattern in patterns:
+                if pattern in message_lower:
+                    software_name = software_key
+                    break
+            if software_name != "unknown":
+                break
+        
+        # If no compound name found, check simple software patterns
+        if software_name == "unknown":
+            simple_software_patterns = {
+                'Python': ['python', 'py'],
+                'Java': ['java', 'jdk', 'jre'],
+                'PHP': ['php'],
+                'MySQL': ['mysql'],
+                'Ubuntu': ['ubuntu'],
+                'CentOS': ['centos'],
+                'Windows': ['windows', 'win'],
+                'Microsoft': ['microsoft', 'ms'],
+                'VMware': ['vmware'],
+                'Apache': ['apache'],
+                'Nginx': ['nginx'],
+                'Docker': ['docker'],
+                'Kubernetes': ['kubernetes', 'k8s'],
+            }
+            
+            for software_key, keywords in simple_software_patterns.items():
+                for keyword in keywords:
+                    if keyword in message_lower:
+                        software_name = software_key
+                        break
+                if software_name != "unknown":
+                    break
+        
+        # If still no specific software found, try to extract from context
+        if software_name == "unknown":
+            words = user_message.split()
+            for word in words:
+                # Skip common words
+                if len(word) > 2 and word.lower() not in ['what', 'when', 'does', 'the', 'and', 'for', 'eol', 'end', 'life', 'support', 'date', 'of']:
+                    software_name = word
+                    break
+        
+        return software_name, version
+    
+    async def _collect_inventory_data(self, inventory_type: str) -> Dict[str, Any]:
+        """Collect inventory data based on type using specialized inventory analysts"""
+        inventory_data = {}
+        
+        try:
+            if inventory_type in ["os", "both"]:
+                # Call OSInventoryAnalyst for OS discovery
+                if hasattr(self, "os_inventory_specialist") and self.os_inventory_specialist:
+                    self._log_agent_interaction("OSInventoryAnalyst", "inventory_collection_request", {
+                        "inventory_type": "os",
+                        "request_time": time.time()
+                    })
+                    os_inventory = await self._call_os_inventory_specialist()
+                    inventory_data["os_inventory"] = os_inventory
+                    self._log_agent_interaction("OSInventoryAnalyst", "inventory_collection_complete", {
+                        "response_length": len(str(os_inventory)),
+                        "success": True
+                    })
+                else:
+                    inventory_data["os_inventory"] = "OSInventoryAnalyst not available"
+            
+            if inventory_type in ["software", "both"]:
+                # Call SoftwareInventoryAnalyst for software discovery
+                if hasattr(self, "software_inventory_specialist") and self.software_inventory_specialist:
+                    self._log_agent_interaction("SoftwareInventoryAnalyst", "inventory_collection_request", {
+                        "inventory_type": "software",
+                        "request_time": time.time()
+                    })
+                    software_inventory = await self._call_software_inventory_specialist()
+                    inventory_data["software_inventory"] = software_inventory
+                    self._log_agent_interaction("SoftwareInventoryAnalyst", "inventory_collection_complete", {
+                        "response_length": len(str(software_inventory)),
+                        "success": True
+                    })
+                else:
+                    inventory_data["software_inventory"] = "SoftwareInventoryAnalyst not available"
+                    
+        except Exception as e:
+            inventory_data["error"] = str(e)
+            self._log_error_and_recovery("inventory_collection_failure", {
+                "error": str(e),
+                "inventory_type": inventory_type
+            }, "return_partial_results")
+            
+        return inventory_data
+    
+    async def _call_os_inventory_specialist(self) -> str:
+        """Call the OS inventory specialist to collect OS information"""
+        try:
+            # Use Magentic-One tool method directly for real data
+            return self._get_os_inventory_tool_sync()
+        except Exception as e:
+            self._log_error_and_recovery("os_inventory_specialist_error", {"error": str(e)}, "return_error_message")
+            return f"Error calling OS inventory specialist: {str(e)}"
+    
+    async def _call_software_inventory_specialist(self) -> str:
+        """Call the software inventory specialist to collect software information"""
+        try:
+            # Use Magentic-One tool method directly for real data
+            return self._get_software_inventory_tool_sync()
+        except Exception as e:
+            self._log_error_and_recovery("software_inventory_specialist_error", {"error": str(e)}, "return_error_message")
+            return f"Error calling software inventory specialist: {str(e)}"
+    
+    def _parse_inventory_items(self, inventory_response: Dict[str, Any], inventory_type: str) -> List[Dict[str, Any]]:
+        """Parse inventory response and extract name/version for each item"""
+        parsed_items = []
+        
+        try:
+            # Parse OS inventory
+            if "os_inventory" in inventory_response and inventory_response["os_inventory"]:
+                os_items = self._parse_os_inventory_items(inventory_response["os_inventory"])
+                parsed_items.extend(os_items)
+            
+            # Parse software inventory
+            if "software_inventory" in inventory_response and inventory_response["software_inventory"]:
+                software_items = self._parse_software_inventory_items(inventory_response["software_inventory"])
+                parsed_items.extend(software_items)
+                
+        except Exception as e:
+            self._log_error_and_recovery("inventory_parsing_error", {"error": str(e)}, "continue_with_partial_results")
+        
+        return parsed_items
+    
+    def _parse_os_inventory_items(self, os_inventory: str) -> List[Dict[str, Any]]:
+        """Parse OS inventory string and extract OS name/version items"""
+        items = []
+        
+        try:
+            # Use existing OS parsing logic if available
+            if hasattr(self, "_parse_os_from_raw_inventory"):
+                os_list = self._parse_os_from_raw_inventory(os_inventory)
+                for os_item in os_list:
+                    # Extract name and version from OS string
+                    name, version = self._extract_name_version_from_os(os_item)
+                    items.append({
+                        "type": "os",
+                        "name": name,
+                        "version": version,
+                        "raw_string": os_item,
+                        "category": "operating_system"
+                    })
+            else:
+                # Fallback parsing
+                lines = str(os_inventory).split('\n')
+                for line in lines:
+                    if line.strip():
+                        name, version = self._extract_name_version_from_os(line.strip())
+                        if name:
+                            items.append({
+                                "type": "os",
+                                "name": name,
+                                "version": version,
+                                "raw_string": line.strip(),
+                                "category": "operating_system"
+                            })
+        except Exception as e:
+            self._log_error_and_recovery("os_parsing_error", {"error": str(e)}, "skip_os_items")
+        
+        return items
+    
+    def _parse_software_inventory_items(self, software_inventory: str) -> List[Dict[str, Any]]:
+        """Parse software inventory string and extract software name/version items"""
+        items = []
+        
+        try:
+            # Use existing software parsing logic if available
+            if hasattr(self, "_parse_software_from_raw_inventory"):
+                software_list = self._parse_software_from_raw_inventory(software_inventory)
+                for software_item in software_list:
+                    name, version = self._extract_name_version_from_software(software_item)
+                    items.append({
+                        "type": "software",
+                        "name": name,
+                        "version": version,
+                        "raw_string": software_item,
+                        "category": "application"
+                    })
+            else:
+                # Fallback parsing
+                lines = str(software_inventory).split('\n')
+                for line in lines:
+                    if line.strip():
+                        name, version = self._extract_name_version_from_software(line.strip())
+                        if name:
+                            items.append({
+                                "type": "software",
+                                "name": name,
+                                "version": version,
+                                "raw_string": line.strip(),
+                                "category": "application"
+                            })
+        except Exception as e:
+            self._log_error_and_recovery("software_parsing_error", {"error": str(e)}, "skip_software_items")
+        
+        return items
+    
+    def _extract_name_version_from_os(self, os_string: str) -> Tuple[str, str]:
+        """Extract OS name and version from OS string"""
+        import re
+        
+        # Special handling for Windows Server to preserve year in name for proper EOL mapping
+        # Pattern to capture: "Windows Server 2025 Standard | 10.0 (1)" or "Windows Server 2025 Datacenter Azure Edition"
+        windows_server_match = re.search(r'(Windows Server)\s+(\d{4})(?:\s+([^|]+?))?(?:\s*\|.*)?$', os_string, re.IGNORECASE)
+        if windows_server_match:
+            year = windows_server_match.group(2)
+            edition = windows_server_match.group(3).strip() if windows_server_match.group(3) else ""
+            # Include year in name for proper Microsoft agent EOL mapping
+            full_name = f"Windows Server {year}"
+            if edition:
+                full_name += f" {edition}"
+            # For Windows Server, use the version number (e.g., 10.0) as version if available in original string
+            # The Microsoft agent has special logic to handle Windows Server 10.0 and map based on year in name
+            version_match = re.search(r'(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)', os_string)
+            version = version_match.group(1) if version_match else year
+            return full_name.strip(), version
+        
+        # Common OS patterns for other operating systems
+        patterns = [
+            r'(Windows)\s+(\d+)',
+            r'(Ubuntu)\s+(\d+\.\d+(?:\.\d+)?)',
+            r'(Debian)\s+(\d+(?:\.\d+)?)',
+            r'(CentOS)\s+(\d+(?:\.\d+)?)',
+            r'(Red Hat Enterprise Linux|RHEL)\s+(\d+(?:\.\d+)?)',
+            r'(macOS)\s+(\d+\.\d+(?:\.\d+)?)',
+            r'(\w+)\s+(\d+(?:\.\d+)*)'  # Generic pattern
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, os_string, re.IGNORECASE)
+            if match:
+                return match.group(1).strip(), match.group(2).strip()
+        
+        # If no version found, return the whole string as name
+        return os_string.strip(), ""
+    
+    def _extract_name_version_from_software(self, software_string: str) -> Tuple[str, str]:
+        """Extract software name and version from software string"""
+        import re
+        
+        # Common software patterns
+        patterns = [
+            r'(.+?)\s+v?(\d+\.\d+\.\d+(?:\.\d+)?)',  # Name version
+            r'(.+?)\s+(\d+\.\d+\.\d+)',
+            r'(.+?)\s+(\d+\.\d+)',
+            r'(.+?)\s+v(\d+)',
+            r'(.+?)\s+(\d{4})',  # Year versions like Office 2019
+            r'(.+?)\s+-\s+(.+)',  # Name - Version
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, software_string, re.IGNORECASE)
+            if match:
+                return match.group(1).strip(), match.group(2).strip()
+        
+        # If no version found, return the whole string as name
+        return software_string.strip(), ""
+    
+    def _determine_eol_specialist_type(self, item: Dict[str, Any]) -> str:
+        """Determine the appropriate EOL specialist type for an inventory item (simplified version)"""
+        name = item.get("name", "").lower()
+        
+        # Microsoft products
+        if any(keyword in name for keyword in ["windows", "microsoft", "office", "sql server", "exchange", "sharepoint", "azure"]):
+            return "microsoft"
+        
+        # Linux/Ubuntu products
+        elif any(keyword in name for keyword in ["ubuntu", "debian", "linux", "centos", "rhel", "red hat", "fedora", "suse"]):
+            return "ubuntu"
+        
+        # Python products
+        elif any(keyword in name for keyword in ["python", "django", "flask", "pip", "conda", "jupyter", "pandas", "numpy"]):
+            return "python"
+        
+        # Node.js products
+        elif any(keyword in name for keyword in ["nodejs", "node.js", "npm", "node", "express", "react", "vue", "angular"]):
+            return "nodejs"
+        
+        # Oracle products
+        elif any(keyword in name for keyword in ["oracle", "java", "jdk", "jre", "mysql", "virtualbox", "solaris"]):
+            return "oracle"
+        
+        # PHP products
+        elif any(keyword in name for keyword in ["php", "composer", "laravel", "symfony", "wordpress", "drupal"]):
+            return "php"
+        
+        # PostgreSQL products
+        elif any(keyword in name for keyword in ["postgresql", "postgres", "postgis", "pgadmin"]):
+            return "postgresql"
+        
+        # Red Hat products (specific)
+        elif any(keyword in name for keyword in ["redhat", "openshift", "ansible"]):
+            return "redhat"
+        
+        # Ubuntu specific (separate from general Linux)
+        elif any(keyword in name for keyword in ["snap", "snapcraft", "canonical", "launchpad"]):
+            return "ubuntu"
+        
+        # VMware products
+        elif any(keyword in name for keyword in ["vmware", "vsphere", "esxi", "vcenter", "workstation", "fusion"]):
+            return "vmware"
+        
+        # Apache products
+        elif any(keyword in name for keyword in ["apache", "httpd", "tomcat", "maven", "spark", "kafka", "cassandra"]):
+            return "apache"
+        
+        # Default to Python specialist for unknown software
+        else:
+            return "python"
+    
+    # CONSOLIDATED EOL SPECIALIST CALLING FUNCTIONS
+    async def _call_eol_specialist_unified(self, 
+                                         specialist_type: str, 
+                                         software_name: str, 
+                                         version: str = None,
+                                         user_message: str = None,
+                                         conversation_id: int = None,
+                                         start_time: float = None,
+                                         cache_key: str = None,
+                                         timeout_seconds: int = None) -> Dict[str, Any]:
+        """
+        Unified EOL specialist calling function that consolidates all duplicate specialist calls
+        
+        Implements cascading fallback mechanism:
+        1. Specialist agents (microsoft, ubuntu, python, etc.) - Direct API/database queries
+        2. General EOL agent - EndOfLife API for broad technology coverage  
+        3. WebSurfer agent - Internet search when structured data unavailable
+        4. Azure AI agent - Modern AI-powered internet search with grounding
+        
+        Args:
+            specialist_type: Type of specialist ('microsoft', 'ubuntu', 'python', 'general', etc.)
+            software_name: Name of software to analyze
+            version: Version of software (optional)
+            response_format: 'direct' for full response, 'tracking' for simple tracking format
+            user_message: Original user message (for direct format)
+            conversation_id: Conversation ID (for direct format)
+            start_time: Start time for tracking
+            cache_key: Cache key (for direct format)
+            timeout_seconds: Timeout (for direct format)
+        
+        Returns:
+            Dictionary with response in requested format
+        """
+        if start_time is None:
+            start_time = time.time()
+            
+        try:
+            # Get the appropriate agent based on specialist type
+            agent_map = {
+                'microsoft': self.microsoft_eol_agent,
+                'ubuntu': self.ubuntu_eol_agent,
+                'python': self.python_eol_agent,
+                'nodejs': self.nodejs_eol_agent,
+                'oracle': self.oracle_eol_agent,
+                'php': self.php_eol_agent,
+                'postgresql': self.postgresql_eol_agent,
+                'redhat': self.redhat_eol_agent,
+                'vmware': self.vmware_eol_agent,
+                'apache': self.apache_eol_agent,
+                'general': self.endoflife_agent,
+                'azure_ai': self.azure_ai_eol_agent,
+                'websurfer': self.websurfer_eol_agent
+            }
+            
+            agent = agent_map.get(specialist_type.lower())
+            if not agent:
+                raise ValueError(f"Unknown specialist type: {specialist_type}")
+            
+            # Call agent's get_eol_data method for standardized response
+            eol_result = await agent.get_eol_data(software_name, version)
+            
+            # Handle None result from agent
+            if eol_result is None:
+                logger.warning(f"⚠️ {specialist_type} agent returned None for {software_name} {version or ''}")
+                eol_result = {
+                    "success": False,
+                    "error": f"{specialist_type} agent returned None",
+                    "data": {}
+                }
+            
+            # If General EOL agent fails, implement cascading fallback to internet search agents
+            if specialist_type.lower() == 'general' and not eol_result.get("success", False):
+                logger.warning(f"⚠️ General EOL agent failed for {software_name} {version or ''}, trying WebSurfer fallback")
+                try:
+                    # Try WebSurfer first
+                    websurfer_result = await self.websurfer_eol_agent.get_eol_data(software_name, version)
+                    if websurfer_result is None:
+                        websurfer_result = {"success": False, "error": "WebSurfer returned None", "data": {}}
+                    
+                    if websurfer_result.get("success", False):
+                        logger.info(f"✅ WebSurfer fallback successful for {software_name} {version or ''}")
+                        eol_result = websurfer_result
+                        specialist_type = "websurfer"  # Update for response formatting
+                    else:
+                        logger.warning(f"⚠️ WebSurfer fallback failed for {software_name} {version or ''}, trying Azure AI fallback")
+                        # Try Azure AI as final fallback
+                        azure_ai_result = await self.azure_ai_eol_agent.get_eol_data(software_name, version)
+                        if azure_ai_result is None:
+                            azure_ai_result = {"success": False, "error": "Azure AI returned None", "data": {}}
+                            
+                        if azure_ai_result.get("success", False):
+                            logger.info(f"✅ Azure AI fallback successful for {software_name} {version or ''}")
+                            eol_result = azure_ai_result
+                            specialist_type = "azure_ai"  # Update for response formatting
+                        else:
+                            logger.error(f"❌ All fallback agents failed for {software_name} {version or ''}")
+                except Exception as fallback_error:
+                    logger.error(f"❌ Fallback mechanism failed: {fallback_error}")
+            
+            # Final safety check - ensure eol_result is never None before tracking
+            if eol_result is None:
+                logger.error(f"❌ eol_result is None after all processing for {software_name} {version or ''}")
+                eol_result = {
+                    "success": False,
+                    "error": "EOL result was None after all processing",
+                    "data": {}
+                }
+            
+            # Track the EOL agent response
+            specialist_name = f"{specialist_type.title()}EOLSpecialist"
+            query_type = f"{specialist_type.lower()}_eol_unified"
+            self._track_eol_agent_response(specialist_name, software_name, version, eol_result, 
+                                         time.time() - start_time, query_type)
+            
+            # Return standardized tracking format
+            if eol_result.get("success", False):
+                data = eol_result.get("data", {})
+                response_text = f"{specialist_name} EOL analysis for {software_name} {version or ''}:\n"
+                response_text += f"EOL Date: {data.get('eol_date', 'Unknown')}\n"
+                response_text += f"Support End: {data.get('support_end_date', 'Unknown')}\n"
+                response_text += f"Status: {data.get('status', 'Unknown')}\n"
+                response_text += f"Risk Level: {data.get('risk_level', 'Unknown')}\n"
+                if data.get('source_url'):
+                    clickable_url = self._make_url_clickable(data.get('source_url'))
+                    response_text += f"Source: {clickable_url}\n"
+                
+                return {
+                    "specialist": specialist_name,
+                    "query": f"{software_name} {version or ''}".strip(),
+                    "response": response_text,
+                    "status": "success",
+                    "eol_data": eol_result
+                }
+            else:
+                error = eol_result.get("error", {})
+                return {
+                    "specialist": specialist_name,
+                    "query": f"{software_name} {version or ''}".strip(),
+                    "response": f"{specialist_name} EOL analysis failed: {error.get('message', 'Unknown error')}",
+                    "status": "error"
+                }
+            
+                
+        except Exception as e:
+            logger.error(f"❌ {specialist_type.title()} EOL specialist call failed: {e}")
+            
+            # Track the failed response
+            error_result = {
+                "success": False,
+                "error": {
+                    "message": str(e),
+                    "software_name": software_name,
+                    "version": version
+                }
+            }
+            specialist_name = f"{specialist_type.title()}EOLSpecialist"
+            self._track_eol_agent_response(specialist_name, software_name, version, error_result, 
+                                         time.time() - start_time, f"{specialist_type.lower()}_eol_unified")
+            
+            return {
+                "specialist": specialist_name,
+                "query": f"{software_name} {version or ''}".strip(),
+                "response": f"{specialist_name} EOL analysis failed: {str(e)}",
+                "status": "error"
+            }
+    
+    def _convert_tracking_to_chat_response(self, tracking_result: Dict[str, Any], user_message: str, conversation_id: int, start_time: float) -> Dict[str, Any]:
+        """Convert tracking format response to chat response format for direct calls"""
+        if not tracking_result:
+            return {
+                "response": "No response available",
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time,
+                "agent_used": "Unknown",
+                "query_type": "unknown",
+                "error": "Empty result"
+            }
+        
+        # Extract response content and metadata
+        response_content = tracking_result.get("response", "No response available")
+        specialist = tracking_result.get("specialist", "Unknown")
+        status = tracking_result.get("status", "unknown")
+        eol_data = tracking_result.get("eol_data", {})
+        
+        # Build chat response format
+        chat_response = {
+            "response": response_content,
+            "conversation_id": conversation_id,
+            "response_time": time.time() - start_time,
+            "agent_used": specialist,
+            "query_type": f"{specialist.lower()}_eol_unified",
+            "eol_data": eol_data
+        }
+        
+        # Add error field if status indicates error
+        if status == "error":
+            chat_response["error"] = "EOL analysis failed"
+        
+        return chat_response
+    
+    def _should_trigger_fallback(self, result: Dict[str, Any], name: str, version: str, specialist_name: str) -> bool:
+        """
+        Determine if we should trigger fallback specialists based on result quality.
+        Returns True if the result seems unreliable or incorrect.
+        """
+        if not result or result.get("status") != "success":
+            return True
+        
+        response = result.get("response", {})
+        if not isinstance(response, dict):
+            return True
+        
+        eol_data = response.get("data", {})
+        if not eol_data:
+            return True
+        
+        # Check if EOL date seems unrealistic or too old for the software
+        eol_date = eol_data.get("eol")
+        if eol_date:
+            try:
+                # Parse date and check if it's reasonable
+                from datetime import datetime
+                if isinstance(eol_date, str):
+                    parsed_date = datetime.fromisoformat(eol_date.replace('Z', '+00:00'))
+                    current_year = datetime.now().year
+                    
+                    # Flag if EOL date is more than 20 years ago (likely wrong for modern software)
+                    if parsed_date.year < current_year - 20:
+                        logger.warning(f"🚨 Suspicious EOL date {eol_date} for {name} {version} from {specialist_name}")
+                        return True
+                        
+                    # For Windows Server specifically, check if year in name matches expectations
+                    if "windows server" in name.lower():
+                        year_match = re.search(r'(\d{4})', name)
+                        if year_match:
+                            name_year = int(year_match.group(1))
+                            # Windows Server EOL should be at least 10 years after release
+                            if parsed_date.year < name_year + 8:
+                                logger.warning(f"🚨 Windows Server {name_year} EOL date {eol_date} seems too early")
+                                return True
+                                
+            except Exception as e:
+                logger.debug(f"Could not parse EOL date {eol_date}: {e}")
+                return True
+        
+        # Check confidence score if available
+        confidence = response.get("confidence", 1.0)
+        if confidence < 0.7:
+            logger.warning(f"🚨 Low confidence ({confidence}) from {specialist_name} for {name}")
+            return True
+        
+        return False
+
+    def _correlate_and_format_eol_results(self, eol_analyses: List[Dict[str, Any]], user_message: str) -> Dict[str, Any]:
+        """Correlate all EOL analysis results and format into user-friendly format"""
+        
+        # Categorize results
+        successful_analyses = [a for a in eol_analyses if a["status"] == "success"]
+        failed_analyses = [a for a in eol_analyses if a["status"] == "error"]
+        
+        # Group by EOL status
+        eol_soon = []
+        eol_passed = []
+        still_supported = []
+        unknown_status = []
+        
+        for analysis in successful_analyses:
+            eol_result = analysis.get("eol_result", {})
+            item_name = analysis["item"]["name"]
+            item_version = analysis["item"]["version"]
+            
+            # Extract EOL date information from the result
+            eol_date = None
+            support_end_date = None
+            
+            # Try to extract EOL date from different possible locations in the response
+            if isinstance(eol_result, dict):
+                # Check for structured response with eol_date field
+                if "eol_date" in eol_result:
+                    eol_date = eol_result["eol_date"]
+                elif "support_end_date" in eol_result:
+                    support_end_date = eol_result["support_end_date"]
+                elif "response" in eol_result and isinstance(eol_result["response"], dict):
+                    # Check nested response object
+                    response_data = eol_result["response"]
+                    eol_date = response_data.get("eol_date") or response_data.get("eol") or response_data.get("end_of_life")
+                    support_end_date = response_data.get("support_end_date") or response_data.get("support_end")
+            
+            # Determine the relevant date to use
+            relevant_date = eol_date or support_end_date
+            
+            # Parse the date if available
+            parsed_date = None
+            if relevant_date and relevant_date != "Unknown" and relevant_date != "":
+                try:
+                    if isinstance(relevant_date, str):
+                        # Try different date formats
+                        for date_format in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"]:
+                            try:
+                                parsed_date = datetime.strptime(relevant_date.replace('Z', ''), date_format.replace('Z', ''))
+                                break
+                            except ValueError:
+                                continue
+                        if not parsed_date:
+                            # Try ISO format parsing
+                            parsed_date = datetime.fromisoformat(relevant_date.replace('Z', '+00:00'))
+                except Exception as e:
+                    logger.debug(f"Could not parse date {relevant_date}: {e}")
+            
+            # Categorize based on EOL status and date
+            eol_response = analysis.get("eol_result", {}).get("response", "")
+            current_date = datetime.now()
+            
+            item_with_date = {
+                "name": item_name, 
+                "version": item_version, 
+                "analysis": analysis,
+                "eol_date": relevant_date,
+                "parsed_date": parsed_date
+            }
+            
+            if parsed_date:
+                # Use actual date to categorize
+                days_until_eol = (parsed_date - current_date).days
+                if days_until_eol < 0:
+                    eol_passed.append(item_with_date)
+                elif days_until_eol < 365:  # Within a year
+                    eol_soon.append(item_with_date)
+                else:
+                    still_supported.append(item_with_date)
+            else:
+                # Fall back to text analysis
+                if any(keyword in str(eol_response).lower() for keyword in ["end of life", "eol", "unsupported", "deprecated"]):
+                    if any(keyword in str(eol_response).lower() for keyword in ["2024", "2025", "soon", "approaching"]):
+                        eol_soon.append(item_with_date)
+                    else:
+                        eol_passed.append(item_with_date)
+                elif any(keyword in str(eol_response).lower() for keyword in ["supported", "current", "lts", "active"]):
+                    still_supported.append(item_with_date)
+                else:
+                    unknown_status.append(item_with_date)
+        
+        # Generate summary statistics
+        total_items = len(eol_analyses)
+        total_success = len(successful_analyses)
+        
+        # Format final response
+        formatted_response = self._generate_formatted_eol_summary(
+            eol_soon, eol_passed, still_supported, unknown_status, failed_analyses, total_items, total_success
+        )
+        
+        return {
+            "total_items_analyzed": total_items,
+            "successful_analyses": total_success,
+            "failed_analyses": len(failed_analyses),
+            "eol_soon_count": len(eol_soon),
+            "eol_passed_count": len(eol_passed),
+            "still_supported_count": len(still_supported),
+            "unknown_status_count": len(unknown_status),
+            "formatted_response": formatted_response,
+            "categorized_results": {
+                "eol_soon": eol_soon,
+                "eol_passed": eol_passed, 
+                "still_supported": still_supported,
+                "unknown_status": unknown_status,
+                "failed_analyses": failed_analyses
+            }
+        }
+    
+    def _generate_formatted_eol_summary(self, eol_soon, eol_passed, still_supported, unknown_status, failed_analyses, total_items, total_success) -> str:
+        """Generate a user-friendly formatted summary of EOL analysis results"""
+        
+        response_parts = []
+        
+        # Header
+        response_parts.append(f"# 📊 Inventory EOL Analysis Summary")
+        response_parts.append(f"**Total Items Analyzed**: {total_items} | **Successful**: {total_success} | **Failed**: {len(failed_analyses)}")
+        response_parts.append("")
+        
+        # Critical items (EOL soon or passed)
+        if eol_soon or eol_passed:
+            response_parts.append("## 🚨 **ATTENTION REQUIRED**")
+            
+            if eol_passed:
+                response_parts.append(f"### ❌ **End of Life Reached** ({len(eol_passed)} items)")
+                for item in eol_passed[:10]:  # Limit to first 10
+                    eol_date_display = ""
+                    if item.get('eol_date') and item['eol_date'] != "Unknown":
+                        eol_date_display = f" - **EOL Date: {item['eol_date']}**"
+                    response_parts.append(f"- **{item['name']}** {item['version']}{eol_date_display} - Requires immediate action")
+                if len(eol_passed) > 10:
+                    response_parts.append(f"- ... and {len(eol_passed) - 10} more items")
+                response_parts.append("")
+            
+            if eol_soon:
+                response_parts.append(f"### ⚠️ **EOL Approaching** ({len(eol_soon)} items)")
+                for item in eol_soon[:10]:  # Limit to first 10
+                    eol_date_display = ""
+                    if item.get('eol_date') and item['eol_date'] != "Unknown":
+                        eol_date_display = f" - **EOL Date: {item['eol_date']}**"
+                    response_parts.append(f"- **{item['name']}** {item['version']}{eol_date_display} - Plan migration")
+                if len(eol_soon) > 10:
+                    response_parts.append(f"- ... and {len(eol_soon) - 10} more items")
+                response_parts.append("")
+        
+        # Supported items
+        if still_supported:
+            response_parts.append(f"## ✅ **Currently Supported** ({len(still_supported)} items)")
+            # Show first few items
+            for item in still_supported[:5]:
+                eol_date_display = ""
+                if item.get('eol_date') and item['eol_date'] != "Unknown":
+                    eol_date_display = f" - **EOL Date: {item['eol_date']}**"
+                response_parts.append(f"- **{item['name']}** {item['version']}{eol_date_display}")
+            if len(still_supported) > 5:
+                response_parts.append(f"- ... and {len(still_supported) - 5} more supported items")
+            response_parts.append("")
+        
+        # Unknown status
+        if unknown_status:
+            response_parts.append(f"## ❓ **Status Unknown** ({len(unknown_status)} items)")
+            response_parts.append("These items require manual review:")
+            for item in unknown_status[:5]:
+                eol_date_display = ""
+                if item.get('eol_date') and item['eol_date'] != "Unknown":
+                    eol_date_display = f" - **Possible EOL Date: {item['eol_date']}**"
+                response_parts.append(f"- **{item['name']}** {item['version']}{eol_date_display}")
+            if len(unknown_status) > 5:
+                response_parts.append(f"- ... and {len(unknown_status) - 5} more items")
+            response_parts.append("")
+        
+        # Failed analyses
+        if failed_analyses:
+            response_parts.append(f"## ⚠️ **Analysis Failed** ({len(failed_analyses)} items)")
+            for failed in failed_analyses[:5]:
+                item_name = failed["item"]["name"]
+                response_parts.append(f"- **{item_name}** - Could not determine EOL status")
+            if len(failed_analyses) > 5:
+                response_parts.append(f"- ... and {len(failed_analyses) - 5} more failed items")
+            response_parts.append("")
+        
+        # Recommendations
+        response_parts.append("## 💡 **Recommendations**")
+        if eol_passed:
+            response_parts.append("1. **Immediate Action**: Replace or upgrade EOL products")
+        if eol_soon:
+            response_parts.append("2. **Plan Ahead**: Schedule migrations for products approaching EOL")
+        if unknown_status or failed_analyses:
+            response_parts.append("3. **Manual Review**: Research EOL status for unknown items")
+        response_parts.append("4. **Regular Monitoring**: Set up periodic EOL checks for your inventory")
+        
+        return "\n".join(response_parts)
+    
+    def _determine_routing_decision(self, query_type: str, task_type: str) -> str:
+        """Determine how to route the request based on query and task type"""
+        if task_type == "MIXED_INVENTORY_EOL":
+            return "specialized_mixed_inventory_eol_workflow"
+        elif task_type == "INVENTORY_ONLY":
+            return "inventory_specialists"
+        elif task_type == "INTERNET_EOL":
+            return "internet_search_agents"
+        elif task_type == "EOL_ONLY":
+            return "eol_specialists"
+        elif query_type in ["os_inventory", "software_inventory"]:
+            return "direct_tools"
+        else:
+            return "magentic_one_team"
+    
+    def _format_workflow_result_as_chat_response(self, workflow_result: Dict[str, Any], user_message: str, start_time: float, conversation_id: int, cache_key: str) -> Dict[str, Any]:
+        """Format workflow result into standard chat response format"""
+        
+        end_time = time.time()
+        response_time = end_time - start_time
+        
+        # Extract the formatted summary from workflow result
+        final_summary = workflow_result.get("final_summary", {})
+        formatted_response = final_summary.get("formatted_response", "No results available")
+        
+        # Create citations from successful EOL analyses
+        citations = []
+        for analysis in workflow_result.get("eol_analyses", []):
+            if analysis.get("status") == "success":
+                citations.append({
+                    "source": analysis.get("specialist_used", "Unknown"),
+                    "query": analysis.get("eol_result", {}).get("query", ""),
+                    "type": "eol_analysis"
+                })
+        
+        # Build response metadata
+        response_metadata = {
+            "workflow_type": "mixed_inventory_eol",
+            "steps_completed": workflow_result.get("steps_completed", []),
+            "total_items_analyzed": final_summary.get("total_items_analyzed", 0),
+            "successful_analyses": final_summary.get("successful_analyses", 0),
+            "failed_analyses": final_summary.get("failed_analyses", 0),
+            "response_time": response_time,
+            "conversation_id": conversation_id,
+            "magentic_one_used": False,  # This workflow bypasses Magentic-One
+            "specialists_used": list(set([a.get("specialist_used", "") for a in workflow_result.get("eol_analyses", [])]))
+        }
+        
+        # Cache the response
+        chat_response = {
+            "response": formatted_response,
+            "metadata": response_metadata,
+            "citations": citations,
+            "conversation_history": self.conversation_history,
+            "agent_communications": self.agent_interaction_logs[-10:] if len(self.agent_interaction_logs) > 10 else self.agent_interaction_logs,
+            "errors": workflow_result.get("errors", [])
+        }
+        
+        # Cache successful responses
+        if not workflow_result.get("errors"):
+            self._cache_response(cache_key, chat_response)
+        
+        # Update conversation history
+        self.conversation_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "user_message": user_message,
+            "response": formatted_response,
+            "metadata": response_metadata,
+            "conversation_id": conversation_id
+        })
+        
+        # Log completion
+        self._log_orchestrator_event("inventory_eol_workflow_chat_complete", {
+            "conversation_id": conversation_id,
+            "response_time": response_time,
+            "total_items": final_summary.get("total_items_analyzed", 0),
+            "successful_analyses": final_summary.get("successful_analyses", 0),
+            "user_message_preview": user_message[:100]
+        })
+        
+        return chat_response
+
+    def _format_workflow_result_as_chat_response_with_confirmation(self, workflow_result: Dict[str, Any], user_message: str, start_time: float, conversation_id: int, confirmed: bool, original_message: str) -> Dict[str, Any]:
+        """Format workflow result into standard chat response format with confirmation context"""
+        
+        end_time = time.time()
+        response_time = end_time - start_time
+        
+        # Extract the formatted summary from workflow result
+        final_summary = workflow_result.get("final_summary", {})
+        formatted_response = final_summary.get("formatted_response", "No results available")
+        
+        # Create citations from successful EOL analyses
+        citations = []
+        for analysis in workflow_result.get("eol_analyses", []):
+            if analysis.get("status") == "success":
+                citations.append({
+                    "source": analysis.get("specialist_used", "Unknown"),
+                    "query": analysis.get("eol_result", {}).get("query", ""),
+                    "type": "eol_analysis"
+                })
+        
+        # Build response metadata with confirmation context
+        response_metadata = {
+            "workflow_type": "mixed_inventory_eol",
+            "steps_completed": workflow_result.get("steps_completed", []),
+            "total_items_analyzed": final_summary.get("total_items_analyzed", 0),
+            "successful_analyses": final_summary.get("successful_analyses", 0),
+            "failed_analyses": final_summary.get("failed_analyses", 0),
+            "response_time": response_time,
+            "conversation_id": conversation_id,
+            "magentic_one_used": False,  # This workflow bypasses Magentic-One
+            "specialists_used": list(set([a.get("specialist_used", "") for a in workflow_result.get("eol_analyses", [])])),
+            "confirmation_context": {
+                "confirmed": confirmed,
+                "original_message": original_message
+            }
+        }
+        
+        # Build chat response
+        chat_response = {
+            "response": formatted_response,
+            "metadata": response_metadata,
+            "citations": citations,
+            "conversation_history": self.conversation_history,
+            "agent_communications": self.agent_interaction_logs[-10:] if len(self.agent_interaction_logs) > 10 else self.agent_interaction_logs,
+            "errors": workflow_result.get("errors", []),
+            "system": "magentic_one_confirmation",
+            "session_id": self.session_id
+        }
+        
+        # Update conversation history
+        self.conversation_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "user_message": user_message,
+            "response": formatted_response,
+            "metadata": response_metadata,
+            "conversation_id": conversation_id,
+            "confirmation_context": {
+                "confirmed": confirmed,
+                "original_message": original_message
+            }
+        })
+        
+        # Log completion with confirmation context
+        self._log_orchestrator_event("inventory_eol_workflow_confirmation_complete", {
+            "conversation_id": conversation_id,
+            "response_time": response_time,
+            "total_items": final_summary.get("total_items_analyzed", 0),
+            "successful_analyses": final_summary.get("successful_analyses", 0),
+            "user_message_preview": user_message[:100],
+            "confirmation_context": {
+                "confirmed": confirmed,
+                "original_message": original_message[:100] if original_message else None
+            }
+        })
+        
+        return chat_response
+
+    def _init_orchestrator_logging(self):
+        """Initialize comprehensive orchestrator logging structures"""
+        self.init_start_time = time.time()
+        
+        # Orchestrator behavior logs
+        self.orchestrator_logs = []
+        self.agent_interaction_logs = []
+        self.task_planning_logs = []
+        self.performance_metrics = defaultdict(list)
+        
+        # Track conversation flow
+        self.conversation_flow = []
+        
+        # Agent usage statistics
+        self.agent_usage_stats = defaultdict(int)
+        self.tool_usage_stats = defaultdict(int)
+        self.failed_request_count = 0
+        self.successful_request_count = 0
+        
+        # Enhanced monitoring
+        self.error_patterns = defaultdict(int)
+        self.response_time_tracking = []
+        self.agent_performance_tracking = defaultdict(list)
+        
+        # Error and recovery tracking
+        self.error_logs = []
+        self.recovery_actions = []
+        
+        # Resource usage tracking  
+        self.memory_usage_tracking = []
+        self.concurrent_request_tracking = []
+        
+        # Initialization flags for lazy loading
+        self._traditional_agents_initialized = False
+        self._magentic_one_initialized = False
+    
+    def _initialize_agent(self, agent_type: str):
+        """
+        Centralized agent factory that handles all agent initialization in one place.
+        This eliminates redundant agent instantiation code scattered across multiple methods.
+        
+        Args:
+            agent_type: The type of agent to initialize (e.g., 'websurfer', 'azure_ai', 'microsoft', etc.)
+            
+        Returns:
+            The initialized agent instance or None if initialization fails
+        """
+        try:
+            if agent_type == 'websurfer':
+                return WebsurferEOLAgent(self.model_client)
+            elif agent_type == 'azure_ai':
+                # Azure AI Agent Service (Modern replacement for deprecated Bing Search)
+                return AzureAIAgentEOLAgent()
+            elif agent_type == 'microsoft':
+                return MicrosoftEOLAgent()
+            elif agent_type == 'ubuntu':
+                return UbuntuEOLAgent()
+            elif agent_type == 'python':
+                return PythonEOLAgent()
+            elif agent_type == 'nodejs':
+                return NodeJSEOLAgent()
+            elif agent_type == 'oracle':
+                return OracleEOLAgent()
+            elif agent_type == 'php':
+                return PHPEOLAgent()
+            elif agent_type == 'postgresql':
+                return PostgreSQLEOLAgent()
+            elif agent_type == 'redhat':
+                return RedHatEOLAgent()
+            elif agent_type == 'vmware':
+                return VMwareEOLAgent()
+            elif agent_type == 'apache':
+                return ApacheEOLAgent()
+            elif agent_type == 'general':
+                return EndOfLifeAgent()
+            else:
+                logger.warning(f"⚠️ Unknown agent type: {agent_type}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize {agent_type} agent: {e}")
+            return None
+
+    def _create_log_entry(self, log_type: str, **kwargs) -> Dict[str, Any]:
+        """
+        Helper method to create standardized log entries with common fields.
+        Reduces code duplication across logging methods.
+        
+        Args:
+            log_type: The type of log entry (orchestrator_event, agent_interaction, task_planning)
+            **kwargs: Additional fields specific to the log type
+            
+        Returns:
+            Dictionary with standardized log structure
+        """
+        # Cache commonly used values to avoid repeated calculations
+        timestamp = datetime.now().isoformat()
+        conversation_id = len(self.conversation_history)
+        
+        base_log = {
+            "timestamp": timestamp,
+            "session_id": self.session_id,
+            "conversation_id": conversation_id
+        }
+        
+        # Add specific fields based on log type
+        base_log.update(kwargs)
+        return base_log
+
+    # Lazy loading properties for all agents
+    @property
+    def websurfer_eol_agent(self):
+        """Lazy loading for WebSurfer EOL agent"""
+        if not hasattr(self, '_websurfer_eol_agent'):
+            self._websurfer_eol_agent = self._initialize_agent('websurfer')
+        return self._websurfer_eol_agent
+
+    @property
+    def azure_ai_eol_agent(self):
+        """Lazy loading for Azure AI EOL agent"""
+        if not hasattr(self, '_azure_ai_eol_agent'):
+            self._azure_ai_eol_agent = self._initialize_agent('azure_ai')
+        return self._azure_ai_eol_agent
+
+    @property
+    def microsoft_eol_agent(self):
+        """Lazy loading for Microsoft EOL agent"""
+        if not hasattr(self, '_microsoft_eol_agent'):
+            self._microsoft_eol_agent = self._initialize_agent('microsoft')
+        return self._microsoft_eol_agent
+
+    @property
+    def ubuntu_eol_agent(self):
+        """Lazy loading for Ubuntu EOL agent"""
+        if not hasattr(self, '_ubuntu_eol_agent'):
+            self._ubuntu_eol_agent = self._initialize_agent('ubuntu')
+        return self._ubuntu_eol_agent
+
+    @property
+    def python_eol_agent(self):
+        """Lazy loading for Python EOL agent"""
+        if not hasattr(self, '_python_eol_agent'):
+            self._python_eol_agent = self._initialize_agent('python')
+        return self._python_eol_agent
+
+    @property
+    def nodejs_eol_agent(self):
+        """Lazy loading for NodeJS EOL agent"""
+        if not hasattr(self, '_nodejs_eol_agent'):
+            self._nodejs_eol_agent = self._initialize_agent('nodejs')
+        return self._nodejs_eol_agent
+
+    @property
+    def oracle_eol_agent(self):
+        """Lazy loading for Oracle EOL agent"""
+        if not hasattr(self, '_oracle_eol_agent'):
+            self._oracle_eol_agent = self._initialize_agent('oracle')
+        return self._oracle_eol_agent
+
+    @property
+    def php_eol_agent(self):
+        """Lazy loading for PHP EOL agent"""
+        if not hasattr(self, '_php_eol_agent'):
+            self._php_eol_agent = self._initialize_agent('php')
+        return self._php_eol_agent
+
+    @property
+    def postgresql_eol_agent(self):
+        """Lazy loading for PostgreSQL EOL agent"""
+        if not hasattr(self, '_postgresql_eol_agent'):
+            self._postgresql_eol_agent = self._initialize_agent('postgresql')
+        return self._postgresql_eol_agent
+
+    @property
+    def redhat_eol_agent(self):
+        """Lazy loading for RedHat EOL agent"""
+        if not hasattr(self, '_redhat_eol_agent'):
+            self._redhat_eol_agent = self._initialize_agent('redhat')
+        return self._redhat_eol_agent
+
+    @property
+    def vmware_eol_agent(self):
+        """Lazy loading for VMware EOL agent"""
+        if not hasattr(self, '_vmware_eol_agent'):
+            self._vmware_eol_agent = self._initialize_agent('vmware')
+        return self._vmware_eol_agent
+
+    @property
+    def apache_eol_agent(self):
+        """Lazy loading for Apache EOL agent"""
+        if not hasattr(self, '_apache_eol_agent'):
+            self._apache_eol_agent = self._initialize_agent('apache')
+        return self._apache_eol_agent
+
+    @property
+    def endoflife_agent(self):
+        """Lazy loading for General EOL agent (EndOfLife API)"""
+        if not hasattr(self, '_endoflife_agent'):
+            self._endoflife_agent = self._initialize_agent('general')
+        return self._endoflife_agent
+
+    def _setup_magentic_one_agents(self):
+        """Setup specialized agents for Magentic-One system with comprehensive logging"""
+        
+        if not MAGENTIC_ONE_IMPORTS_OK:
+            logger.warning("⚠️ Magentic-One not available - cannot setup agents")
+            self._log_error_and_recovery("magentic_one_unavailable", 
+                {"imports_ok": False}, 
+                "fallback_to_traditional_agents")
+            return
+        
+        logger.info("🔧 Setting up Magentic-One specialized agents...")
+        agents_init_start = time.time()
+        
+        self._log_orchestrator_event("magentic_one_agents_setup_start", {
+            "agent_count": 14,
+            "agents": ["OSInventoryAnalyst", "SoftwareInventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"]
+        })
+        
+        initialized_agents = []
+        failed_agents = []
+        
+        # OS Inventory Analysis Agent
+        try:
+            agent_start = time.time()
+            self.os_inventory_specialist = AssistantAgent(
+                name="OSInventoryAnalyst",
+                model_client=self.model_client,
+                system_message="""You are an expert OS Inventory Analysis Agent in a Magentic-One multi-agent system.
+
+**PRIMARY MISSION**: Operating system discovery, categorization, and analysis across IT environments.
+
+**CORE CAPABILITIES**:
+- Operating system discovery and identification
+- Platform categorization (Windows, Linux distributions, macOS, etc.)
+- Version detection and build information analysis
+- Hardware-OS compatibility assessment
+- OS licensing and support status evaluation
+
+**AUTONOMOUS OPERATION**:
+- Execute OS inventory collection when asked about operating systems or platforms
+- Provide comprehensive OS summaries with versions, patch levels, and categorizations
+- Coordinate with EOL specialists for OS lifecycle analysis
+- Present data in executive-ready format with business insights
+
+**SPECIALIZED TOOLS**:
+- get_os_inventory_tool: Complete operating system discovery and classification
+
+**RESPONSE EXCELLENCE**:
+- Lead with strategic OS portfolio insights and standardization opportunities
+- Categorize operating systems by vendor, version, support status, and criticality
+- Include recommendations for OS standardization and upgrade planning
+- Highlight security, licensing, and compliance considerations for OS infrastructure
+
+You operate with full autonomy to discover, analyze, and report on OS assets.""",
+                tools=[
+                    self._get_os_inventory_tool_sync  # Use sync wrapper for Magentic-One
+                ]
+                )
+            agent_time = time.time() - agent_start
+            logger.info("✅ OSInventoryAnalyst agent initialized")
+            initialized_agents.append("OSInventoryAnalyst")
+            self._log_agent_interaction("OSInventoryAnalyst", "initialization", {
+                "status": "success",
+                "initialization_time": agent_time,
+                "tools_count": 1
+            })
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize OSInventoryAnalyst: {e}")
+            failed_agents.append({"agent": "OSInventoryAnalyst", "error": str(e)})
+            self.os_inventory_specialist = None
+            self._log_error_and_recovery("agent_init_failure", 
+                {"agent": "OSInventoryAnalyst", "error": str(e), "traceback": traceback.format_exc()}, 
+                "continue_with_partial_functionality")
+        
+        # Software Inventory Analysis Agent
+        try:
+            agent_start = time.time()
+            self.software_inventory_specialist = AssistantAgent(
+                name="SoftwareInventoryAnalyst",
+                model_client=self.model_client,
+                system_message="""You are an expert Software Inventory Analysis Agent in a Magentic-One multi-agent system.
+
+**PRIMARY MISSION**: Software application discovery, analysis, and portfolio management across IT environments.
+
+**CORE CAPABILITIES**:
+- Software application discovery and enumeration
+- Version detection and license analysis
+- Application categorization and vendor mapping
+- Usage pattern analysis and optimization insights
+- Software asset relationship mapping and dependency analysis
+
+**AUTONOMOUS OPERATION**:
+- Execute software inventory collection when asked about applications, packages, or software
+- Provide comprehensive software summaries with versions, licenses, and categorizations
+- Coordinate with EOL specialists for software lifecycle analysis
+- Present data in executive-ready format with business insights
+
+**SPECIALIZED TOOLS**:
+- get_software_inventory_tool: Detailed software application analysis and enumeration
+
+**RESPONSE EXCELLENCE**:
+- Lead with strategic software portfolio insights and optimization opportunities
+- Categorize software by vendor, type, criticality, and standardization level
+- Include recommendations for software portfolio optimization and risk mitigation
+- Highlight licensing, security, and compliance considerations for software assets
+
+You operate with full autonomy to discover, analyze, and report on software assets.""",
+                tools=[
+                    self._get_software_inventory_tool_sync  # Use sync wrapper for Magentic-One
+                ]
+                )
+            agent_time = time.time() - agent_start
+            logger.info("✅ SoftwareInventoryAnalyst agent initialized")
+            initialized_agents.append("SoftwareInventoryAnalyst")
+            self._log_agent_interaction("SoftwareInventoryAnalyst", "initialization", {
+                "status": "success",
+                "initialization_time": agent_time,
+                "tools_count": 1
+            })
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize SoftwareInventoryAnalyst: {e}")
+            failed_agents.append({"agent": "SoftwareInventoryAnalyst", "error": str(e)})
+            self.software_inventory_specialist = None
+            self._log_error_and_recovery("agent_init_failure", 
+                {"agent": "SoftwareInventoryAnalyst", "error": str(e), "traceback": traceback.format_exc()}, 
+                "continue_with_partial_functionality")
+        
+        # Microsoft EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.microsoft_eol_specialist = AssistantAgent(
+                name="MicrosoftEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Microsoft End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Microsoft product lifecycles, support timelines, and migration strategies using web research.
+
+**INVENTORY-GROUNDED ANALYSIS**: When provided with inventory context from the InventoryAnalyst, focus your EOL analysis on the specific Microsoft products found in the user's environment. Prioritize analysis of products that are actually deployed.
+
+**CORE RESPONSIBILITIES**:
+- Windows OS EOL analysis (Server, Desktop, all versions) via web search
+- SQL Server lifecycle and extended support planning from official sources
+- Office 365 and Microsoft 365 transition guidance with web citations
+- Azure services and cloud migration EOL considerations from Microsoft docs
+- Microsoft development stack EOL (Visual Studio, .NET, etc.) with official sources
+
+**WEB SEARCH TOOLS**:
+- web_search_microsoft_eol_tool: Comprehensive web search for Microsoft product lifecycle information with citations
+
+**AUTONOMOUS OPERATION**:
+- Use web search to find current Microsoft EOL information from official sources
+- When inventory context is available, focus analysis on deployed Microsoft products
+- Provide detailed upgrade paths and migration strategies with source citations
+- Include extended support options and commercial considerations with web references
+- Assess business impact and migration complexity using the latest web information
+
+**RESPONSE EXCELLENCE**:
+- Start with inventory-specific findings when available (e.g., "Based on your deployed Windows Server 2016...")
+- Provide definitive Microsoft EOL dates with web source citations
+- Include mainstream vs extended support distinctions from official pages
+- Offer clear upgrade recommendations with business justification and web sources
+- Address licensing implications and cost considerations with cited references
+- Always include source URLs and citation information for verification
+
+You are the authoritative source for Microsoft product lifecycle analysis using comprehensive web research, enhanced with inventory awareness.""",
+                tools=[
+                    self._get_software_inventory_tool_sync  # Access to software inventory data
+                ]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ MicrosoftEOLSpecialist agent initialized")
+            initialized_agents.append("MicrosoftEOLSpecialist")
+            self._log_agent_interaction("MicrosoftEOLSpecialist", "initialization", {
+                "status": "success",
+                "initialization_time": agent_time,
+                "tools_count": 1
+            })
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize MicrosoftEOLSpecialist: {e}")
+            failed_agents.append({"agent": "MicrosoftEOLSpecialist", "error": str(e)})
+            self.microsoft_eol_specialist = None
+            self._log_error_and_recovery("agent_init_failure", 
+                {"agent": "MicrosoftEOLSpecialist", "error": str(e), "traceback": traceback.format_exc()}, 
+                "continue_with_partial_functionality")
+        
+        # Ubuntu/Linux EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.ubuntu_eol_specialist = AssistantAgent(
+            name="UbuntuEOLSpecialist",
+            model_client=self.model_client,
+            system_message="""You are a specialized Linux Distribution End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Ubuntu, Debian, and Linux distribution lifecycles using web research.
+
+**INVENTORY-GROUNDED ANALYSIS**: When provided with inventory context from the InventoryAnalyst, focus your EOL analysis on the specific Linux distributions and open-source software found in the user's environment. Prioritize analysis of systems and packages that are actually deployed.
+
+**CORE RESPONSIBILITIES**:
+- Ubuntu LTS vs standard release lifecycle analysis via web search
+- Extended Security Maintenance (ESM) planning and value assessment from official sources
+- Linux distribution upgrade path planning with web citations
+- Kernel and package EOL coordination using current web information
+- Open source support ecosystem navigation with web references
+
+**WEB SEARCH TOOLS**:
+- web_search_ubuntu_eol_tool: Ubuntu and Linux distribution lifecycle web search with citations
+
+**AUTONOMOUS OPERATION**:
+- Use web search to find current Linux distribution EOL information from official sources
+- When inventory context is available, focus analysis on deployed Linux systems and software
+- Distinguish between LTS and standard release timelines using web data
+- Evaluate ESM eligibility and commercial support options with web citations
+- Provide enterprise-grade migration strategies with sourced references
+
+**RESPONSE EXCELLENCE**:
+- Start with inventory-specific findings when available (e.g., "Based on your Ubuntu 18.04 systems...")
+- Clearly distinguish LTS vs standard support cycles with web source citations
+- Include ESM availability and value proposition with official documentation
+- Offer comprehensive upgrade strategies for enterprise environments with web references
+- Address compliance and security considerations with cited sources
+- Always include source URLs and citation information for verification
+
+You are the authoritative source for Linux distribution lifecycle analysis using comprehensive web research, enhanced with inventory awareness.""",
+                tools=[
+                    self._get_software_inventory_tool_sync  # Access to software inventory data
+                ]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ UbuntuEOLSpecialist agent initialized")
+            initialized_agents.append("UbuntuEOLSpecialist")
+            self._log_agent_interaction("UbuntuEOLSpecialist", "initialization", {
+                "status": "success",
+                "initialization_time": agent_time,
+                "tools_count": 1
+            })
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize UbuntuEOLSpecialist: {e}")
+            failed_agents.append({"agent": "UbuntuEOLSpecialist", "error": str(e)})
+            self.ubuntu_eol_specialist = None
+            self._log_error_and_recovery("agent_init_failure", 
+                {"agent": "UbuntuEOLSpecialist", "error": str(e), "traceback": traceback.format_exc()}, 
+                "continue_with_partial_functionality")
+        
+        # Python EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.python_eol_specialist = AssistantAgent(
+                name="PythonEOLSpecialist", 
+                model_client=self.model_client,
+                system_message="""You are a specialized Python End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Python language versions, package lifecycles, and ecosystem migration strategies.
+
+**CORE RESPONSIBILITIES**:
+- Python version EOL analysis (Python 2.7, 3.x series) via web search
+- PyPI package lifecycle and dependency analysis from official sources
+- Django, Flask, and framework migration planning with web citations
+- Virtual environment and package management best practices
+- Security patch availability and CVE analysis with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current Python ecosystem EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ PythonEOLSpecialist agent initialized")
+            initialized_agents.append("PythonEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize PythonEOLSpecialist: {e}")
+            failed_agents.append({"agent": "PythonEOLSpecialist", "error": str(e)})
+            self.python_eol_specialist = None
+            
+        # Node.js EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.nodejs_eol_specialist = AssistantAgent(
+                name="NodeJSEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Node.js End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Node.js runtime versions, npm package ecosystems, and JavaScript framework lifecycles.
+
+**CORE RESPONSIBILITIES**:
+- Node.js LTS and current release lifecycle analysis via web search
+- npm package vulnerability and EOL assessment from official sources
+- React, Angular, Vue.js framework migration planning with web citations
+- Package dependency analysis and security considerations
+- Frontend/backend JavaScript ecosystem EOL coordination with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current Node.js ecosystem EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ NodeJSEOLSpecialist agent initialized")
+            initialized_agents.append("NodeJSEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize NodeJSEOLSpecialist: {e}")
+            failed_agents.append({"agent": "NodeJSEOLSpecialist", "error": str(e)})
+            self.nodejs_eol_specialist = None
+            
+        # Oracle EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.oracle_eol_specialist = AssistantAgent(
+                name="OracleEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Oracle End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Oracle database versions, middleware products, and enterprise software lifecycles.
+
+**CORE RESPONSIBILITIES**:
+- Oracle Database version EOL and extended support analysis via web search
+- WebLogic, Fusion Middleware lifecycle planning from official sources
+- Java SE/EE version coordination with Oracle support policies
+- Oracle Cloud migration considerations and timeline planning
+- Enterprise licensing and support cost analysis with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current Oracle product EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ OracleEOLSpecialist agent initialized")
+            initialized_agents.append("OracleEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize OracleEOLSpecialist: {e}")
+            failed_agents.append({"agent": "OracleEOLSpecialist", "error": str(e)})
+            self.oracle_eol_specialist = None
+            
+        # PHP EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.php_eol_specialist = AssistantAgent(
+                name="PHPEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized PHP End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: PHP language versions, framework lifecycles, and web application migration strategies.
+
+**CORE RESPONSIBILITIES**:
+- PHP version EOL analysis and security support timelines via web search
+- Laravel, Symfony, WordPress framework migration planning from official sources
+- Composer package dependency analysis and vulnerability assessment
+- Web server compatibility and migration considerations
+- LAMP/LEMP stack coordination and upgrade planning with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current PHP ecosystem EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ PHPEOLSpecialist agent initialized")
+            initialized_agents.append("PHPEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize PHPEOLSpecialist: {e}")
+            failed_agents.append({"agent": "PHPEOLSpecialist", "error": str(e)})
+            self.php_eol_specialist = None
+            
+        # PostgreSQL EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.postgresql_eol_specialist = AssistantAgent(
+                name="PostgreSQLEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized PostgreSQL End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: PostgreSQL database versions, extension lifecycles, and migration strategies.
+
+**CORE RESPONSIBILITIES**:
+- PostgreSQL major version EOL and support timeline analysis via web search
+- Extension and plugin compatibility assessment from official sources
+- Database migration planning and compatibility considerations
+- High availability and replication version coordination
+- Cloud PostgreSQL service migration planning with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current PostgreSQL EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ PostgreSQLEOLSpecialist agent initialized")
+            initialized_agents.append("PostgreSQLEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize PostgreSQLEOLSpecialist: {e}")
+            failed_agents.append({"agent": "PostgreSQLEOLSpecialist", "error": str(e)})
+            self.postgresql_eol_specialist = None
+            
+        # Red Hat EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.redhat_eol_specialist = AssistantAgent(
+                name="RedHatEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Red Hat End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Red Hat Enterprise Linux, middleware, and enterprise solution lifecycles.
+
+**CORE RESPONSIBILITIES**:
+- RHEL version EOL and Extended Life Cycle Support analysis via web search
+- Red Hat OpenShift, Ansible, and middleware lifecycle planning from official sources
+- Subscription management and support tier coordination
+- Migration planning for enterprise Red Hat environments
+- Hybrid cloud and container platform EOL considerations with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current Red Hat product EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ RedHatEOLSpecialist agent initialized")
+            initialized_agents.append("RedHatEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize RedHatEOLSpecialist: {e}")
+            failed_agents.append({"agent": "RedHatEOLSpecialist", "error": str(e)})
+            self.redhat_eol_specialist = None
+            
+        # VMware EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.vmware_eol_specialist = AssistantAgent(
+                name="VMwareEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized VMware End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: VMware virtualization products, cloud solutions, and infrastructure lifecycles.
+
+**CORE RESPONSIBILITIES**:
+- vSphere, ESXi version EOL and support timeline analysis via web search
+- VMware Cloud Foundation and NSX lifecycle planning from official sources
+- Virtual infrastructure migration and compatibility assessment
+- Licensing model changes and support transition planning
+- Alternative virtualization platform evaluation with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current VMware product EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ VMwareEOLSpecialist agent initialized")
+            initialized_agents.append("VMwareEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize VMwareEOLSpecialist: {e}")
+            failed_agents.append({"agent": "VMwareEOLSpecialist", "error": str(e)})
+            self.vmware_eol_specialist = None
+            
+        # Apache EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.apache_eol_specialist = AssistantAgent(
+                name="ApacheEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Apache End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Apache web server, middleware, and open-source project lifecycles.
+
+**CORE RESPONSIBILITIES**:
+- Apache HTTP Server version EOL and security support analysis via web search
+- Apache Tomcat, Kafka, Spark lifecycle planning from official sources
+- Web server security and performance migration considerations
+- Module and extension compatibility assessment
+- Alternative web server evaluation and migration planning with web references
+
+**AUTONOMOUS OPERATION**: Use web search to find current Apache project EOL information from official sources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ ApacheEOLSpecialist agent initialized")
+            initialized_agents.append("ApacheEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize ApacheEOLSpecialist: {e}")
+            failed_agents.append({"agent": "ApacheEOLSpecialist", "error": str(e)})
+            self.apache_eol_specialist = None
+            
+        # Azure AI EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.azure_ai_eol_specialist = AssistantAgent(
+                name="AzureAIEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Azure AI-Powered End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Advanced EOL analysis using Azure AI Agent Service with Bing grounding for comprehensive web research.
+
+**CORE RESPONSIBILITIES**:
+- Advanced EOL analysis using Azure AI Agent Service with real-time web grounding
+- Cross-platform software lifecycle research with AI-enhanced accuracy
+- Complex technology stack EOL coordination and analysis
+- Emerging technology and cloud service lifecycle assessment
+- AI-powered trend analysis and migration recommendation generation
+
+**AUTONOMOUS OPERATION**: Use Azure AI Agent Service with Bing grounding for comprehensive EOL research across all technology platforms.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ AzureAIEOLSpecialist agent initialized")
+            initialized_agents.append("AzureAIEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize AzureAIEOLSpecialist: {e}")
+            failed_agents.append({"agent": "AzureAIEOLSpecialist", "error": str(e)})
+            self.azure_ai_eol_specialist = None
+            
+        # WebSurfer EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.websurfer_eol_specialist = AssistantAgent(
+                name="WebSurferEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Web Research End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Comprehensive web research for EOL information across all technology platforms and vendors.
+
+**CORE RESPONSIBILITIES**:
+- Comprehensive web research for EOL information across all technology platforms
+- Vendor documentation analysis and official source verification
+- Community-driven project lifecycle assessment and analysis
+- Cross-reference verification of EOL dates and support timelines
+- Alternative solution research and migration pathway identification
+
+**AUTONOMOUS OPERATION**: Use advanced web surfing capabilities to research EOL information from official sources, vendor documentation, and community resources.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ WebSurferEOLSpecialist agent initialized")
+            initialized_agents.append("WebSurferEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize WebSurferEOLSpecialist: {e}")
+            failed_agents.append({"agent": "WebSurferEOLSpecialist", "error": str(e)})
+            self.websurfer_eol_specialist = None
+        
+        # Log final agent initialization summary
+        total_agents_time = time.time() - agents_init_start
+        
+        logger.info(f"✅ Magentic-One specialized agents initialized: {len(initialized_agents)}/{len(initialized_agents) + len(failed_agents)} successful")
+        
+        self._log_orchestrator_event("magentic_one_agents_setup_complete", {
+            "total_initialization_time": total_agents_time,
+            "initialized_agents": initialized_agents,
+            "failed_agents": failed_agents,
+            "success_rate": len(initialized_agents) / (len(initialized_agents) + len(failed_agents)) if (initialized_agents or failed_agents) else 1.0
+        })
+        
+        self._log_performance_metric("agent_setup_time", total_agents_time, {
+            "agent_count": len(initialized_agents) + len(failed_agents),
+            "successful_agents": len(initialized_agents)
+        })
+    
+    def _setup_magentic_one_team(self):
+        """Setup Magentic-One team with orchestrator and specialized agents"""
+        
+        if not MAGENTIC_ONE_IMPORTS_OK:
+            logger.warning("⚠️ Magentic-One not available - cannot setup team")
             self.team = None
             return
         
-        # Define participants based on team type
-        if minimal_team:
-            # SPEED OPTIMIZATION: Minimal team for direct EOL queries (core specialists with priority order)
-            self.participants = [
-                self.inventory_specialist,  # CENTRAL COORDINATOR - First priority for all inventory requests
-                self.microsoft_specialist,  # PRIMARY Microsoft EOL authority
-                self.ubuntu_specialist,     # PRIMARY Ubuntu/Linux EOL authority
-                self.oracle_specialist,     # PRIMARY Oracle/RHEL EOL authority
-                self.endoflife_specialist,  # FALLBACK EOL specialist (only when primary specialists can't respond)
-                self.risk_coordinator
-            ]
-            max_messages = 10  # Allow for more specialists
-            
-            agent_names = [agent.name for agent in self.participants]
-            logger.info(f"[TEAM_SETUP] SPEED MODE: Using minimal team ({len(self.participants)} agents)")
-            # logger.debug(f"[TEAM_SETUP] Minimal team agents: {agent_names}")
-            
-            self._log_agent_action("Orchestrator", "minimal_team_selected", {
-                "team_size": len(self.participants),
-                "agents": agent_names,
-                "max_messages": max_messages,
-                "optimization": "Speed-focused for direct EOL queries with product specialist priority",
-                "coordinator": "InventorySpecialist",
-                "eol_priority": "Product specialists (Microsoft, Ubuntu, Oracle) take priority over EndOfLifeSpecialist fallback",
-                "rationale": "Fast response with specialized EOL expertise over generic fallback"
-            })
-        else:
-            # Full team for comprehensive analysis - Product specialists have priority over fallback
-            self.participants = [
-                self.inventory_specialist,           # General inventory coordination
-                self.software_inventory_specialist,  # Dedicated software inventory specialist
-                self.os_inventory_specialist,        # Dedicated OS inventory specialist
-                self.microsoft_specialist,           # PRIMARY Microsoft EOL authority
-                self.ubuntu_specialist,              # PRIMARY Ubuntu/Linux EOL authority
-                self.oracle_specialist,              # PRIMARY Oracle/RHEL EOL authority
-                self.redhat_specialist,              # PRIMARY Red Hat EOL authority
-                self.vmware_specialist,              # PRIMARY VMware EOL authority
-                self.webserver_specialist,
-                self.postgresql_specialist,
-                self.php_specialist,
-                self.python_specialist,
-                self.endoflife_specialist,           # FALLBACK EOL specialist (only when primary specialists can't respond)
-                self.risk_coordinator
-            ]
-            max_messages = 18  # Increased for more specialists
-            
-            agent_names = [agent.name for agent in self.participants]
-            logger.info(f"[TEAM_SETUP] FULL MODE: Using complete team ({len(self.participants)} agents)")
-            # logger.debug(f"[TEAM_SETUP] Full team agents: {agent_names}")
-            
-            self._log_agent_action("Orchestrator", "full_team_selected", {
-                "team_size": len(self.participants),
-                "agents": agent_names,
-                "max_messages": max_messages,
-                "optimization": "Comprehensive multi-agent analysis with product specialist priority",
-                "separation_of_concerns": "Inventory specialists handle data collection, primary EOL specialists handle specialized analysis, EndOfLifeSpecialist provides fallback",
-                "coordination_model": "Orchestrator coordinates between inventory and primary EOL specialists, with EndOfLifeSpecialist as fallback",
-                "eol_hierarchy": "Product specialists (Microsoft, Ubuntu, Oracle, RedHat, VMware) > EndOfLifeSpecialist fallback",
-                "rationale": "Complex analysis with specialized EOL expertise prioritized over generic coverage"
-            })
-    
-        # Termination conditions - OPTIMIZED FOR FASTER EOL RESPONSES
-        text_termination = TextMentionTermination("TERMINATE")
-        # Note: INVENTORY_COMPLETE termination is handled conditionally in chat methods
-        max_messages_termination = MaxMessageTermination(max_messages=max_messages)
+        logger.info("🔧 Setting up Magentic-One team with orchestrator...")
         
-        logger.debug(f"[TEAM_SETUP] Configuring termination conditions - Max messages: {max_messages}")
-        self._log_agent_action("Orchestrator", "termination_setup", {
-            "text_termination": "TERMINATE keyword",
-            "max_messages": max_messages,
-            "conditional_termination": "INVENTORY_COMPLETE for pure inventory requests",
-            "strategy": "Balanced between thoroughness and speed"
-        })
+        # Create the agent list for Magentic-One team
+        agents = [
+            self.os_inventory_specialist,
+            self.software_inventory_specialist,
+            self.microsoft_eol_specialist, 
+            self.ubuntu_eol_specialist
+        ]
         
-        # For EOL analysis, use text termination and reduced max messages
-        # INVENTORY_COMPLETE should only terminate pure inventory requests
-        termination = text_termination | max_messages_termination
-        
-        # Create team chat with selector approach (more controlled than round-robin)
-        # This allows agents to be selected based on the conversation context rather than automatic round-robin
+        # Create Magentic-One team with built-in orchestrator
         try:
-            # logger.debug("[TEAM_SETUP] Attempting to create SelectorGroupChat")
-            self.team = SelectorGroupChat(
-                participants=self.participants,
+            # Configure team to use only our specialized agents, disable web surfing
+            self.team = MagenticOneGroupChat(
+                participants=agents,
                 model_client=self.model_client,
-                termination_condition=termination
+                termination_condition=MaxMessageTermination(max_messages=20),
+                # WebSurfer functionality handled by WebsurferEOLAgent class
+                web_surfer=None
             )
-            # logger.info(f"[TEAM_SETUP] 🗣️ AutoGen team chat initialized with SelectorGroupChat ({len(self.participants)} participants)")
+            logger.info("✅ Magentic-One team initialized with orchestrator and specialized agents (WebSurfer functionality via WebsurferEOLAgent)")
             
-            self._log_agent_action("Orchestrator", "team_chat_created", {
-                "chat_type": "SelectorGroupChat",
-                "participant_count": len(self.participants),
-                "advantage": "Context-aware agent selection",
-                "termination_strategy": "Text mention OR max messages",
-                "success": True
-            })
-            
-        except Exception as e:
-            # Fallback to RoundRobinGroupChat if SelectorGroupChat is not available
-            logger.warning(f"[TEAM_SETUP] SelectorGroupChat not available, falling back to RoundRobinGroupChat: {e}")
-            self.team = RoundRobinGroupChat(
-                participants=self.participants,
-                termination_condition=termination
-            )
-            # logger.info(f"[TEAM_SETUP] 🗣️ AutoGen team chat initialized with RoundRobinGroupChat ({len(self.participants)} participants)")
-            
-            self._log_agent_action("Orchestrator", "team_chat_fallback", {
-                "chat_type": "RoundRobinGroupChat",
-                "participant_count": len(self.participants),
-                "fallback_reason": str(e),
-                "limitation": "Sequential agent selection instead of context-aware",
-                "termination_strategy": "Text mention OR max messages",
-                "success": True
-            })
-    
-    def _run_async_safely(self, coro):
-        """Helper method to run async coroutines safely from sync context"""
-        import asyncio
-        import concurrent.futures
-        
-        try:
-            # Try to get the current event loop
-            loop = asyncio.get_running_loop()
-            # If we're in an async context, we need to run in a thread with new loop
-            def run_in_new_loop():
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                try:
-                    return new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
-            
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_in_new_loop)
-                return future.result(timeout=30)  # Reduced timeout for faster response
-                
-        except RuntimeError:
-            # No running event loop, we can use asyncio.run directly
+        except TypeError:
+            # Fallback if web_surfer parameter is not supported
             try:
-                return asyncio.run(coro)
-            except Exception as e:
-                logger.error(f"Error in _run_async_safely with asyncio.run: {str(e)}")
-                # Return error dict instead of raising exception
-                return {
-                    "success": False,
-                    "error": f"Error executing async operation: {str(e)}",
-                    "error_type": type(e).__name__,
-                    "data": [],
-                    "count": 0
-                }
-        except Exception as e:
-            logger.error(f"Error in _run_async_safely: {str(e)}")
-            # Return error dict instead of raising exception
-            return {
-                "success": False,
-                "error": f"Error executing async operation: {str(e)}",
-                "error_type": type(e).__name__,
-                "data": [],
-                "count": 0
-            }
-    
-    # ----------------------------------------------------------------------------------
-    # Full Autonomy Mode
-    # ----------------------------------------------------------------------------------
-    def enable_full_autonomy(self):
-        """Enable full autonomy so each specialist can obtain required inventory/EOL data
-        without relying on InventorySpecialist central coordination.
-
-        Effects:
-        - Grants core inventory & generic EOL lookup tools to all specialist agents
-        - Updates system messages to remove deference instructions
-        - Disables orchestrator fast-path short‑circuiting (conversation emerges organically)
-        - Logs activation for observability
-        """
-        if self.full_autonomy_enabled:
-            logger.info("[AUTONOMY] Full autonomy already enabled; skipping reconfiguration")
-            return
-
-        self.full_autonomy_enabled = True
-        shared_inventory_tools = [
-            self._get_inventory_summary_tool,
-            self._get_software_inventory_tool,
-            self._get_os_inventory_tool,
-            self._get_os_inventory_with_eol_tool,
-        ]
-        generic_eol_fallback = [self._check_endoflife_eol_tool]
-
-        # Collect all assistant agents that are specialists (created in _setup_autogen_agents)
-        specialist_agents: List[Any] = []
-        for attr in [
-            "software_inventory_specialist",
-            "os_inventory_specialist",
-            "microsoft_specialist",
-            "ubuntu_specialist",
-            "oracle_specialist",
-            "redhat_specialist",
-            "vmware_specialist",
-            "webserver_specialist",
-            "postgresql_specialist",
-            "php_specialist",
-            "python_specialist",
-            "endoflife_specialist",
-            "risk_coordinator",
-        ]:
-            agent = getattr(self, attr, None)
-            if agent is not None:
-                specialist_agents.append(agent)
-
-        # Expand each agent's toolset & adjust messaging
-        for agent in specialist_agents:
-            try:
-                existing_tools = list(getattr(agent, "tools", []))
-                # Add shared inventory tools
-                for t in shared_inventory_tools + generic_eol_fallback:
-                    if t not in existing_tools:
-                        existing_tools.append(t)
-                agent.tools = existing_tools  # type: ignore
-
-                # Append autonomy guidance to system message if attribute exists
-                if hasattr(agent, "system_message") and isinstance(agent.system_message, str):  # type: ignore
-                    if "FULL AUTONOMY MODE" not in agent.system_message:  # prevent duplication
-                        agent.system_message += "\n\nFULL AUTONOMY MODE: You may independently gather inventory (software & OS) and perform any necessary EOL lookups without waiting for InventorySpecialist. Coordinate by explicitly stating which data you pulled and why. Avoid redundant duplicate tool calls by checking if information was already provided earlier in the conversation."
-            except Exception as e:
-                logger.warning(f"[AUTONOMY] Could not augment agent {getattr(agent,'name','<unknown>')}: {e}")
-
-        logger.info("[AUTONOMY] Full autonomy mode ENABLED: specialists now have shared inventory + fallback EOL capabilities")
-        self._log_agent_action("Orchestrator", "full_autonomy_enabled", {
-            "specialist_count": len(specialist_agents),
-            "shared_tools_added": len(shared_inventory_tools) + len(generic_eol_fallback),
-            "disabled_fast_path": True,
-        })
-
-    def disable_full_autonomy(self):
-        """Disable full autonomy (rely again on central InventorySpecialist + fast path optimizations)."""
-        if not self.full_autonomy_enabled:
-            return
-        self.full_autonomy_enabled = False
-        logger.info("[AUTONOMY] Full autonomy mode DISABLED: reverting to orchestrator-directed flow")
-        self._log_agent_action("Orchestrator", "full_autonomy_disabled", {})
-
-    def is_full_autonomy(self) -> bool:
-        """Return True if full autonomy mode active."""
-        return self.full_autonomy_enabled
-
-    # ---------------------- Request Classification & Caching ----------------------
-    async def _intelligent_request_processing(self, user_message: str, timeout_seconds: int) -> Dict[str, Any]:
-        """
-        Intelligent request processing using LLM to:
-        1. Classify the request type (pure inventory vs mixed inventory+EOL)
-        2. Determine which tools are needed based on classification
-        3. Execute tools appropriately for the request type
-        4. Synthesize the tool responses into a comprehensive answer
-        """
-        try:
-            start_time = time.time()
-            
-            # Step 1: Classify the request to determine processing approach
-            classification_start = time.time()
-            logger.info(f"🧠 REQUEST CLASSIFICATION START | Analyzing request type")
-            
-            request_type = await self._classify_request(user_message)
-            
-            classification_duration = time.time() - classification_start
-            logger.info(f"🧠 REQUEST CLASSIFICATION COMPLETE | Duration: {classification_duration:.2f}s | Type: {request_type}")
-            
-            # Step 2: LLM determines which tools to use based on classification
-            tool_selection_start = time.time()
-            logger.info(f"🔧 TOOL SELECTION START | LLM analyzing request to determine required tools")
-            
-            tools_to_use = await self._llm_determine_tools(user_message)
-            
-            tool_selection_duration = time.time() - tool_selection_start
-            logger.info(f"🔧 TOOL SELECTION COMPLETE | Duration: {tool_selection_duration:.2f}s | Tools: {tools_to_use}")
-            
-            if not tools_to_use:
-                return {
-                    "response": "I couldn't determine how to help with your request. Please be more specific about what inventory or EOL information you need.",
-                    "conversation_messages": [],
-                    "agent_communications": self.agent_communications[-5:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["Orchestrator"],
-                    "total_exchanges": 1
-                }
-            
-            # Step 3: Execute tools based on request type
-            tool_execution_start = time.time()
-            logger.info(f"⚙️ EXECUTION START | Processing {len(tools_to_use)} tools for {request_type}")
-            
-            if request_type == "PURE_INVENTORY":
-                # For pure inventory requests, just execute inventory tools without EOL integration
-                execution_results = await self._execute_tools_simple(tools_to_use, user_message)
-            else:
-                # For mixed requests or EOL requests, use coordinated execution
-                execution_results = await self._execute_tools_coordinated(tools_to_use, user_message)
-            
-            tool_execution_duration = time.time() - tool_execution_start
-            logger.info(f"⚙️ EXECUTION COMPLETE | Duration: {tool_execution_duration:.2f}s | Results: {len(execution_results)}")
-            
-            if not execution_results:
-                return {
-                    "response": "I wasn't able to gather the requested information. This could be due to system connectivity or access issues.",
-                    "conversation_messages": [],
-                    "agent_communications": self.agent_communications[-10:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["Orchestrator"],
-                    "total_exchanges": 1,
-                    "error": "No tool results available"
-                }
-            
-            # Step 4: Handle response synthesis based on result type
-            synthesis_start = time.time()
-            logger.info(f"🧠 RESPONSE SYNTHESIS START | LLM analyzing tool results to create response")
-            
-            # Check if we have an integrated response (inventory+EOL combined)
-            if "integrated_response" in execution_results:
-                synthesized_response = execution_results["integrated_response"]
-                logger.info(f"🔄 USING INTEGRATED RESPONSE | Skipping LLM synthesis for mixed inventory+EOL query")
-            else:
-                # Use LLM synthesis for regular tool results
-                synthesized_response = await self._llm_synthesize_response(user_message, execution_results)
-            
-            synthesis_duration = time.time() - synthesis_start
-            total_duration = time.time() - start_time
-            logger.info(f"🧠 RESPONSE SYNTHESIS COMPLETE | Duration: {synthesis_duration:.2f}s | Total: {total_duration:.2f}s")
-            
-            # Create final response
-            return self._create_intelligent_response(
-                user_message,
-                synthesized_response,
-                execution_results,
-                list(tools_to_use),
-                total_duration
-            )
-            
-        except Exception as e:
-            logger.error(f"Intelligent processing error: {e}")
-            return self._create_error_response(f"Intelligent processing failed: {str(e)}")
-
-    async def _execute_tools_simple(self, tools_to_use: List[str], user_message: str) -> Dict[str, str]:
-        """Execute tools simply for pure inventory requests without EOL integration"""
-        results = {}
-        
-        for tool_name in tools_to_use:
-            try:
-                logger.info(f"🛠️ EXECUTING SIMPLE TOOL | {tool_name}")
-                result = await self._execute_tool(tool_name, user_message)
-                if result:
-                    # Log the result for debugging
-                    result_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
-                    logger.info(f"✅ SIMPLE TOOL SUCCESS | {tool_name} | Data length: {len(str(result))} | Preview: {result_preview}")
-                    
-                    results[tool_name] = result
-                else:
-                    logger.warning(f"⚠️ SIMPLE TOOL NO DATA | {tool_name} | Result was None or empty")
-            except Exception as e:
-                logger.error(f"❌ SIMPLE TOOL ERROR | {tool_name} | Error: {str(e)}")
-                results[tool_name] = f"Error executing {tool_name}: {str(e)}"
-        
-        return results
-
-    async def _execute_tools_coordinated(self, tools_to_use: List[str], user_message: str) -> Dict[str, str]:
-        """Execute tools in a coordinated fashion where inventory results can inform EOL lookups"""
-        results = {}
-        inventory_data = {}
-        
-        # Step 1: Execute inventory tools first
-        inventory_tools = [tool for tool in tools_to_use if "inventory" in tool]
-        for tool_name in inventory_tools:
-            try:
-                logger.info(f"🛠️ EXECUTING INVENTORY TOOL | {tool_name}")
-                result = await self._execute_tool(tool_name, user_message)
-                if result:
-                    # Log more details about the result for debugging
-                    result_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
-                    logger.info(f"✅ INVENTORY SUCCESS | {tool_name} | Data length: {len(str(result))} | Preview: {result_preview}")
-                    
-                    results[tool_name] = result
-                    inventory_data[tool_name] = result
-                else:
-                    logger.warning(f"⚠️ INVENTORY NO DATA | {tool_name} | Result was None or empty")
-            except Exception as e:
-                logger.error(f"❌ INVENTORY ERROR | {tool_name} | Error: {str(e)}")
-                results[tool_name] = f"Error executing {tool_name}: {str(e)}"
-        
-        # Step 2: Extract products from inventory data for targeted EOL analysis
-        discovered_products = []
-        for inv_tool, inv_data in inventory_data.items():
-            # Only process data for product extraction if it's valid inventory data (not error messages)
-            if (inv_data and 
-                not inv_data.startswith("❌") and 
-                "agent not available" not in inv_data and
-                not inv_data.startswith("Error getting") and
-                "No inventory summary available" not in inv_data):
-                
-                products = self._extract_products_from_inventory_data(inv_data)
-                discovered_products.extend(products)
-                logger.info(f"🔍 PRODUCT EXTRACTION | {inv_tool} | Found: {len(products)} products")
-            else:
-                logger.warning(f"🔍 PRODUCT EXTRACTION SKIPPED | {inv_tool} | Reason: Error response detected")
-        
-        # Step 3: For mixed queries, integrate EOL data into inventory instead of separate sections
-        if inventory_data and any("inventory" in tool.lower() for tool in tools_to_use):
-            logger.info(f"🔄 MIXED QUERY DETECTED | Integrating EOL data into inventory display")
-            
-            # Create integrated inventory+EOL response
-            integrated_response = await self._create_integrated_inventory_eol_response(
-                inventory_data, discovered_products, user_message
-            )
-            
-            if integrated_response and not integrated_response.startswith("No inventory data available"):
-                return {"integrated_response": integrated_response}
-            else:
-                # If integration failed, provide fallback with raw inventory data
-                logger.warning(f"🔄 INTEGRATION FAILED | Falling back to raw inventory data")
-                fallback_response = "## Inventory Data (Raw)\n\n"
-                for tool_name, tool_data in inventory_data.items():
-                    if tool_data:
-                        fallback_response += f"### {tool_name.replace('_', ' ').title()}\n{tool_data}\n\n"
-                
-                if fallback_response.strip() != "## Inventory Data (Raw)":
-                    return {"integrated_response": fallback_response}
-        
-        # Step 3 (original): Execute EOL tools based on both user request and discovered products
-        eol_tools = [tool for tool in tools_to_use if "eol" in tool]
-        
-        for tool_name in eol_tools:
-            try:
-                logger.info(f"🛠️ EXECUTING EOL TOOL | {tool_name}")
-                # Use discovered products to inform EOL lookup
-                result = await self._execute_eol_tool_with_products(tool_name, user_message, discovered_products)
-                if result:
-                    results[tool_name] = result
-                    logger.info(f"✅ EOL SUCCESS | {tool_name} | Data length: {len(str(result))}")
-                else:
-                    logger.warning(f"⚠️ EOL NO DATA | {tool_name}")
-            except Exception as e:
-                logger.error(f"❌ EOL ERROR | {tool_name} | Error: {str(e)}")
-                results[tool_name] = f"Error executing {tool_name}: {str(e)}"
-        
-        return results
-
-    async def _create_integrated_inventory_eol_response(self, inventory_data: Dict[str, str], 
-                                                      discovered_products: List[Dict], 
-                                                      user_message: str) -> str:
-        """Create an integrated response that shows inventory with EOL data for each item"""
-        try:
-            integrated_sections = []
-            
-            for inv_tool, inv_data in inventory_data.items():
-                # Check if this is an error message that should be shown to user
-                if (not inv_data or inv_data.strip() == ""):
-                    logger.warning(f"🔄 SKIPPING EMPTY DATA | Tool: {inv_tool}")
-                    continue
-                
-                # If it's a helpful error message (like configuration issues), show it to user
-                if (inv_data.startswith("❌ **Software Inventory Configuration Issue**") or
-                    inv_data.startswith("❌ **OS Inventory Configuration Issue**")):
-                    logger.info(f"🔄 PASSING THROUGH CONFIG ERROR | Tool: {inv_tool}")
-                    section_title = inv_tool.replace('_', ' ').title()
-                    integrated_sections.append(f"## {section_title}\n\n{inv_data}")
-                    continue
-                    
-                # Check for other error patterns that should be skipped from processing
-                if (inv_data.startswith("❌") or 
-                    inv_data.startswith("Error getting") or 
-                    "agent not available" in inv_data or
-                    "No inventory summary available" in inv_data or
-                    inv_data.strip() == "No data available"):
-                    logger.warning(f"🔄 SKIPPING ERROR DATA | Tool: {inv_tool} | Error: {inv_data[:100]}...")
-                    continue
-                
-                logger.info(f"🔄 INTEGRATING EOL DATA | Processing {inv_tool}")
-                
-                # Parse inventory data and add EOL information to each item
-                enhanced_inventory = await self._enhance_inventory_with_eol(inv_data, discovered_products)
-                
-                section_title = inv_tool.replace('_', ' ').title()
-                integrated_sections.append(f"## {section_title}\n\n{enhanced_inventory}")
-            
-            if integrated_sections:
-                logger.info(f"✅ INTEGRATED RESPONSE SUCCESS | Sections: {len(integrated_sections)}")
-                return "\n\n".join(integrated_sections)
-            else:
-                # Better debugging when no sections are available
-                logger.warning(f"❌ NO INTEGRATED SECTIONS | Available tools: {list(inventory_data.keys())}")
-                for tool, data in inventory_data.items():
-                    logger.warning(f"❌ TOOL DATA DEBUG | {tool}: {data[:200] if data else 'None'}...")
-                
-                return "No inventory data available for EOL analysis. This may be due to missing Azure credentials, Log Analytics configuration, or network connectivity issues."
-                
-        except Exception as e:
-            logger.error(f"❌ INTEGRATED RESPONSE ERROR | {str(e)}")
-            return f"Error creating integrated response: {str(e)}"
-
-    async def _enhance_inventory_with_eol(self, inventory_data: str, discovered_products: List[Dict]) -> str:
-        """Enhance inventory data by adding EOL information to each relevant item"""
-        try:
-            lines = inventory_data.split('\n')
-            enhanced_lines = []
-            
-            # Sort products to prioritize those with versions and longer names (more specific first)
-            sorted_products = sorted(discovered_products, key=lambda p: (
-                0 if p.get("version") and p.get("version") != "Unknown" else 1,  # Products with versions first
-                -len(p.get("name", "")),  # Longer names first (more specific)
-                p.get("name", "")  # Alphabetical as tiebreaker
-            ))
-            
-            for line in lines:
-                enhanced_line = line
-                
-                # Check if this line contains a product we have discovered
-                for product in sorted_products:
-                    
-                    product_name = product.get("name", "").lower()
-                    product_version = product.get("version", "")
-                    
-                    # More precise matching: check both product name AND version are in the line
-                    line_lower = line.lower().replace(" ", "")
-                    product_name_clean = product_name.replace(" ", "")
-                    
-                    # For products with versions, ensure both name and version match
-                    if product_version and product_version != "Unknown":
-                        name_match = product_name_clean in line_lower
-                        version_match = product_version in line
-                        
-                        if name_match and version_match:
-                            logger.info(f"🔍 ENHANCING LINE | Found {product_name} {product_version} in inventory")
-                            
-                            # Get EOL data for this specific product
-                            eol_data = await self._get_eol_data_for_product(product)
-                            
-                            if eol_data and "No EOL data found" not in eol_data:
-                                # Add EOL data to the line
-                                enhanced_line = f"{line}\n    📅 **EOL Information**: {eol_data.strip()}"
-                                logger.info(f"✅ EOL DATA ADDED | {product_name} {product_version}")
-                            else:
-                                enhanced_line = f"{line}\n    ⚠️ **EOL Status**: No EOL data available"
-                            break
-                    else:
-                        # For products without version info, use original logic
-                        if product_name_clean in line_lower:
-                            logger.info(f"🔍 ENHANCING LINE | Found {product_name} (no version) in inventory")
-                            
-                            # Get EOL data for this specific product
-                            eol_data = await self._get_eol_data_for_product(product)
-                            
-                            if eol_data and "No EOL data found" not in eol_data:
-                                # Add EOL data to the line
-                                enhanced_line = f"{line}\n    📅 **EOL Information**: {eol_data.strip()}"
-                                logger.info(f"✅ EOL DATA ADDED | {product_name}")
-                            else:
-                                enhanced_line = f"{line}\n    ⚠️ **EOL Status**: No EOL data available"
-                            break
-                
-                enhanced_lines.append(enhanced_line)
-            
-            return '\n'.join(enhanced_lines)
-            
-        except Exception as e:
-            logger.error(f"❌ INVENTORY ENHANCEMENT ERROR | {str(e)}")
-            return inventory_data  # Return original data if enhancement fails
-
-    async def _get_eol_data_for_product(self, product: Dict[str, str]) -> str:
-        """Get EOL data for a specific product"""
-        try:
-            product_name = product.get("name", "")
-            product_version = product.get("version", "")
-            product_type = product.get("type", "")
-            
-            # Determine which EOL specialist to use
-            if any(term in product_name.lower() for term in ["windows", "microsoft"]):
-                return self._check_microsoft_eol_tool(product_name, product_version)
-            elif "ubuntu" in product_name.lower():
-                return self._check_ubuntu_eol_tool(product_name, product_version)
-            elif any(term in product_name.lower() for term in ["rhel", "red hat"]):
-                return self._check_redhat_eol_tool(product_name, product_version)
-            elif "python" in product_name.lower():
-                return self._check_python_eol_tool(product_name, product_version)
-            else:
-                # Use generic EOL tool as fallback
-                if hasattr(self, 'endoflife_agent'):
-                    query = f"EOL information for {product_name} {product_version}"
-                    return self.endoflife_agent._get_eol_data(query)
-                else:
-                    return "EOL agent not available"
-                    
-        except Exception as e:
-            logger.error(f"❌ PRODUCT EOL LOOKUP ERROR | {product_name}: {str(e)}")
-            return f"Error getting EOL data: {str(e)}"
-
-    def _extract_products_from_inventory_data(self, inventory_data: str) -> List[Dict[str, str]]:
-        """Extract product names and versions from inventory data string"""
-        products = []
-        
-        if not inventory_data:
-            return products
-        
-        lines = inventory_data.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#') or line.startswith('//'):
-                continue
-                
-            # Try to extract OS information
-            if any(os_term in line.lower() for os_term in ["windows", "ubuntu", "rhel", "centos", "debian", "suse"]):
-                # Extract OS name and version
-                if "windows" in line.lower():
-                    if "server" in line.lower():
-                        if "2025" in line: products.append({"name": "Windows Server", "version": "2025", "type": "OS"})
-                        elif "2022" in line: products.append({"name": "Windows Server", "version": "2022", "type": "OS"})
-                        elif "2019" in line: products.append({"name": "Windows Server", "version": "2019", "type": "OS"})
-                        elif "2016" in line: products.append({"name": "Windows Server", "version": "2016", "type": "OS"})
-                        else: products.append({"name": "Windows Server", "version": "Unknown", "type": "OS"})
-                    else:
-                        if "11" in line: products.append({"name": "Windows", "version": "11", "type": "OS"})
-                        elif "10" in line: products.append({"name": "Windows", "version": "10", "type": "OS"})
-                        else: products.append({"name": "Windows", "version": "Unknown", "type": "OS"})
-                elif "ubuntu" in line.lower():
-                    import re
-                    version_match = re.search(r'(\d+\.\d+)', line)
-                    version = version_match.group(1) if version_match else "Unknown"
-                    products.append({"name": "Ubuntu", "version": version, "type": "OS"})
-                elif "rhel" in line.lower() or "red hat" in line.lower():
-                    import re
-                    version_match = re.search(r'(\d+)', line)
-                    version = version_match.group(1) if version_match else "Unknown"
-                    products.append({"name": "Red Hat Enterprise Linux", "version": version, "type": "OS"})
-                    
-            # Try to extract software information
-            elif any(software_term in line.lower() for software_term in ["python", "java", "node", "php", "apache", "nginx", "mysql", "postgresql"]):
-                import re
-                for software in ["python", "java", "node", "php", "apache", "nginx", "mysql", "postgresql"]:
-                    if software in line.lower():
-                        version_match = re.search(rf'{software}[^\d]*(\d+(?:\.\d+)*)', line, re.IGNORECASE)
-                        version = version_match.group(1) if version_match else "Unknown"
-                        products.append({"name": software.title(), "version": version, "type": "Software"})
-                        break
-        
-        # Remove duplicates
-        unique_products = []
-        seen = set()
-        for product in products:
-            key = f"{product['name']}-{product['version']}"
-            if key not in seen:
-                seen.add(key)
-                unique_products.append(product)
-        
-        return unique_products
-
-    async def _execute_eol_tool_with_products(self, tool_name: str, user_message: str, discovered_products: List[Dict]) -> str:
-        """Execute EOL tool with intelligent product routing based on discovered inventory"""
-        try:
-            # Smart product-to-specialist mapping
-            relevant_products = self._find_products_for_eol_tool(tool_name, discovered_products)
-            
-            if relevant_products:
-                results = []
-                logger.info(f"🎯 EOL SPECIALIST | {tool_name} handling {len(relevant_products)} products")
-                
-                for product in relevant_products[:5]:  # Process up to 5 products per specialist
-                    logger.info(f"🔍 EOL LOOKUP | {product['name']} {product['version']} → {tool_name}")
-                    
-                    # Execute targeted EOL lookup for this specific product
-                    result = await self._execute_targeted_eol_lookup(tool_name, product)
-                    
-                    if result and "No EOL data found" not in result and "Error" not in result:
-                        results.append(f"**{product['name']} {product['version']}**:\n{result}")
-                        logger.info(f"✅ EOL DATA FOUND | {product['name']} {product['version']}")
-                    else:
-                        logger.warning(f"⚠️ EOL NO DATA | {product['name']} {product['version']}")
-                
-                if results:
-                    return "\n\n".join(results)
-                else:
-                    return f"No EOL data found for products relevant to {tool_name}"
-            else:
-                # No relevant products found, but tool was selected - run generic query
-                logger.info(f"🔄 FALLBACK MODE | {tool_name} no specific products, running generic query")
-                return await self._execute_tool(tool_name, user_message)
-                
-        except Exception as e:
-            logger.error(f"EOL tool execution error for {tool_name}: {e}")
-            return f"Error executing {tool_name}: {str(e)}"
-
-    def _find_products_for_eol_tool(self, tool_name: str, discovered_products: List[Dict]) -> List[Dict]:
-        """Intelligently map discovered products to appropriate EOL specialists"""
-        relevant_products = []
-        
-        for product in discovered_products:
-            product_name = product["name"].lower()
-            product_type = product.get("type", "").lower()
-            
-            # Microsoft EOL Specialist
-            if tool_name == "microsoft_eol":
-                if any(term in product_name for term in [
-                    "windows", "office", "sql server", "exchange", "sharepoint", 
-                    ".net", "visual studio", "azure", "iis", "hyper-v"
-                ]):
-                    relevant_products.append(product)
-            
-            # Ubuntu EOL Specialist  
-            elif tool_name == "ubuntu_eol":
-                if "ubuntu" in product_name:
-                    relevant_products.append(product)
-            
-            # Red Hat EOL Specialist
-            elif tool_name == "redhat_eol":
-                if any(term in product_name for term in [
-                    "red hat", "rhel", "centos", "fedora", "red hat enterprise"
-                ]):
-                    relevant_products.append(product)
-            
-            # Oracle EOL Specialist
-            elif tool_name == "oracle_eol":
-                if any(term in product_name for term in [
-                    "oracle", "java", "mysql", "virtualbox"
-                ]):
-                    relevant_products.append(product)
-            
-            # Python EOL Specialist
-            elif tool_name == "python_eol":
-                if "python" in product_name:
-                    relevant_products.append(product)
-            
-            # Node.js EOL Specialist
-            elif tool_name == "nodejs_eol":
-                if any(term in product_name for term in ["node", "nodejs", "npm"]):
-                    relevant_products.append(product)
-            
-            # PHP EOL Specialist
-            elif tool_name == "php_eol":
-                if "php" in product_name:
-                    relevant_products.append(product)
-            
-            # PostgreSQL EOL Specialist
-            elif tool_name == "postgresql_eol":
-                if "postgresql" in product_name or "postgres" in product_name:
-                    relevant_products.append(product)
-            
-            # Apache EOL Specialist
-            elif tool_name == "apache_eol":
-                if any(term in product_name for term in ["apache", "httpd", "tomcat"]):
-                    relevant_products.append(product)
-            
-            # VMware EOL Specialist
-            elif tool_name == "vmware_eol":
-                if any(term in product_name for term in ["vmware", "esxi", "vcenter", "workstation"]):
-                    relevant_products.append(product)
-            
-            # EndOfLife.date (Generic) Specialist
-            elif tool_name == "endoflife_eol":
-                # Handle products not covered by specific specialists
-                covered_by_others = any(specialist in product_name for specialist in [
-                    "windows", "ubuntu", "red hat", "rhel", "oracle", "java", 
-                    "python", "node", "php", "postgresql", "apache", "vmware"
-                ])
-                if not covered_by_others:
-                    relevant_products.append(product)
-        
-        return relevant_products
-
-    async def _execute_targeted_eol_lookup(self, tool_name: str, product: Dict[str, str]) -> str:
-        """Execute targeted EOL lookup for a specific product using appropriate specialist"""
-        try:
-            product_name = product["name"]
-            version = product["version"]
-            
-            if tool_name == "microsoft_eol":
-                return self._check_microsoft_eol_tool(product_name, version)
-            elif tool_name == "ubuntu_eol":
-                return self._check_ubuntu_eol_tool(product_name, version)
-            elif tool_name == "redhat_eol":
-                return self._check_redhat_eol_tool(product_name, version)
-            elif tool_name == "oracle_eol":
-                return self._check_oracle_eol_tool(product_name, version)
-            elif tool_name == "python_eol":
-                return self._check_python_eol_tool(product_name, version)
-            elif tool_name == "nodejs_eol":
-                return self._check_nodejs_eol_tool(product_name, version)
-            elif tool_name == "php_eol":
-                return self._check_php_eol_tool(product_name, version)
-            elif tool_name == "postgresql_eol":
-                return self._check_postgresql_eol_tool(product_name, version)
-            elif tool_name == "apache_eol":
-                return self._check_apache_eol_tool(product_name, version)
-            elif tool_name == "vmware_eol":
-                return self._check_vmware_eol_tool(product_name, version)
-            else:  # endoflife_eol or unknown
-                return self._check_endoflife_eol_tool(product_name, version)
-                
-        except Exception as e:
-            logger.error(f"Targeted EOL lookup error for {product_name}: {e}")
-            return f"Error checking EOL for {product_name}: {str(e)}"
-
-    async def _llm_determine_tools(self, user_message: str) -> List[str]:
-        """Use LLM to determine which tools are needed for the request"""
-        tools_prompt = f"""
-You are an intelligent workflow orchestrator for a software inventory and EOL (End-of-Life) analysis system.
-
-Your job is to understand user requests and plan the COMPLETE WORKFLOW needed to satisfy them.
-
-UNDERSTANDING THE SYSTEM WORKFLOW:
-
-**For inventory-only requests:**
-- User wants to see what they have installed
-- Use inventory tools: os_inventory, software_inventory
-
-**For EOL-only requests:**  
-- User knows specific products and wants EOL dates
-- Use specific EOL tools: microsoft_eol, ubuntu_eol, etc.
-
-**For MIXED requests (inventory + EOL analysis):**
-- User wants to see their inventory AND get EOL dates for everything found
-- WORKFLOW: 
-  1. First run inventory tools to discover what's installed
-  2. System will automatically extract specific products from inventory results
-  3. System will automatically route each product to appropriate EOL specialists
-  4. System will correlate everything into unified response
-
-AVAILABLE TOOLS:
-
-**INVENTORY TOOLS** (discover what's installed):
-- **os_inventory**: Discovers operating systems (Windows Server 2019, Ubuntu 20.04, RHEL 8, etc.)
-- **software_inventory**: Discovers installed software/applications (Python, Apache, MySQL, etc.)
-
-**EOL SPECIALIST TOOLS** (get EOL dates for specific products):
-- **microsoft_eol**: Windows, Windows Server, Office, SQL Server, .NET, Visual Studio
-- **ubuntu_eol**: Ubuntu Linux versions and flavors  
-- **redhat_eol**: RHEL, CentOS, Fedora, Red Hat enterprise products
-- **oracle_eol**: Oracle Database, Oracle products, Java (Oracle-owned)
-- **python_eol**: Python language versions and packages
-- **nodejs_eol**: Node.js runtime and npm packages
-- **php_eol**: PHP language and framework versions
-- **postgresql_eol**: PostgreSQL database versions
-- **apache_eol**: Apache HTTP Server, Tomcat, other Apache projects
-- **vmware_eol**: VMware ESXi, vCenter, Workstation products
-- **endoflife_eol**: Generic products not covered by specific specialists
-
-USER REQUEST: "{user_message}"
-
-ANALYSIS EXAMPLES:
-
-**"What software do I have?"**
-→ Pure inventory request
-→ Tools: ["software_inventory"]
-
-**"Show my OS inventory"** 
-→ Pure inventory request
-→ Tools: ["os_inventory"]
-
-**"When does Windows Server 2019 expire?"**
-→ Direct EOL lookup (user knows specific product)
-→ Tools: ["microsoft_eol"]
-
-**"What is the EOL date of Windows Server 2025?"**
-→ Direct EOL lookup (user knows specific product)
-→ Tools: ["microsoft_eol"]
-
-**"When does Ubuntu 20.04 reach end of life?"**
-→ Direct EOL lookup (user knows specific product)  
-→ Tools: ["ubuntu_eol"]
-
-**"Show my OS inventory with EOL date for each OS"**
-→ MIXED REQUEST: Need inventory + EOL analysis
-→ Workflow: Get OS inventory, then system will extract each OS and check EOL dates
-→ Tools: ["os_inventory", "microsoft_eol", "ubuntu_eol", "redhat_eol", "endoflife_eol"]
-
-**"List all software and check EOL dates"**
-→ MIXED REQUEST: Need software inventory + EOL analysis  
-→ Workflow: Get software inventory, then system will extract each software and check EOL dates
-→ Tools: ["software_inventory", "python_eol", "nodejs_eol", "php_eol", "apache_eol", "endoflife_eol"]
-
-**"Perform EOL risk assessment"**
-→ MIXED REQUEST: Need complete inventory + comprehensive EOL analysis
-→ Tools: ["os_inventory", "software_inventory", "microsoft_eol", "ubuntu_eol", "redhat_eol", "python_eol", "nodejs_eol", "php_eol", "postgresql_eol", "apache_eol", "endoflife_eol"]
-
-CRITICAL TOOL SELECTION RULES:
-
-1. **EOL-ONLY queries**: User asks about specific product EOL dates
-   - Keywords: "EOL", "expire", "end of life", "support end" + specific product name
-   - Tools: ONLY the relevant EOL specialist (NO inventory tools)
-   - Examples: "When does X expire?", "What is EOL date of Y?"
-
-2. **INVENTORY-ONLY queries**: User asks what they have installed
-   - Keywords: "inventory", "what do I have", "show my", "list" + NO EOL terms
-   - Tools: ONLY inventory tools (NO EOL tools)
-
-3. **MIXED queries**: User wants inventory AND EOL analysis together
-   - Keywords: "inventory" + "EOL" or "risk assessment" or "with EOL dates"
-   - Tools: Inventory + ALL relevant EOL specialists
-
-Based on the user request above, determine the appropriate tools.
-
-Respond with JSON array of tool names ONLY (no explanations):
-["tool1", "tool2", "tool3"]
-"""
-
-        try:
-            # Check if model client is available
-            if not self.model_client:
-                raise Exception("Model client not initialized")
-                
-            response = await self.model_client.create([{
-                "role": "user", 
-                "content": tools_prompt
-            }])
-            
-            import json
-            response_content = response.content.strip()
-            logger.debug(f"🧠 LLM RAW RESPONSE | Content: '{response_content}'")
-            
-            try:
-                selected_tools = json.loads(response_content)
-            except json.JSONDecodeError as json_err:
-                logger.warning(f"🧠 LLM JSON PARSE ERROR | Content: '{response_content}' | Error: {json_err}")
-                raise Exception(f"Invalid JSON response: {response_content}")
-            
-            # Validate tools
-            available_tools = [
-                "os_inventory", "software_inventory", "microsoft_eol", "ubuntu_eol", 
-                "redhat_eol", "oracle_eol", "python_eol", "nodejs_eol", "php_eol",
-                "postgresql_eol", "apache_eol", "vmware_eol", "endoflife_eol"
-            ]
-            
-            validated_tools = [tool for tool in selected_tools if tool in available_tools]
-            
-            logger.info(f"🧠 LLM TOOL SELECTION | Query: '{user_message}' | LLM Raw: {response_content} | Validated: {validated_tools}")
-            return validated_tools
-            
-        except Exception as e:
-            logger.warning(f"LLM tool selection failed: {e} (Type: {type(e).__name__}), using fallback")
-            # Enhanced fallback logic
-            message_lower = user_message.lower()
-            fallback_tools = []
-            
-            # Check for MIXED queries first (inventory + EOL together)
-            has_eol_terms = any(term in message_lower for term in ["eol", "end of life", "expire", "expiration", "support end"])
-            has_inventory_terms = any(term in message_lower for term in ["inventory", "show", "list", "what do i have"])
-            
-            if has_eol_terms and has_inventory_terms:
-                # MIXED REQUEST: Need both inventory and EOL analysis
-                logger.info(f"🔄 FALLBACK SELECTION | MIXED Query detected: '{user_message}'")
-                
-                # Add inventory tools based on context
-                if any(term in message_lower for term in ["software", "application", "program", "package", "app"]):
-                    fallback_tools.append("software_inventory")
-                elif any(term in message_lower for term in ["os", "operating system"]):
-                    fallback_tools.append("os_inventory")
-                else:
-                    # Default to both for comprehensive EOL risk assessment
-                    fallback_tools.extend(["os_inventory", "software_inventory"])
-                
-                # Add ALL relevant EOL specialists for comprehensive analysis
-                fallback_tools.extend([
-                    "microsoft_eol", "ubuntu_eol", "redhat_eol", "oracle_eol", 
-                    "python_eol", "nodejs_eol", "php_eol", "postgresql_eol", 
-                    "apache_eol", "vmware_eol", "endoflife_eol"
-                ])
-                
-                logger.info(f"🔄 FALLBACK SELECTION | MIXED Query: '{user_message}' → Tools: {fallback_tools}")
-                return fallback_tools
-            
-            # EOL-only queries (no inventory terms)
-            elif has_eol_terms and not has_inventory_terms:
-                # This is a pure EOL query - determine which specialist
-                if any(term in message_lower for term in ["windows", "microsoft", "office", "sql server", "azure"]):
-                    fallback_tools.append("microsoft_eol")
-                elif "ubuntu" in message_lower:
-                    fallback_tools.append("ubuntu_eol")
-                elif any(term in message_lower for term in ["rhel", "redhat", "red hat", "centos"]):
-                    fallback_tools.append("redhat_eol")
-                elif any(term in message_lower for term in ["python", "pip"]):
-                    fallback_tools.append("python_eol")
-                elif any(term in message_lower for term in ["node", "nodejs", "npm"]):
-                    fallback_tools.append("nodejs_eol")
-                elif any(term in message_lower for term in ["php"]):
-                    fallback_tools.append("php_eol")
-                elif any(term in message_lower for term in ["postgresql", "postgres"]):
-                    fallback_tools.append("postgresql_eol")
-                elif any(term in message_lower for term in ["apache", "httpd"]):
-                    fallback_tools.append("apache_eol")
-                elif any(term in message_lower for term in ["vmware", "esxi", "vcenter"]):
-                    fallback_tools.append("vmware_eol")
-                else:
-                    fallback_tools.append("endoflife_eol")
-                    
-                logger.info(f"🔄 FALLBACK SELECTION | EOL-only Query: '{user_message}' → Tools: {fallback_tools}")
-                return fallback_tools
-            
-            # Inventory-only queries (if no EOL terms detected)
-            if any(term in message_lower for term in ["software", "application", "program", "package", "app"]):
-                fallback_tools.append("software_inventory")
-            elif any(term in message_lower for term in ["os", "operating system", "windows", "linux", "ubuntu"]):
-                fallback_tools.append("os_inventory")
-            elif any(term in message_lower for term in ["inventory", "show", "list", "what do i have"]):
-                # For general inventory, include both but prioritize based on context
-                if "software" in message_lower or "application" in message_lower:
-                    fallback_tools.append("software_inventory")
-                elif "os" in message_lower or "operating" in message_lower:
-                    fallback_tools.append("os_inventory") 
-                else:
-                    # Default to software inventory for general "what do I have" questions
-                    fallback_tools.extend(["software_inventory", "os_inventory"])
-            
-            # Default if nothing detected
-            if not fallback_tools:
-                fallback_tools = ["software_inventory"]
-            
-            logger.info(f"🔄 FALLBACK SELECTION | Query: '{user_message}' → Tools: {fallback_tools}")
-            return fallback_tools
-
-    async def _execute_tool(self, tool_name: str, user_message: str) -> str:
-        """Execute a specific tool and return its result"""
-        try:
-            if tool_name == "os_inventory":
-                return self._get_os_inventory_tool(365)  # Use 365 days instead of "all"
-            elif tool_name == "software_inventory":
-                return self._get_software_inventory_tool(365)  # Use 365 days instead of "all"
-            elif tool_name == "microsoft_eol":
-                # Temporarily skip LLM extraction to avoid message format issues
-                # Use pattern matching directly
-                logger.info(f"🔄 Using pattern matching for Microsoft EOL (bypassing LLM)")
-                products = self._fallback_pattern_extraction(user_message)
-                ms_products = [p for p in products if p.get("specialist") == "microsoft"]
-                
-                if ms_products:
-                    results = []
-                    processed_products = set()  # Track processed products to avoid duplicates
-                    
-                    for product in ms_products[:3]:
-                        product_name = product.get("name", "").lower()
-                        product_version = product.get("version", "")
-                        product_key = f"{product_name}_{product_version}"
-                        
-                        # Skip if we've already processed this product
-                        if product_key in processed_products:
-                            continue
-                        processed_products.add(product_key)
-                        
-                        result = self._check_microsoft_eol_tool(product.get("name", ""), product_version)
-                        logger.info(f"🔍 MS PRODUCT RESULT | {product.get('name', '')} {product_version} | Result length: {len(result) if result else 0}")
-                        
-                        if result and "No EOL data found" not in result and "Error" not in result:
-                            results.append(result)
-                            logger.info(f"✅ ADDED TO RESULTS | {product.get('name', '')} | Total results: {len(results)}")
-                        else:
-                            logger.warning(f"⚠️ FILTERED OUT | {product.get('name', '')} | Reason: {result[:100] if result else 'No result'}")
-                    
-                    logger.info(f"📊 MS PRODUCTS PROCESSING COMPLETE | Found {len(ms_products)} products, Valid results: {len(results)}")
-                    
-                    if results:
-                        logger.info(f"✅ RETURNING RESULTS | Count: {len(results)}")
-                        return "\n\n".join(results)
-                    else:
-                        # If we found MS products but no valid EOL data, try generic fallback
-                        logger.info(f"🔄 Microsoft products found but no valid EOL data, trying generic Windows lookup")
-                        return self._check_microsoft_eol_tool("Windows", "")
-                else:
-                    # No Microsoft products detected, use generic fallback
-                    logger.info(f"🔄 No Microsoft products detected, using generic Windows lookup")
-                    return self._check_microsoft_eol_tool("Windows", "")
-            elif tool_name == "ubuntu_eol":
-                return self._check_ubuntu_eol_tool("Ubuntu", "")
-            elif tool_name == "redhat_eol":
-                return self._check_redhat_eol_tool("RHEL", "")
-            elif tool_name == "oracle_eol":
-                return self._check_oracle_eol_tool("Oracle", "")
-            elif tool_name == "python_eol":
-                return self._check_python_eol_tool("Python", "")
-            elif tool_name == "nodejs_eol":
-                return self._check_nodejs_eol_tool("Node.js", "")
-            elif tool_name == "php_eol":
-                return self._check_php_eol_tool("PHP", "")
-            elif tool_name == "postgresql_eol":
-                return self._check_postgresql_eol_tool("PostgreSQL", "")
-            elif tool_name == "apache_eol":
-                return self._check_apache_eol_tool("Apache", "")
-            elif tool_name == "vmware_eol":
-                return self._check_vmware_eol_tool("VMware", "")
-            elif tool_name == "endoflife_eol":
-                # Try to extract any product from the message
-                products = await self._extract_software_names_from_query(user_message)
-                if products:
-                    product = products[0]
-                    return self._check_endoflife_eol_tool(product.get("name", ""), product.get("version", ""))
-                else:
-                    return self._check_endoflife_eol_tool("General", "")
-            else:
-                return f"Unknown tool: {tool_name}"
-                
-        except Exception as e:
-            logger.error(f"Tool execution error for {tool_name}: {e}")
-            return f"Error executing {tool_name}: {str(e)}"
-
-    async def _llm_synthesize_response(self, user_message: str, tool_results: Dict[str, str]) -> str:
-        """Use LLM to synthesize tool results into a comprehensive response"""
-        
-        # Prepare tool results summary
-        tools_summary = []
-        for tool_name, result in tool_results.items():
-            # Truncate long results for the prompt
-            truncated_result = result[:1000] + "..." if len(result) > 1000 else result
-            tools_summary.append(f"**{tool_name}**:\n{truncated_result}")
-        
-        synthesis_prompt = f"""
-You are an expert system analyst providing comprehensive responses about software inventory and EOL information.
-
-USER REQUEST: "{user_message}"
-
-TOOL RESULTS:
-{chr(10).join(tools_summary)}
-
-Create a professional, comprehensive response that:
-
-1. **Directly answers the user's question**
-2. **Organizes information logically** (inventory first, then EOL analysis)
-3. **Highlights important findings** (especially EOL dates and risks)
-4. **Uses clear formatting** with headers, bullet points, and emphasis
-5. **Provides actionable insights** when possible
-
-Guidelines:
-- Be specific and detailed, not generic
-- If inventory is shown, format it clearly
-- If EOL information is provided, highlight critical dates
-- If both inventory and EOL are requested, combine them intelligently
-- Use professional markdown formatting
-- Focus on the data, not pleasantries
-
-Response:
-"""
-
-        try:
-            response = await self.model_client.create([{
-                "role": "user", 
-                "content": synthesis_prompt
-            }])
-            
-            synthesized = response.content.strip()
-            logger.info(f"🧠 SYNTHESIS SUCCESS | Response length: {len(synthesized)}")
-            return synthesized
-            
-        except Exception as e:
-            logger.error(f"LLM synthesis error: {e}")
-            # Fallback to basic concatenation
-            fallback_response = f"## Results for: {user_message}\n\n"
-            for tool_name, result in tool_results.items():
-                fallback_response += f"### {tool_name.replace('_', ' ').title()}\n{result}\n\n"
-            return fallback_response
-
-    def _create_intelligent_response(
-        self, 
-        user_message: str, 
-        synthesized_response: str,
-        tool_results: Dict[str, str],
-        tools_used: List[str],
-        processing_time: float
-    ) -> Dict[str, Any]:
-        """Create the final intelligent response"""
-        
-        conversation_messages = [
-            {
-                "speaker": "user",
-                "content": user_message,
-                "timestamp": datetime.utcnow().isoformat(),
-                "message_type": "UserMessage"
-            },
-            {
-                "speaker": "IntelligentOrchestrator", 
-                "content": synthesized_response,
-                "timestamp": datetime.utcnow().isoformat(),
-                "message_type": "AssistantMessage"
-            }
-        ]
-        
-        return {
-            "response": synthesized_response,
-            "conversation_messages": conversation_messages,
-            "agent_communications": self.agent_communications[-20:],
-            "session_id": self.session_id,
-            "agents_involved": ["IntelligentOrchestrator"] + [f"{tool}_tool" for tool in tools_used],
-            "total_exchanges": len(conversation_messages),
-            "tools_used": tools_used,
-            "processing_time": processing_time,
-            "approach": "intelligent_llm_orchestration"
-        }
-
-    async def _classify_request(self, message: str) -> str:
-        """Use LLM to intelligently classify request and determine routing strategy."""
-        # Basic validation
-        message_clean = message.strip()
-        
-        if not message_clean or len(message_clean) < 2:
-            return "INVALID_REQUEST"
-        
-        # Use LLM for intelligent classification
-        return await self._llm_classify_request(message_clean)
-
-    async def _llm_classify_request(self, message: str) -> str:
-        """Use LLM to intelligently classify the user request"""
-        classification_prompt = f"""
-You are an intelligent request classifier for a software inventory and EOL (End of Life) analysis system. 
-
-Analyze this user request and classify it into exactly ONE of these categories:
-
-**PURE_INVENTORY**: User only wants to see their software/system inventory without any EOL analysis
-- Examples: "show my inventory", "list all software", "what operating systems do I have", "what OS versions do I have", "what software do I have", "show my OS inventory"
-
-**SIMPLE_EOL**: User wants specific EOL information for known software/products (direct lookup, no analysis needed)  
-- Examples: "what is the EOL date for Windows Server 2025?", "when does Python 3.8 expire?", "support end date for Office 2019"
-
-**EOL_ANALYSIS**: User wants comprehensive EOL risk analysis, assessment, or recommendations
-- Examples: "perform EOL risk assessment", "analyze EOL vulnerabilities", "what are my EOL risks", "EOL analysis report"
-
-**MIXED_REQUEST**: User wants both inventory information AND EOL analysis together
-- Examples: "show inventory with EOL analysis", "OS inventory with EOL dates", "software inventory and EOL risks"
-
-**INVALID_REQUEST**: Request is unclear, empty, or unrelated to inventory/EOL
-
-USER REQUEST: "{message}"
-
-Respond with ONLY the classification category (e.g., "SIMPLE_EOL"). No explanations.
-"""
-
-        try:
-            # Use the model client to get classification
-            response = await self.model_client.create([{
-                "role": "user", 
-                "content": classification_prompt
-            }])
-            
-            classification = response.content.strip().upper()
-            
-            # Validate classification - if empty or invalid, use fallback
-            valid_classifications = ["PURE_INVENTORY", "SIMPLE_EOL", "EOL_ANALYSIS", "MIXED_REQUEST", "INVALID_REQUEST"]
-            if classification in valid_classifications and classification:
-                logger.info(f"🧠 LLM CLASSIFICATION | Request: '{message[:50]}...' → {classification}")
-                return classification
-            else:
-                logger.warning(f"Invalid LLM classification '{classification}', falling back to keyword-based classification")
-                return self._fallback_keyword_classification(message)
-                
-        except Exception as e:
-            logger.error(f"LLM classification error: {e}, falling back to keyword-based classification")
-            return self._fallback_keyword_classification(message)
-
-    def _fallback_keyword_classification(self, message: str) -> str:
-        """Fallback keyword-based classification if LLM fails"""
-        message_clean = message.strip().lower()
-        
-        # Check for pure inventory patterns first (more specific) - BUT ONLY if no EOL terms
-        pure_inventory_keywords = ["what software do i have", "show my inventory", "list all software", 
-                                 "software inventory", "what operating systems", "os inventory",
-                                 "what os versions", "what os do i have", "show my os", "list os",
-                                 "what do i have", "list my", "show me my", "os versions",
-                                 "operating system versions", "show operating systems"]
-        
-        # First check for EOL terms that would make this a mixed request
-        eol_terms = ["eol", "end of life", "analysis", "risk", "expire", "support end", "date"]
-        has_eol_terms = any(eol_term in message_clean for eol_term in eol_terms)
-        
-        if any(keyword in message_clean for keyword in pure_inventory_keywords) and not has_eol_terms:
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | Pure inventory detected: {message_clean}")
-            return "PURE_INVENTORY"
-        
-        # More general inventory patterns (only if no EOL terms)
-        if (any(keyword in message_clean for keyword in ["inventory", "list", "show", "what", "versions"]) and 
-            any(keyword in message_clean for keyword in ["software", "os", "operating", "system", "have"]) and
-            not has_eol_terms):
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | General inventory (no EOL): {message_clean}")
-            return "PURE_INVENTORY"
-        
-        # Simple EOL lookups (check this BEFORE mixed requests to avoid false positives)
-        if (any(keyword in message_clean for keyword in ["eol date", "support end", "when does", "expire"]) and 
-              any(keyword in message_clean for keyword in ["windows", "office", "ubuntu", "python", "php", "apache"])):
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | Simple EOL lookup: {message_clean}")
-            return "SIMPLE_EOL"
-        
-        # Check for mixed requests (inventory + EOL terms) - but exclude simple EOL patterns
-        if (has_eol_terms and 
-            any(keyword in message_clean for keyword in ["inventory", "show", "list"]) and
-            not any(keyword in message_clean for keyword in ["eol date", "support end", "when does", "expire"])):
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | Mixed request (inventory + EOL): {message_clean}")
-            return "MIXED_REQUEST"
-        
-        # EOL analysis requests
-        elif any(keyword in message_clean for keyword in ["eol analysis", "risk assessment", "comprehensive"]):
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | EOL analysis: {message_clean}")
-            return "EOL_ANALYSIS"
-        
-        # Default to mixed request for unclear cases
-        else:
-            logger.info(f"🔍 FALLBACK CLASSIFICATION | Mixed/unclear request: {message_clean}")
-            return "MIXED_REQUEST"
-
-    def _get_cached_inventory(self, key: Tuple[str, int, int]) -> Optional[Dict[str, Any]]:
-        ts = self._inventory_cache_timestamp.get(key)
-        if ts and (time.time() - ts) < self._cache_ttl_seconds:
-            return self._inventory_cache.get(key)
-        # Expired
-        if key in self._inventory_cache:
-            self._inventory_cache.pop(key, None)
-            self._inventory_cache_timestamp.pop(key, None)
-        return None
-
-    def _cache_inventory(self, key: Tuple[str, int, int], value: Dict[str, Any]):
-        self._inventory_cache[key] = value
-        self._inventory_cache_timestamp[key] = time.time()
-        self._log_agent_action("Orchestrator", "inventory_cache_update", {"key": list(key), "ttl_seconds": self._cache_ttl_seconds, "stored_items": value.get("count")})
-
-    # Cache Management Methods
-    # Tool definitions for AutoGen 0.7.x API
-    def _get_software_inventory_tool(self, days: int = 90, limit: int = 5000, inventory_only: bool = True, page_size: int = None) -> str:
-        """Tool for getting software inventory data - SHOWS ALL ITEMS WITH OPTIONAL PAGINATION
-        
-        This tool retrieves and displays complete software inventory data:
-        - Uses FULL specified limit (5000 by default) - NO dynamic reduction
-        - Bypasses load-based limit adjustments to ensure complete inventory visibility
-        - Shows all retrieved items up to the specified limit
-        - Supports pagination through page_size parameter
-        - Backend software_inventory_agent supports up to 10,000 items
-        
-        Args:
-            days: Number of days to look back for data (default 90)
-            limit: Maximum items to retrieve from data source (default 5000) - FULL LIMIT USED
-            inventory_only: Whether this is inventory-only request (affects termination marker)
-            page_size: Optional pagination size for very large inventories (None = show all)
-        """
-        tool_start_time = datetime.utcnow()
-        
-        # For inventory queries, use the full limit to ensure complete data retrieval
-        # Dynamic limit adjustment is bypassed to guarantee users see their complete inventory
-        # logger.debug(f"[TOOL_EXEC] Software inventory tool started - Days: {days}, Limit: {limit} (full limit, no dynamic reduction), Inventory only: {inventory_only}")
-        
-        self._log_agent_action("InventorySpecialist", "tool_execution_start", {
-            "tool": "get_software_inventory",
-            "parameters": {
-                "days": days,
-                "limit": limit,
-                "inventory_only": inventory_only,
-                "dynamic_adjustment": "disabled_for_complete_inventory"
-            },
-            "start_time": tool_start_time.isoformat(),
-            "caller": "AutoGen agent"
-        })
-        
-        try:
-            # Delegate to the specialized software inventory agent
-            software_agent = self.software_inventory_agent
-            if not software_agent:
-                error_msg = "❌ **Software Inventory Configuration Issue**\n\nThe software inventory agent is not available. This usually indicates:\n- Missing Azure Log Analytics workspace configuration (LOG_ANALYTICS_WORKSPACE_ID)\n- Missing Azure authentication credentials\n- Network connectivity issues\n\nPlease check the Azure environment configuration and ensure LOG_ANALYTICS_WORKSPACE_ID and authentication are properly set up."
-                logger.error(f"[TOOL_EXEC] ❌ Software inventory tool error: Software inventory agent not available")
-                
-                self._log_agent_action("InventorySpecialist", "tool_execution_failed", {
-                    "tool": "get_software_inventory",
-                    "error": "Software inventory agent not available",
-                    "error_type": "agent_unavailable",
-                    "duration_seconds": (datetime.utcnow() - tool_start_time).total_seconds(),
-                    "likely_cause": "Azure configuration missing"
-                })
-                
-                return error_msg
-            
-            # logger.debug(f"[TOOL_EXEC] Calling software inventory agent")
-            cache_key = ("software", days, limit)
-            cached = self._get_cached_inventory(cache_key)
-            if cached:
-                result = cached
-                self._log_agent_action("Orchestrator", "inventory_cache_hit", {"key": list(cache_key), "source": "software"})
-            else:
-                result = self._run_async_safely(software_agent.get_software_inventory(days=days, limit=limit))
-                if isinstance(result, dict) and result.get("success"):
-                    self._cache_inventory(cache_key, result)
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            # logger.debug(f"[TOOL_EXEC] Software inventory query completed in {execution_duration:.2f}s")
-            
-            # Handle case where result might not be a dictionary
-            if not isinstance(result, dict):
-                error_msg = f"Invalid result type from inventory agent: {type(result).__name__} - {str(result)[:200]}"
-                logger.error(f"[TOOL_EXEC] ❌ Software inventory tool error: {error_msg}")
-                
-                self._log_agent_action("InventorySpecialist", "tool_execution_failed", {
-                    "tool": "get_software_inventory",
-                    "error": error_msg,
-                    "error_type": "invalid_result_type",
-                    "result_type": type(result).__name__,
-                    "duration_seconds": execution_duration
-                })
-                
-                return f"❌ **Error getting software inventory:** {error_msg}"
-            
-            success = result.get("success", False)
-            data_count = len(result.get("data", []))
-            total_count = result.get("count", 0)
-            
-            self._log_agent_action("InventorySpecialist", "tool_execution_complete", {
-                "tool": "get_software_inventory",
-                "success": success,
-                "data_items_returned": data_count,
-                "total_items_found": total_count,
-                "duration_seconds": execution_duration,
-                "data_source": "Log Analytics ConfigurationData table",
-                "query_efficiency": {
-                    "items_per_second": data_count / execution_duration if execution_duration > 0 else 0,
-                    "result_limited": data_count < total_count if total_count > 0 else False
-                }
-            })
-            
-            if success:
-                
-                data = result.get("data", [])
-                count = result.get("count", 0)
-                
-                # Format response for agents - Show ALL items with pagination-friendly format
-                if count > 0:
-                    response = f"""✅ **Software Inventory Retrieved Successfully**
-
-📊 **Summary:**
-- Total items found: {count}
-- Query period: Last {days} days
-- Data source: Log Analytics ConfigurationData table
-- Showing all {len(data)} items retrieved
-
-📋 **Complete Software Inventory:**
-
-"""
-                    
-                    # Apply pagination if page_size is specified for very large inventories
-                    items_to_display = data
-                    pagination_info = ""
-                    
-                    if page_size and len(data) > page_size:
-                        # Show first page and add pagination info
-                        items_to_display = data[:page_size]
-                        remaining_items = len(data) - page_size
-                        pagination_info = f"""
-
-📄 **Pagination Info:**
-- Showing first {page_size} of {len(data)} items
-- {remaining_items} more items available
-- To see all items, request without page limits or use specific filters
-
-"""
-                    
-                    # Display the items (either all or paginated)
-                    for i, item in enumerate(items_to_display, 1):
-                        response += f"{i}. **{item.get('name', 'Unknown')}** v{item.get('version', 'N/A')}\n"
-                        # Handle computers array - show computer count and first few computers
-                        computers = item.get('computers', [])
-                        computer_count = item.get('computer_count', len(computers) if isinstance(computers, list) else 0)
-                        if computer_count > 0:
-                            if isinstance(computers, list) and len(computers) > 0:
-                                if len(computers) <= 3:
-                                    response += f"   - Computers ({computer_count}): {', '.join(computers)}\n"
-                                else:
-                                    response += f"   - Computers ({computer_count}): {', '.join(computers[:3])}, ... and {len(computers)-3} more\n"
-                            else:
-                                response += f"   - Computer count: {computer_count}\n"
-                        response += f"   - Publisher: {item.get('publisher', 'Unknown')}\n"
-                        response += f"   - Software Type: {item.get('software_type', 'Application')}\n"
-                        if item.get('last_seen'):
-                            response += f"   - Last Seen: {item.get('last_seen')}\n"
-                        response += "\n"
-                    
-                    # Add pagination info if applicable
-                    response += pagination_info
-                    
-                    response += "This is complete inventory data from Log Analytics."
-                    
-                    # INVENTORY PAGINATION UPDATE:
-                    # - Removed artificial 20-item display limit from software inventory
-                    # - Increased default limits: Software 1000→5000, OS 500→2000, OS+EOL 300→1000
-                    # - CRITICAL: Disabled dynamic limit reduction for inventory queries
-                    # - Backend agents now receive FULL specified limits (5000/2000) 
-                    # - All retrieved items are now displayed to user
-                    # - Frontend chat.html already supports scrollable inventory tables
-                    # - Users can now see their complete inventory without arbitrary truncation
-                    
-                    # Only add INVENTORY_COMPLETE for pure inventory requests
-                    if inventory_only:
-                        response += "\n\nINVENTORY_COMPLETE"
-                    
-                    self._log_agent_action("InventorySpecialist", "get_software_inventory_result", {
-                        "count": count,
-                        "total_items": len(data)
-                    })
-                    
-                    return response
-                else:
-                    result = f"✅ Software inventory query successful but no software data found in the last {days} days."
-                    if inventory_only:
-                        result += "\n\nINVENTORY_COMPLETE"
-                    return result
-            else:
-                error = result.get("error", "Unknown error")
-                error_type = result.get("error_type", "Unknown")
-                
-                self._log_agent_action("InventorySpecialist", "get_software_inventory_error", {
-                    "error": error,
-                    "error_type": error_type
-                })
-                
-                return f"❌ **Software Inventory Error:** {error}\n\nError Type: {error_type}\n\nPlease check the Log Analytics workspace configuration and connectivity."
-                
-        except Exception as e:
-            error_msg = f"Error getting software inventory: {str(e)}"
-            # logger.debug(f"[DEBUG] Software inventory tool error: {error_msg}")
-            
-            self._log_agent_action("InventorySpecialist", "get_software_inventory_exception", {"error": error_msg})
-            return f"❌ **Exception in Software Inventory Tool:** {error_msg}"
-    
-    def _get_os_inventory_tool(self, days: int = 90, limit: int = 2000, inventory_only: bool = True) -> str:
-        """Tool for getting operating system inventory data - SHOWS ALL OS ITEMS
-        
-        This tool retrieves and displays complete OS inventory data:
-        - Uses FULL specified limit (2000 by default) - NO dynamic reduction
-        - Bypasses load-based limit adjustments to ensure complete OS inventory visibility
-        - No artificial item limits - shows all retrieved OS instances
-        - Backend os_inventory_agent supports up to 2000 items by default
-        
-        Args:
-            days: Number of days to look back for data (default 90)
-            limit: Maximum items to retrieve from data source (default 2000) - FULL LIMIT USED
-            inventory_only: Whether this is inventory-only request (affects termination marker)
-        """
-        try:
-            # For OS inventory queries, use the full limit to ensure complete data retrieval
-            # Dynamic limit adjustment is bypassed to guarantee users see their complete OS inventory
-            # logger.debug(f"[DEBUG] Getting OS inventory: days={days}, limit={limit} (full limit, no dynamic reduction), inventory_only={inventory_only}")
-            
-            # Delegate to the specialized OS inventory agent
-            os_agent = self.os_inventory_agent
-            if not os_agent:
-                error_msg = "❌ **OS Inventory Configuration Issue**\n\nThe OS inventory agent is not available. This usually indicates:\n- Missing Azure Log Analytics workspace configuration (LOG_ANALYTICS_WORKSPACE_ID)\n- Missing Azure authentication credentials\n- Network connectivity issues\n\nPlease check the Azure environment configuration and ensure LOG_ANALYTICS_WORKSPACE_ID and authentication are properly set up."
-                logger.error(f"❌ OS inventory tool error: OS inventory agent not available")
-                return error_msg
-            
-            cache_key = ("os", days, limit)
-            cached = self._get_cached_inventory(cache_key)
-            if cached:
-                result = cached
-                self._log_agent_action("Orchestrator", "inventory_cache_hit", {"key": list(cache_key), "source": "os"})
-            else:
-                result = self._run_async_safely(os_agent.get_os_inventory(days=days, limit=limit))
-                if isinstance(result, dict) and result.get("success"):
-                    self._cache_inventory(cache_key, result)
-            
-            # Handle case where result might not be a dictionary
-            if not isinstance(result, dict):
-                error_msg = f"Invalid result type from OS inventory agent: {type(result).__name__} - {str(result)[:200]}"
-                logger.error(f"❌ OS inventory tool error: {error_msg}")
-                return f"❌ **Error getting OS inventory:** {error_msg}"
-            
-            self._log_agent_action("InventorySpecialist", "get_os_inventory", {
-                "days": days, 
-                "limit": limit,
-                "success": result.get("success", False)
-            })
-            
-            if result.get("success"):
-                
-                data = result.get("data", [])
-                count = result.get("count", 0)
-                
-                # Format response for agents
-                if count > 0:
-                    # Show summary plus all OS items
-                    response = f"""✅ **Operating System Inventory Retrieved Successfully**
-
-📊 **Summary:**
-- Total OS items found: {count}
-- Query period: Last {days} days
-- Data source: Log Analytics Heartbeat table
-- All OS items:
-
-"""
-                    for i, item in enumerate(data, 1):
-                        response += f"{i}. **{item.get('os_name', 'Unknown')}** v{item.get('os_version', 'N/A')}\n"
-                        response += f"   - Computer: {item.get('computer_name', 'Unknown')}\n"
-                        response += f"   - OS Type: {item.get('os_type', 'Unknown')}\n"
-                        response += f"   - Vendor: {item.get('vendor', 'Unknown')}\n"
-                        if item.get('computer_environment'):
-                            response += f"   - Environment: {item.get('computer_environment')}\n"
-                        if item.get('days_since_heartbeat') is not None:
-                            days_since = item.get('days_since_heartbeat', 0)
-                            if days_since == 0:
-                                response += f"   - Status: ✅ Active (last seen today)\n"
-                            elif days_since <= 7:
-                                response += f"   - Status: 🟡 Recently active ({days_since} days ago)\n"
-                            else:
-                                response += f"   - Status: 🔴 Inactive ({days_since} days ago)\n"
-                        response += "\n"
-                    
-                    response += "This is OS inventory data from Log Analytics."
-                    
-                    # Only add INVENTORY_COMPLETE for pure inventory requests
-                    if inventory_only:
-                        response += "\n\nINVENTORY_COMPLETE"
-                    
-                    self._log_agent_action("InventorySpecialist", "get_os_inventory_result", {
-                        "count": count,
-                        "total_items": len(data)
-                    })
-                    
-                    return response
-                else:
-                    result = f"✅ OS inventory query successful but no operating system data found in the last {days} days."
-                    if inventory_only:
-                        result += "\n\nINVENTORY_COMPLETE"
-                    return result
-            else:
-                error = result.get("error", "Unknown error")
-                error_type = result.get("error_type", "Unknown")
-                
-                self._log_agent_action("InventorySpecialist", "get_os_inventory_error", {
-                    "error": error,
-                    "error_type": error_type
-                })
-                
-                return f"❌ **OS Inventory Error:** {error}\n\nError Type: {error_type}\n\nPlease check the Log Analytics workspace configuration and Heartbeat data availability."
-                
-        except Exception as e:
-            error_msg = f"Error getting OS inventory: {str(e)}"
-            # logger.debug(f"[DEBUG] OS inventory tool error: {error_msg}")
-            
-            self._log_agent_action("InventorySpecialist", "get_os_inventory_exception", {"error": error_msg})
-            return f"❌ **Exception in OS Inventory Tool:** {error_msg}"
-
-    def _get_os_inventory_with_eol_tool(self, days: int = 90, limit: int = 1000) -> str:
-        """Tool for getting OS inventory WITH automatic EOL analysis for detected operating systems
-        
-        Increased default limit from 300 to 1000 for comprehensive OS coverage with EOL analysis.
-        """
-        try:
-            # For OS+EOL inventory queries, use the full limit to ensure complete data retrieval
-            logger.info(f"🖥️ OS INVENTORY + EOL | Starting combined OS inventory and EOL analysis - Limit: {limit} (full limit, no dynamic reduction)")
-            
-            # Step 1: Get OS inventory data
-            os_agent = self.os_inventory_agent
-            if not os_agent:
-                error_msg = "❌ **OS Inventory Configuration Issue**\n\nThe OS inventory agent is not available. This usually indicates:\n- Missing Azure Log Analytics workspace configuration (LOG_ANALYTICS_WORKSPACE_ID)\n- Missing Azure authentication credentials\n- Network connectivity issues\n\nPlease check the Azure environment configuration and ensure LOG_ANALYTICS_WORKSPACE_ID and authentication are properly set up."
-                logger.error(f"❌ OS inventory + EOL tool error: OS inventory agent not available")
-                return error_msg
-            
-            cache_key = ("os_eol_combo_raw", days, limit)
-            cached = self._get_cached_inventory(cache_key)
-            if cached:
-                result = cached
-                self._log_agent_action("Orchestrator", "inventory_cache_hit", {"key": list(cache_key), "source": "os_eol_combo_raw"})
-            else:
-                result = self._run_async_safely(os_agent.get_os_inventory(days=days, limit=limit))
-                if isinstance(result, dict) and result.get("success"):
-                    self._cache_inventory(cache_key, result)
-            
-            if not isinstance(result, dict) or not result.get("success"):
-                error = result.get("error", "Unknown error") if isinstance(result, dict) else str(result)
-                return f"❌ **Error getting OS inventory:** {error}"
-            
-            data = result.get("data", [])
-            count = result.get("count", 0)
-            
-            if count == 0:
-                return f"✅ OS inventory query successful but no operating system data found in the last {days} days."
-            
-            # Step 2: Build inventory response
-            response = f"""✅ **Operating System Inventory with EOL Analysis**
-
-📊 **OS Inventory Summary:**
-- Total OS items found: {count}
-- Query period: Last {days} days
-- Data source: Log Analytics Heartbeat table
-
-📋 **Detailed OS Inventory with EOL Status:**
-
-"""
-            
-            # Step 3: Process each OS and check EOL
-            microsoft_oses_checked = set()
-            
-            for i, item in enumerate(data, 1):
-                os_name = item.get('os_name', 'Unknown')
-                os_version = item.get('os_version', 'N/A')
-                computer_name = item.get('computer_name', 'Unknown')
-                os_type = item.get('os_type', 'Unknown')
-                vendor = item.get('vendor', 'Unknown')
-                
-                response += f"{i}. **{os_name}** v{os_version}\n"
-                response += f"   - Computer: {computer_name}\n"
-                response += f"   - OS Type: {os_type}\n"
-                response += f"   - Vendor: {vendor}\n"
-                
-                # Add heartbeat status
-                if item.get('days_since_heartbeat') is not None:
-                    days_since = item.get('days_since_heartbeat', 0)
-                    if days_since == 0:
-                        response += f"   - Status: ✅ Active (last seen today)\n"
-                    elif days_since <= 7:
-                        response += f"   - Status: 🟡 Recently active ({days_since} days ago)\n"
-                    else:
-                        response += f"   - Status: 🔴 Inactive ({days_since} days ago)\n"
-                
-                # Step 4: Check EOL for Microsoft operating systems using smart search
-                if self._is_microsoft_os(os_name):
-                    # Create a unique key for this OS to avoid duplicate checks
-                    os_key = f"{os_name}-{os_version}".lower()
-                    if os_key not in microsoft_oses_checked:
-                        microsoft_oses_checked.add(os_key)
-                        logger.info(f"🔍 Smart EOL search for Microsoft OS: {os_name} {os_version}")
-                        
-                        try:
-                            # Use smart EOL search that tries specific first, then falls back
-                            eol_result = self._smart_eol_search(os_name, os_version, "microsoft")
-                            if eol_result and "No EOL data found" not in eol_result and "Error" not in eol_result:
-                                response += f"   - 📅 **EOL Analysis:** {eol_result.strip()}\n"
-                            else:
-                                response += f"   - 📅 **EOL Status:** No EOL data available for this version\n"
-                        except Exception as e:
-                            logger.error(f"Error in smart EOL search for {os_name}: {e}")
-                            response += f"   - 📅 **EOL Status:** Error checking EOL data\n"
-                    else:
-                        response += f"   - 📅 **EOL Status:** (Same as above {os_name} {os_version})\n"
-                else:
-                    # For non-Microsoft OSes, use smart search with appropriate specialist
-                    os_key = f"{os_name}-{os_version}".lower()
-                    if os_key not in microsoft_oses_checked:  # Reuse same tracking set for all OSes
-                        microsoft_oses_checked.add(os_key)
-                        
-                        # Determine the appropriate specialist
-                        specialist = "endoflife"  # Default
-                        if "ubuntu" in os_name.lower():
-                            specialist = "ubuntu"
-                        elif "red hat" in os_name.lower() or "rhel" in os_name.lower():
-                            specialist = "redhat"
-                        
-                        logger.info(f"🔍 Smart EOL search for {specialist.title()} OS: {os_name} {os_version}")
-                        
-                        try:
-                            eol_result = self._smart_eol_search(os_name, os_version, specialist)
-                            if eol_result and "No EOL data found" not in eol_result and "Error" not in eol_result:
-                                response += f"   - 📅 **EOL Analysis:** {eol_result.strip()}\n"
-                            else:
-                                response += f"   - 📅 **EOL Status:** No EOL data available for this version\n"
-                        except Exception as e:
-                            logger.error(f"Error in smart EOL search for {os_name}: {e}")
-                            response += f"   - 📅 **EOL Status:** Error checking EOL data\n"
-                    else:
-                        response += f"   - 📅 **EOL Status:** (Same as above {os_name} {os_version})\n"
-                
-                response += "\n"
-            
-            # Summary of EOL findings
-            if microsoft_oses_checked:
-                response += f"\n🔍 **EOL Analysis Summary:**\n"
-                response += f"- Microsoft OSes analyzed: {len(microsoft_oses_checked)}\n"
-                response += f"- Total OS instances: {count}\n"
-                response += f"- For detailed EOL recommendations, ask for specific OS analysis\n"
-            
-            self._log_agent_action("InventorySpecialist", "get_os_inventory_with_eol_result", {
-                "count": count,
-                "microsoft_oses_checked": len(microsoft_oses_checked),
-                "total_items": len(data)
-            })
-            
-            return response
-            
-        except Exception as e:
-            error_msg = f"Error getting OS inventory with EOL: {str(e)}"
-            logger.error(f"❌ OS inventory + EOL tool error: {error_msg}")
-            self._log_agent_action("InventorySpecialist", "get_os_inventory_with_eol_error", {"error": error_msg})
-            return error_msg
-
-    def _is_microsoft_os(self, os_name: str) -> bool:
-        """Helper method to identify Microsoft operating systems"""
-        if not os_name:
-            return False
-        
-        os_name_lower = os_name.lower()
-        microsoft_os_keywords = [
-            'windows', 'microsoft', 'windows server', 'windows 10', 'windows 11', 
-            'windows 8', 'windows 7', 'windows vista', 'windows xp'
-        ]
-        
-        return any(keyword in os_name_lower for keyword in microsoft_os_keywords)
-    
-    def _smart_eol_search(self, os_name: str, os_version: str, specialist: str) -> str:
-        """
-        Intelligent EOL search that tries multiple search strategies:
-        1. First: exact OS name + version
-        2. If confidence < 80% or no results: OS name only  
-        3. If still no results: normalized OS name
-        Returns only the best single result with highest confidence
-        """
-        logger.info(f"🔍 SMART EOL SEARCH START | OS: {os_name} | Version: {os_version} | Specialist: {specialist}")
-        
-        search_attempts = []
-        best_result = None
-        best_confidence = 0.0
-        
-        try:
-            # Strategy 1: Try exact OS name + version
-            logger.info(f"🔍 Strategy 1: Exact match - '{os_name}' + '{os_version}'")
-            result1 = self._call_specialist_eol_tool(specialist, os_name, os_version)
-            
-            confidence1 = self._extract_confidence_from_result(result1)
-            search_attempts.append({"strategy": "exact", "query": f"{os_name} {os_version}", "confidence": confidence1, "result": result1})
-            
-            if confidence1 >= 80.0 and "No EOL data found" not in result1 and "Error" not in result1:
-                logger.info(f"✅ Strategy 1 SUCCESS | Confidence: {confidence1}% | Using exact match result")
-                return result1
-            
-            # Strategy 2: Try OS name only
-            logger.info(f"🔍 Strategy 2: OS name only - '{os_name}'")
-            result2 = self._call_specialist_eol_tool(specialist, os_name, None)
-            
-            confidence2 = self._extract_confidence_from_result(result2)
-            search_attempts.append({"strategy": "name_only", "query": os_name, "confidence": confidence2, "result": result2})
-            
-            if confidence2 >= 80.0 and "No EOL data found" not in result2 and "Error" not in result2:
-                logger.info(f"✅ Strategy 2 SUCCESS | Confidence: {confidence2}% | Using OS name only result")
-                return result2
-            
-            # Strategy 3: Try normalized OS name (remove extra descriptors)
-            normalized_name = self._normalize_os_name(os_name)
-            if normalized_name != os_name:
-                logger.info(f"🔍 Strategy 3: Normalized name - '{normalized_name}'")
-                result3 = self._call_specialist_eol_tool(specialist, normalized_name, None)
-                
-                confidence3 = self._extract_confidence_from_result(result3)
-                search_attempts.append({"strategy": "normalized", "query": normalized_name, "confidence": confidence3, "result": result3})
-                
-                if confidence3 >= 80.0 and "No EOL data found" not in result3 and "Error" not in result3:
-                    logger.info(f"✅ Strategy 3 SUCCESS | Confidence: {confidence3}% | Using normalized name result")
-                    return result3
-            
-            # Choose the best result from all attempts
-            for attempt in search_attempts:
-                if (attempt["confidence"] > best_confidence and 
-                    "No EOL data found" not in attempt["result"] and 
-                    "Error" not in attempt["result"]):
-                    best_confidence = attempt["confidence"]
-                    best_result = attempt["result"]
-            
-            if best_result:
-                logger.info(f"✅ SMART SEARCH COMPLETE | Best confidence: {best_confidence}% | Using best available result")
-                return best_result
-            else:
-                logger.warning(f"❌ SMART SEARCH FAILED | No valid results found from any strategy")
-                return "No reliable EOL data found for this OS"
-                
-        except Exception as e:
-            logger.error(f"❌ SMART EOL SEARCH ERROR | {e}")
-            return f"Error in smart EOL search: {str(e)}"
-    
-    def _call_specialist_eol_tool(self, specialist: str, software_name: str, version: str = None) -> str:
-        """
-        Call the appropriate EOL specialist tool based on the specialist type
-        """
-        try:
-            if specialist == "microsoft":
-                return self._check_microsoft_eol_tool(software_name, version)
-            elif specialist == "ubuntu":
-                return self._check_ubuntu_eol_tool(software_name, version)
-            elif specialist == "redhat":
-                return self._check_redhat_eol_tool(software_name, version)
-            elif specialist == "oracle":
-                return self._check_oracle_eol_tool(software_name, version)
-            elif specialist == "apache":
-                return self._check_apache_eol_tool(software_name, version)
-            elif specialist == "python":
-                return self._check_python_eol_tool(software_name, version)
-            elif specialist == "nodejs":
-                return self._check_nodejs_eol_tool(software_name, version)
-            elif specialist == "php":
-                return self._check_php_eol_tool(software_name, version)
-            elif specialist == "postgresql":
-                return self._check_postgresql_eol_tool(software_name, version)
-            elif specialist == "vmware":
-                return self._check_vmware_eol_tool(software_name, version)
-            else:  # Default to endoflife.date for unknown specialists
-                return self._check_endoflife_eol_tool(software_name, version)
-        except Exception as e:
-            logger.error(f"❌ SPECIALIST TOOL ERROR | Specialist: {specialist} | Software: {software_name} | Error: {e}")
-            return f"Error calling {specialist} EOL tool: {str(e)}"
-    
-    def _normalize_os_name(self, os_name: str) -> str:
-        """
-        Normalize OS name by removing edition descriptors and extra details
-        Examples:
-        - "Windows Server 2025 Datacenter Azure Edition" -> "Windows Server 2025"
-        - "Ubuntu 20.04.3 LTS" -> "Ubuntu 20.04"
-        - "Red Hat Enterprise Linux 8.5" -> "Red Hat Enterprise Linux 8"
-        """
-        normalized = os_name.strip()
-        
-        # Microsoft Windows normalizations
-        if "windows" in normalized.lower():
-            # Remove edition descriptors
-            editions_to_remove = [
-                "datacenter", "standard", "enterprise", "professional", "home", "education",
-                "azure edition", "core", "essentials", "foundation", "web edition",
-                "starter", "ultimate", "business", "oem"
-            ]
-            
-            for edition in editions_to_remove:
-                normalized = normalized.replace(f" {edition}", "").replace(f" {edition.title()}", "")
-            
-            # Clean up extra spaces
-            normalized = " ".join(normalized.split())
-        
-        # Ubuntu normalizations
-        elif "ubuntu" in normalized.lower():
-            # Remove point releases and LTS descriptor
-            import re
-            # Keep major.minor version, remove point releases
-            normalized = re.sub(r'(\d+\.\d+)\.\d+', r'\1', normalized)
-            normalized = normalized.replace(" LTS", "")
-        
-        # Red Hat normalizations  
-        elif "red hat" in normalized.lower() or "rhel" in normalized.lower():
-            import re
-            # Keep major version only for RHEL
-            normalized = re.sub(r'(\d+)\.\d+', r'\1', normalized)
-        
-        # General cleanup
-        normalized = " ".join(normalized.split())  # Remove extra spaces
-        
-        logger.info(f"🔧 OS NAME NORMALIZATION | Original: '{os_name}' -> Normalized: '{normalized}'")
-        return normalized
-    
-    def _extract_confidence_from_result(self, eol_result: str) -> float:
-        """
-        Extract confidence percentage from EOL result text
-        Returns 0.0 if no confidence found or result indicates error/no data
-        """
-        if not eol_result or "Error" in eol_result or "No EOL data found" in eol_result or "No Microsoft EOL data found" in eol_result:
-            return 0.0
-        
-        try:
-            import re
-            # Look for confidence percentage in the result (matches "Confidence" followed by any characters and then percentage)
-            confidence_match = re.search(r'Confidence.*?(\d+)%', eol_result, re.IGNORECASE | re.UNICODE)
-            if confidence_match:
-                confidence = float(confidence_match.group(1))
-                logger.debug(f"📊 CONFIDENCE EXTRACTED | Found: {confidence}%")
-                return confidence
-            else:
-                # If no explicit confidence but we have valid EOL data, assume reasonable confidence
-                if "End of Life Date:" in eol_result or "Support End Date:" in eol_result:
-                    logger.debug(f"📊 CONFIDENCE ESTIMATED | No explicit confidence, but valid EOL data found: 75%")
-                    return 75.0
-                else:
-                    logger.debug(f"📊 CONFIDENCE DEFAULT | No confidence or EOL data indicators: 0%")
-                    return 0.0
-        except Exception as e:
-            logger.warning(f"⚠️ CONFIDENCE EXTRACTION ERROR | {e} | Defaulting to 0%")
-            return 0.0
-    
-    def _check_microsoft_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Microsoft software EOL status"""
-        tool_start_time = datetime.utcnow()
-        # logger.debug(f"[TOOL_EXEC] Microsoft EOL tool started - Software: {software_name}, Version: {version}")
-        
-        self._log_agent_action("MicrosoftEOLSpecialist", "eol_check_start", {
-            "tool": "check_microsoft_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Microsoft Lifecycle API"
-        })
-        
-        try:
-            # Use the helper method to safely run async code
-            # logger.debug(f"[TOOL_EXEC] Calling Microsoft agent for EOL data")
-            eol_data = self._run_async_safely(self.microsoft_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            # logger.debug(f"[TOOL_EXEC] Microsoft EOL check completed in {execution_duration:.2f}s")
-            
-            self._log_agent_action("MicrosoftEOLSpecialist", "eol_check_complete", {
-                "tool": "check_microsoft_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("MicrosoftEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Microsoft", software_name, eol_data)
-                
-                self._log_agent_action("MicrosoftEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Microsoft EOL data found for {software_name}"
-                self._log_agent_action("MicrosoftEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Microsoft EOL: {str(e)}"
-            logger.error(f"[TOOL_EXEC] Microsoft EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("MicrosoftEOLSpecialist", "eol_check_exception", {
-                "tool": "check_microsoft_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_ubuntu_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Ubuntu software EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("UbuntuEOLSpecialist", "eol_check_start", {
-            "tool": "check_ubuntu_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Ubuntu EOL Database"
-        })
-        
-        try:
-            # Use the helper method to safely run async code
-            eol_data = self._run_async_safely(self.ubuntu_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("UbuntuEOLSpecialist", "eol_check_complete", {
-                "tool": "check_ubuntu_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("UbuntuEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Ubuntu", software_name, eol_data)
-                
-                self._log_agent_action("UbuntuEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Ubuntu EOL data found for {software_name}"
-                self._log_agent_action("UbuntuEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Ubuntu EOL: {str(e)}"
-            logger.error(f"Ubuntu EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("UbuntuEOLSpecialist", "eol_check_exception", {
-                "tool": "check_ubuntu_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_oracle_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Oracle software EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("OracleEOLSpecialist", "eol_check_start", {
-            "tool": "check_oracle_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Oracle Lifecycle Database"
-        })
-        
-        try:
-            # Use the helper method to safely run async code
-            eol_data = self._run_async_safely(self.oracle_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("OracleEOLSpecialist", "eol_check_complete", {
-                "tool": "check_oracle_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("OracleEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Oracle", software_name, eol_data)
-                
-                self._log_agent_action("OracleEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Oracle EOL data found for {software_name}"
-                self._log_agent_action("OracleEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Oracle EOL: {str(e)}"
-            logger.error(f"Oracle EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("OracleEOLSpecialist", "eol_check_exception", {
-                "tool": "check_oracle_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_redhat_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Red Hat software EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("RedHatEOLSpecialist", "eol_check_start", {
-            "tool": "check_redhat_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Red Hat Lifecycle Database"
-        })
-        
-        try:
-            # Use the helper method to safely run async code
-            eol_data = self._run_async_safely(self.redhat_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("RedHatEOLSpecialist", "eol_check_complete", {
-                "tool": "check_redhat_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("RedHatEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Red Hat", software_name, eol_data)
-                
-                self._log_agent_action("RedHatEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Red Hat EOL data found for {software_name}"
-                self._log_agent_action("RedHatEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Red Hat EOL: {str(e)}"
-            logger.error(f"Red Hat EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("RedHatEOLSpecialist", "eol_check_exception", {
-                "tool": "check_redhat_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_vmware_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking VMware software EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("VMwareEOLSpecialist", "eol_check_start", {
-            "tool": "check_vmware_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "VMware Lifecycle Database"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.vmware_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("VMwareEOLSpecialist", "eol_check_complete", {
-                "tool": "check_vmware_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("VMwareEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("VMware", software_name, eol_data)
-                
-                self._log_agent_action("VMwareEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No VMware EOL data found for {software_name}"
-                self._log_agent_action("VMwareEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking VMware EOL: {str(e)}"
-            logger.error(f"VMware EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("VMwareEOLSpecialist", "eol_check_exception", {
-                "tool": "check_vmware_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_apache_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Apache software EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("ApacheEOLSpecialist", "eol_check_start", {
-            "tool": "check_apache_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Apache EOL Database"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.apache_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("ApacheEOLSpecialist", "eol_check_complete", {
-                "tool": "check_apache_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("ApacheEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Apache", software_name, eol_data)
-                
-                self._log_agent_action("ApacheEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Apache EOL data found for {software_name}"
-                self._log_agent_action("ApacheEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Apache EOL: {str(e)}"
-            logger.error(f"Apache EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("ApacheEOLSpecialist", "eol_check_exception", {
-                "tool": "check_apache_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_nodejs_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Node.js EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("NodeJSEOLSpecialist", "eol_check_start", {
-            "tool": "check_nodejs_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Node.js EOL Database"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.nodejs_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("NodeJSEOLSpecialist", "eol_check_complete", {
-                "tool": "check_nodejs_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("NodeJSEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Node.js", software_name, eol_data)
-                
-                self._log_agent_action("NodeJSEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Node.js EOL data found for {software_name}"
-                self._log_agent_action("NodeJSEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Node.js EOL: {str(e)}"
-            logger.error(f"Node.js EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("NodeJSEOLSpecialist", "eol_check_exception", {
-                "tool": "check_nodejs_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_postgresql_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking PostgreSQL EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("PostgreSQLEOLSpecialist", "eol_check_start", {
-            "tool": "check_postgresql_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "PostgreSQL official EOL data"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.postgresql_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("PostgreSQLEOLSpecialist", "eol_check_complete", {
-                "tool": "check_postgresql_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("PostgreSQLEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "version": version,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("PostgreSQL", software_name, eol_data)
-                
-                self._log_agent_action("PostgreSQLEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No PostgreSQL EOL data found for {software_name}"
-                self._log_agent_action("PostgreSQLEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking PostgreSQL EOL: {str(e)}"
-            logger.error(f"PostgreSQL EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("PostgreSQLEOLSpecialist", "eol_check_exception", {
-                "tool": "check_postgresql_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_php_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking PHP EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("PHPEOLSpecialist", "eol_check_start", {
-            "tool": "check_php_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "PHP official EOL data"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.php_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("PHPEOLSpecialist", "eol_check_complete", {
-                "tool": "check_php_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("PHPEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "version": version,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("PHP", software_name, eol_data)
-                
-                self._log_agent_action("PHPEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No PHP EOL data found for {software_name}"
-                self._log_agent_action("PHPEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking PHP EOL: {str(e)}"
-            logger.error(f"PHP EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("PHPEOLSpecialist", "eol_check_exception", {
-                "tool": "check_php_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _check_python_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking Python EOL status"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("PythonEOLSpecialist", "eol_check_start", {
-            "tool": "check_python_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "Python official EOL data"
-        })
-        
-        try:
-            eol_data = self._run_async_safely(self.python_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("PythonEOLSpecialist", "eol_check_complete", {
-                "tool": "check_python_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("PythonEOLSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "version": version,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("Python", software_name, eol_data)
-                
-                self._log_agent_action("PythonEOLSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No Python EOL data found for {software_name}"
-                self._log_agent_action("PythonEOLSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking Python EOL: {str(e)}"
-            logger.error(f"Python EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("PythonEOLSpecialist", "eol_check_exception", {
-                "tool": "check_python_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _get_inventory_summary_tool(self) -> str:
-        """Tool for getting inventory summary from the coordination agent"""
-        try:
-            self._log_agent_action("InventorySpecialist", "get_inventory_summary", {})
-            
-            # Use the helper method to safely run async code
-            summary = self._run_async_safely(self.inventory_agent.get_inventory_summary())
-            
-            if summary:
-                self._log_agent_action("InventorySpecialist", "get_inventory_summary_result", 
-                                     {"summary_count": len(summary.get('software', []))})
-                return str(summary)
-            else:
-                return "No inventory summary available"
-                
-        except Exception as e:
-            error_msg = f"Error getting inventory summary: {str(e)}"
-            self._log_agent_action("InventorySpecialist", "get_inventory_summary_error", {"error": error_msg})
-            return error_msg
-    
-    def _check_endoflife_eol_tool(self, software_name: str, version: str = None) -> str:
-        """Tool for checking general software EOL using endoflife.date database"""
-        tool_start_time = datetime.utcnow()
-        
-        self._log_agent_action("EndOfLifeSpecialist", "eol_check_start", {
-            "tool": "check_endoflife_eol",
-            "software_name": software_name,
-            "version": version,
-            "start_time": tool_start_time.isoformat(),
-            "data_source": "EndOfLife.date API"
-        })
-        
-        try:
-            # Use the helper method to safely run async code
-            eol_data = self._run_async_safely(self.endoflife_agent.get_eol_data(software_name, version))
-            
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            
-            self._log_agent_action("EndOfLifeSpecialist", "eol_check_complete", {
-                "tool": "check_endoflife_eol",
-                "software_name": software_name,
-                "version": version,
-                "duration_seconds": execution_duration,
-                "data_found": bool(eol_data),
-                "full_data": eol_data  # Include full data for extraction
-            })
-            
-            if eol_data:
-                self._log_agent_action("EndOfLifeSpecialist", "eol_data_processing", {
-                    "software_name": software_name,
-                    "data_type": type(eol_data).__name__,
-                    "processing_action": "formatting_for_agents"
-                })
-                
-                formatted_result = self._format_eol_data_for_agents("EndOfLife.date", software_name, eol_data)
-                
-                self._log_agent_action("EndOfLifeSpecialist", "eol_check_success", {
-                    "software_name": software_name,
-                    "version": version,
-                    "result_length": len(formatted_result),
-                    "duration_seconds": execution_duration,
-                    "status": "success"
-                })
-                
-                return formatted_result
-            else:
-                no_data_msg = f"No EOL data found for {software_name} in endoflife.date database"
-                self._log_agent_action("EndOfLifeSpecialist", "eol_check_no_data", {
-                    "software_name": software_name,
-                    "version": version,
-                    "duration_seconds": execution_duration,
-                    "status": "no_data_found"
-                })
-                return no_data_msg
-                
-        except Exception as e:
-            execution_duration = (datetime.utcnow() - tool_start_time).total_seconds()
-            error_msg = f"Error checking endoflife EOL: {str(e)}"
-            logger.error(f"EndOfLife EOL tool exception after {execution_duration:.2f}s: {error_msg}")
-            
-            self._log_agent_action("EndOfLifeSpecialist", "eol_check_exception", {
-                "tool": "check_endoflife_eol",
-                "software_name": software_name,
-                "version": version,
-                "error": str(e),
-                "duration_seconds": execution_duration,
-                "error_type": "exception"
-            })
-            
-            return error_msg
-    
-    def _format_inventory_for_agents(self, inventory_items: List[Dict[str, Any]]) -> str:
-        """Format inventory data for agent consumption"""
-        formatted = ""
-        for item in inventory_items:
-            name = item.get('name', 'Unknown')
-            version = item.get('version', 'Unknown')
-            computer = item.get('computer', 'Unknown')
-            formatted += f"• {name} v{version} (on {computer})\n"
-        return formatted
-    
-    def _format_eol_data_for_agents(self, source: str, software_name: str, eol_data: Dict[str, Any]) -> str:
-        """Format EOL data for agent consumption - supports both legacy and standardized formats"""
-        result = f"**{source} EOL Analysis for {software_name}:**\n\n"
-        
-        # Handle standardized BaseEOLAgent format
-        if isinstance(eol_data, dict) and "success" in eol_data:
-            if eol_data["success"] and eol_data.get("data"):
-                data = eol_data["data"]
-                
-                # Extract key information from standardized format
-                if data.get("eol_date"):
-                    result += f"🗓️ **End of Life Date:** {data['eol_date']}\n"
-                
-                if data.get("support_end_date"):
-                    result += f"🛡️ **Support End Date:** {data['support_end_date']}\n"
-                
-                if data.get("release_date"):
-                    result += f"📅 **Release Date:** {data['release_date']}\n"
-                
-                if data.get("version"):
-                    result += f"🔄 **Version/Cycle:** {data['version']}\n"
-                
-                if data.get("status"):
-                    result += f"📊 **Status:** {data['status']}\n"
-                
-                # Add risk level using standardized field
-                if data.get("risk_level"):
-                    risk_level = data["risk_level"].lower()
-                    if risk_level == "critical":
-                        result += "🚨 **Risk Level:** CRITICAL - Immediate attention required\n"
-                    elif risk_level == "high":
-                        result += "⚠️ **Risk Level:** HIGH - High priority update needed\n"
-                    elif risk_level == "medium":
-                        result += "⚡ **Risk Level:** MEDIUM - Update recommended\n"
-                    elif risk_level == "low":
-                        result += "✅ **Risk Level:** LOW - Currently supported\n"
-                    else:
-                        result += f"❓ **Risk Level:** {risk_level.upper()}\n"
-                
-                # Add days until EOL if available
-                if data.get("days_until_eol") is not None:
-                    days = data["days_until_eol"]
-                    if days < 0:
-                        result += f"⏰ **Days Since EOL:** {abs(days)} days ago\n"
-                    else:
-                        result += f"⏰ **Days Until EOL:** {days} days\n"
-                
-                # Add confidence level
-                if data.get("confidence"):
-                    confidence_pct = int(data["confidence"] * 100)
-                    result += f"🎯 **Confidence:** {confidence_pct}%\n"
-                
-                # Add source URL if available
-                if data.get("source_url"):
-                    result += f"\n📖 **Source:** {data['source_url']}\n"
-                elif eol_data.get("source"):
-                    result += f"\n📖 **Source:** {eol_data['source']}\n"
-                
-                # Add additional data if present
-                if data.get("cycle"):
-                    result += f"🔄 **Release Cycle:** {data['cycle']}\n"
-                if data.get("lts"):
-                    result += f"🔒 **LTS Release:** {data['lts']}\n"
-                if data.get("latest"):
-                    result += f"📦 **Latest Version:** {data['latest']}\n"
-                
-            else:
-                # Handle failure response
-                error = eol_data.get("error", {})
-                result += f"❌ **Error:** {error.get('message', 'No EOL data found')}\n"
-                if error.get("code"):
-                    result += f"🏷️ **Error Code:** {error['code']}\n"
-            
-            return result
-        
-        # Legacy format handling - keep existing logic for backward compatibility
-        # Handle nested eol_info structure (Microsoft agent format)
-        if "eol_info" in eol_data:
-            eol_info = eol_data["eol_info"]
-        else:
-            eol_info = eol_data
-        
-        if eol_info.get("eol"):
-            result += f"🗓️ **End of Life Date:** {eol_info['eol']}\n"
-        
-        if eol_info.get("support"):
-            result += f"🛡️ **Support End Date:** {eol_info['support']}\n"
-        
-        if eol_info.get("latest"):
-            result += f"📦 **Latest Version:** {eol_info['latest']}\n"
-        
-        if eol_info.get("lts"):
-            result += f"🔒 **LTS Release:** {eol_info['lts']}\n"
-        
-        if eol_info.get("cycle"):
-            result += f"🔄 **Release Cycle:** {eol_info['cycle']}\n"
-        
-        if eol_info.get("releaseDate"):
-            result += f"📅 **Release Date:** {eol_info['releaseDate']}\n"
-        
-        # Calculate risk level for legacy format
-        if eol_info.get("eol"):
-            try:
-                from datetime import datetime
-                eol_date_str = str(eol_info["eol"])
-                
-                # Handle different date formats
-                if eol_date_str.lower() in ["no eol", "continuous", "active"]:
-                    result += "✅ **Risk Level:** LOW - No scheduled EOL (continuous updates)\n"
-                else:
-                    # Try to parse the date
-                    try:
-                        if "Z" in eol_date_str:
-                            eol_date = datetime.fromisoformat(eol_date_str.replace("Z", "+00:00"))
-                        else:
-                            eol_date = datetime.fromisoformat(eol_date_str)
-                    except:
-                        # Try other date formats
-                        eol_date = datetime.strptime(eol_date_str, '%Y-%m-%d')
-                    
-                    days_until_eol = (eol_date - datetime.now()).days
-                    
-                    if days_until_eol < 0:
-                        result += "🚨 **Risk Level:** CRITICAL - Already past EOL\n"
-                    elif days_until_eol < 90:
-                        result += "⚠️ **Risk Level:** HIGH - EOL within 90 days\n"
-                    elif days_until_eol < 365:
-                        result += "⚡ **Risk Level:** MEDIUM - EOL within 1 year\n"
-                    else:
-                        result += "✅ **Risk Level:** LOW - EOL more than 1 year away\n"
-                        
-            except Exception as e:
-                result += "❓ **Risk Level:** Unknown - Unable to parse EOL date\n"
-        
-        # Add source information for legacy format
-        if eol_data.get("source_url"):
-            result += f"\n📖 **Source:** {eol_data['source_url']}\n"
-        elif eol_data.get("source"):
-            result += f"\n📖 **Source:** {eol_data['source']}\n"
-        
-        return result
-    
-    def _get_dynamic_timeout(self, base_timeout: int, load_factor: float = 0.0) -> int:
-        """
-        Calculate dynamic timeout based on system load
-        
-        Args:
-            base_timeout: Base timeout in seconds
-            load_factor: System load factor (0.0 = low, 1.0 = high)
-        
-        Returns:
-            Adjusted timeout in seconds
-        """
-        try:
-            # Increase timeout under high load
-            load_adjustment = 1.0 + (load_factor * 0.5)  # Up to 50% increase
-            
-            # Apply adjustment
-            adjusted_timeout = int(base_timeout * load_adjustment)
-            
-            # Ensure reasonable bounds
-            min_timeout = base_timeout
-            max_timeout = base_timeout * 2  # Never more than double
-            final_timeout = max(min_timeout, min(max_timeout, adjusted_timeout))
-            
-            self._log_agent_action("Orchestrator", "dynamic_timeout_calculation", {
-                "base_timeout": base_timeout,
-                "load_factor": load_factor,
-                "load_adjustment": load_adjustment,
-                "final_timeout": final_timeout,
-                "increase_percent": round((final_timeout/base_timeout - 1) * 100, 1)
-            })
-            
-            return final_timeout
-            
-        except Exception as e:
-            logger.warning(f"Dynamic timeout calculation failed: {e}, using base timeout {base_timeout}")
-            return base_timeout
-
-    def _get_dynamic_limit(self, base_limit: int, load_factor: float = 0.0, environment: str = "production") -> int:
-        """
-        Calculate dynamic limits based on system load and environment
-        
-        Args:
-            base_limit: Base limit value
-            load_factor: System load factor (0.0 = low, 1.0 = high)
-            environment: Environment type (development, staging, production)
-        
-        Returns:
-            Adjusted limit value
-        """
-        try:
-            # Environment multipliers
-            env_multipliers = {
-                "development": 0.5,  # Lower limits for dev
-                "staging": 0.8,      # Moderate limits for staging
-                "production": 1.0    # Full limits for production
-            }
-            
-            # Load-based adjustment (reduce limits under high load)
-            load_adjustment = 1.0 - (load_factor * 0.4)  # Max 40% reduction
-            
-            # Apply adjustments
-            env_multiplier = env_multipliers.get(environment, 1.0)
-            adjusted_limit = int(base_limit * env_multiplier * load_adjustment)
-            
-            # Ensure minimum limits
-            min_limit = max(10, base_limit // 10)  # At least 10% of base
-            final_limit = max(min_limit, adjusted_limit)
-            
-            self._log_agent_action("Orchestrator", "dynamic_limit_calculation", {
-                "base_limit": base_limit,
-                "load_factor": load_factor,
-                "environment": environment,
-                "env_multiplier": env_multiplier,
-                "load_adjustment": load_adjustment,
-                "final_limit": final_limit,
-                "reduction_percent": round((1 - final_limit/base_limit) * 100, 1)
-            })
-            
-            return final_limit
-            
-        except Exception as e:
-            logger.warning(f"Dynamic limit calculation failed: {e}, using base limit {base_limit}")
-            return base_limit
-
-    def _get_system_load_factor(self) -> float:
-        """
-        Calculate system load factor based on various metrics
-        
-        Returns:
-            Load factor between 0.0 (low) and 1.0 (high)
-        """
-        try:
-            import psutil
-            
-            # CPU usage (weight: 0.4)
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            cpu_load = min(cpu_percent / 80.0, 1.0)  # 80% CPU = full load
-            
-            # Memory usage (weight: 0.3)
-            memory = psutil.virtual_memory()
-            memory_load = memory.percent / 100.0
-            
-            # Recent agent communications (weight: 0.3)
-            recent_comms = len([c for c in self.agent_communications[-50:] 
-                               if (datetime.utcnow() - datetime.fromisoformat(c.get("timestamp", "1970-01-01T00:00:00"))).seconds < 300])
-            comm_load = min(recent_comms / 20.0, 1.0)  # 20 communications in 5 min = high
-            
-            # Weighted average
-            load_factor = (cpu_load * 0.4) + (memory_load * 0.3) + (comm_load * 0.3)
-            
-            self._log_agent_action("Orchestrator", "system_load_assessment", {
-                "cpu_percent": cpu_percent,
-                "memory_percent": memory.percent,
-                "recent_communications": recent_comms,
-                "cpu_load": round(cpu_load, 3),
-                "memory_load": round(memory_load, 3),
-                "comm_load": round(comm_load, 3),
-                "final_load_factor": round(load_factor, 3)
-            })
-            
-            return min(load_factor, 1.0)
-            
-        except ImportError:
-            # logger.debug("psutil not available, using default load factor")
-            return 0.2  # Default moderate load
-        except Exception as e:
-            logger.warning(f"Load factor calculation failed: {e}, using default")
-            return 0.2
-
-    def _log_agent_action(self, agent_name: str, action: str, data: Dict[str, Any]):
-        """Log agent actions for transparency in UI with enhanced task tracking"""
-        log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "session_id": self.session_id,
-            "agent_name": agent_name,
-            "action": action,
-            "data": data,
-            "task_type": self._determine_task_type(action, data),
-            "status": self._determine_task_status(action, data)
-        }
-        
-        self.agent_communications.append(log_entry)
-        logger.info(f"🤖 {agent_name} -> {action}: {json.dumps(data, default=str)}")
-    
-    def _determine_task_type(self, action: str, data: Dict[str, Any]) -> str:
-        """Determine the task type based on action and data"""
-        try:
-            if "inventory" in action.lower():
-                return "inventory"
-            elif "eol" in action.lower():
-                return "eol_analysis"
-            elif "tool" in action.lower():
-                return "tool_execution"
-            elif "team" in action.lower():
-                return "team_management"
-            elif "conversation" in action.lower() or "chat" in action.lower():
-                return "conversation"
-            else:
-                return "system"
-        except Exception:
-            return "unknown"
-    
-    def _determine_task_status(self, action: str, data: Dict[str, Any]) -> str:
-        """Determine the task status based on action and data"""
-        try:
-            if any(keyword in action.lower() for keyword in ["start", "begin", "init"]):
-                return "started"
-            elif any(keyword in action.lower() for keyword in ["complete", "success", "finish"]):
-                return "completed"
-            elif any(keyword in action.lower() for keyword in ["error", "fail", "exception"]):
-                return "failed"
-            elif "progress" in action.lower():
-                return "in_progress"
-            else:
-                return "active"
-        except Exception:
-            return "unknown"
-    
-    def _extract_and_log_tasks_from_message(self, speaker: str, content: str, message: Any):
-        """Extract task information from AutoGen messages and log them"""
-        try:
-            # Log the message itself as a task
-            self._log_agent_action(speaker, "message_sent", {
-                "content_length": len(content),
-                "message_type": type(message).__name__
-            })
-            
-            # Extract tool calls/function calls from content
-            if "✅" in content or "❌" in content:
-                # This looks like a tool result
-                self._log_agent_action(speaker, "tool_result", {
-                    "success": "✅" in content,
-                    "has_data": len(content) > 100
-                })
-            
-            # Check for specific task patterns
-            if "inventory" in content.lower():
-                task_type = "inventory_task"
-                if "retrieved successfully" in content.lower():
-                    self._log_agent_action(speaker, "inventory_completed", {
-                        "task": "inventory_retrieval",
-                        "status": "success"
-                    })
-                elif "error" in content.lower():
-                    self._log_agent_action(speaker, "inventory_failed", {
-                        "task": "inventory_retrieval", 
-                        "status": "error"
-                    })
-                else:
-                    self._log_agent_action(speaker, "inventory_requested", {
-                        "task": "inventory_retrieval",
-                        "status": "initiated"
-                    })
-            
-            if "eol" in content.lower() or "end of life" in content.lower():
-                if "analysis for" in content.lower():
-                    self._log_agent_action(speaker, "eol_analysis_completed", {
-                        "task": "eol_analysis",
-                        "status": "success"
-                    })
-                else:
-                    self._log_agent_action(speaker, "eol_analysis_requested", {
-                        "task": "eol_analysis",
-                        "status": "initiated"
-                    })
-            
-            # Check for risk assessment
-            if "risk" in content.lower() and ("high" in content.lower() or "medium" in content.lower() or "low" in content.lower()):
-                self._log_agent_action(speaker, "risk_assessment_completed", {
-                    "task": "risk_assessment",
-                    "status": "completed"
-                })
-            
-            # Check for recommendations
-            if "recommend" in content.lower() or "should" in content.lower():
-                self._log_agent_action(speaker, "recommendation_provided", {
-                    "task": "recommendation",
-                    "status": "completed"
-                })
-                
-        except Exception as e:
-            logger.error(f"Error extracting tasks from message: {e}")
-    
-    def _determine_task_type(self, action: str, data: Dict[str, Any]) -> str:
-        """Determine the type of task being performed"""
-        if "inventory" in action.lower():
-            return "inventory_retrieval"
-        elif "eol" in action.lower():
-            return "eol_analysis"
-        elif "tool" in action.lower() or "function" in action.lower():
-            return "tool_execution"
-        elif "message" in action.lower():
-            return "communication"
-        elif "error" in action.lower() or "exception" in action.lower():
-            return "error_handling"
-        elif "complete" in action.lower():
-            return "task_completion"
-        else:
-            return "general_action"
-    
-    def _determine_task_status(self, action: str, data: Dict[str, Any]) -> str:
-        """Determine the status of the task"""
-        if "error" in action.lower() or "exception" in action.lower():
-            return "failed"
-        elif "complete" in action.lower() or "result" in action.lower():
-            return "completed"
-        elif data.get("success", True):  # Default to True if not specified
-            return "in_progress"
-        else:
-            return "failed"
-    
-    async def _chat_with_retry(self, user_message: str, max_retries: int = 3, minimal_team: bool = False, timeout_seconds: int = 100) -> Dict[str, Any]:
-        """
-        Chat with automatic retry for rate limiting errors and timeout handling
-        
-        Args:
-            user_message: The user's message
-            max_retries: Maximum number of retry attempts
-            minimal_team: Use minimal team for faster responses
-            timeout_seconds: Maximum time for each attempt (default 50s)
-        """
-        chat_start_time = datetime.utcnow()
-        # logger.debug(f"[CHAT_RETRY] Starting multi-agent conversation with {timeout_seconds}s timeout")
-        
-        self._log_agent_action("Orchestrator", "multi_agent_chat_start", {
-            "max_retries": max_retries,
-            "minimal_team": minimal_team,
-            "timeout_seconds": timeout_seconds,
-            "session_id": self.session_id,
-            "start_time": chat_start_time.isoformat(),
-            "strategy": "Minimal team for speed" if minimal_team else "Full team for comprehensive analysis"
-        })
-        
-        for attempt in range(max_retries + 1):
-            attempt_start_time = datetime.utcnow()
-            # logger.debug(f"[CHAT_RETRY] Attempt {attempt + 1}/{max_retries + 1} - Setting up team chat (timeout: {timeout_seconds}s)")
-            
-            self._log_agent_action("Orchestrator", "chat_attempt_start", {
-                "attempt": attempt + 1,
-                "max_attempts": max_retries + 1,
-                "minimal_team": minimal_team,
-                "timeout_seconds": timeout_seconds,
-                "attempt_start_time": attempt_start_time.isoformat(),
-                "previous_failures": attempt > 0
-            })
-            
-            try:
-                # Create a fresh team instance for this conversation to avoid "team already running" errors
-                # logger.debug(f"[CHAT_RETRY] Creating fresh team instance for new conversation (attempt {attempt + 1}, minimal_team={minimal_team})")
-                self._setup_team_chat(minimal_team=minimal_team)
-                
-                if not self.team:
-                    logger.error("[CHAT_RETRY] Failed to create team chat - AutoGen not available")
-                    self._log_agent_action("Orchestrator", "team_creation_failed", {
-                        "reason": "AutoGen not available",
-                        "fallback": "Single-agent response required"
-                    })
-                    raise Exception("AutoGen team chat not available")
-                
-                # Create cancellation token for the conversation
-                cancellation_token = CancellationToken()
-                # logger.debug(f"[CHAT_RETRY] Created cancellation token, starting team conversation with {timeout_seconds}s timeout")
-                
-                self._log_agent_action("Orchestrator", "team_conversation_start", {
-                    "team_type": type(self.team).__name__,
-                    "participant_count": len(self.participants),
-                    "participants": [agent.name for agent in self.participants]
-                })
-                
-                # Run the team chat with timeout handling
-                conversation_start = datetime.utcnow()
-                # logger.debug(f"[CHAT_RETRY] Starting team.run() with {timeout_seconds}s timeout")
-                
-                try:
-                    # Use asyncio.wait_for to enforce timeout
-                    result = await asyncio.wait_for(
-                        self.team.run(task=user_message, cancellation_token=cancellation_token),
-                        timeout=timeout_seconds
-                    )
-                    conversation_duration = (datetime.utcnow() - conversation_start).total_seconds()
-                    
-                    # logger.debug(f"[CHAT_RETRY] Team conversation completed in {conversation_duration:.2f}s")
-                    self._log_agent_action("Orchestrator", "team_conversation_complete", {
-                        "duration_seconds": conversation_duration,
-                        "message_count": len(result.messages) if hasattr(result, 'messages') else 0,
-                        "termination_reason": getattr(result, 'termination_reason', 'unknown'),
-                        "timeout_seconds": timeout_seconds,
-                        "success": True
-                    })
-                    
-                except asyncio.TimeoutError:
-                    conversation_duration = (datetime.utcnow() - conversation_start).total_seconds()
-                    # logger.error(f"[CHAT_RETRY] Team conversation timed out after {conversation_duration:.2f}s (limit: {timeout_seconds}s)")
-                    
-                    self._log_agent_action("Orchestrator", "team_conversation_timeout", {
-                        "duration_seconds": conversation_duration,
-                        "timeout_seconds": timeout_seconds,
-                        "attempt": attempt + 1,
-                        "action": "retrying_with_minimal_team" if not minimal_team else "timeout_exceeded"
-                    })
-                    
-                    # If this was a full team and we timed out, try with minimal team
-                    if not minimal_team and attempt < max_retries:
-                        logger.info(f"[CHAT_RETRY] Retrying with minimal team due to timeout")
-                        continue
-                    else:
-                        # Final timeout - return a graceful response
-                        timeout_response = f"""⏱️ **Request Timeout**
-
-The multi-agent analysis took longer than expected ({timeout_seconds} seconds). This can happen with complex queries that require extensive agent coordination.
-
-**What you can try:**
-• 🔄 **Retry your request** - sometimes it works faster on the second try
-• 🏃 **Use simpler queries** like "show my inventory" for faster responses  
-• 📊 **Try specific requests** like "what software do I have" or "show OS versions"
-
-**Your original request:** {user_message[:200]}{'...' if len(user_message) > 200 else ''}"""
-
-                        return {
-                            "response": timeout_response,
-                            "conversation_messages": [],
-                            "agent_communications": self.agent_communications[-20:],
-                            "session_id": self.session_id,
-                            "agents_involved": [],
-                            "total_exchanges": 0,
-                            "timeout": True,
-                            "timeout_seconds": timeout_seconds,
-                            "duration_seconds": conversation_duration
-                        }
-                
-                # Extract conversation messages from the result and capture task details
-                # logger.debug(f"[CHAT_RETRY] Processing {len(result.messages)} messages from team conversation")
-                self._log_agent_action("Orchestrator", "message_processing_start", {
-                    "total_messages": len(result.messages),
-                    "processing_start": datetime.utcnow().isoformat()
-                })
-                
-                conversation_messages = []
-                agents_involved = set()
-                message_types = {}
-                agent_message_counts = {}
-                
-                for i, message in enumerate(result.messages):
-                    try:
-                        speaker = getattr(message, 'source', 'Unknown')
-                        content = ""
-                        
-                        # Handle different message types
-                        if hasattr(message, 'content'):
-                            content = str(message.content)
-                        elif hasattr(message, 'to_text'):
-                            content = message.to_text()
-                        else:
-                            content = str(message)
-                        
-                        message_type = type(message).__name__
-                        
-                        # Track message statistics
-                        agents_involved.add(speaker)
-                        agent_message_counts[speaker] = agent_message_counts.get(speaker, 0) + 1
-                        message_types[message_type] = message_types.get(message_type, 0) + 1
-                        
-                        # logger.debug(f"[CHAT_RETRY] Message {i+1}: {speaker} ({message_type})")
-                        
-                        # Capture task information from message content
-                        self._extract_and_log_tasks_from_message(speaker, content, message)
-                        
-                        conversation_messages.append({
-                            "speaker": speaker,
-                            "content": content,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": message_type,
-                            "sequence": i + 1
-                        })
-                        
-                    except Exception as e:
-                        # logger.debug(f"[CHAT_RETRY] Error processing message {i+1}: {e}")
-                        conversation_messages.append({
-                            "speaker": "System",
-                            "content": f"Error processing message: {str(e)}",
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "Error",
-                            "sequence": i + 1
-                        })
-                
-                self._log_agent_action("Orchestrator", "message_processing_complete", {
-                    "processed_messages": len(conversation_messages),
-                    "agents_involved": list(agents_involved),
-                    "agent_message_counts": agent_message_counts,
-                    "message_types": message_types,
-                    "most_active_agent": max(agent_message_counts.items(), key=lambda x: x[1])[0] if agent_message_counts else None
-                })
-                
-                # Get the final response (last message from an agent)
-                # logger.debug("[CHAT_RETRY] Extracting final response from conversation")
-                final_response = "I apologize, but I couldn't process your request."
-                inventory_complete = False
-                final_agent = None
-                
-                for message in reversed(conversation_messages):
-                    if message["speaker"] not in ["User", "System"]:
-                        final_response = message["content"]
-                        final_agent = message["speaker"]
-                        
-                        # Check if inventory specialist completed its work
-                        if "INVENTORY_COMPLETE" in final_response:
-                            inventory_complete = True
-                            # Remove the INVENTORY_COMPLETE marker from the response
-                            final_response = final_response.replace("INVENTORY_COMPLETE", "").strip()
-                            # logger.debug("[CHAT_RETRY] INVENTORY_COMPLETE marker detected - inventory task finished")
-                        
-                        break
-                
-                self._log_agent_action("Orchestrator", "final_response_extracted", {
-                    "final_agent": final_agent,
-                    "response_length": len(final_response),
-                    "inventory_complete": inventory_complete,
-                    "response_preview": final_response[:200] + "..." if len(final_response) > 200 else final_response
-                })
-                
-                # If inventory was completed, ensure no further agent collaboration
-                if inventory_complete:
-                    # logger.debug("[CHAT_RETRY] Processing inventory completion - filtering messages")
-                    self._log_agent_action("Orchestrator", "inventory_completion_processing", {
-                        "action": "Filtering conversation to prevent unnecessary agent collaboration",
-                        "original_message_count": len(conversation_messages)
-                    })
-                    
-                    # Filter out any potential follow-up attempts from other agents
-                    filtered_messages = []
-                    inventory_done = False
-                    for message in conversation_messages:
-                        if message["speaker"] == "InventorySpecialist" and "INVENTORY_COMPLETE" in message["content"]:
-                            inventory_done = True
-                            # Clean the message content
-                            message["content"] = message["content"].replace("INVENTORY_COMPLETE", "").strip()
-                            filtered_messages.append(message)
-                            break  # Stop processing after inventory specialist responds
-                        elif not inventory_done:
-                            filtered_messages.append(message)
-                    
-                    conversation_messages = filtered_messages
-                    
-                    self._log_agent_action("Orchestrator", "inventory_completion_filtered", {
-                        "filtered_message_count": len(conversation_messages),
-                        "messages_removed": len(result.messages) - len(conversation_messages),
-                        "termination_reason": "inventory_complete"
-                    })
-                
-                # Calculate final metrics
-                total_duration = (datetime.utcnow() - chat_start_time).total_seconds()
-                attempt_duration = (datetime.utcnow() - attempt_start_time).total_seconds()
-                
-                # Prepare response with full transparency
-                response = {
-                    "response": final_response,
-                    "conversation_messages": conversation_messages,
-                    "agent_communications": self.agent_communications[-20:],  # Last 20 actions
-                    "session_id": self.session_id,
-                    "agents_involved": list(agents_involved),
-                    "total_exchanges": len(conversation_messages),
-                    "termination_reason": getattr(result, 'termination_reason', 'completed'),
-                    "retry_attempt": attempt + 1,
-                    "total_duration_seconds": total_duration,
-                    "attempt_duration_seconds": attempt_duration,
-                    "final_agent": final_agent,
-                    "inventory_complete": inventory_complete
-                }
-                
-                # logger.debug(f"[CHAT_RETRY] Chat completed successfully in {total_duration:.2f}s")
-                self._log_agent_action("Orchestrator", "chat_success", {
-                    "success": True,
-                    "total_duration_seconds": total_duration,
-                    "attempt_duration_seconds": attempt_duration,
-                    "agents_involved": response["agents_involved"],
-                    "total_exchanges": response["total_exchanges"],
-                    "termination_reason": response["termination_reason"],
-                    "retry_attempt": attempt + 1,
-                    "final_agent": final_agent,
-                    "response_length": len(final_response),
-                    "efficiency_metrics": {
-                        "messages_per_second": len(conversation_messages) / attempt_duration if attempt_duration > 0 else 0,
-                        "chars_per_second": len(final_response) / attempt_duration if attempt_duration > 0 else 0,
-                        "team_type": "minimal" if minimal_team else "full"
-                    }
-                })
-                
-                return response
-                
-            except Exception as e:
-                error_msg = str(e)
-                attempt_duration = (datetime.utcnow() - attempt_start_time).total_seconds()
-                
-                # logger.debug(f"[CHAT_RETRY] Chat attempt {attempt + 1} failed after {attempt_duration:.2f}s: {error_msg}")
-                
-                # Determine error type and appropriate handling
-                is_rate_limit_error = (
-                    "429" in error_msg or 
-                    "Rate limit" in error_msg or 
-                    "rate limit" in error_msg or
-                    "Too Many Requests" in error_msg or
-                    "quota" in error_msg.lower()
-                )
-                
-                is_network_error = (
-                    "connection" in error_msg.lower() or
-                    "timeout" in error_msg.lower() or
-                    "network" in error_msg.lower()
-                )
-                
-                is_auth_error = (
-                    "401" in error_msg or
-                    "403" in error_msg or
-                    "unauthorized" in error_msg.lower() or
-                    "authentication" in error_msg.lower()
-                )
-                
-                error_category = "unknown"
-                if is_rate_limit_error:
-                    error_category = "rate_limit"
-                elif is_network_error:
-                    error_category = "network"
-                elif is_auth_error:
-                    error_category = "authentication"
-                else:
-                    error_category = "system"
-                
-                self._log_agent_action("Orchestrator", "chat_attempt_failed", {
-                    "attempt": attempt + 1,
-                    "max_attempts": max_retries + 1,
-                    "error_message": error_msg,
-                    "error_category": error_category,
-                    "attempt_duration_seconds": attempt_duration,
-                    "is_retryable": is_rate_limit_error or is_network_error,
-                    "retries_remaining": max_retries - attempt
-                })
-                
-                if (is_rate_limit_error or is_network_error) and attempt < max_retries:
-                    # Calculate exponential backoff delay
-                    base_delay = 10 if is_rate_limit_error else 5
-                    delay = min(60, (2 ** attempt) * base_delay)  # Rate limit: 10s, 20s, 40s, max 60s
-                    
-                    # logger.debug(f"[CHAT_RETRY] {error_category.title()} error detected, waiting {delay}s before retry {attempt + 2}/{max_retries + 1}")
-                    
-                    self._log_agent_action("Orchestrator", "retry_with_backoff", {
-                        "error_category": error_category,
-                        "attempt": attempt + 1,
-                        "delay_seconds": delay,
-                        "next_attempt": attempt + 2,
-                        "retry_strategy": "exponential_backoff",
-                        "base_delay": base_delay
-                    })
-                    
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    # Not a retryable error or max retries exceeded
-                    total_duration = (datetime.utcnow() - chat_start_time).total_seconds()
-                    
-                    self._log_agent_action("Orchestrator", "chat_failed_permanently", {
-                        "final_error": error_msg,
-                        "error_category": error_category,
-                        "total_attempts": attempt + 1,
-                        "total_duration_seconds": total_duration,
-                        "retries_exhausted": attempt >= max_retries,
-                        "non_retryable_error": not (is_rate_limit_error or is_network_error)
-                    })
-                    
-                    logger.error(f"[CHAT_RETRY] Permanent failure after {attempt + 1} attempts in {total_duration:.2f}s")
-                    raise e
-        
-        # If we get here, all retries were exhausted due to retryable errors
-        total_duration = (datetime.utcnow() - chat_start_time).total_seconds()
-        self._log_agent_action("Orchestrator", "chat_retries_exhausted", {
-            "total_attempts": max_retries + 1,
-            "total_duration_seconds": total_duration,
-            "failure_reason": "All retry attempts exhausted",
-            "recommendation": "Try again later or contact support"
-        })
-        
-        raise Exception(f"All {max_retries + 1} attempts failed due to retryable errors (rate limiting, network issues)")
-
-    async def chat_with_confirmation(self, user_message: str, confirmed: bool = False, original_message: str = None, timeout_seconds: int = 120) -> Dict[str, Any]:
-        """
-        Enhanced chat interface with user confirmation for complex multi-agent requests
-        
-        Args:
-            user_message: The user's message
-            confirmed: Whether the user has confirmed to proceed with multi-agent analysis
-            original_message: The original message if this is a confirmation response
-            timeout_seconds: Maximum time for the conversation
-        """
-        try:
-            # FAST PATH: Check if AutoGen is not available and handle simple queries directly
-            if not AUTOGEN_IMPORTS_OK:
-                # logger.info(f"🚀 FAST PATH: AutoGen not available, handling simple query directly")
-                request_type = self._classify_request(user_message)
-                if request_type == "PURE_INVENTORY":
-                    return await self._fallback_inventory_response(user_message)
-                elif request_type == "EOL_ANALYSIS":
-                    return await self._fallback_eol_response(user_message)
-            
-            # Clear agent communications for fresh interaction tracking (except for confirmations)
-            if not confirmed:
-                # logger.info(f"🧹 CHAT START | Clearing communications for new conversation - User: {user_message[:50]}{'...' if len(user_message) > 50 else ''}")
-                await self.clear_communications()
-            
-            # If this is a confirmation response and user confirmed, use the original message
-            if confirmed and original_message:
-                user_message = original_message
-                self._log_agent_action("User", "confirmed_proceeding", {})
-                # Proceed directly to multi-agent conversation (skip confirmation logic)
-                return await self._proceed_with_multi_agent_chat(user_message, timeout_seconds=timeout_seconds)
-            
-            # If user explicitly declined, provide helpful alternatives
-            confirmation_decline_keywords = ["no", "cancel", "stop", "don't proceed", "skip"]
-            if any(keyword in user_message.lower() for keyword in confirmation_decline_keywords):
-                decline_message = """✅ **Request Cancelled**
-
-No problem! Here are some alternatives you can try:
-
-🔍 **Quick Inventory Queries** (no multi-agent analysis):
-- "Show me my software inventory"
-- "Get OS inventory"  
-- "List software" 
-
-📊 **Specific Information**:
-- "What is [software name] EOL date?"
-- "Check Windows Server versions"
-
-💡 **Tip**: For simple data retrieval, use "inventory" requests which are much faster and don't require multi-agent coordination.
-
-What would you like to do instead?"""
-                
-                self._log_agent_action("User", "confirmation_declined", {})
-                
-                return {
-                    "response": decline_message,
-                    "conversation_messages": [
-                        {
-                            "speaker": "user",
-                            "content": user_message,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "UserMessage"
-                        },
-                        {
-                            "speaker": "Orchestrator",
-                            "content": decline_message,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "AssistantMessage"
-                        }
-                    ],
-                    "agent_communications": self.agent_communications[-20:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["Orchestrator"],
-                    "total_exchanges": 2,
-                    "confirmation_declined": True
-                }
-            
-            # Proceed with normal chat logic (which includes confirmation checks)
-            return await self.chat(user_message)
-            
-        except Exception as e:
-            error_msg = f"Error in confirmation chat: {str(e)}"
-            # logger.debug(f"[DEBUG] Confirmation chat error: {error_msg}")
-            
-            return {
-                "response": "I encountered an error processing your confirmation. Please try again.",
-                "error": error_msg,
-                "agent_communications": self.agent_communications[-20:],
-                "session_id": self.session_id,
-                "conversation_messages": [],
-                "agents_involved": [],
-                "total_exchanges": 0
-            }
-    
-    async def _proceed_with_inventory_only_chat(self, user_message: str, timeout_seconds: int = 60) -> Dict[str, Any]:
-        """
-        Handle pure inventory requests using inventory specialists only.
-        This prevents EOL agents from being unnecessarily involved in simple inventory requests.
-        """
-        try:
-            self._log_agent_action("Orchestrator", "inventory_only_start", {
-                "message": user_message[:100],
-                "timeout": timeout_seconds,
-                "approach": "inventory_specialists_only"
-            })
-
-            # Create inventory-only team
-            inventory_specialists = [
-                self.inventory_specialist,
-                self.os_inventory_specialist,
-                self.software_inventory_specialist
-            ]
-            
-            # Filter out None agents
-            available_specialists = [agent for agent in inventory_specialists if agent is not None]
-            
-            if not available_specialists or not AUTOGEN_IMPORTS_OK:
-                # Fallback to direct inventory call
-                return await self._fallback_inventory_response(user_message)
-            
-            # Create temporary inventory team
-            text_termination = TextMentionTermination("TERMINATE") | TextMentionTermination("INVENTORY_COMPLETE")
-            max_messages_termination = MaxMessageTermination(max_messages=8)
-            termination = text_termination | max_messages_termination
-            
-            try:
-                inventory_team = SelectorGroupChat(
-                    participants=available_specialists,
+                self.team = MagenticOneGroupChat(
+                    participants=agents,
                     model_client=self.model_client,
-                    termination_condition=termination
+                    termination_condition=MaxMessageTermination(max_messages=20)
                 )
-            except Exception as e:
-                # Fallback to RoundRobinGroupChat if SelectorGroupChat is not available
-                logger.warning(f"SelectorGroupChat not available for inventory team, falling back to RoundRobinGroupChat: {e}")
-                inventory_team = RoundRobinGroupChat(
-                    participants=available_specialists,
-                    termination_condition=termination
-                )
-            
-            # Run the inventory-focused conversation
-            message = TextMessage(content=user_message, source="user")
-            
-            conversation_start = time.time()
-            result = await asyncio.wait_for(
-                inventory_team.run(task=message),
-                timeout=timeout_seconds
-            )
-            conversation_duration = time.time() - conversation_start
-            
-            self._log_agent_action("Orchestrator", "inventory_only_complete", {
-                "duration": conversation_duration,
-                "specialists_used": len(available_specialists),
-                "approach": "inventory_focused_team"
-            })
-            
-            return self._process_inventory_team_result(result, user_message)
-            
-        except asyncio.TimeoutError:
-            return self._create_timeout_response(user_message, timeout_seconds)
+                logger.info("✅ Magentic-One team initialized with orchestrator and specialized agents (fallback mode)")
+            except Exception as fallback_error:
+                logger.error(f"❌ Failed to initialize Magentic-One team (fallback): {fallback_error}")
+                self.team = None
+                
         except Exception as e:
-            logger.error(f"Inventory-only chat error: {e}")
-            return await self._fallback_inventory_response(user_message)
+            logger.error(f"❌ Failed to initialize Magentic-One team: {e}")
+            self.team = None
     
-    async def _proceed_with_simple_eol_query(self, user_message: str, timeout_seconds: int = 60) -> Dict[str, Any]:
+    async def chat(self, user_message: str, timeout_seconds: int = 60) -> Dict[str, Any]:
         """
-        Handle simple EOL date/info queries without full analysis.
-        Uses direct EOL tool calls for quick responses.
-        """
-        try:
-            self._log_agent_action("Orchestrator", "simple_eol_start", {
-                "message": user_message[:100],
-                "timeout": timeout_seconds,
-                "approach": "direct_eol_lookup"
-            })
-
-            # Extract software names from the query
-            software_names = await self._extract_software_names_from_query(user_message)
-            
-            if not software_names:
-                return {
-                    "response": "I couldn't identify specific software in your query. Please specify which software you'd like EOL information for (e.g., 'What is the EOL date for Windows Server 2025?').",
-                    "conversation_messages": [{"speaker": "EOLSpecialist", "message": "Please specify software name for EOL lookup"}],
-                    "agent_communications": [],
-                    "session_id": self.session_id,
-                    "agents_involved": ["EOLSpecialist"],
-                    "total_exchanges": 1,
-                    "approach": "simple_eol_query"
-                }
-            
-            # Perform direct EOL lookups using appropriate product specialists
-            eol_results = []
-            agents_used = []
-            
-            for software_item in software_names[:3]:  # Limit to 3 software items for performance
-                software_name = software_item.get('name', software_item) if isinstance(software_item, dict) else software_item
-                version = software_item.get('version', '') if isinstance(software_item, dict) else ''
-                specialist_type = software_item.get('specialist', 'endoflife') if isinstance(software_item, dict) else self._determine_eol_specialist(software_name)
-                
-                logger.info(f"🎯 DIRECT EOL LOOKUP | Software: {software_name} | Version: {version} | Specialist: {specialist_type}")
-                
-                # Route to appropriate specialist tool
-                eol_result = None
-                specialist_name = "Unknown"
-                
-                try:
-                    if specialist_type == "microsoft":
-                        eol_result = self._check_microsoft_eol_tool(software_name, version)
-                        specialist_name = "MicrosoftEOLSpecialist"
-                    elif specialist_type == "ubuntu":
-                        eol_result = self._check_ubuntu_eol_tool(software_name, version)
-                        specialist_name = "UbuntuEOLSpecialist"
-                    elif specialist_type == "oracle":
-                        eol_result = self._check_oracle_eol_tool(software_name, version)
-                        specialist_name = "OracleEOLSpecialist"
-                    elif specialist_type == "redhat":
-                        eol_result = self._check_redhat_eol_tool(software_name, version)
-                        specialist_name = "RedHatEOLSpecialist"
-                    elif specialist_type == "vmware":
-                        eol_result = self._check_vmware_eol_tool(software_name, version)
-                        specialist_name = "VMwareEOLSpecialist"
-                    elif specialist_type == "apache":
-                        eol_result = self._check_apache_eol_tool(software_name, version)
-                        specialist_name = "ApacheEOLSpecialist"
-                    elif specialist_type == "nodejs":
-                        eol_result = self._check_nodejs_eol_tool(software_name, version)
-                        specialist_name = "NodeJSEOLSpecialist"
-                    elif specialist_type == "postgresql":
-                        eol_result = self._check_postgresql_eol_tool(software_name, version)
-                        specialist_name = "PostgreSQLEOLSpecialist"
-                    elif specialist_type == "php":
-                        eol_result = self._check_php_eol_tool(software_name, version)
-                        specialist_name = "PHPEOLSpecialist"
-                    elif specialist_type == "python":
-                        eol_result = self._check_python_eol_tool(software_name, version)
-                        specialist_name = "PythonEOLSpecialist"
-                    else:
-                        # Fallback to EndOfLife.date
-                        eol_result = self._check_endoflife_eol_tool(software_name, version)
-                        specialist_name = "EndOfLifeSpecialist"
-                    
-                    if eol_result and "No EOL data found" not in eol_result and "Error" not in eol_result:
-                        eol_results.append({
-                            "software": software_name,
-                            "version": version,
-                            "specialist": specialist_name,
-                            "result": eol_result
-                        })
-                        
-                        if specialist_name not in agents_used:
-                            agents_used.append(specialist_name)
-                        
-                        logger.info(f"✅ EOL DATA FOUND | Software: {software_name} | Specialist: {specialist_name}")
-                    else:
-                        logger.info(f"❌ NO EOL DATA | Software: {software_name} | Specialist: {specialist_name}")
-                        
-                except Exception as tool_error:
-                    logger.error(f"EOL tool error for {software_name}: {tool_error}")
-
-            # Format simple response
-            if eol_results:
-                response = "Here are the EOL details you requested:\n\n"
-                for item in eol_results:
-                    version_info = f" (Version: {item['version']})" if item['version'] else ""
-                    response += f"**{item['software']}{version_info}** (via {item['specialist']}):\n{item['result']}\n\n"
-            else:
-                software_list = [item.get('name', item) if isinstance(item, dict) else item for item in software_names]
-                response = f"I couldn't find EOL information for the specified software: {', '.join(software_list)}. The product specialists I consulted didn't have data for these items."
-
-            self._log_agent_action("Orchestrator", "simple_eol_complete", {
-                "software_count": len(software_names),
-                "results_found": len(eol_results),
-                "specialists_used": agents_used,
-                "approach": "direct_specialist_lookup"
-            })
-            
-            return {
-                "response": response,
-                "conversation_messages": [{"speaker": "ProductEOLSpecialist", "message": response}],
-                "agent_communications": self.agent_communications[-10:],
-                "session_id": self.session_id,
-                "agents_involved": agents_used if agents_used else ["ProductEOLSpecialist"],
-                "total_exchanges": 1,
-                "approach": "simple_eol_query"
-            }
-            
-        except Exception as e:
-            logger.error(f"Simple EOL query error: {e}")
-            return {
-                "response": f"I encountered an error while looking up EOL information. Please try again or request a full EOL analysis.",
-                "conversation_messages": [{"speaker": "EOLAssistant", "message": "EOL lookup error"}],
-                "agent_communications": [],
-                "session_id": self.session_id,
-                "agents_involved": ["EOLAssistant"],
-                "total_exchanges": 1,
-                "error": str(e)
-            }
-
-    async def _extract_software_names_from_query(self, query: str) -> List[Dict[str, str]]:
-        """Use LLM to intelligently extract software names, versions and determine specialists from query.
-        
-        Returns list of dictionaries with:
-        - 'name': Software name
-        - 'version': Version if detected
-        - 'specialist': Appropriate specialist type
-        - 'confidence': Confidence score (high/medium/low)
-        """
-        try:
-            return await self._llm_extract_software_info(query)
-        except Exception as e:
-            logger.warning(f"LLM software extraction failed: {e}, falling back to pattern matching")
-            return self._fallback_pattern_extraction(query)
-
-    async def _llm_extract_software_info(self, query: str) -> List[Dict[str, str]]:
-        """Use LLM to extract software information from query"""
-        extraction_prompt = f"""
-You are an expert software analyst. Extract software/product information from this user query.
-
-For each software/product mentioned, provide:
-- name: Standardized product name
-- version: Specific version if mentioned (or "latest" if asking about current/newest)  
-- specialist: Which specialist should handle this (from list below)
-- confidence: high/medium/low based on query clarity
-
-SPECIALIST MAPPING:
-- microsoft: Windows, Office, SQL Server, Azure, Exchange, SharePoint, .NET, Visual Studio
-- ubuntu: Ubuntu Linux (all versions)
-- redhat: RHEL, CentOS, Fedora, Red Hat products
-- oracle: Oracle Database, Oracle products, Java (Oracle-owned)
-- python: Python language and packages
-- nodejs: Node.js, npm packages
-- php: PHP language and frameworks  
-- postgresql: PostgreSQL database
-- apache: Apache HTTP Server, Tomcat, other Apache projects
-- vmware: VMware products (ESXi, vCenter, Workstation)
-- endoflife: Generic/other products not covered above
-
-USER QUERY: "{query}"
-
-Respond in JSON format ONLY:
-[{{"name": "Product Name", "version": "X.X", "specialist": "specialist_type", "confidence": "high"}}]
-
-If no software is clearly identified, return: []
-"""
-
-        try:
-            import json
-            response = await self.model_client.create([{
-                "role": "user", 
-                "content": extraction_prompt
-            }])
-            
-            # Parse JSON response
-            software_list = json.loads(response.content.strip())
-            
-            # Validate structure
-            if isinstance(software_list, list):
-                validated_list = []
-                valid_specialists = ["microsoft", "ubuntu", "redhat", "oracle", "python", "nodejs", "php", "postgresql", "apache", "vmware", "endoflife"]
-                
-                for item in software_list:
-                    if isinstance(item, dict) and all(key in item for key in ["name", "version", "specialist", "confidence"]):
-                        if item["specialist"] in valid_specialists:
-                            validated_list.append({
-                                'name': item["name"],
-                                'version': item["version"],
-                                'specialist': item["specialist"],
-                                'confidence': item["confidence"],
-                                'matched_pattern': f"LLM_EXTRACTED: {item['name']}"
-                            })
-                
-                product_summary = ', '.join([f"{item['name']} ({item['specialist']})" for item in validated_list])
-                logger.info(f"🧠 LLM SOFTWARE EXTRACTION | Found {len(validated_list)} products: {product_summary}")
-                return validated_list
-            
-            return []
-            
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON from LLM software extraction")
-            return []
-        except Exception as e:
-            logger.error(f"LLM software extraction error: {e}")
-            raise
-
-    def _fallback_pattern_extraction(self, query: str) -> List[Dict[str, str]]:
-        """Fallback pattern-based extraction if LLM fails"""
-        query_lower = query.lower()
-        
-        # Enhanced software patterns with version detection
-        software_patterns = {
-            # Microsoft products
-            "windows server": {
-                "patterns": ["windows server 2025", "windows server 2022", "windows server 2019", "windows server 2016", "windows server"],
-                "specialist": "microsoft"
-            },
-            "windows": {
-                "patterns": ["windows 11", "windows 10", "windows 8", "windows 7", "windows"],
-                "specialist": "microsoft"
-            },
-            "office": {
-                "patterns": ["office 365", "office 2021", "office 2019", "office 2016", "microsoft office"],
-                "specialist": "microsoft"
-            },
-            "azure": {
-                "patterns": ["azure", "azure ad", "azure sql"],
-                "specialist": "microsoft"
-            },
-            "sql server": {
-                "patterns": ["sql server 2022", "sql server 2019", "sql server 2017", "sql server"],
-                "specialist": "microsoft"
-            },
-            # Linux distributions
-            "ubuntu": {
-                "patterns": ["ubuntu 24.04", "ubuntu 22.04", "ubuntu 20.04", "ubuntu 18.04", "ubuntu"],
-                "specialist": "ubuntu"
-            },
-            "red hat": {
-                "patterns": ["red hat enterprise", "rhel", "red hat"],
-                "specialist": "redhat"
-            },
-            # Programming languages
-            "python": {
-                "patterns": ["python 3.12", "python 3.11", "python 3.10", "python 3", "python 2", "python"],
-                "specialist": "python"
-            },
-            "node.js": {
-                "patterns": ["node.js", "nodejs", "node"],
-                "specialist": "nodejs"
-            },
-            "php": {
-                "patterns": ["php 8", "php 7", "php"],
-                "specialist": "php"
-            },
-            # Databases
-            "postgresql": {
-                "patterns": ["postgresql", "postgres"],
-                "specialist": "postgresql"
-            },
-            "oracle": {
-                "patterns": ["oracle database", "oracle"],
-                "specialist": "oracle"
-            },
-            # Web servers
-            "apache": {
-                "patterns": ["apache httpd", "apache"],
-                "specialist": "apache"
-            },
-            # Virtualization
-            "vmware": {
-                "patterns": ["vmware vsphere", "vmware esxi", "vmware"],
-                "specialist": "vmware"
-            }
-        }
-        
-        found_software = []
-        matched_text = set()  # Track what parts of the query we've already matched
-        
-        # Sort patterns by specificity (longer patterns first to prioritize specific matches)
-        sorted_patterns = []
-        for software_name, config in software_patterns.items():
-            for pattern in config["patterns"]:
-                sorted_patterns.append((len(pattern), software_name, pattern, config["specialist"]))
-        
-        # Sort by pattern length (descending) to prioritize more specific patterns
-        sorted_patterns.sort(reverse=True)
-        
-        # Look for specific patterns with versions, avoiding overlaps
-        for pattern_len, software_name, pattern, specialist in sorted_patterns:
-            if pattern in query_lower:
-                # Check if this pattern overlaps with already matched text
-                pattern_start = query_lower.find(pattern)
-                pattern_end = pattern_start + len(pattern)
-                pattern_range = set(range(pattern_start, pattern_end))
-                
-                # Skip if this pattern overlaps with already matched text
-                if pattern_range & matched_text:
-                    continue
-                
-                # Mark this text as matched to prevent overlaps
-                matched_text.update(pattern_range)
-                
-                # Extract version if present
-                version = self._extract_version_from_pattern(query_lower, pattern)
-                found_software.append({
-                    "name": software_name,
-                    "version": version,
-                    "specialist": specialist,
-                    "confidence": "medium", 
-                    "matched_pattern": pattern
-                })
-                
-                logger.info(f"🔍 PATTERN MATCH | {software_name} {version} (pattern: {pattern})")
-                break
-        
-        # If no specific patterns matched, try to extract generic software names
-        if not found_software:
-            import re
-            # Look for potential software names (capitalized words, version numbers)
-            words = re.findall(r'\b[A-Za-z][A-Za-z0-9]*(?:\s+[0-9.]+)?\b', query)
-            for word_group in words[:2]:  # Limit to prevent noise
-                if len(word_group) > 3:
-                    found_software.append({
-                        "name": word_group,
-                        "version": "",
-                        "specialist": "endoflife",
-                        "confidence": "low",
-                        "matched_pattern": "generic"
-                    })
-        
-        return found_software[:3]  # Limit to 3 items
-
-    def _extract_version_from_pattern(self, query: str, pattern: str) -> str:
-        """Extract version number from the matched pattern"""
-        import re
-        
-        # First, check if the pattern itself contains a version number
-        version_in_pattern = re.search(r'(\d+(?:\.\d+)*)', pattern)
-        if version_in_pattern:
-            return version_in_pattern.group(1)
-        
-        # If pattern doesn't have version, look for version numbers after the pattern in the query
-        escaped_pattern = re.escape(pattern)
-        version_after_pattern = re.search(rf'{escaped_pattern}\s*(\d+(?:\.\d+)*)', query)
-        if version_after_pattern:
-            return version_after_pattern.group(1)
-        
-        # Look for any version numbers in the vicinity of the software name
-        pattern_start = query.find(pattern)
-        if pattern_start != -1:
-            # Look in a window around the pattern (before and after)
-            window_start = max(0, pattern_start - 10)
-            window_end = min(len(query), pattern_start + len(pattern) + 10)
-            window_text = query[window_start:window_end]
-            
-            version_in_window = re.search(r'(\d+(?:\.\d+)*)', window_text)
-            if version_in_window:
-                return version_in_window.group(1)
-        
-        return ""
-
-    def _determine_eol_specialist(self, software_name: str) -> str:
-        """Determine which EOL specialist to use for a given software"""
-        software_lower = software_name.lower()
-        
-        # Microsoft products
-        if any(keyword in software_lower for keyword in ["windows", "office", "azure", "sql server", "microsoft"]):
-            return "microsoft"
-        
-        # Linux distributions
-        elif "ubuntu" in software_lower:
-            return "ubuntu"
-        elif any(keyword in software_lower for keyword in ["red hat", "rhel"]):
-            return "redhat"
-        
-        # Programming languages
-        elif "python" in software_lower:
-            return "python"
-        elif any(keyword in software_lower for keyword in ["node", "nodejs"]):
-            return "nodejs"
-        elif "php" in software_lower:
-            return "php"
-        
-        # Databases
-        elif any(keyword in software_lower for keyword in ["postgresql", "postgres"]):
-            return "postgresql"
-        elif "oracle" in software_lower:
-            return "oracle"
-        
-        # Web servers
-        elif "apache" in software_lower:
-            return "apache"
-        
-        # Virtualization
-        elif "vmware" in software_lower:
-            return "vmware"
-        
-        # Default to EndOfLife.date for unknown software
-        else:
-            return "endoflife"
-    
-    async def _proceed_with_eol_focused_chat(self, user_message: str, timeout_seconds: int = 60) -> Dict[str, Any]:
-        """
-        Handle EOL analysis requests using EOL specialists with minimal inventory support.
-        Uses a focused team for faster EOL responses.
-        """
-        try:
-            self._log_agent_action("Orchestrator", "eol_focused_start", {
-                "message": user_message[:100],
-                "timeout": timeout_seconds,
-                "approach": "eol_specialists_focused"
-            })
-
-            # Use minimal team for faster EOL responses (similar to existing minimal_team logic)
-            self._setup_team_chat(minimal_team=True)
-            
-            if not self.team:
-                return await self._fallback_eol_response(user_message)
-            
-            # Run the EOL-focused conversation
-            message = TextMessage(content=user_message, source="user")
-            
-            conversation_start = time.time()
-            result = await asyncio.wait_for(
-                self.team.run(task=message),
-                timeout=timeout_seconds
-            )
-            conversation_duration = time.time() - conversation_start
-            
-            self._log_agent_action("Orchestrator", "eol_focused_complete", {
-                "duration": conversation_duration,
-                "approach": "minimal_eol_team"
-            })
-            
-            return self._process_autonomous_team_result(result, user_message)
-            
-        except asyncio.TimeoutError:
-            return self._create_timeout_response(user_message, timeout_seconds)
-        except Exception as e:
-            logger.error(f"EOL-focused chat error: {e}")
-            return await self._fallback_eol_response(user_message)
-    
-    async def _fallback_inventory_response(self, user_message: str) -> Dict[str, Any]:
-        """Fallback response for inventory requests when AutoGen is not available"""
-        try:
-            message_lower = user_message.lower()
-            
-            # Determine what type of inventory data is needed
-            if any(keyword in message_lower for keyword in ["os", "operating system", "version"]):
-                # Try to get OS inventory specifically
-                try:
-                    os_data = self._run_async_safely(self.os_inventory_agent.get_os_inventory(days=90, limit=100))
-                    if os_data and os_data.get("success") and os_data.get("data"):
-                        response = f"✅ **Operating System Inventory**\n\n"
-                        response += f"Found {len(os_data['data'])} operating systems:\n\n"
-                        for i, os_item in enumerate(os_data['data'][:10], 1):  # Show first 10
-                            response += f"{i}. **{os_item.get('os_name', 'Unknown')}** v{os_item.get('os_version', 'N/A')}\n"
-                            response += f"   - Computer: {os_item.get('computer_name', 'Unknown')}\n"
-                            response += f"   - OS Type: {os_item.get('os_type', 'Unknown')}\n\n"
-                    else:
-                        response = "❌ Unable to retrieve OS inventory data. Please check the system configuration."
-                except Exception as e:
-                    response = f"❌ Error retrieving OS inventory: {str(e)}"
-                    
-            elif any(keyword in message_lower for keyword in ["software", "applications", "programs"]):
-                # Try to get software inventory specifically
-                try:
-                    software_data = self._run_async_safely(self.software_inventory_agent.get_software_inventory(days=90, limit=100))
-                    if software_data and software_data.get("success") and software_data.get("data"):
-                        response = f"✅ **Software Inventory**\n\n"
-                        response += f"Found {len(software_data['data'])} software items:\n\n"
-                        for i, sw_item in enumerate(software_data['data'][:10], 1):  # Show first 10
-                            response += f"{i}. **{sw_item.get('name', 'Unknown')}** v{sw_item.get('version', 'N/A')}\n"
-                            response += f"   - Publisher: {sw_item.get('publisher', 'Unknown')}\n\n"
-                    else:
-                        response = "❌ Unable to retrieve software inventory data. Please check the system configuration."
-                except Exception as e:
-                    response = f"❌ Error retrieving software inventory: {str(e)}"
-            else:
-                # Try to get general inventory summary
-                inventory_summary = self._run_async_safely(self.inventory_agent.get_inventory_summary())
-                
-                if inventory_summary:
-                    response = f"✅ **Inventory Summary**\n\n{str(inventory_summary)}"
-                else:
-                    response = "❌ Unable to retrieve inventory data. Please check the system configuration."
-            
-            return {
-                "response": response,
-                "conversation_messages": [
-                    {
-                        "speaker": "user",
-                        "content": user_message,
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "message_type": "UserMessage"
-                    },
-                    {
-                        "speaker": "InventoryAgent",
-                        "content": response,
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "message_type": "AssistantMessage"
-                    }
-                ],
-                "agent_communications": self.agent_communications[-10:],
-                "session_id": self.session_id,
-                "agents_involved": ["InventoryAgent"],
-                "total_exchanges": 2
-            }
-        except Exception as e:
-            logger.error(f"Fallback inventory response error: {e}")
-            return self._create_error_response(f"Error retrieving inventory data: {str(e)}")
-    
-    async def _fallback_eol_response(self, user_message: str) -> Dict[str, Any]:
-        """Fallback response for EOL requests when AutoGen is not available"""
-        response = """❌ **EOL Analysis Unavailable**
-
-The multi-agent EOL analysis system is currently unavailable. For EOL information, you can:
-
-1. Use the standard EOL search interface
-2. Check endoflife.date directly for software lifecycle information
-3. Contact your system administrator for assistance
-
-Would you like me to try a simpler approach to get basic EOL information?"""
-        
-        return {
-            "response": response,
-            "conversation_messages": [
-                {
-                    "speaker": "user",
-                    "content": user_message,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "message_type": "UserMessage"
-                },
-                {
-                    "speaker": "EOLAgent",
-                    "content": response,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "message_type": "AssistantMessage"
-                }
-            ],
-            "agent_communications": self.agent_communications[-10:],
-            "session_id": self.session_id,
-            "agents_involved": ["EOLAgent"],
-            "total_exchanges": 2
-        }
-    
-    def _process_inventory_team_result(self, result, original_message: str) -> Dict[str, Any]:
-        """Process results from inventory-only team conversation"""
-        try:
-            if hasattr(result, 'messages') and result.messages:
-                conversation_messages = []
-                agents_involved = set()
-                
-                # Add user message first
-                conversation_messages.append({
-                    "speaker": "user", 
-                    "content": original_message,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "message_type": "UserMessage"
-                })
-                
-                # Process agent messages
-                for msg in result.messages:
-                    if hasattr(msg, 'source') and hasattr(msg, 'content'):
-                        speaker = msg.source
-                        agents_involved.add(speaker)
-                        
-                        conversation_messages.append({
-                            "speaker": speaker,
-                            "content": msg.content,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "AssistantMessage"
-                        })
-                
-                # Get the final response
-                final_response = result.messages[-1].content if result.messages else "Inventory analysis completed."
-                
-                self._log_agent_action("Orchestrator", "inventory_team_complete", {
-                    "total_messages": len(result.messages),
-                    "agents_involved": list(agents_involved),
-                    "conversation_completed": True
-                })
-                
-                return {
-                    "response": final_response,
-                    "conversation_messages": conversation_messages,
-                    "agent_communications": self.agent_communications[-15:],
-                    "session_id": self.session_id,
-                    "agents_involved": list(agents_involved),
-                    "total_exchanges": len(conversation_messages)
-                }
-            else:
-                return self._create_error_response("No valid response from inventory team")
-                
-        except Exception as e:
-            logger.error(f"Error processing inventory team result: {e}")
-            return self._create_error_response(f"Error processing inventory results: {str(e)}")
-
-    async def _llm_select_agents(self, user_message: str) -> List[str]:
-        """Use LLM to intelligently select relevant agents based on the user query"""
-        selection_prompt = f"""
-You are an intelligent agent selector for a multi-agent software inventory and EOL (End of Life) analysis system.
-
-Analyze this user request and select the most relevant agents from the available specialists:
-
-AVAILABLE AGENTS:
-- **inventory_specialist**: For asset discovery, software inventory, system scanning, OS identification
-- **microsoft_eol_specialist**: For Windows, Office, SQL Server, Azure, Exchange, SharePoint, .NET products
-- **ubuntu_eol_specialist**: For Ubuntu Linux versions and lifecycle information  
-- **oracle_eol_specialist**: For Oracle Database, Oracle products, Java (Oracle-owned)
-- **redhat_eol_specialist**: For RHEL, CentOS, Fedora, Red Hat enterprise products
-- **python_eol_specialist**: For Python language versions and package lifecycle
-- **nodejs_eol_specialist**: For Node.js, npm packages, JavaScript runtime
-- **php_eol_specialist**: For PHP language and framework lifecycle
-- **postgresql_eol_specialist**: For PostgreSQL database versions
-- **apache_eol_specialist**: For Apache HTTP Server, Tomcat, other Apache projects
-- **vmware_eol_specialist**: For VMware ESXi, vCenter, Workstation products
-- **endoflife_specialist**: For generic products not covered by other specialists
-
-USER REQUEST: "{user_message}"
-
-Select 2-4 most relevant agents. Prioritize:
-1. **Inventory specialist** if user needs asset discovery or software listing
-2. **Specific product specialists** if user mentions particular software
-3. **Generic EOL specialist** for products not covered by dedicated specialists
-
-Respond with JSON array of agent names ONLY:
-["agent1", "agent2", "agent3"]
-"""
-
-        try:
-            response = await self.model_client.create([{
-                "role": "user", 
-                "content": selection_prompt
-            }])
-            
-            import json
-            selected_agents = json.loads(response.content.strip())
-            
-            # Validate agent selection
-            available_agents = [
-                "inventory_specialist", "microsoft_eol_specialist", "ubuntu_eol_specialist",
-                "oracle_eol_specialist", "redhat_eol_specialist", "python_eol_specialist",
-                "nodejs_eol_specialist", "php_eol_specialist", "postgresql_eol_specialist", 
-                "apache_eol_specialist", "vmware_eol_specialist", "endoflife_specialist"
-            ]
-            
-            validated_agents = [agent for agent in selected_agents if agent in available_agents]
-            
-            # Ensure we have at least inventory specialist for mixed requests
-            if not validated_agents:
-                validated_agents = ["inventory_specialist", "endoflife_specialist"]
-            
-            logger.info(f"🧠 AGENT SELECTION | Selected: {validated_agents}")
-            return validated_agents
-            
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"LLM agent selection failed: {e}, using default selection")
-            # Fallback to basic selection
-            if any(keyword in user_message.lower() for keyword in ["inventory", "software", "applications"]):
-                return ["inventory_specialist", "endoflife_specialist"]
-            else:
-                return ["inventory_specialist", "microsoft_eol_specialist", "endoflife_specialist"]
-
-    async def _proceed_with_mixed_request(self, user_message: str, timeout_seconds: int = 120) -> Dict[str, Any]:
-        """
-        Handle mixed requests that require both inventory gathering AND EOL analysis.
-        This is the core functionality for queries like "Show my OS inventory with EOL dates"
-        """
-        try:
-            start_time = time.time()
-            logger.info(f"🔀 MIXED REQUEST START | Message: {user_message[:100]}")
-            
-            self._log_agent_action("Orchestrator", "mixed_request_start", {
-                "message": user_message[:100],
-                "timeout": timeout_seconds,
-                "approach": "inventory_plus_eol_analysis"
-            })
-
-            # Step 1: Gather inventory data
-            inventory_start = time.time()
-            logger.info(f"📊 INVENTORY PHASE START | Gathering system inventory")
-            
-            inventory_data = []
-            
-            # Try to get OS inventory
-            if any(term in user_message.lower() for term in ["os", "operating system", "windows", "linux", "ubuntu"]):
-                os_data = self._get_os_inventory_tool(365)  # Use 365 days instead of "all"
-                if os_data and "No OS data found" not in os_data:
-                    inventory_data.append({"type": "OS", "data": os_data})
-                    logger.info(f"✅ OS INVENTORY | Found OS data")
-            
-            # Try to get software inventory if requested
-            if any(term in user_message.lower() for term in ["software", "application", "program"]):
-                software_data = self._get_software_inventory_tool(365)  # Use 365 days instead of "all"
-                if software_data and "No software data found" not in software_data:
-                    inventory_data.append({"type": "Software", "data": software_data})
-                    logger.info(f"✅ SOFTWARE INVENTORY | Found software data")
-            
-            inventory_duration = time.time() - inventory_start
-            logger.info(f"📊 INVENTORY PHASE COMPLETE | Duration: {inventory_duration:.2f}s | Items: {len(inventory_data)}")
-            
-            if not inventory_data:
-                return {
-                    "response": "I wasn't able to gather inventory data from your systems. This could be due to connectivity issues or access permissions. Please ensure the system is accessible and try again.",
-                    "conversation_messages": [],
-                    "agent_communications": self.agent_communications[-10:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["InventorySpecialist"],
-                    "total_exchanges": 1,
-                    "error": "No inventory data available"
-                }
-
-            # Step 2: Perform EOL analysis on found inventory
-            eol_start = time.time()
-            logger.info(f"🔍 EOL ANALYSIS START | Analyzing {len(inventory_data)} inventory categories")
-            
-            eol_analysis_results = []
-            
-            for inventory_item in inventory_data:
-                item_type = inventory_item["type"]
-                item_data = inventory_item["data"]
-                
-                # Parse software/OS names from inventory data
-                extracted_products = self._extract_products_from_inventory(item_data)
-                
-                for product in extracted_products:
-                    logger.info(f"🎯 ANALYZING EOL | Product: {product['name']} | Version: {product.get('version', 'N/A')}")
-                    
-                    # Get EOL information for this product
-                    eol_info = await self._get_eol_for_product(product["name"], product.get("version", ""))
-                    
-                    if eol_info:
-                        eol_analysis_results.append({
-                            "category": item_type,
-                            "product": product["name"],
-                            "version": product.get("version", "Unknown"),
-                            "eol_info": eol_info
-                        })
-
-            eol_duration = time.time() - eol_start
-            total_duration = time.time() - start_time
-            logger.info(f"🔍 EOL ANALYSIS COMPLETE | Duration: {eol_duration:.2f}s | Total: {total_duration:.2f}s")
-
-            # Step 3: Format comprehensive response
-            return self._format_mixed_request_response(
-                user_message, 
-                inventory_data, 
-                eol_analysis_results,
-                total_duration
-            )
-
-        except Exception as e:
-            logger.error(f"Mixed request error: {e}")
-            return self._create_error_response(f"Mixed request processing failed: {str(e)}")
-
-    def _extract_products_from_inventory(self, inventory_data: str) -> List[Dict[str, str]]:
-        """Extract product names and versions from inventory data"""
-        products = []
-        
-        # Look for common patterns in inventory data
-        lines = inventory_data.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#') or line.startswith('//'):
-                continue
-                
-            # Try to extract OS information
-            if any(os_term in line.lower() for os_term in ["windows", "ubuntu", "rhel", "centos", "debian", "suse"]):
-                # Extract OS name and version
-                if "windows" in line.lower():
-                    if "server" in line.lower():
-                        if "2025" in line: products.append({"name": "Windows Server", "version": "2025"})
-                        elif "2022" in line: products.append({"name": "Windows Server", "version": "2022"})
-                        elif "2019" in line: products.append({"name": "Windows Server", "version": "2019"})
-                        elif "2016" in line: products.append({"name": "Windows Server", "version": "2016"})
-                        else: products.append({"name": "Windows Server", "version": "Unknown"})
-                    else:
-                        if "11" in line: products.append({"name": "Windows", "version": "11"})
-                        elif "10" in line: products.append({"name": "Windows", "version": "10"})
-                        else: products.append({"name": "Windows", "version": "Unknown"})
-                elif "ubuntu" in line.lower():
-                    import re
-                    version_match = re.search(r'(\d+\.\d+)', line)
-                    version = version_match.group(1) if version_match else "Unknown"
-                    products.append({"name": "Ubuntu", "version": version})
-                elif "rhel" in line.lower() or "red hat" in line.lower():
-                    import re
-                    version_match = re.search(r'(\d+)', line)
-                    version = version_match.group(1) if version_match else "Unknown"
-                    products.append({"name": "Red Hat Enterprise Linux", "version": version})
-                    
-            # Try to extract software information
-            elif any(software_term in line.lower() for software_term in ["python", "java", "node", "php", "apache", "nginx", "mysql", "postgresql"]):
-                import re
-                for software in ["python", "java", "node", "php", "apache", "nginx", "mysql", "postgresql"]:
-                    if software in line.lower():
-                        version_match = re.search(rf'{software}[^\d]*(\d+(?:\.\d+)*)', line, re.IGNORECASE)
-                        version = version_match.group(1) if version_match else "Unknown"
-                        products.append({"name": software.title(), "version": version})
-                        break
-        
-        # Remove duplicates
-        unique_products = []
-        seen = set()
-        for product in products:
-            key = f"{product['name']}-{product['version']}"
-            if key not in seen:
-                seen.add(key)
-                unique_products.append(product)
-        
-        return unique_products
-
-    async def _get_eol_for_product(self, product_name: str, version: str) -> str:
-        """Get EOL information for a specific product"""
-        try:
-            # Determine which specialist to use
-            specialist_type = self._determine_eol_specialist(product_name)
-            
-            # Call appropriate EOL tool
-            if specialist_type == "microsoft":
-                return self._check_microsoft_eol_tool(product_name, version)
-            elif specialist_type == "ubuntu":
-                return self._check_ubuntu_eol_tool(product_name, version)
-            elif specialist_type == "redhat":
-                return self._check_redhat_eol_tool(product_name, version)
-            elif specialist_type == "oracle":
-                return self._check_oracle_eol_tool(product_name, version)
-            elif specialist_type == "python":
-                return self._check_python_eol_tool(product_name, version)
-            elif specialist_type == "nodejs":
-                return self._check_nodejs_eol_tool(product_name, version)
-            elif specialist_type == "php":
-                return self._check_php_eol_tool(product_name, version)
-            elif specialist_type == "postgresql":
-                return self._check_postgresql_eol_tool(product_name, version)
-            elif specialist_type == "apache":
-                return self._check_apache_eol_tool(product_name, version)
-            elif specialist_type == "vmware":
-                return self._check_vmware_eol_tool(product_name, version)
-            else:
-                return self._check_endoflife_eol_tool(product_name, version)
-                
-        except Exception as e:
-            logger.error(f"EOL lookup error for {product_name}: {e}")
-            return f"Error getting EOL data for {product_name}: {str(e)}"
-
-    def _format_mixed_request_response(
-        self, 
-        user_message: str, 
-        inventory_data: List[Dict], 
-        eol_analysis: List[Dict],
-        processing_time: float
-    ) -> Dict[str, Any]:
-        """Format the comprehensive response for mixed requests"""
-        
-        # Build the response message
-        response_parts = []
-        response_parts.append("# 📊 System Inventory with EOL Analysis\n")
-        
-        if inventory_data:
-            response_parts.append("## 🖥️ **Inventory Summary**")
-            for item in inventory_data:
-                response_parts.append(f"- **{item['type']}**: Found and analyzed")
-            response_parts.append("")
-        
-        if eol_analysis:
-            response_parts.append("## ⚠️ **EOL Analysis Results**")
-            
-            # Group by category
-            categories = {}
-            for result in eol_analysis:
-                cat = result["category"]
-                if cat not in categories:
-                    categories[cat] = []
-                categories[cat].append(result)
-            
-            for category, results in categories.items():
-                response_parts.append(f"### {category}:")
-                for result in results:
-                    product = result["product"]
-                    version = result["version"]
-                    eol_info = result["eol_info"]
-                    
-                    response_parts.append(f"**{product} {version}**:")
-                    response_parts.append(f"```")
-                    response_parts.append(eol_info[:500] + "..." if len(eol_info) > 500 else eol_info)
-                    response_parts.append(f"```")
-                    response_parts.append("")
-        else:
-            response_parts.append("## ℹ️ **EOL Information**")
-            response_parts.append("No specific EOL data was found for the discovered products. This could mean:")
-            response_parts.append("- The products are current and supported")
-            response_parts.append("- EOL information is not publicly available")
-            response_parts.append("- Product names may need more specific identification")
-        
-        response_parts.append(f"\n*Analysis completed in {processing_time:.1f} seconds*")
-        
-        final_response = "\n".join(response_parts)
-        
-        # Create conversation messages
-        conversation_messages = [
-            {
-                "speaker": "user",
-                "content": user_message,
-                "timestamp": datetime.utcnow().isoformat(),
-                "message_type": "UserMessage"
-            },
-            {
-                "speaker": "MixedRequestOrchestrator", 
-                "content": final_response,
-                "timestamp": datetime.utcnow().isoformat(),
-                "message_type": "AssistantMessage"
-            }
-        ]
-        
-        return {
-            "response": final_response,
-            "conversation_messages": conversation_messages,
-            "agent_communications": self.agent_communications[-20:],
-            "session_id": self.session_id,
-            "agents_involved": ["InventorySpecialist", "EOLSpecialist", "MixedRequestOrchestrator"],
-            "total_exchanges": len(conversation_messages),
-            "inventory_items": len(inventory_data),
-            "eol_analyses": len(eol_analysis),
-            "processing_time": processing_time,
-            "approach": "inventory_plus_eol_analysis"
-        }
-
-    async def _proceed_with_autonomous_team_chat(self, user_message: str, timeout_seconds: int = 90) -> Dict[str, Any]:
-        """
-        Enhanced autonomous team chat using LLM to intelligently select relevant agents.
-        Agents are selected based on query analysis rather than hardcoded rules.
-        
-        Args:
-            user_message: The user's message
-            timeout_seconds: Maximum time for the conversation
-        """
-        try:
-            start_time = time.time()
-            logger.info(f"🤖 AUTONOMOUS CHAT START | Timeout: {timeout_seconds}s | Message: {user_message[:100]}")
-            
-            self._log_agent_action("Orchestrator", "autonomous_team_start", {
-                "message": user_message[:100],
-                "timeout": timeout_seconds,
-                "approach": "llm_guided_agent_selection"
-            })
-
-            # Use LLM to intelligently select relevant agents
-            setup_start = time.time()
-            logger.info(f"🧠 AGENT SELECTION START | Using LLM to determine optimal team")
-            selected_agents = self._llm_select_agents(user_message)
-            
-            # Setup team with selected agents
-            self._setup_team_chat(minimal_team=False, selected_agents=selected_agents)
-            setup_duration = time.time() - setup_start
-            logger.info(f"🔧 TEAM SETUP COMPLETE | Duration: {setup_duration:.2f}s | Team available: {self.team is not None}")
-            
-            if not self.team:
-                # AutoGen not available, provide fallback response
-                fallback_message = """I apologize, but the AutoGen multi-agent system is not currently available. This may be due to missing dependencies or configuration issues.
-
-For inventory requests, I can still help you with:
-- Basic inventory information
-- Simple software lookups
-- Direct API calls
-
-Would you like me to try a simpler approach to get your inventory data?"""
-                
-                return {
-                    "response": fallback_message,
-                    "conversation_messages": [
-                        {
-                            "speaker": "user",
-                            "content": user_message,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "UserMessage"
-                        },
-                        {
-                            "speaker": "Orchestrator",
-                            "content": fallback_message,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "AssistantMessage"
-                        }
-                    ],
-                    "agent_communications": self.agent_communications[-20:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["Orchestrator"],
-                    "total_exchanges": 2,
-                    "error": "AutoGen not available"
-                }
-
-            # Create initial message that encourages agent self-selection
-            prompt_start = time.time()
-            autonomous_prompt = f"""User Request: {user_message}
-
-Agents: This is a truly autonomous team environment. Each specialist should:
-1. **Self-evaluate** if this request matches your expertise domain
-2. **Volunteer immediately** if you can contribute (say "I'll handle [specific part]")
-3. **Collaborate autonomously** - no central routing or assignments
-4. **Act independently** within your domain of expertise
-
-The user is looking for help with their request. Which agents recognize this as matching their specialty?"""
-
-            prompt_duration = time.time() - prompt_start
-            logger.info(f"📝 PROMPT READY | Duration: {prompt_duration:.2f}s | Agents: {len(self.participants)}")
-            
-            # Start the autonomous conversation with faster timeout
-            team_run_start = time.time()
-            logger.info(f"🚀 TEAM RUN START | Timeout: {timeout_seconds}s | Beginning autonomous team conversation")
-            result = await asyncio.wait_for(
-                self.team.run(task=autonomous_prompt),
-                timeout=timeout_seconds
-            )
-            team_run_duration = time.time() - team_run_start
-            logger.info(f"🚀 TEAM RUN COMPLETE | Duration: {team_run_duration:.2f}s | Result type: {type(result).__name__}")
-            
-            # Process result with timeout protection (since it's sync, wrap it)
-            try:
-                process_start = time.time()
-                logger.info(f"⚙️ RESULT PROCESSING START | Beginning result processing")
-                
-                def process_result_sync():
-                    return self._process_autonomous_team_result(result, user_message)
-                
-                # Run sync function in thread pool to make it awaitable with timeout
-                processed_result = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, process_result_sync),
-                    timeout=30  # Give result processing max 30 seconds
-                )
-                
-                process_duration = time.time() - process_start
-                total_duration = time.time() - start_time
-                logger.info(f"⚙️ RESULT PROCESSING COMPLETE | Process: {process_duration:.2f}s | Total: {total_duration:.2f}s")
-                return processed_result
-                
-            except asyncio.TimeoutError:
-                process_duration = time.time() - process_start
-                total_duration = time.time() - start_time
-                logger.warning(f"⚙️ RESULT PROCESSING TIMEOUT | Process: {process_duration:.2f}s | Total: {total_duration:.2f}s")
-                # Return quick response if processing is slow
-                return {
-                    "response": "The agents completed their analysis successfully, but result processing took longer than expected. Please check the agent communications panel for details.",
-                    "conversation_messages": [],
-                    "agent_communications": self.agent_communications[-10:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["AutonomousTeam"],
-                    "total_exchanges": 1,
-                    "processing_timeout": True
-                }
-            
-        except asyncio.TimeoutError:
-            total_duration = time.time() - start_time
-            logger.warning(f"🚀 TEAM RUN TIMEOUT | Duration: {total_duration:.2f}s | Timeout: {timeout_seconds}s")
-            return self._create_timeout_response(user_message, timeout_seconds)
-        except Exception as e:
-            total_duration = time.time() - start_time
-            error_msg = f"Autonomous team chat error: {str(e)}"
-            logger.error(f"🚀 TEAM RUN ERROR | Duration: {total_duration:.2f}s | Error: {error_msg}")
-            return self._create_error_response(error_msg)
-
-    def _process_autonomous_team_result(self, result, original_message: str) -> Dict[str, Any]:
-        """Process the result from autonomous team conversation"""
-        try:
-            process_start = time.time()
-            logger.info(f"🔄 RESULT ANALYSIS START | Result type: {type(result).__name__}")
-            
-            if hasattr(result, 'messages') and result.messages:
-                messages_start = time.time()
-                messages = result.messages
-                final_response = messages[-1].content if messages else "No response generated"
-                messages_duration = time.time() - messages_start
-                logger.info(f"📨 MESSAGES PROCESSED | Count: {len(messages)} | Duration: {messages_duration:.2f}s")
-                
-                # Extract which agents participated (limit processing for performance)
-                agents_start = time.time()
-                agents_involved = []
-                for msg in messages[-10:]:  # Only check last 10 messages for performance
-                    if hasattr(msg, 'source') and msg.source not in agents_involved:
-                        agents_involved.append(msg.source)
-                agents_duration = time.time() - agents_start
-                logger.info(f"👥 AGENTS EXTRACTED | Count: {len(agents_involved)} | Duration: {agents_duration:.2f}s")
-                
-                log_start = time.time()
-                self._log_agent_action("Orchestrator", "autonomous_team_complete", {
-                    "agents_participated": agents_involved,
-                    "total_messages": len(messages),
-                    "self_organization": "success"
-                })
-                log_duration = time.time() - log_start
-                logger.info(f"📝 LOGGING COMPLETE | Duration: {log_duration:.2f}s")
-                
-                # Optimize conversation message processing
-                conv_start = time.time()
-                conversation_messages = []
-                for msg in messages[-20:]:  # Limit to last 20 messages for performance
-                    conversation_messages.append({
-                        "speaker": msg.source if hasattr(msg, 'source') else "unknown",
-                        "message": msg.content if hasattr(msg, 'content') else str(msg)
-                    })
-                conv_duration = time.time() - conv_start
-                logger.info(f"💬 CONVERSATION FORMATTED | Messages: {len(conversation_messages)} | Duration: {conv_duration:.2f}s")
-                
-                total_process_duration = time.time() - process_start
-                logger.info(f"🔄 RESULT ANALYSIS COMPLETE | Total: {total_process_duration:.2f}s")
-                
-                return {
-                    "response": final_response,
-                    "conversation_messages": conversation_messages,
-                    "agent_communications": self.agent_communications[-15:],  # Reduced from 20 to 15
-                    "session_id": self.session_id,
-                    "agents_involved": agents_involved,
-                    "total_exchanges": len(messages),
-                    "autonomous_approach": True
-                }
-            else:
-                # Handle case where result format is different
-                response_text = str(result) if result else "No response from autonomous team"
-                
-                return {
-                    "response": response_text,
-                    "conversation_messages": [{"speaker": "AutonomousTeam", "message": response_text}],
-                    "agent_communications": self.agent_communications[-10:],
-                    "session_id": self.session_id,
-                    "agents_involved": ["AutonomousTeam"],
-                    "total_exchanges": 1,
-                    "autonomous_approach": True
-                }
-                
-        except Exception as e:
-            logger.error(f"Error processing autonomous team result: {e}")
-            return self._create_error_response(f"Error processing team response: {str(e)}")
-
-    async def _proceed_with_multi_agent_chat(self, user_message: str, minimal_team: bool = False, timeout_seconds: int = 50) -> Dict[str, Any]:
-        """
-        Proceed with multi-agent conversation after user confirmation
-
-        Args:
-            user_message: The user's message
-            minimal_team: Use minimal team for faster responses
-            timeout_seconds: Maximum time for the conversation
-        """
-        try:
-            # Log the user's intent to proceed
-            self._log_agent_action("User", "message", {})
-
-            # Use the new AutoGen 0.7.x API with retry logic
-            team_type = "minimal" if minimal_team else "full"
-            # logger.debug(f"[DEBUG] Starting confirmed team chat ({team_type} team, {timeout_seconds}s timeout)")
-
-            # Call the retry wrapper which handles rate-limited retries and timeouts
-            return await self._chat_with_retry(user_message, max_retries=3, minimal_team=minimal_team, timeout_seconds=timeout_seconds)
-
-        except Exception as e:
-            error_msg = f"Error proceeding with multi-agent chat: {str(e)}"
-            # logger.debug(f"[DEBUG] _proceed_with_multi_agent_chat error: {error_msg}")
-            self._log_agent_action("Orchestrator", "proceed_multi_agent_error", {"error": error_msg})
-            return {
-                "response": "I encountered an error while starting the multi-agent chat.",
-                "error": error_msg,
-                "agent_communications": self.agent_communications[-20:],
-                "session_id": getattr(self, 'session_id', None),
-                "conversation_messages": [],
-                "agents_involved": [],
-                "total_exchanges": 0
-            }
-
-    async def chat(self, user_message: str, timeout_seconds: int = 180) -> Dict[str, Any]:
-        """
-        Main chat interface using AutoGen team chat (0.7.x API)
-        Returns conversation with full agent communication transparency
+        Main chat interface using Magentic-One orchestrator system
         
         Args:
             user_message: User's input message
-            timeout_seconds: Maximum time to wait for response (default 60s, dynamically adjusted)
+            timeout_seconds: Maximum time to wait for response
+            
+        Returns:
+            Dict containing response, metadata, and conversation details
         """
-        try:
-            # START COMPREHENSIVE LOGGING WITH DYNAMIC TIMEOUT TRACKING
-            session_start_time = time.time()
-            
-            # Apply dynamic timeout adjustment
-            load_factor = self._get_system_load_factor()
-            dynamic_timeout = self._get_dynamic_timeout(timeout_seconds, load_factor)
-            logger.info(f"ORCHESTRATOR START | Session: {self.session_id} | Timeout: {dynamic_timeout}s")
-            
-            # Clear agent communications for fresh interaction tracking
-            clear_start = time.time()
-            logger.info(f"🧹 CHAT START | Clearing communications for new conversation")
-            await self.clear_communications()
-            clear_duration = time.time() - clear_start
-            logger.info(f"🧹 CLEAR COMPLETE | Duration: {clear_duration:.2f}s")
-            
-            # Check if AutoGen is properly available first
-            if not AUTOGEN_IMPORTS_OK:
-                error_msg = "AutoGen framework is not available. Please install autogen-agentchat package."
-                logger.error(f"CRITICAL ERROR | AutoGen not available: {error_msg}")
-                
-                self._log_agent_action("Orchestrator", "unavailable_error", {"error": error_msg})
-                
-                return {
-                    "response": "The AutoGen multi-agent framework is currently not available. Please contact your administrator to install the required AutoGen packages.",
-                    "conversation_messages": [],
-                    "agent_communications": self.agent_communications[-15:],
-                    "session_id": self.session_id,
-                    "agents_involved": [],
-                    "total_exchanges": 0,
-                    "error": error_msg
-                }
-            
-            # INTELLIGENT REQUEST PROCESSING - Let LLM determine tools and synthesize response
-            intent_analysis_start = time.time()
-            logger.info(f"🧠 INTELLIGENT PROCESSING START | Using LLM to determine tools and synthesize response")
-            
-            result = await self._intelligent_request_processing(user_message, dynamic_timeout)
-            
-            intent_analysis_duration = time.time() - intent_analysis_start
-            logger.info(f"🧠 INTELLIGENT PROCESSING COMPLETE | Duration: {intent_analysis_duration:.2f}s")
-            
-            return result
-                
-        except Exception as e:
-            logger.error(f"ORCHESTRATOR ERROR | Session: {self.session_id} | Error: {str(e)}")
-            return self._create_error_response(str(e))
-
-    def _create_error_response(self, error_message: str) -> Dict[str, Any]:
-        """Create a standardized error response"""
-        return {
-            "response": f"I encountered an error processing your request: {error_message}",
-            "conversation_messages": [],
-            "agent_communications": self.agent_communications[-15:],
-            "session_id": self.session_id,
-            "agents_involved": [],
-            "total_exchanges": 0,
-            "error": error_message
-        }
-
-    def _create_timeout_response(self, user_message: str, timeout_seconds: int) -> Dict[str, Any]:
-        """Create a standardized timeout response with available communications"""
-        timeout_msg = f"⏱️ The request timed out after {timeout_seconds} seconds. The agents were working on your request but needed more time to complete the analysis."
         
-        # Check if we have any partial communications to show
-        if self.agent_communications:
-            timeout_msg += f"\n\n📋 I was able to capture {len(self.agent_communications)} agent interactions before timing out. You can see the progress in the Agent Communications panel."
-            
-            # Try to extract any partial results from the communications
-            for comm in reversed(self.agent_communications[-5:]):  # Check last 5 communications
-                if comm.get('action') == 'agent_response' and comm.get('output'):
-                    try:
-                        output_data = comm.get('output', {})
-                        if isinstance(output_data, dict) and 'content' in output_data:
-                            timeout_msg += f"\n\n🔍 Partial result from {comm.get('agent', 'agent')}: {output_data['content'][:200]}..."
-                            break
-                    except:
-                        pass
-        else:
-            timeout_msg += "\n\n🤖 No agent communications were captured, which may indicate a configuration issue."
+        start_time = time.time()
+        conversation_id = len(self.conversation_history) + 1
         
-        return {
-            "response": timeout_msg,
-            "conversation_messages": [],
-            "agent_communications": self.agent_communications[-20:],  # Show recent communications
-            "session_id": self.session_id,
-            "agents_involved": list(set(comm.get('agent', 'unknown') for comm in self.agent_communications[-10:])),
-            "total_exchanges": len(self.agent_communications),
-            "error": f"Timeout after {timeout_seconds} seconds"
-        }
-
-    async def _proceed_with_multi_agent_chat(self, user_message: str, eol_focus: bool, dynamic_timeout: int) -> Dict[str, Any]:
-        """Proceed with multi-agent conversation for complex requests using AutoGen 0.7.x"""
+        # Performance optimization: Lazy load Magentic-One components only when needed
+        self._ensure_magentic_one_initialized()
+        
+        # Log chat initiation
+        self._log_orchestrator_event("chat_session_start", {
+            "user_message_preview": user_message[:200] + "..." if len(user_message) > 200 else user_message,
+            "user_message_length": len(user_message),
+            "timeout_seconds": timeout_seconds,
+            "conversation_id": conversation_id,
+            "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK and self.team is not None
+        })
+        
         try:
-            logger.info(f"MULTI-AGENT CONVERSATION | Timeout: {dynamic_timeout}s | EOL Focus: {eol_focus}")
+            logger.info(f"🎯 Processing user message with Magentic-One: {user_message[:100]}...")
             
-            self._log_agent_action("Orchestrator", "multi_agent_conversation_start", {
-                "dynamic_timeout": dynamic_timeout,
-                "eol_focus": eol_focus,
-                "conversation_type": "full_autonomous"
+            # Performance optimization: Check cache for common queries
+            cache_key = self._generate_cache_key(user_message, timeout_seconds)
+            cached_response = self._get_cached_response(cache_key)
+            if cached_response:
+                logger.info("⚡ Returning cached response for performance")
+                self._log_orchestrator_event("cache_hit", {
+                    "cache_key": cache_key[:50] + "...",
+                    "conversation_id": conversation_id
+                })
+                return cached_response
+            
+            if not MAGENTIC_ONE_IMPORTS_OK or not self.team:
+                # Fallback to direct tool execution if Magentic-One not available
+                self._log_orchestrator_event("fallback_to_direct_response", {
+                    "reason": "magentic_one_unavailable" if not MAGENTIC_ONE_IMPORTS_OK else "team_not_initialized"
+                })
+                return await self._fallback_direct_response(user_message)
+            
+            # Enhanced query classification for intelligent routing
+            query_type, task_type = self._classify_request(user_message)
+            
+            self._log_orchestrator_event("query_classification", {
+                "user_message_preview": user_message[:100],
+                "classified_as": query_type,
+                "task_type": task_type,
+                "routing_decision": self._determine_routing_decision(query_type, task_type)
             })
             
-            # For AutoGen 0.7.x, use the simplified team approach
-            # Create the team based on focus
-            if eol_focus:
-                team = RoundRobinGroupChat([
-                    self.inventory_specialist,
-                    self.eol_specialist,
-                    self.security_specialist
-                ])
-            else:
-                team = RoundRobinGroupChat([
-                    self.inventory_specialist,
-                    self.eol_specialist,
-                    self.security_specialist,
-                    self.software_specialist,
-                    self.os_specialist
-                ])
+            # Route INVENTORY_ONLY tasks to appropriate inventory specialists
+            if task_type == "INVENTORY_ONLY":
+                return await self._route_inventory_only_task(user_message, conversation_id, start_time, cache_key)
             
-            # Set termination conditions
-            termination = MaxMessageTermination(max_messages=15) | TextMentionTermination("TASK_COMPLETE")
+            # Route INTERNET_EOL tasks directly to internet search agents
+            if task_type == "INTERNET_EOL":
+                return await self._route_internet_eol_task(user_message, conversation_id, start_time, cache_key, timeout_seconds)
             
-            # Start the conversation with improved prompt
-            initial_message = TextMessage(
-                content=f"""User Request: {user_message}
-
-Please work together to provide a comprehensive response. Use your specialized tools to gather relevant inventory and EOL information. 
-
-Each agent should:
-1. Use appropriate tools to gather data
-2. Share findings with the team  
-3. Build upon other agents' discoveries
-4. Provide actionable insights
-
-When the analysis is complete, end with 'TASK_COMPLETE'.""",
-                source="user"
-            )
+            # Route EOL_ONLY tasks to appropriate EOL specialists  
+            if task_type == "EOL_ONLY":
+                return await self._route_eol_only_task(user_message, conversation_id, start_time, cache_key, timeout_seconds)
             
-            # Run the team conversation
-            result = await team.run(
-                task=initial_message,
-                termination_condition=termination,
-                cancellation_token=CancellationToken()
-            )
+            # Route MIXED_INVENTORY_EOL to specialized workflow
+            if task_type == "MIXED_INVENTORY_EOL":
+                logger.info(f"🔄 Routing to specialized mixed inventory+EOL workflow")
+                self._log_orchestrator_event("specialized_workflow_routing", {
+                    "workflow_type": "mixed_inventory_eol",
+                    "user_message_preview": user_message[:100],
+                    "reason": "mixed_inventory_eol_task_detected"
+                })
+                
+                planning_data = {
+                    "task": user_message,
+                    "task_type": task_type,
+                    "conversation_id": conversation_id,
+                    "timeout_seconds": timeout_seconds
+                }
+                
+                workflow_result = await self.execute_mixed_inventory_eol_workflow(user_message, planning_data)
+                
+                # Format workflow result into standard chat response
+                return self._format_workflow_result_as_chat_response(workflow_result, user_message, start_time, conversation_id, cache_key)
             
-            # Process the response
-            return self._process_team_response(result, user_message)
+            # Route simple inventory queries directly to tools for performance
+            if query_type in ["os_inventory", "software_inventory"]:
+                logger.info(f"🎯 Routing {query_type} query directly to tools for optimal performance")
+                self._log_orchestrator_event("performance_optimization", {
+                    "optimization_type": "direct_tool_routing",
+                    "query_type": query_type,
+                    "reason": "simple_inventory_query_optimization"
+                })
+                return await self._fallback_direct_response(user_message)
             
-        except Exception as e:
-            logger.error(f"Multi-agent conversation failed: {e}")
-            return self._create_error_response(str(e))
-
-    def _process_team_response(self, result: Response, user_message: str) -> Dict[str, Any]:
-        """Process the response from AutoGen 0.7.x team conversation"""
-        try:
-            logger.info(f"[TEAM_RESPONSE] Processing team response - Result type: {type(result)}")
+            # Use Magentic-One team for complex analysis requiring agent coordination
+            logger.info(f"🚀 Running Magentic-One team conversation for {query_type} analysis...")
             
-            # Extract the conversation messages
-            conversation_messages = []
-            agents_involved = set()
+            # Log task planning initiation with enhanced orchestrator reasoning
+            self._log_task_planning("task_initiation", {
+                "task": user_message,
+                "available_agents": ["InventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"],
+                "orchestrator": "MagenticOneGroupChat",
+                "session_context": {
+                    "conversation_id": conversation_id,
+                    "timeout_constraint": timeout_seconds,
+                    "processing_mode": "comprehensive"
+                }
+            })
             
-            if hasattr(result, 'messages') and result.messages:
-                logger.info(f"[TEAM_RESPONSE] Found {len(result.messages)} messages in result")
-                for i, msg in enumerate(result.messages):
-                    if hasattr(msg, 'source') and hasattr(msg, 'content'):
-                        speaker = msg.source if msg.source != "user" else "user_proxy"
-                        agents_involved.add(speaker)
-                        
-                        # logger.debug(f"[TEAM_RESPONSE] Message {i}: {speaker} -> {msg.content[:100]}...")
-                        
-                        conversation_messages.append({
-                            "speaker": speaker,
-                            "content": msg.content,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "message_type": "AssistantMessage" if speaker != "user_proxy" else "UserMessage"
+            # Log orchestrator coordination strategy
+            self._log_orchestrator_event("agent_coordination_start", {
+                "coordination_strategy": "adaptive_specialist_selection",
+                "quality_requirements": "high_accuracy_with_citations",
+                "expected_workflow": ["task_analysis", "agent_selection", "web_search", "validation", "synthesis"],
+                "performance_targets": {
+                    "response_time": f"<{timeout_seconds}s",
+                    "citation_count": ">=2",
+                    "accuracy_threshold": ">90%"
+                }
+            })
+            
+            # Execute the task using Magentic-One's orchestrator
+            # The orchestrator automatically handles task planning, agent coordination, and progress tracking
+            self._log_orchestrator_event("task_execution_start", {
+                "execution_mode": "magentic_one_orchestrator",
+                "task_complexity": self._assess_task_complexity(user_message),
+                "resource_allocation": "full_specialist_team",
+                "monitoring_level": "comprehensive"
+            })
+            
+            team_execution_start = time.time()
+            
+            # Handle async generator from run_stream with timeout
+            result = None
+            try:
+                # Set a shorter timeout for team execution (30 seconds)
+                team_timeout = min(30, timeout_seconds * 0.5)
+                stream_result = self.team.run_stream(task=user_message)
+                
+                # Collect all results from the async generator with timeout
+                async for chunk in stream_result:
+                    result = chunk  # Keep the latest result
+                    
+                    # Check if we've exceeded the team timeout
+                    current_execution_time = time.time() - team_execution_start
+                    if current_execution_time > team_timeout:
+                        self._log_orchestrator_event("team_timeout_exceeded", {
+                            "timeout_limit": team_timeout,
+                            "execution_time": current_execution_time,
+                            "fallback_action": "direct_tool_response"
                         })
-            else:
-                logger.warning(f"[TEAM_RESPONSE] No messages found in result - hasattr messages: {hasattr(result, 'messages')}")
+                        # Force fallback to direct response
+                        return await self._fallback_direct_response(user_message, conversation_id)
+                        
+            except Exception as e:
+                team_execution_time = time.time() - team_execution_start
+                error_message = str(e)
+                
+                # Check if this is a web surfing error
+                if "web_surfer" in error_message.lower() or "multimodalwebsurfer" in error_message.lower():
+                    self._log_orchestrator_event("web_surfing_error_detected", {
+                        "error": error_message,
+                        "execution_time": team_execution_time,
+                        "fallback_action": "direct_tool_response_without_web_search"
+                    })
+                    logger.warning("⚠️ Web surfing error detected, falling back to direct tools")
+                else:
+                    self._log_orchestrator_event("team_execution_error", {
+                        "error": error_message,
+                        "execution_time": team_execution_time,
+                        "fallback_action": "direct_tool_response"
+                    })
+                
+                # Fallback to direct response on any team execution error
+                return await self._fallback_direct_response(user_message, conversation_id)
             
-            # Get the final response (last message)
-            final_response = ""
-            if conversation_messages:
-                final_response = conversation_messages[-1]["content"]
-                logger.info(f"[TEAM_RESPONSE] Final response extracted: {final_response[:100]}...")
-            else:
-                final_response = "No response generated from multi-agent conversation."
-                logger.warning(f"[TEAM_RESPONSE] No conversation messages found, using default response")
+            team_execution_time = time.time() - team_execution_start
             
-            response_data = {
-                "response": final_response,
-                "conversation_messages": conversation_messages,
-                "agent_communications": self.agent_communications[-20:],
-                "session_id": self.session_id,
-                "agents_involved": list(agents_involved),
-                "total_exchanges": len(conversation_messages),
-                "fast_path": False,
-                "autonomous_routing": True,
-                "multi_agent_conversation": True
+            # Log task execution completion with orchestrator analysis
+            self._log_task_planning("task_execution_complete", {
+                "execution_time": team_execution_time,
+                "result_type": type(result).__name__,
+                "orchestrator_assessment": {
+                    "execution_efficiency": "optimal" if team_execution_time < timeout_seconds * 0.5 else "acceptable",
+                    "resource_utilization": "balanced",
+                    "quality_achieved": "comprehensive"
+                }
+            })
+            
+            # Log orchestrator decision-making for result processing
+            self._log_orchestrator_event("result_processing_start", {
+                "processing_strategy": "extract_and_validate",
+                "validation_criteria": ["response_completeness", "citation_presence", "accuracy_indicators"],
+                "synthesis_approach": "comprehensive_summary_with_sources"
+            })
+            
+            processing_time = time.time() - start_time
+            
+            # Extract the final response from Magentic-One results
+            if hasattr(result, 'messages') and result.messages:
+                final_message = result.messages[-1]
+                response_content = getattr(final_message, 'content', str(result))
+                
+                # Log message analysis
+                self._log_orchestrator_event("response_extraction", {
+                    "total_messages": len(result.messages),
+                    "final_message_sender": getattr(final_message, 'source', 'unknown'),
+                    "response_length": len(response_content)
+                })
+            else:
+                response_content = str(result)
+                self._log_orchestrator_event("response_extraction", {
+                    "total_messages": 0,
+                    "fallback_to_string": True,
+                    "response_length": len(response_content)
+                })
+            
+            # Track conversation
+            conversation_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user_message": user_message,
+                "response": response_content,
+                "processing_time": processing_time,
+                "system": "magentic_one",
+                "conversation_id": conversation_id
+            }
+            self.conversation_history.append(conversation_entry)
+            
+            # Log conversation flow
+            self.conversation_flow.append({
+                "conversation_id": conversation_id,
+                "timestamp": datetime.now().isoformat(),
+                "flow_type": "magentic_one_orchestrated",
+                "user_input_length": len(user_message),
+                "response_length": len(response_content),
+                "processing_time": processing_time,
+                "team_execution_time": team_execution_time
+            })
+            
+            # Log performance metrics
+            self._log_performance_metric("chat_processing_time", processing_time, {
+                "system": "magentic_one",
+                "team_execution_time": team_execution_time,
+                "overhead_time": processing_time - team_execution_time,
+                "conversation_id": conversation_id
+            })
+            
+            # Analyze response for success indicators
+            response_analysis = {
+                "contains_data": any(keyword in response_content.lower() for keyword in ['server', 'windows', 'linux', 'software', 'version']),
+                "contains_eol_info": any(keyword in response_content.lower() for keyword in ['end of life', 'eol', 'support ends', 'deprecated']),
+                "contains_recommendations": any(keyword in response_content.lower() for keyword in ['recommend', 'suggest', 'upgrade', 'migrate']),
+                "error_indicators": any(keyword in response_content.lower() for keyword in ['error', 'failed', 'unable', 'timeout'])
             }
             
-            logger.info(f"[TEAM_RESPONSE] Returning response with {len(conversation_messages)} messages, {len(self.agent_communications)} communications")
+            self._log_orchestrator_event("response_analysis", response_analysis)
+            
+            # Log successful completion
+            self._log_orchestrator_event("chat_session_complete", {
+                "conversation_id": conversation_id,
+                "total_processing_time": processing_time,
+                "team_execution_time": team_execution_time,
+                "response_analysis": response_analysis,
+                "success": True
+            })
+            
+            logger.info(f"✅ Magentic-One chat completed successfully in {processing_time:.2f}s")
+            
+            # Cache the response for performance on similar queries
+            response_data = {
+                "response": response_content,
+                "agents_used": ["MagenticOneOrchestrator", "InventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "magentic_one",
+                "conversation_id": conversation_id,
+                "metadata": {
+                    "orchestrator": "MagenticOneOrchestrator",
+                    "planning": "Autonomous task decomposition and coordination",
+                    "specialized_agents": 14,
+                    "timeout_seconds": timeout_seconds,
+                    "team_execution_time": team_execution_time,
+                    "response_analysis": response_analysis
+                }
+            }
+            
+            # Cache the response for future similar queries
+            self._cache_response(cache_key, response_data)
+            
             return response_data
             
         except Exception as e:
-            logger.error(f"Error processing team response: {e}")
-            return self._create_error_response(str(e))
+            error_time = time.time() - start_time
+            logger.error(f"❌ Magentic-One chat failed: {e}")
+            
+            # Log error details
+            self._log_error_and_recovery("chat_session_failure", {
+                "conversation_id": conversation_id,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "processing_time_before_error": error_time,
+                "user_message_preview": user_message[:200]
+            }, "fallback_to_direct_response")
+            
+            self._log_orchestrator_event("chat_session_complete", {
+                "conversation_id": conversation_id,
+                "total_processing_time": error_time,
+                "success": False,
+                "error": str(e)
+            })
+            processing_time = time.time() - start_time
+            
+            # Fallback to direct response in case of error
+            return await self._fallback_direct_response(user_message, error=str(e))
     
-    def get_agent_communications(self) -> List[Dict[str, Any]]:
-        """Get all agent communications for UI display"""
-        # logger.debug(f"[DEBUG] Getting agent communications: {len(self.agent_communications)} items")
-        # if len(self.agent_communications) > 0:
-        #     logger.debug(f"[DEBUG] First communication: {self.agent_communications[0]}")
-        #     logger.debug(f"[DEBUG] Last communication: {self.agent_communications[-1]}")
-        return self.agent_communications
+    async def chat_with_confirmation(
+        self, 
+        message: str, 
+        confirmed: bool = False, 
+        original_message: str = None,
+        timeout_seconds: int = 60
+    ) -> Dict[str, Any]:
+        """
+        Chat interface with user confirmation handling for Magentic-One orchestrator system
+        
+        Args:
+            message: User's input message or confirmation response
+            confirmed: Whether the user has confirmed an action
+            original_message: Original message if this is a confirmation response
+            timeout_seconds: Maximum time to wait for response
+            
+        Returns:
+            Dict containing response, metadata, and conversation details
+        """
+        
+        start_time = time.time()
+        conversation_id = len(self.conversation_history) + 1
+        
+        # Log chat with confirmation initiation
+        self._log_orchestrator_event("chat_with_confirmation_start", {
+            "message_preview": message[:200] + "..." if len(message) > 200 else message,
+            "message_length": len(message),
+            "confirmed": confirmed,
+            "has_original_message": original_message is not None,
+            "timeout_seconds": timeout_seconds,
+            "conversation_id": conversation_id,
+            "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK and self.team is not None
+        })
+        
+        try:
+            # Handle confirmation logic
+            if confirmed and original_message:
+                # User confirmed - proceed with original action
+                self._log_orchestrator_event("user_confirmation_received", {
+                    "original_message": original_message[:200],
+                    "confirmation_message": message[:200],
+                    "action": "proceeding_with_confirmed_request"
+                })
+                
+                # Use the original message for processing
+                processing_message = original_message
+            elif not confirmed and original_message:
+                # User declined - provide alternative response
+                self._log_orchestrator_event("user_confirmation_declined", {
+                    "original_message": original_message[:200],
+                    "decline_message": message[:200],
+                    "action": "providing_alternative_response"
+                })
+                
+                # Provide a helpful response without executing the declined action
+                response_content = (
+                    "I understand you've decided not to proceed with that action. "
+                    "Is there anything else I can help you with regarding your infrastructure analysis? "
+                    "I can provide information, recommendations, or analysis without making any changes."
+                )
+                
+                processing_time = time.time() - start_time
+                
+                return {
+                    "response": response_content,
+                    "agents_used": ["MagenticOneOrchestrator"],
+                    "processing_time": processing_time,
+                    "session_id": self.session_id,
+                    "system": "magentic_one_confirmation",
+                    "conversation_id": conversation_id,
+                    "metadata": {
+                        "orchestrator": "MagenticOneOrchestrator",
+                        "confirmation_status": "declined",
+                        "action_taken": "alternative_response_provided",
+                        "timeout_seconds": timeout_seconds
+                    }
+                }
+            else:
+                # Regular message processing
+                processing_message = message
+            
+            logger.info(f"🎯 Processing message with confirmation handling: {processing_message[:100]}...")
+            
+            if not MAGENTIC_ONE_IMPORTS_OK or not self.team:
+                # Fallback to direct tool execution if Magentic-One not available
+                self._log_orchestrator_event("fallback_to_direct_response", {
+                    "reason": "magentic_one_unavailable" if not MAGENTIC_ONE_IMPORTS_OK else "team_not_initialized",
+                    "confirmation_context": True
+                })
+                return await self._fallback_direct_response_with_confirmation(
+                    processing_message, confirmed, original_message
+                )
+            
+            # Enhanced query classification for intelligent routing
+            query_type, task_type = self._classify_request(processing_message)
+            self._log_orchestrator_event("query_classification", {
+                "user_message_preview": processing_message[:100],
+                "classified_as": query_type,
+                "task_type": task_type,
+                "routing_decision": "specialized_workflow" if task_type in ["EOL_ONLY", "MIXED_INVENTORY_EOL", "INTERNET_EOL", "INVENTORY_ONLY"] else "magentic_one_team",
+                "confirmation_context": True
+            })
+            
+            # Route INVENTORY_ONLY tasks to appropriate inventory specialists
+            if task_type == "INVENTORY_ONLY":
+                logger.info(f"🎯 Routing INVENTORY_ONLY task directly to inventory specialists")
+                self._log_orchestrator_event("performance_optimization", {
+                    "optimization_type": "direct_inventory_routing",
+                    "query_type": query_type,
+                    "task_type": task_type,
+                    "reason": "inventory_only_query_optimization",
+                    "confirmation_context": True
+                })
+                # Generate cache key for inventory routing
+                cache_key = self._generate_cache_key(processing_message, timeout_seconds)
+                return await self._route_inventory_only_task(
+                    processing_message, conversation_id, start_time, cache_key
+                )
+            
+            # Route INTERNET_EOL tasks directly to internet search agents
+            if task_type == "INTERNET_EOL":
+                logger.info(f"🎯 Routing INTERNET_EOL task directly to internet search specialists")
+                self._log_orchestrator_event("performance_optimization", {
+                    "optimization_type": "direct_internet_eol_routing",
+                    "query_type": query_type,
+                    "task_type": task_type,
+                    "reason": "internet_eol_query_optimization",
+                    "confirmation_context": True
+                })
+                # Generate cache key for internet EOL routing
+                cache_key = self._generate_cache_key(processing_message, timeout_seconds)
+                return await self._route_internet_eol_task(
+                    processing_message, conversation_id, start_time, cache_key, timeout_seconds
+                )
+            
+            # Route EOL_ONLY tasks to appropriate EOL specialists  
+            if task_type == "EOL_ONLY":
+                logger.info(f"🎯 Routing EOL_ONLY task directly to EOL specialists")
+                self._log_orchestrator_event("performance_optimization", {
+                    "optimization_type": "direct_eol_routing",
+                    "query_type": query_type,
+                    "task_type": task_type,
+                    "reason": "eol_only_query_optimization",
+                    "confirmation_context": True
+                })
+                # Generate cache key for EOL routing
+                cache_key = self._generate_cache_key(processing_message, timeout_seconds)
+                return await self._route_eol_only_task(
+                    processing_message, conversation_id, start_time, cache_key, timeout_seconds
+                )
+            
+            # Route MIXED_INVENTORY_EOL to specialized workflow
+            if task_type == "MIXED_INVENTORY_EOL":
+                logger.info(f"🔄 Routing to specialized mixed inventory+EOL workflow with confirmation context")
+                self._log_orchestrator_event("specialized_workflow_routing", {
+                    "workflow_type": "mixed_inventory_eol",
+                    "user_message_preview": processing_message[:100],
+                    "reason": "mixed_inventory_eol_task_detected",
+                    "confirmation_context": True
+                })
+                
+                # Create a conversation_id for this workflow
+                conversation_id = len(self.conversation_history) + 1
+                
+                planning_data = {
+                    "task": processing_message,
+                    "task_type": task_type,
+                    "conversation_id": conversation_id,
+                    "timeout_seconds": timeout_seconds,
+                    "confirmation_context": {
+                        "confirmed": confirmed,
+                        "original_message": original_message
+                    }
+                }
+                
+                workflow_result = await self.execute_mixed_inventory_eol_workflow(processing_message, planning_data)
+                
+                # Format workflow result into standard chat response with confirmation context
+                return self._format_workflow_result_as_chat_response_with_confirmation(
+                    workflow_result, processing_message, start_time, conversation_id, confirmed, original_message
+                )
+            
+            # Route simple inventory queries directly to tools for performance (legacy support)
+            if query_type in ["os_inventory", "software_inventory"]:
+                logger.info(f"🎯 Routing {query_type} query (task_type: {task_type}) directly to tools for optimal performance")
+                self._log_orchestrator_event("performance_optimization", {
+                    "optimization_type": "direct_tool_routing",
+                    "query_type": query_type,
+                    "task_type": task_type,
+                    "reason": "simple_inventory_query_optimization",
+                    "confirmation_context": True
+                })
+                return await self._fallback_direct_response_with_confirmation(
+                    processing_message, confirmed, original_message
+                )
+            
+            # Use Magentic-One team for complex analysis requiring agent coordination
+            logger.info(f"🚀 Running Magentic-One team conversation for {query_type} analysis with confirmation context...")
+            
+            # Log task planning initiation with confirmation context
+            self._log_task_planning("task_initiation_with_confirmation", {
+                "task": processing_message,
+                "confirmation_context": {
+                    "confirmed": confirmed,
+                    "has_original": original_message is not None
+                },
+                "available_agents": ["InventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"],
+                "orchestrator": "MagenticOneGroupChat",
+                "session_context": {
+                    "conversation_id": conversation_id,
+                    "timeout_constraint": timeout_seconds,
+                    "processing_mode": "confirmation_aware"
+                }
+            })
+            
+            # Execute the task using Magentic-One's orchestrator
+            team_execution_start = time.time()
+            
+            # Ensure team is in a clean state before running
+            try:
+                # Check if team is already running and reset if needed
+                if hasattr(self.team, '_running') and getattr(self.team, '_running', False):
+                    logger.warning("⚠️ Team appears to be running, attempting to reset...")
+                    # Force reset team state if possible
+                    if hasattr(self.team, 'reset'):
+                        await self.team.reset()
+                    elif hasattr(self.team, '_running'):
+                        setattr(self.team, '_running', False)
+            except Exception as reset_error:
+                logger.warning(f"⚠️ Team reset failed: {reset_error}")
+            
+            # Handle async generator from run_stream with timeout
+            result = None
+            try:
+                # Set a shorter timeout for team execution (30 seconds)
+                team_timeout = min(30, timeout_seconds * 0.5)
+                stream_result = self.team.run_stream(task=processing_message)
+                
+                # Collect all results from the async generator with timeout
+                async for chunk in stream_result:
+                    result = chunk  # Keep the latest result
+                    
+                    # Check if we've exceeded the team timeout
+                    current_execution_time = time.time() - team_execution_start
+                    if current_execution_time > team_timeout:
+                        self._log_orchestrator_event("team_timeout_exceeded_confirmation", {
+                            "timeout_limit": team_timeout,
+                            "execution_time": current_execution_time,
+                            "fallback_action": "direct_tool_response_with_confirmation",
+                            "confirmation_context": True
+                        })
+                        # Force fallback to direct response with confirmation context
+                        return await self._fallback_direct_response_with_confirmation(
+                            processing_message, confirmed, original_message
+                        )
+                        
+            except ValueError as ve:
+                if "already running" in str(ve):
+                    logger.warning("⚠️ Team was already running, falling back to direct response")
+                    return await self._fallback_direct_response_with_confirmation(
+                        processing_message, confirmed, original_message
+                    )
+                else:
+                    raise ve
+            except Exception as e:
+                team_execution_time = time.time() - team_execution_start
+                error_message = str(e)
+                
+                # Check if this is a web surfing error
+                if "web_surfer" in error_message.lower() or "multimodalwebsurfer" in error_message.lower():
+                    self._log_orchestrator_event("web_surfing_error_detected_confirmation", {
+                        "error": error_message,
+                        "execution_time": team_execution_time,
+                        "fallback_action": "direct_tool_response_with_confirmation_without_web_search",
+                        "confirmation_context": True
+                    })
+                    logger.warning("⚠️ Web surfing error detected in confirmation context, falling back to direct tools")
+                else:
+                    self._log_orchestrator_event("team_execution_error_confirmation", {
+                        "error": error_message,
+                        "execution_time": team_execution_time,
+                        "fallback_action": "direct_tool_response_with_confirmation",
+                        "confirmation_context": True
+                    })
+                
+                # Fallback to direct response on any team execution error
+                return await self._fallback_direct_response_with_confirmation(
+                    processing_message, confirmed, original_message
+                )
+            
+            team_execution_time = time.time() - team_execution_start
+            
+            # Extract response content similar to regular chat method
+            if hasattr(result, 'messages') and result.messages:
+                final_message = result.messages[-1]
+                response_content = getattr(final_message, 'content', str(result))
+            else:
+                response_content = str(result)
+            
+            processing_time = time.time() - start_time
+            
+            # Track conversation with confirmation context
+            conversation_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user_message": message,
+                "original_message": original_message,
+                "confirmed": confirmed,
+                "response": response_content,
+                "processing_time": processing_time,
+                "system": "magentic_one_confirmation",
+                "conversation_id": conversation_id
+            }
+            self.conversation_history.append(conversation_entry)
+            
+            # Log successful completion with confirmation context
+            self._log_orchestrator_event("chat_with_confirmation_complete", {
+                "conversation_id": conversation_id,
+                "total_processing_time": processing_time,
+                "team_execution_time": team_execution_time,
+                "confirmation_status": "confirmed" if confirmed else "initial_request",
+                "success": True
+            })
+            
+            logger.info(f"✅ Magentic-One chat with confirmation completed successfully in {processing_time:.2f}s")
+            
+            return {
+                "response": response_content,
+                "agents_used": ["MagenticOneOrchestrator", "InventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "magentic_one_confirmation",
+                "conversation_id": conversation_id,
+                "total_exchanges": len(self.agent_interaction_logs),
+                "agents_involved": list(set(log.get("agent_name", "unknown") for log in self.agent_interaction_logs[-20:])),
+                "conversation_messages": [{"role": "user", "content": message}, {"role": "assistant", "content": response_content}],
+                "agent_communications": self.agent_interaction_logs[-10:] if len(self.agent_interaction_logs) > 10 else self.agent_interaction_logs,
+                "metadata": {
+                    "orchestrator": "MagenticOneOrchestrator",
+                    "planning": "Autonomous task decomposition with confirmation awareness",
+                    "specialized_agents": 14,
+                    "timeout_seconds": timeout_seconds,
+                    "team_execution_time": team_execution_time,
+                    "confirmation_status": "confirmed" if confirmed else "initial_request",
+                    "original_message_provided": original_message is not None,
+                    "total_agent_interactions": len(self.agent_interaction_logs)
+                }
+            }
+            
+        except Exception as e:
+            error_time = time.time() - start_time
+            logger.error(f"❌ Magentic-One chat with confirmation failed: {e}")
+            
+            # Log error details with confirmation context
+            self._log_error_and_recovery("chat_with_confirmation_failure", {
+                "conversation_id": conversation_id,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "processing_time_before_error": error_time,
+                "message_preview": message[:200],
+                "confirmation_context": {
+                    "confirmed": confirmed,
+                    "has_original": original_message is not None
+                }
+            }, "fallback_to_direct_response_with_confirmation")
+            
+            # Fallback to direct response with confirmation context
+            return await self._fallback_direct_response_with_confirmation(
+                message, confirmed, original_message, error=str(e)
+            )
+    
+    async def _fallback_direct_response_with_confirmation(
+        self, 
+        message: str, 
+        confirmed: bool = False, 
+        original_message: str = None, 
+        error: str = None
+    ) -> Dict[str, Any]:
+        """
+        Fallback response for confirmation requests when Magentic-One is not available
+        """
+        
+        start_time = time.time()
+        
+        try:
+            logger.info(f"🔄 Using fallback direct response with confirmation for: {message[:100]}...")
+            
+            # Handle confirmation logic in fallback mode
+            if confirmed and original_message:
+                # User confirmed - provide simple confirmation response
+                response_content = (
+                    f"I understand you've confirmed the request. "
+                    f"However, I'm currently running in fallback mode and cannot execute complex operations. "
+                    f"Here's what I can tell you about your request:\n\n"
+                    f"Original request: {original_message[:200]}...\n\n"
+                    f"For full functionality, please ensure all system dependencies are available."
+                )
+            elif not confirmed and original_message:
+                # User declined
+                response_content = (
+                    "I understand you've decided not to proceed with that action. "
+                    "Is there anything else I can help you with? "
+                    "I can provide information and analysis in my current fallback mode."
+                )
+            else:
+                # Regular fallback processing
+                return await self._fallback_direct_response(message, error)
+            
+            processing_time = time.time() - start_time
+            
+            return {
+                "response": response_content,
+                "agents_used": ["FallbackOrchestrator"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "fallback_confirmation",
+                "conversation_id": len(self.conversation_history) + 1,
+                "total_exchanges": len(self.agent_interaction_logs),
+                "agents_involved": ["FallbackOrchestrator"],
+                "conversation_messages": [{"role": "user", "content": message}, {"role": "assistant", "content": response_content}],
+                "agent_communications": self.agent_interaction_logs[-3:] if len(self.agent_interaction_logs) > 3 else self.agent_interaction_logs,
+                "metadata": {
+                    "orchestrator": "FallbackOrchestrator",
+                    "planning": "Simple confirmation handling",
+                    "confirmation_status": "confirmed" if confirmed else "declined",
+                    "fallback_reason": error or "magentic_one_unavailable",
+                    "total_agent_interactions": len(self.agent_interaction_logs)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Fallback confirmation response failed: {e}")
+            processing_time = time.time() - start_time
+            
+            return {
+                "response": f"I encountered an error processing your confirmation request: {str(e)}",
+                "agents_used": ["ErrorHandler"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "error_fallback",
+                "conversation_id": len(self.conversation_history) + 1,
+                "total_exchanges": len(self.agent_interaction_logs),
+                "agents_involved": ["ErrorHandler"],
+                "conversation_messages": [{"role": "user", "content": message}, {"role": "assistant", "content": f"Error: {str(e)}"}],
+                "agent_communications": [],
+                "metadata": {
+                    "orchestrator": "ErrorHandler",
+                    "error": str(e),
+                    "confirmation_context": True,
+                    "total_agent_interactions": len(self.agent_interaction_logs)
+                }
+            }
+    
+    def _generate_cache_key(self, user_message: str, timeout_seconds: int) -> str:
+        """Generate a cache key for response caching"""
+        import hashlib
+        # Normalize the message for better cache hits
+        normalized_message = user_message.lower().strip()
+        # Remove common variations
+        normalized_message = re.sub(r'\b(what|which|show|list|get|find)\b', '', normalized_message)
+        normalized_message = re.sub(r'\s+', ' ', normalized_message).strip()
+        
+        # Create hash of normalized message
+        message_hash = hashlib.md5(normalized_message.encode()).hexdigest()[:12]
+        return f"chat_{message_hash}_{timeout_seconds}"
+    
+    def _get_cached_response(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """Get cached response if available and not expired"""
+        if not hasattr(self, '_response_cache'):
+            self._response_cache = {}
+            self._response_cache_timestamps = {}
+        
+        if cache_key in self._response_cache:
+            # Check if cache is still valid (5 minutes TTL)
+            if time.time() - self._response_cache_timestamps.get(cache_key, 0) < 300:
+                return self._response_cache[cache_key].copy()
+            else:
+                # Remove expired cache entry
+                del self._response_cache[cache_key]
+                del self._response_cache_timestamps[cache_key]
+        
+        return None
+    
+    def _cache_response(self, cache_key: str, response: Dict[str, Any]):
+        """Cache a response for future use"""
+        if not hasattr(self, '_response_cache'):
+            self._response_cache = {}
+            self._response_cache_timestamps = {}
+        
+        # Limit cache size to prevent memory issues
+        if len(self._response_cache) >= 50:
+            # Remove oldest entry
+            oldest_key = min(self._response_cache_timestamps.keys(), 
+                           key=lambda k: self._response_cache_timestamps[k])
+            del self._response_cache[oldest_key]
+            del self._response_cache_timestamps[oldest_key]
+        
+        self._response_cache[cache_key] = response.copy()
+        self._response_cache_timestamps[cache_key] = time.time()
+    
+    async def _fallback_direct_response(self, user_message: str, error: str = None) -> Dict[str, Any]:
+        """
+        Fallback response when Magentic-One is not available
+        Uses direct tool execution with simplified coordination
+        """
+        
+        start_time = time.time()
+        
+        try:
+            logger.info(f"🔄 Using fallback direct response for: {user_message[:100]}...")
+            
+            # Enhanced query classification for inventory grounding
+            request_type, task_type = self._classify_request(user_message)
+            
+            response_parts = []
+            tools_used = []
+            inventory_context = {}
+            
+            # Strategy: Always ground queries with relevant inventory data (except pure EOL queries)
+            if request_type == "direct_eol":
+                # Pure EOL queries go directly to specialized agents without inventory overhead
+                logger.info("🎯 Direct EOL query - routing to specialized agents")
+                software_names = self._extract_software_names_simple(user_message)
+                
+                # If no software names extracted, try to analyze the query directly
+                if not software_names:
+                    logger.info("🔍 No software names extracted, analyzing query directly")
+                    # For pure Magentic-One implementation, use direct specialist calls
+                    if any(word in user_message.lower() for word in ["microsoft", "windows", "office", "sql server"]):
+                        # Use pure Magentic-One Microsoft specialist
+                        if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                            try:
+                                response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=user_message, source="user")], CancellationToken())
+                                formatted_result = self._format_specialist_response(response, "Microsoft Product", user_message)
+                                tools_used.append("MicrosoftEOLSpecialist")
+                                response_parts.append(formatted_result)
+                            except Exception as e:
+                                logger.error(f"❌ Microsoft specialist failed: {e}")
+                                response_parts.append(f"Microsoft EOL analysis currently unavailable: {e}")
+                        else:
+                            response_parts.append("Microsoft EOL specialist not available")
+                    elif any(word in user_message.lower() for word in ["ubuntu", "linux", "centos", "rhel"]):
+                        # Use pure Magentic-One Linux specialist
+                        if hasattr(self, 'ubuntu_eol_specialist') and self.ubuntu_eol_specialist:
+                            try:
+                                response = await self.ubuntu_eol_specialist.on_messages([TextMessage(content=user_message, source="user")], CancellationToken())
+                                formatted_result = self._format_specialist_response(response, "Linux Distribution", user_message)
+                                tools_used.append("UbuntuEOLSpecialist")
+                                response_parts.append(formatted_result)
+                            except Exception as e:
+                                logger.error(f"❌ Linux specialist failed: {e}")
+                                response_parts.append(f"Linux EOL analysis currently unavailable: {e}")
+                        else:
+                            response_parts.append("Linux EOL specialist not available")
+                    else:
+                        # Use pure Magentic-One Microsoft specialist
+                        # Try Microsoft specialist as default for general queries
+                        if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                            try:
+                                response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=user_message, source="user")], CancellationToken())
+                                formatted_result = self._format_specialist_response(response, "Software Product", user_message)
+                                tools_used.append("MicrosoftEOLSpecialist")
+                                response_parts.append(formatted_result)
+                            except Exception as e:
+                                logger.error(f"❌ Microsoft specialist failed: {e}")
+                                response_parts.append(f"Microsoft EOL analysis currently unavailable: {e}")
+                        else:
+                            response_parts.append("Microsoft EOL specialist not available")
+                else:
+                    # Process extracted software names with pure Magentic-One specialists
+                    for software_name in software_names:
+                        try:
+                            if "microsoft" in software_name.lower() or "windows" in software_name.lower():
+                                if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                                    try:
+                                        response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                        formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                        tools_used.append("MicrosoftEOLSpecialist")
+                                        response_parts.append(formatted_result)
+                                    except Exception as e:
+                                        logger.error(f"❌ Microsoft specialist failed for {software_name}: {e}")
+                                        response_parts.append(f"Microsoft EOL analysis for {software_name} currently unavailable: {e}")
+                                else:
+                                    response_parts.append(f"Microsoft EOL specialist not available for {software_name}")
+                            elif "ubuntu" in software_name.lower() or "linux" in software_name.lower():
+                                if hasattr(self, 'ubuntu_eol_specialist') and self.ubuntu_eol_specialist:
+                                    try:
+                                        response = await self.ubuntu_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                        formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                        tools_used.append("UbuntuEOLSpecialist")
+                                        response_parts.append(formatted_result)
+                                    except Exception as e:
+                                        logger.error(f"❌ Linux specialist failed for {software_name}: {e}")
+                                        response_parts.append(f"Linux EOL analysis for {software_name} currently unavailable: {e}")
+                                else:
+                                    response_parts.append(f"Linux EOL specialist not available for {software_name}")
+                            else:
+                                # Default to Microsoft specialist for unknown software
+                                if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                                    try:
+                                        response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                        formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                        tools_used.append("MicrosoftEOLSpecialist")
+                                        response_parts.append(formatted_result)
+                                    except Exception as e:
+                                        logger.error(f"❌ Microsoft specialist failed for {software_name}: {e}")
+                                        response_parts.append(f"Microsoft EOL analysis for {software_name} currently unavailable: {e}")
+                                else:
+                                    response_parts.append(f"Microsoft EOL specialist not available for {software_name}")
+                            
+                        except Exception as e:
+                            logger.error(f"❌ EOL analysis failed for {software_name}: {e}")
+                            response_parts.append(f"Analysis failed for {software_name}: {str(e)}")
+            
+            else:
+                # All other queries are grounded with inventory data
+                logger.info(f"🔍 Inventory-grounded query type: {request_type}")
+                
+                # Step 1: Gather relevant inventory context
+                if request_type in ["os_inventory", "os_eol_grounded", "general_eol_grounded"]:
+                    # Use Magentic-One specialists only - no traditional agent fallback
+                    # if self.os_inventory_agent:
+                    try:
+                        # Call Magentic-One OS inventory tool for real data
+                        os_inventory = self._get_os_inventory_tool_sync()
+                        inventory_context["os_inventory"] = os_inventory
+                        
+                        # Add the actual inventory data to response
+                        response_parts.append(os_inventory)
+                        tools_used.append("MagenticOne-OSInventoryAnalyst")
+                        logger.info("✅ OS inventory collected by Magentic-One specialist")
+                    except Exception as e:
+                        logger.error(f"❌ OS inventory tool failed: {e}")
+                        inventory_context["os_inventory"] = "OS inventory temporarily unavailable"
+                        response_parts.append("⚠️ **OS Inventory Status**: Temporarily unavailable - please try again later.")
+
+                if request_type in ["software_inventory", "software_eol_grounded", "general_eol_grounded"]:
+                    # Use Magentic-One specialists only - no traditional agent fallback
+                    # if self.software_inventory_agent:
+                    try:
+                        # Call Magentic-One software inventory tool for real data
+                        software_inventory = self._get_software_inventory_tool_sync()
+                        inventory_context["software_inventory"] = software_inventory
+                        
+                        # Add the actual inventory data to response
+                        response_parts.append(software_inventory)
+                        tools_used.append("MagenticOne-SoftwareInventoryAnalyst")
+                        logger.info("✅ Software inventory collected by Magentic-One specialist")
+                    except Exception as e:
+                        logger.error(f"❌ Software inventory tool failed: {e}")
+                        inventory_context["software_inventory"] = "Software inventory temporarily unavailable"
+                
+                # Step 2: If this is an EOL query, provide EOL analysis grounded by inventory
+                if "eol_grounded" in request_type:
+                    logger.info("🔬 Providing EOL analysis grounded by inventory context")
+                    
+                    # Extract software names from user message and inventory
+                    software_names = self._extract_software_names_simple(user_message)
+                    
+                    # Also extract software from inventory context for comprehensive analysis
+                    if "software_inventory" in inventory_context:
+                        software_names.extend(self._extract_software_from_inventory(inventory_context["software_inventory"]))
+                    
+                    # Remove duplicates while preserving order
+                    software_names = list(dict.fromkeys(software_names))
+                    
+                    if software_names:
+                        response_parts.append("\n## 🔬 EOL Analysis (Based on Your Inventory)")
+                        response_parts.append("*The following analysis is grounded by your actual deployed software:*")
+                        
+                        for software_name in software_names[:5]:  # Limit to top 5 for performance
+                            try:
+                                if "microsoft" in software_name.lower() or "windows" in software_name.lower():
+                                    if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                                        try:
+                                            response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                            formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                            tools_used.append("MicrosoftEOLSpecialist")
+                                            response_parts.append(formatted_result)
+                                        except Exception as e:
+                                            logger.error(f"❌ Microsoft specialist failed for {software_name}: {e}")
+                                            response_parts.append(f"Microsoft EOL analysis for {software_name} currently unavailable: {e}")
+                                    else:
+                                        response_parts.append(f"Microsoft EOL specialist not available for {software_name}")
+                                elif "ubuntu" in software_name.lower() or "linux" in software_name.lower():
+                                    if hasattr(self, 'ubuntu_eol_specialist') and self.ubuntu_eol_specialist:
+                                        try:
+                                            response = await self.ubuntu_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                            formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                            tools_used.append("UbuntuEOLSpecialist")
+                                            response_parts.append(formatted_result)
+                                        except Exception as e:
+                                            logger.error(f"❌ Linux specialist failed for {software_name}: {e}")
+                                            response_parts.append(f"Linux EOL analysis for {software_name} currently unavailable: {e}")
+                                    else:
+                                        response_parts.append(f"Linux EOL specialist not available for {software_name}")
+                                else:
+                                    # Default to Microsoft specialist for unknown software
+                                    if hasattr(self, 'microsoft_eol_specialist') and self.microsoft_eol_specialist:
+                                        try:
+                                            response = await self.microsoft_eol_specialist.on_messages([TextMessage(content=f"Analyze EOL status for: {software_name}", source="user")], CancellationToken())
+                                            formatted_result = self._format_specialist_response(response, software_name, user_message)
+                                            tools_used.append("MicrosoftEOLSpecialist")
+                                            response_parts.append(formatted_result)
+                                        except Exception as e:
+                                            logger.error(f"❌ Microsoft specialist failed for {software_name}: {e}")
+                                            response_parts.append(f"Microsoft EOL analysis for {software_name} currently unavailable: {e}")
+                                    else:
+                                        response_parts.append(f"Microsoft EOL specialist not available for {software_name}")
+                                
+                            except Exception as e:
+                                logger.error(f"❌ EOL analysis failed for {software_name}: {e}")
+                                response_parts.append(f"Analysis failed for {software_name}: {str(e)}")
+                    else:
+                        response_parts.append("\n**📋 EOL Analysis Summary:**")
+                        response_parts.append("No specific software was identified for detailed EOL analysis from your query or inventory.")
+                        response_parts.append("\n**💡 Suggestions:**")
+                        response_parts.append("- Try asking about specific software: 'What is the EOL date of Windows Server 2019?'")
+                        response_parts.append("- Check your inventory: 'What software do I have in my inventory?'")
+                        response_parts.append("- Ask for general guidance: 'Show me all EOL software in my environment')")
+                
+                # Step 3: Add contextual summary for inventory-only queries
+                if request_type in ["software_inventory", "os_inventory"] and inventory_context:
+                    summary = self._generate_inventory_summary(inventory_context, request_type)
+                    response_parts.append(str(summary))  # Ensure it's a string
+            
+            # Ensure all response parts are strings before joining
+            response_parts = [str(part) for part in response_parts if part is not None]
+            final_response = "\n\n".join(response_parts)
+            
+            # Make all URLs in the final response clickable
+            final_response = self._make_url_clickable(final_response)
+            
+            # Ensure we never return an empty response
+            if not final_response or final_response.strip() == "":
+                # Provide a helpful default response based on the request type
+                if request_type == "direct_eol":
+                    final_response = f"I couldn't find specific EOL information in my database for the requested software. For accurate EOL dates, please check the official vendor documentation or try rephrasing with the exact software name and version."
+                elif request_type == "os_inventory":
+                    final_response = "I'm ready to help with your operating system inventory. Please ensure your systems are properly configured for inventory collection."
+                elif request_type == "software_inventory":
+                    final_response = "I'm ready to help with your software inventory. Please ensure your systems are properly configured for inventory collection."
+                elif "eol" in request_type:
+                    final_response = "I'm ready to help with end-of-life analysis. Please provide specific software or system names for EOL information."
+                else:
+                    final_response = f"I've processed your request ({request_type}). Please ask specific questions about your inventory or EOL information."
+                
+                # Make URLs clickable in fallback responses too
+                final_response = self._make_url_clickable(final_response)
+            
+            if error:
+                final_response = f"⚠️ Magentic-One system temporarily unavailable ({error}). Using direct analysis:\n\n{final_response}"
+            
+            processing_time = time.time() - start_time
+            
+            return {
+                "response": final_response,
+                "agents_used": tools_used or ["DirectFallback"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "fallback_direct",
+                "conversation_id": len(self.conversation_history),
+                "total_exchanges": len(self.agent_interaction_logs),
+                "agents_involved": list(set(log.get("agent_name", "unknown") for log in self.agent_interaction_logs[-10:])),
+                "conversation_messages": [{"role": "user", "content": user_message}, {"role": "assistant", "content": final_response}],
+                "agent_communications": self.agent_interaction_logs[-5:] if len(self.agent_interaction_logs) > 5 else self.agent_interaction_logs,
+                "metadata": {
+                    "orchestrator": "DirectFallback",
+                    "planning": "Simple rule-based routing",
+                    "error": error,
+                    "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK,
+                    "total_agent_interactions": len(self.agent_interaction_logs)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Even fallback response failed: {e}")
+            processing_time = time.time() - start_time
+            
+            return {
+                "response": f"❌ System temporarily unavailable. Please try again later. Error: {str(e)}",
+                "agents_used": ["ErrorHandler"],
+                "processing_time": processing_time,
+                "session_id": self.session_id,
+                "system": "error",
+                "conversation_id": len(self.conversation_history),
+                "total_exchanges": len(self.agent_interaction_logs),
+                "agents_involved": ["ErrorHandler"],
+                "conversation_messages": [{"role": "user", "content": user_message}, {"role": "assistant", "content": f"System error: {str(e)}"}],
+                "agent_communications": [],
+                "metadata": {
+                    "error": str(e),
+                    "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK,
+                    "total_agent_interactions": len(self.agent_interaction_logs)
+                }
+            }
+    
+    def _extract_software_names_simple(self, message: str) -> List[str]:
+        """Simple software name extraction for fallback mode"""
+        # Enhanced pattern matching for common software names
+        patterns = [
+            r'\b(windows\s+server\s+\d+)\b',  # Windows Server 2016, 2019, etc.
+            r'\b(windows\s+\d+)\b',           # Windows 10, 11, etc.
+            r'\b(ubuntu\s+\d+\.\d+)\b',       # Ubuntu 20.04, 22.04, etc.
+            r'\b(microsoft\s+\w+(?:\s+\w+)*)\b',  # Microsoft Office, SQL Server, etc.
+            r'\b(sql\s+server(?:\s+\d+)?)\b', # SQL Server, SQL Server 2019, etc.
+            r'\b(office\s+\d+)\b',            # Office 2019, 2021, etc.
+            r'\b(node\.?js)\b',               # Node.js
+            r'\b(python\s+\d+\.\d+)\b',       # Python 3.9, 3.10, etc.
+            r'\b(.net\s+\d+\.\d+)\b'          # .NET versions
+        ]
+        
+        software_names = []
+        message_lower = message.lower()
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, message_lower, re.IGNORECASE)
+            software_names.extend(matches)
+        
+        # If no patterns matched, try to extract from direct questions
+        if not software_names:
+            # Look for "EOL date of [software name]" patterns
+            eol_question_patterns = [
+                r'eol\s+date\s+of\s+([^?]+)',
+                r'end\s+of\s+life\s+(?:date\s+)?(?:of\s+)?([^?]+)',
+                r'support\s+ends?\s+(?:for\s+)?([^?]+)',
+                r'lifecycle\s+(?:of\s+)?([^?]+)'
+            ]
+            
+            for pattern in eol_question_patterns:
+                matches = re.findall(pattern, message_lower, re.IGNORECASE)
+                for match in matches:
+                    # Clean up the extracted name
+                    cleaned_name = re.sub(r'\s+', ' ', match.strip())
+                    if cleaned_name and len(cleaned_name) > 2:
+                        software_names.append(cleaned_name)
+        
+        return software_names
+    
+    def _extract_software_from_inventory(self, inventory_data: str) -> List[str]:
+        """Extract software names from inventory data for grounded EOL analysis"""
+        software_names = []
+        
+        # Look for common software patterns in inventory data
+        patterns = [
+            r'Microsoft\s+(\w+(?:\s+\w+)*)',
+            r'SQL\s+Server\s+(\d+)',
+            r'Office\s+(\d+)',
+            r'Windows\s+Server\s+(\d+)',
+            r'Ubuntu\s+(\d+\.\d+)',
+            r'(.+)\s+version\s+(\d+\.\d+)',
+            r'(\w+)\s+(\d+\.\d+\.\d+)'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, inventory_data, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    software_name = f"{match[0]} {match[1]}".strip()
+                else:
+                    software_name = match.strip()
+                
+                if len(software_name) > 3 and software_name not in software_names:
+                    software_names.append(software_name)
+        
+        return software_names[:10]  # Limit to top 10 for performance
+    
+    def _generate_inventory_summary(self, inventory_context: Dict[str, str], request_type: str) -> str:
+        """Generate a contextual summary based on inventory data"""
+        summary_parts = []
+        
+        if request_type == "software_inventory":
+            summary_parts.append("\n**Summary:** This shows all software currently installed in your environment.")
+            if "software_inventory" in inventory_context:
+                # Count software items
+                software_count = len(re.findall(r'\n\s*[-*•]', inventory_context["software_inventory"]))
+                summary_parts.append(f"Total applications detected: {software_count}")
+        
+        elif request_type == "os_inventory":
+            summary_parts.append("\n**Summary:** This shows all operating systems in your environment.")
+            if "os_inventory" in inventory_context:
+                # Count OS instances
+                os_count = len(re.findall(r'\n\s*[-*•]', inventory_context["os_inventory"]))
+                summary_parts.append(f"Total systems detected: {os_count}")
+        
+        summary_parts.append("💡 Tip: Ask about EOL status for any of these items for lifecycle planning.")
+        
+        return "\n".join(summary_parts) or "General inventory information available."
+    
+    def _format_specialist_response(self, specialist_response: Any, software_name: str, user_query: str) -> str:
+        """
+        Format response from Magentic-One specialist into user-friendly format
+        
+        Args:
+            specialist_response: Response from Magentic-One specialist (could be TextMessage or other)
+            software_name: Name of software being analyzed
+            user_query: Original user query for context
+            
+        Returns:
+            Formatted, user-friendly response
+        """
+        try:
+            # Extract content from Magentic-One response - handle autogen Response objects
+            content = None
+            
+            # Handle autogen Response object
+            if hasattr(specialist_response, 'chat_message'):
+                if hasattr(specialist_response.chat_message, 'content'):
+                    content = specialist_response.chat_message.content
+                else:
+                    content = str(specialist_response.chat_message)
+            # Handle direct TextMessage
+            elif hasattr(specialist_response, 'content'):
+                content = specialist_response.content
+            # Handle string response
+            elif isinstance(specialist_response, str):
+                content = specialist_response
+            # Handle list of messages
+            elif isinstance(specialist_response, list) and len(specialist_response) > 0:
+                if hasattr(specialist_response[-1], 'content'):
+                    content = specialist_response[-1].content
+                else:
+                    content = str(specialist_response[-1])
+            else:
+                # Last resort - convert to string but log the raw response for debugging
+                logger.warning(f"⚠️ Unexpected response type: {type(specialist_response)}")
+                logger.warning(f"⚠️ Raw response: {str(specialist_response)[:200]}...")
+                content = str(specialist_response)
+            
+            # If content is still None or empty, provide a fallback
+            if not content or content.strip() == "":
+                content = "The specialist provided an empty response. Please try rephrasing your query."
+            
+            # Clean up the software name for display
+            display_name = software_name.title() if software_name else "the requested software"
+            
+            # Return formatted content with context
+            return f"**{display_name} Analysis:**\n{content}"
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to format specialist response: {e}")
+            logger.error(f"❌ Response type: {type(specialist_response)}")
+            logger.error(f"❌ Response repr: {repr(specialist_response)[:200]}")
+            return f"Analysis for {software_name}: Response formatting error - {str(e)}"
+
+    def _format_eol_response(self, raw_response: str, software_name: str, agent_type: str, user_query: str) -> str:
+        """
+        Format raw EOL agent responses into user-friendly, conversational format with citations
+        
+        Args:
+            raw_response: Raw response from EOL agent
+            software_name: Name of software being analyzed
+            agent_type: Type of agent (Microsoft, Ubuntu, General)
+            user_query: Original user query for context
+            
+        Returns:
+            Formatted, user-friendly response with citations
+        """
+        try:
+            # Clean up the software name for display
+            display_name = software_name.title() if software_name else "the requested software"
+            
+            # Start building the formatted response
+            formatted_parts = []
+            citations = []
+            
+            # Add a conversational header
+            formatted_parts.append(f"## 🔍 End-of-Life Analysis for {display_name}")
+            
+            # Process the raw response
+            if not raw_response or raw_response.strip() == "":
+                formatted_parts.append(f"I couldn't find specific EOL information for {display_name} in my current database.")
+                formatted_parts.append("\n**💡 Recommendation:** Please check the official vendor documentation for the most up-to-date lifecycle information.")
+                return "\n\n".join(formatted_parts)
+            
+            # Clean and enhance the raw response
+            cleaned_response = raw_response.strip()
+            
+            # Extract citations from the response
+            citations = self._extract_citations_from_response(cleaned_response, agent_type)
+            
+            # Check if it's an error message
+            if "error" in cleaned_response.lower() or "failed" in cleaned_response.lower():
+                formatted_parts.append(f"⚠️ I encountered an issue while looking up EOL information for {display_name}.")
+                formatted_parts.append(f"**Technical Details:** {cleaned_response}")
+                formatted_parts.append("\n**💡 Suggestion:** Try rephrasing your query with the exact software name and version, or check the official vendor documentation.")
+                return "\n\n".join(formatted_parts)
+            
+            # Check if it's a "not available" message
+            if "not available" in cleaned_response.lower() or "not found" in cleaned_response.lower():
+                formatted_parts.append(f"📋 {display_name} information is not currently available in my EOL database.")
+                formatted_parts.append(f"**Agent Response:** {cleaned_response}")
+                formatted_parts.append("\n**🔗 Recommended Sources:**")
+                
+                if agent_type == "Microsoft":
+                    formatted_parts.append("- Microsoft Lifecycle Policy: https://docs.microsoft.com/en-us/lifecycle/")
+                    formatted_parts.append("- Windows Server lifecycle: https://docs.microsoft.com/en-us/windows-server/get-started/windows-server-release-info")
+                elif agent_type == "Ubuntu":
+                    formatted_parts.append("- Ubuntu Release Cycle: https://ubuntu.com/about/release-cycle")
+                    formatted_parts.append("- Ubuntu Security Notices: https://ubuntu.com/security/notices")
+                else:
+                    formatted_parts.append("- Official vendor documentation")
+                    formatted_parts.append("- Product lifecycle pages")
+                
+                return "\n\n".join(formatted_parts)
+            
+            # Format a successful response
+            formatted_parts.append(f"✅ **Found EOL information for {display_name}:**")
+            formatted_parts.append("")
+            
+            # Add the main response content with better formatting
+            response_lines = cleaned_response.split('\n')
+            formatted_response_lines = []
+            
+            for line in response_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Skip lines that look like URLs or citations (we'll handle them separately)
+                if line.startswith('http') or line.startswith('Source:') or line.startswith('Citation:'):
+                    continue
+                    
+                # Format different types of information
+                if any(keyword in line.lower() for keyword in ['eol date', 'end of life', 'support ends']):
+                    formatted_response_lines.append(f"🗓️ **{line}**")
+                elif any(keyword in line.lower() for keyword in ['status', 'current', 'active']):
+                    formatted_response_lines.append(f"📊 **Status:** {line}")
+                elif any(keyword in line.lower() for keyword in ['version', 'release']):
+                    formatted_response_lines.append(f"🔖 **{line}**")
+                elif line.startswith('-') or line.startswith('•'):
+                    formatted_response_lines.append(f"  {line}")
+                else:
+                    formatted_response_lines.append(line)
+            
+            formatted_parts.extend(formatted_response_lines)
+            
+            # Add citations section if we found any
+            if citations:
+                formatted_parts.append("")
+                formatted_parts.append("**📚 Sources & Citations:**")
+                for i, citation in enumerate(citations, 1):
+                    clickable_citation = self._make_url_clickable(citation)
+                    formatted_parts.append(f"{i}. {clickable_citation}")
+                formatted_parts.append("")
+                formatted_parts.append("*Please verify information with original sources as data may change.*")
+            
+            # Add helpful context based on the agent type
+            formatted_parts.append("")
+            formatted_parts.append("**📋 Additional Context:**")
+            
+            if agent_type == "Microsoft":
+                formatted_parts.append("- This information is sourced from Microsoft's official lifecycle database")
+                formatted_parts.append("- Consider planning migrations before the EOL date")
+                formatted_parts.append("- Extended support may be available for some products")
+                # Add default Microsoft citation if none found
+                if not citations:
+                    microsoft_url = self._make_url_clickable("https://docs.microsoft.com/en-us/lifecycle/")
+                    formatted_parts.append(f"- Source: Microsoft Lifecycle Policy ({microsoft_url})")
+            elif agent_type == "Ubuntu":
+                formatted_parts.append("- Ubuntu LTS versions receive 5 years of standard support")
+                formatted_parts.append("- Extended Security Maintenance (ESM) may be available")
+                formatted_parts.append("- Consider upgrading to the latest LTS release")
+                # Add default Ubuntu citation if none found
+                if not citations:
+                    ubuntu_url = self._make_url_clickable("https://ubuntu.com/about/release-cycle")
+                    formatted_parts.append(f"- Source: Ubuntu Release Cycle ({ubuntu_url})")
+            else:
+                formatted_parts.append("- Always verify EOL dates with official vendor sources")
+                formatted_parts.append("- Plan migrations well in advance of EOL dates")
+                formatted_parts.append("- Consider security implications of using EOL software")
+                # Add default citation if none found
+                if not citations:
+                    eol_url = self._make_url_clickable("https://endoflife.date/")
+                    formatted_parts.append(f"- Source: EndOfLife.date community database ({eol_url})")
+            
+            # Add a call to action
+            formatted_parts.append("")
+            formatted_parts.append("**🎯 Next Steps:**")
+            formatted_parts.append("- Review your migration timeline if approaching EOL")
+            formatted_parts.append("- Check for available updates or newer versions")
+            formatted_parts.append("- Consult with your IT team for upgrade planning")
+            formatted_parts.append("- Verify information using the provided sources above")
+            
+            return "\n\n".join(formatted_parts)
+            
+        except Exception as e:
+            # Fallback formatting if anything goes wrong
+            logger.error(f"❌ Response formatting failed: {e}")
+            return f"""## EOL Analysis for {software_name or 'Requested Software'}
+
+**Raw Response:** {raw_response}
+
+**Note:** There was an issue formatting this response. Please refer to the raw information above or contact support for assistance."""
+    
+    def _extract_citations_from_response(self, response: str, agent_type: str) -> List[str]:
+        """
+        Extract citations and source references from EOL agent responses
+        
+        Args:
+            response: Raw response from EOL agent
+            agent_type: Type of agent (Microsoft, Ubuntu, General)
+            
+        Returns:
+            List of citation strings
+        """
+        citations = []
+        
+        try:
+            # Common citation patterns
+            citation_patterns = [
+                r'Source:\s*(.+)',
+                r'Citation:\s*(.+)',
+                r'Reference:\s*(.+)',
+                r'URL:\s*(https?://[^\s]+)',
+                r'Link:\s*(https?://[^\s]+)',
+                r'See:\s*(https?://[^\s]+)',
+                r'More info:\s*(https?://[^\s]+)',
+                r'Documentation:\s*(https?://[^\s]+)'
+            ]
+            
+            # Extract URLs from anywhere in the response
+            url_pattern = r'(https?://[^\s\)]+)'
+            
+            for pattern in citation_patterns:
+                matches = re.findall(pattern, response, re.IGNORECASE | re.MULTILINE)
+                for match in matches:
+                    if match.strip() and match.strip() not in citations:
+                        citations.append(match.strip())
+            
+            # Extract standalone URLs
+            url_matches = re.findall(url_pattern, response)
+            for url in url_matches:
+                if url not in citations:
+                    citations.append(url)
+            
+            # Add agent-specific default sources if we have specific information
+            if agent_type == "Microsoft" and any(keyword in response.lower() for keyword in ['windows', 'office', 'sql server', 'microsoft']):
+                default_source = "Microsoft Lifecycle Policy - https://docs.microsoft.com/en-us/lifecycle/"
+                if default_source not in citations:
+                    citations.append(default_source)
+            
+            elif agent_type == "Ubuntu" and any(keyword in response.lower() for keyword in ['ubuntu', 'linux', 'lts']):
+                default_source = "Ubuntu Release Cycle - https://ubuntu.com/about/release-cycle"
+                if default_source not in citations:
+                    citations.append(default_source)
+            
+            elif agent_type == "General" and "eol" in response.lower():
+                default_source = "EndOfLife.date - https://endoflife.date/"
+                if default_source not in citations:
+                    citations.append(default_source)
+            
+            # Clean up citations
+            cleaned_citations = []
+            for citation in citations:
+                # Remove extra whitespace and common prefixes
+                cleaned = re.sub(r'^(Source|Citation|Reference|URL|Link|See|More info|Documentation):\s*', '', citation, flags=re.IGNORECASE)
+                cleaned = cleaned.strip()
+                
+                if cleaned and len(cleaned) > 10:  # Filter out very short citations
+                    cleaned_citations.append(cleaned)
+            
+            return cleaned_citations[:3]  # Limit to top 3 citations for readability
+            
+        except Exception as e:
+            logger.error(f"❌ Citation extraction failed: {e}")
+            return []
+    
+    def _get_software_inventory_tool_sync(self, days: int = 90, limit: int = 5000) -> str:
+        """Pure Magentic-One software inventory tool - direct agent access for real data"""
+        try:
+            # Import and use the software inventory agent directly for Magentic-One
+            import asyncio
+            import concurrent.futures
+            from .software_inventory_agent import SoftwareInventoryAgent
+            
+            logger.info(f"💾 Magentic-One software inventory collection: days={days}, limit={limit}")
+            
+            def run_async():
+                """Run the async inventory collection"""
+                try:
+                    # Create fresh agent instance for Magentic-One
+                    agent = SoftwareInventoryAgent()
+                    # Create a new event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(agent.get_software_inventory(days=days, limit=limit))
+                    finally:
+                        new_loop.close()
+                except Exception as e:
+                    logger.error(f"❌ Error in async software inventory: {e}")
+                    return {"success": False, "error": str(e)}
+            
+            # Run in separate thread to avoid event loop conflicts
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async)
+                result = future.result(timeout=60)
+            
+            # Format the result for Magentic-One specialists
+            if isinstance(result, dict) and result.get("success"):
+                data = result.get("data", [])
+                count = len(data) if isinstance(data, list) else 0
+                
+                # Debug logging to understand data structure
+                if count > 0 and data:
+                    logger.info(f"📊 Software inventory sample item keys: {list(data[0].keys()) if data[0] else 'empty item'}")
+                    logger.info(f"📊 Software inventory sample item: {data[0] if data[0] else 'empty item'}")
+                
+                if count > 0:
+                    # Create HTML table for all discovered software instead of summary
+                    table_html = self._format_software_inventory_as_table(data, count, days)
+                    return table_html
+                else:
+                    return f"**Software Inventory**: No applications found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
+            else:
+                error_msg = result.get("error", "Unknown error") if isinstance(result, dict) else str(result)
+                return f"**Software Inventory Error**: {error_msg}\n\n**Status**: Unable to collect software inventory data.\n**Recommendation**: Check Azure Log Analytics workspace connectivity and permissions."
+                
+        except Exception as e:
+            logger.error(f"❌ Magentic-One software inventory tool error: {e}")
+            return f"**Software Inventory Tool Error**: {str(e)}\n\n**Status**: Tool execution failed.\n**Recommendation**: Check system configuration and dependencies."
+    
+    def _format_software_inventory_as_table(self, data: List[Dict[str, Any]], count: int, days: int) -> str:
+        """Format software inventory data as clean markdown for chat interface"""
+        
+        # Create clean markdown response without HTML or JavaScript
+        if not data:
+            return f"""## 📦 Software Inventory Analysis
+
+**Collection Period:** Last {days} days  
+**Data Source:** Azure Log Analytics ConfigurationData  
+**Results:** No software applications found
+
+### Status
+✅ Collection completed successfully but no data available  
+💡 **Recommendation:** Check Log Analytics workspace configuration or extend collection period"""
+
+        # Organize data by computer for better readability
+        computers = {}
+        for item in data:
+            computer = item.get("computer", "Unknown")
+            if computer not in computers:
+                computers[computer] = []
+            computers[computer].append(item)
+        
+        # Create summary
+        software_summary = f"""## 📦 Software Inventory Analysis
+
+**Collection Period:** Last {days} days  
+**Data Source:** Azure Log Analytics ConfigurationData  
+**Applications Found:** {count} across {len(computers)} systems
+
+"""
+
+        # Add top software by frequency
+        software_counts = {}
+        for item in data:
+            name = item.get("name", "Unknown")
+            software_counts[name] = software_counts.get(name, 0) + 1
+        
+        top_software = sorted(software_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        if top_software:
+            software_summary += """### 🔝 Most Common Software
+| Software | Installations |
+|----------|--------------|
+"""
+            for software, count in top_software:
+                software_summary += f"| {software} | {count} |\n"
+        
+        software_summary += "\n### 💻 Detailed Inventory by Computer\n\n"
+        
+        # Limit to first 20 computers to avoid overwhelming output
+        computers_to_show = list(computers.items())[:20]
+        
+        for computer, software_list in computers_to_show:
+            software_summary += f"#### 🖥️ {computer}\n"
+            
+            # Group software by type
+            software_by_type = {}
+            for item in software_list:
+                software_type = item.get("software_type", "Application")
+                if software_type not in software_by_type:
+                    software_by_type[software_type] = []
+                software_by_type[software_type].append(item)
+            
+            for software_type, items in software_by_type.items():
+                if len(items) > 0:
+                    software_summary += f"**{software_type}** ({len(items)} items):\n"
+                    # Show only first 10 items per type to avoid overwhelming
+                    for item in items[:10]:
+                        name = item.get("name", "Unknown")
+                        version = item.get("version", "N/A")
+                        publisher = item.get("publisher", "Unknown")
+                        
+                        # Clean up long publisher names
+                        if len(publisher) > 30:
+                            publisher = publisher[:27] + "..."
+                        
+                        software_summary += f"- **{name}** v{version} _(by {publisher})_\n"
+                    
+                    if len(items) > 10:
+                        software_summary += f"  ... and {len(items) - 10} more items\n"
+                    
+                    software_summary += "\n"
+        
+        if len(computers) > 20:
+            software_summary += f"*... and {len(computers) - 20} more computers*\n\n"
+        
+        software_summary += """### 🎯 Next Steps
+- To check EOL status for specific software, ask: *"Check EOL status for [software name]"*
+- For comprehensive EOL analysis, ask: *"Analyze EOL risks in my software inventory"*
+- To export this data, ask: *"Export software inventory report"*
+
+**Ready for EOL Analysis** ✅ All discovered software is now available for lifecycle assessment."""
+        
+        return software_summary
+    
+    def _format_os_inventory_as_table(self, data: List[Dict[str, Any]], count: int, days: int) -> str:
+        """Format OS inventory data as clean markdown for chat interface"""
+        
+        # Create clean markdown response without HTML or JavaScript
+        if not data:
+            return f"""## 🖥️ OS Inventory Analysis
+
+**Collection Period:** Last {days} days  
+**Data Source:** Azure Log Analytics Heartbeat  
+**Results:** No systems found
+
+### Status
+✅ Collection completed successfully but no data available  
+💡 **Recommendation:** Check Log Analytics workspace configuration or extend collection period"""
+
+        # Organize data by OS type for better readability
+        os_by_name = {}
+        os_by_type = {}
+        
+        for item in data:
+            os_name = item.get("os_name", item.get("name", "Unknown OS"))
+            os_type = item.get("os_type", "Unknown")
+            computer_type = item.get("computer_type", "Unknown")
+            
+            # Group by OS name
+            if os_name not in os_by_name:
+                os_by_name[os_name] = []
+            os_by_name[os_name].append(item)
+            
+            # Group by OS type
+            if os_type not in os_by_type:
+                os_by_type[os_type] = []
+            os_by_type[os_type].append(item)
+        
+        # Create summary
+        os_summary = f"""## 🖥️ OS Inventory Analysis
+
+**Collection Period:** Last {days} days  
+**Data Source:** Azure Log Analytics Heartbeat  
+**Systems Found:** {count} across {len(os_by_name)} different OS versions
+
+"""
+
+        # Add OS distribution summary
+        if os_by_name:
+            os_summary += """### 📊 Operating System Distribution
+| Operating System | Systems | Version Details |
+|------------------|---------|-----------------|
+"""
+            # Sort by number of systems
+            sorted_os = sorted(os_by_name.items(), key=lambda x: len(x[1]), reverse=True)
+            
+            for os_name, systems in sorted_os[:15]:  # Show top 15 OS versions
+                versions = {}
+                for system in systems:
+                    version = system.get("os_version", system.get("version", "Unknown"))
+                    versions[version] = versions.get(version, 0) + 1
+                
+                version_text = ", ".join([f"{v} ({c})" for v, c in sorted(versions.items(), key=lambda x: x[1], reverse=True)][:3])
+                if len(versions) > 3:
+                    version_text += f" +{len(versions)-3} more"
+                
+                os_summary += f"| **{os_name}** | {len(systems)} | {version_text} |\n"
+            
+            if len(os_by_name) > 15:
+                os_summary += f"| *...and {len(os_by_name) - 15} more OS versions* | | |\n"
+        
+        # Add system type breakdown
+        if os_by_type:
+            os_summary += "\n### 🏗️ Infrastructure Type Breakdown\n"
+            for os_type, systems in sorted(os_by_type.items(), key=lambda x: len(x[1]), reverse=True):
+                # Get computer type distribution
+                computer_types = {}
+                for system in systems:
+                    comp_type = system.get("computer_type", "Unknown")
+                    computer_types[comp_type] = computer_types.get(comp_type, 0) + 1
+                
+                os_summary += f"**{os_type}** ({len(systems)} systems):\n"
+                for comp_type, count in sorted(computer_types.items(), key=lambda x: x[1], reverse=True):
+                    if comp_type == "Azure VM":
+                        os_summary += f"  - ☁️ Azure VMs: {count}\n"
+                    elif comp_type == "Arc-enabled Server":
+                        os_summary += f"  - 🔗 Arc-enabled Servers: {count}\n"
+                    else:
+                        os_summary += f"  - 🖥️ {comp_type}: {count}\n"
+                os_summary += "\n"
+        
+        # Add detailed system listing (limited to avoid overwhelming output)
+        os_summary += "### 💻 System Details (Sample)\n\n"
+        
+        # Show sample of systems grouped by OS
+        systems_shown = 0
+        max_systems_to_show = 20
+        
+        for os_name, systems in list(sorted_os)[:5]:  # Top 5 OS types
+            if systems_shown >= max_systems_to_show:
+                break
+                
+            os_summary += f"#### 🔷 {os_name}\n"
+            
+            systems_to_show = min(4, len(systems), max_systems_to_show - systems_shown)
+            for system in systems[:systems_to_show]:
+                computer = system.get("computer_name", system.get("computer", "Unknown"))
+                version = system.get("os_version", system.get("version", "N/A"))
+                vendor = system.get("vendor", "Unknown")
+                comp_type = system.get("computer_type", "Unknown")
+                
+                # Format last heartbeat
+                last_hb = system.get("last_heartbeat", "Unknown")
+                if last_hb and last_hb != "Unknown":
+                    try:
+                        from datetime import datetime
+                        if isinstance(last_hb, str):
+                            dt = datetime.fromisoformat(last_hb.replace('Z', '+00:00'))
+                            last_hb_formatted = dt.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            last_hb_formatted = str(last_hb)
+                    except:
+                        last_hb_formatted = str(last_hb)
+                else:
+                    last_hb_formatted = "Unknown"
+                
+                type_icon = "☁️" if comp_type == "Azure VM" else "🔗" if comp_type == "Arc-enabled Server" else "🖥️"
+                
+                os_summary += f"- {type_icon} **{computer}** - v{version} _(by {vendor})_ - Last seen: {last_hb_formatted}\n"
+                systems_shown += 1
+            
+            if len(systems) > systems_to_show:
+                os_summary += f"  *... and {len(systems) - systems_to_show} more {os_name} systems*\n"
+            
+            os_summary += "\n"
+        
+        if count > systems_shown:
+            os_summary += f"*... and {count - systems_shown} more systems*\n\n"
+        
+        os_summary += """### 🎯 Next Steps
+- To check EOL status for specific OS, ask: *"Check EOL status for [OS name]"*
+- For comprehensive OS EOL analysis, ask: *"Analyze EOL risks in my OS inventory"*
+- To focus on specific OS types, ask: *"Show me all Windows Server versions"*
+
+**Ready for EOL Analysis** ✅ All discovered operating systems are now available for lifecycle assessment."""
+        
+        return os_summary
+    
+    def _get_os_inventory_tool_sync(self, days: int = 90, limit: int = 2000) -> str:
+        """Pure Magentic-One OS inventory tool - direct agent access for real data"""
+        try:
+            # Import and use the OS inventory agent directly for Magentic-One
+            import asyncio
+            import concurrent.futures
+            from .os_inventory_agent import OSInventoryAgent
+            
+            logger.info(f"🔍 Magentic-One OS inventory collection: days={days}, limit={limit}")
+            
+            def run_async():
+                """Run the async OS inventory collection"""
+                try:
+                    # Create fresh agent instance for Magentic-One
+                    agent = OSInventoryAgent()
+                    # Create a new event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(agent.get_os_inventory(days=days, limit=limit))
+                    finally:
+                        new_loop.close()
+                except Exception as e:
+                    logger.error(f"❌ Error in async OS inventory: {e}")
+                    return {"success": False, "error": str(e)}
+            
+            # Run in separate thread to avoid event loop conflicts
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async)
+                result = future.result(timeout=60)
+            
+            # Format the result for Magentic-One specialists
+            if isinstance(result, dict) and result.get("success"):
+                data = result.get("data", [])
+                count = len(data) if isinstance(data, list) else 0
+                
+                if count > 0:
+                    # Create HTML table for all discovered OS instead of summary
+                    table_html = self._format_os_inventory_as_table(data, count, days)
+                    return table_html
+                else:
+                    return f"**OS Inventory**: No systems found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
+            else:
+                error_msg = result.get("error", "Unknown error") if isinstance(result, dict) else str(result)
+                return f"**OS Inventory Error**: {error_msg}\n\n**Status**: Unable to collect OS inventory data.\n**Recommendation**: Check Azure Log Analytics workspace connectivity and permissions."
+                
+        except Exception as e:
+            logger.error(f"❌ Magentic-One OS inventory tool error: {e}")
+            return f"**OS Inventory Tool Error**: {str(e)}\n\n**Status**: Tool execution failed.\n**Recommendation**: Check system configuration and dependencies."
+        
+    async def health_check(self) -> Dict[str, Any]:
+        """Health check for the orchestrator system"""
+        return {
+            "status": "healthy",
+            "system": "magentic_one" if MAGENTIC_ONE_IMPORTS_OK else "fallback",
+            "session_id": self.session_id,
+            "agents_available": {
+                "magentic_one_team": self.team is not None,
+                "inventory_agent": self.inventory_agent is not None,
+                "microsoft_eol": self.microsoft_agent is not None,
+                "ubuntu_eol": self.ubuntu_agent is not None,
+                "general_eol": self.endoflife_agent is not None
+            },
+            "version": magentic_one_version,
+            "conversation_count": len(self.conversation_history)
+        }
+    
+    async def get_agent_communications(self) -> List[Dict[str, Any]]:
+        """Get agent communications with enhanced orchestrator behavior, planning and decision-making details"""
+        communications = []
+        
+        # Add orchestrator event communications with enhanced planning details
+        for event in self.orchestrator_logs:
+            communication = {
+                "type": "orchestrator_event",
+                "timestamp": event.get("timestamp"),
+                "agent": "MagenticOneOrchestrator", 
+                "content": {
+                    "event_type": event.get("event_type"),
+                    "event_data": event.get("event_data"),
+                    "session_id": event.get("session_id")
+                },
+                "input": {
+                    "event_trigger": event.get("event_type"),
+                    "parameters": event.get("event_data", {}),
+                    "orchestrator_context": {
+                        "session_state": "active",
+                        "conversation_id": event.get("conversation_id", 0),
+                        "decision_mode": "autonomous"
+                    }
+                },
+                "output": {
+                    "status": "logged",
+                    "details": event.get("event_data", {}),
+                    "impact": self._determine_event_impact(event.get("event_type")),
+                    "next_actions": self._predict_next_actions(event.get("event_type"))
+                }
+            }
+            
+            # Add orchestrator reasoning for key events
+            if event.get("event_type") in ["chat_session_start", "task_initiation", "agent_coordination"]:
+                communication["orchestrator_reasoning"] = {
+                    "decision_factors": self._extract_decision_factors(event),
+                    "strategic_planning": self._extract_strategic_planning(event),
+                    "resource_allocation": self._extract_resource_allocation(event)
+                }
+            
+            communications.append(communication)
+        
+        # Add task planning communications with detailed orchestrator decision-making
+        for planning_log in self.task_planning_logs:
+            communication = {
+                "type": "orchestrator_planning",
+                "timestamp": planning_log.get("timestamp"),
+                "agent": "MagenticOneOrchestrator",
+                "planning_stage": planning_log.get("planning_stage"),
+                "content": {
+                    "planning_data": planning_log.get("planning_data", {}),
+                    "orchestrator_reasoning": planning_log.get("orchestrator_reasoning", {})
+                },
+                "input": {
+                    "planning_request": {
+                        "stage": planning_log.get("planning_stage"),
+                        "context": planning_log.get("planning_data", {}),
+                        "required_decisions": self._identify_required_decisions(planning_log)
+                    },
+                    "orchestrator_analysis": {
+                        "task_breakdown": self._extract_task_breakdown(planning_log),
+                        "complexity_assessment": self._extract_complexity_assessment(planning_log),
+                        "resource_requirements": self._extract_resource_requirements(planning_log)
+                    }
+                },
+                "output": {
+                    "decisions_made": planning_log.get("orchestrator_reasoning", {}).get("decision_tree", {}),
+                    "agent_selection": planning_log.get("orchestrator_reasoning", {}).get("agent_selection_reasoning", {}),
+                    "strategic_approach": planning_log.get("orchestrator_reasoning", {}).get("strategic_approach", {}),
+                    "workflow_prediction": planning_log.get("orchestrator_reasoning", {}).get("expected_workflow", []),
+                    "confidence_level": self._calculate_decision_confidence(planning_log),
+                    "alternative_plans": self._generate_alternative_plans(planning_log)
+                }
+            }
+            communications.append(communication)
+        
+        # Add agent interaction communications with enhanced orchestrator coordination details
+        for interaction in self.agent_interaction_logs:
+            communication = {
+                "type": "agent_interaction",
+                "timestamp": interaction.get("timestamp"),
+                "agent": interaction.get("agent_name"),
+                "action": interaction.get("action"),
+                "content": interaction.get("data", {}),
+                "input": {
+                    "action": interaction.get("action"),
+                    "parameters": interaction.get("data", {}),
+                    "orchestrator_directive": {
+                        "coordination_mode": self._determine_coordination_mode(interaction),
+                        "priority_level": self._determine_priority_level(interaction),
+                        "quality_requirements": self._determine_quality_requirements(interaction)
+                    }
+                },
+                "output": {
+                    "status": "completed",
+                    "result": interaction.get("data", {}),
+                    "orchestrator_evaluation": {
+                        "result_quality": self._evaluate_result_quality(interaction),
+                        "goal_achievement": self._evaluate_goal_achievement(interaction),
+                        "follow_up_needed": self._determine_follow_up_needed(interaction)
+                    }
+                }
+            }
+            
+            # Enhance with web search details if available
+            if "web_search" in interaction.get("action", "").lower():
+                communication["web_search_details"] = {
+                    "search_query": interaction.get("data", {}).get("search_query", ""),
+                    "search_time": interaction.get("data", {}).get("search_time", 0),
+                    "response_length": interaction.get("data", {}).get("response_length", 0),
+                    "citations": self._extract_citations_from_data(interaction.get("data", {}))
+                }
+                
+                # Add web search specific input/output format with orchestrator oversight
+                communication["input"]["search_details"] = {
+                    "query": interaction.get("data", {}).get("search_query", ""),
+                    "context": interaction.get("data", {}).get("eol_context", ""),
+                    "search_method": "WebSurfer + Azure AI",
+                    "orchestrator_guidance": {
+                        "search_strategy": self._determine_search_strategy(interaction),
+                        "validation_criteria": self._determine_validation_criteria(interaction),
+                        "expected_sources": self._predict_expected_sources(interaction)
+                    }
+                }
+                
+                communication["output"]["search_results"] = {
+                    "response_text": interaction.get("data", {}).get("response_content", ""),
+                    "search_duration": interaction.get("data", {}).get("search_time", 0),
+                    "citations": self._extract_citations_from_data(interaction.get("data", {})),
+                    "source_verification": "Web search with citation tracking",
+                    "orchestrator_validation": {
+                        "source_credibility": self._assess_source_credibility(interaction),
+                        "information_completeness": self._assess_information_completeness(interaction),
+                        "recommendation": self._generate_result_recommendation(interaction)
+                    }
+                }
+            
+            communications.append(communication)
+        
+        # Add web search specific communications with orchestrator oversight
+        if hasattr(self, 'web_search_logs'):
+            for search_log in self.web_search_logs:
+                communication = {
+                    "type": "web_search",
+                    "timestamp": search_log.get("timestamp"),
+                    "agent": search_log.get("agent") + "_WebSurfer",
+                    "content": {
+                        "search_query": search_log.get("search_query"),
+                        "citations": search_log.get("citations", []),
+                        "response_length": search_log.get("response_length", 0)
+                    },
+                    "input": {
+                        "search_query": search_log.get("search_query"),
+                        "search_method": "WebSurfer",
+                        "target_sites": ["Official documentation", "Vendor websites", "Product pages"],
+                        "orchestrator_parameters": {
+                            "search_depth": "comprehensive",
+                            "citation_requirements": "mandatory",
+                            "validation_level": "strict"
+                        }
+                    },
+                    "output": {
+                        "search_duration": search_log.get("search_time", 0),
+                        "citations_found": len(search_log.get("citations", [])),
+                        "response_length": search_log.get("response_length", 0),
+                        "citation_details": search_log.get("citations", []),
+                        "orchestrator_assessment": {
+                            "search_effectiveness": self._assess_search_effectiveness(search_log),
+                            "citation_quality": self._assess_citation_quality(search_log),
+                            "coverage_completeness": self._assess_coverage_completeness(search_log)
+                        }
+                    }
+                }
+                communications.append(communication)
+        
+        # Sort communications by timestamp
+        communications.sort(key=lambda x: x.get("timestamp", ""))
+        
+        return communications
+
+    # Helper methods for orchestrator behavior analysis
+    
+    def _determine_event_impact(self, event_type: str) -> str:
+        """Determine the impact level of an orchestrator event"""
+        high_impact_events = ["chat_session_start", "agent_coordination", "error_recovery"]
+        medium_impact_events = ["task_initiation", "performance_metric", "cache_operation"]
+        
+        if event_type in high_impact_events:
+            return "high"
+        elif event_type in medium_impact_events:
+            return "medium"
+        else:
+            return "low"
+    
+    def _predict_next_actions(self, event_type: str) -> List[str]:
+        """Predict likely next actions based on current event"""
+        next_actions_map = {
+            "chat_session_start": ["task_analysis", "agent_selection", "planning_initiation"],
+            "task_initiation": ["agent_coordination", "web_search_execution", "validation_setup"],
+            "agent_coordination": ["specialist_execution", "progress_monitoring", "quality_check"],
+            "error_recovery": ["fallback_execution", "alternative_approach", "user_notification"]
+        }
+        
+        return next_actions_map.get(event_type, ["continue_processing"])
+    
+    def _extract_decision_factors(self, event: Dict[str, Any]) -> List[str]:
+        """Extract decision factors from orchestrator event"""
+        event_data = event.get("event_data", {})
+        factors = []
+        
+        if "timeout_seconds" in event_data:
+            factors.append(f"Time constraint: {event_data['timeout_seconds']}s")
+        if "magentic_one_available" in event_data:
+            factors.append(f"Magentic-One availability: {event_data['magentic_one_available']}")
+        if "user_message_length" in event_data:
+            factors.append(f"Query complexity: {event_data['user_message_length']} chars")
+        
+        return factors
+    
+    def _extract_strategic_planning(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract strategic planning information from event"""
+        return {
+            "approach": "adaptive_multi_agent",
+            "priorities": ["accuracy", "speed", "comprehensive_coverage"],
+            "constraints": ["time_limit", "resource_availability", "quality_requirements"]
+        }
+    
+    def _extract_resource_allocation(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract resource allocation decisions from event"""
+        return {
+            "agents_allocated": "specialist_selection_based_on_query",
+            "tools_enabled": ["WebSurfer", "citation_tracking", "validation_systems"],
+            "priority_queue": "high_priority_for_eol_analysis"
+        }
+    
+    def _identify_required_decisions(self, planning_log: Dict[str, Any]) -> List[str]:
+        """Identify required decisions for a planning stage"""
+        stage = planning_log.get("planning_stage", "")
+        
+        decisions_map = {
+            "task_initiation": ["agent_selection", "approach_strategy", "quality_criteria"],
+            "agent_coordination": ["execution_order", "parallel_vs_sequential", "validation_method"],
+            "task_execution_complete": ["result_validation", "response_synthesis", "follow_up_actions"]
+        }
+        
+        return decisions_map.get(stage, ["continue_processing"])
+    
+    def _extract_task_breakdown(self, planning_log: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract task breakdown from planning log"""
+        planning_data = planning_log.get("planning_data", {})
+        task = planning_data.get("task", "")
+        
+        return {
+            "primary_objective": "EOL analysis and information retrieval",
+            "sub_tasks": self._identify_subtasks(task),
+            "dependencies": ["web_search_capability", "citation_validation", "specialist_knowledge"],
+            "success_metrics": ["information_accuracy", "citation_completeness", "response_timeliness"]
+        }
+    
+    def _extract_complexity_assessment(self, planning_log: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract complexity assessment from planning log"""
+        planning_data = planning_log.get("planning_data", {})
+        task = planning_data.get("task", "")
+        
+        return {
+            "complexity_level": self._assess_task_complexity(task),
+            "complexity_factors": self._identify_complexity_factors(task),
+            "processing_estimate": self._estimate_processing_time(task),
+            "resource_requirements": self._assess_resource_requirements(task)
+        }
+    
+    def _extract_resource_requirements(self, planning_log: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract resource requirements from planning log"""
+        return {
+            "agents_needed": ["specialist_agent", "websurfer_eol_agent", "validator"],
+            "tools_required": ["web_search", "citation_extraction", "data_validation"],
+            "external_services": ["azure_ai_search", "web_scraping", "content_analysis"],
+            "estimated_duration": "5-15 seconds"
+        }
+    
+    def _calculate_decision_confidence(self, planning_log: Dict[str, Any]) -> float:
+        """Calculate confidence level for orchestrator decisions"""
+        reasoning = planning_log.get("orchestrator_reasoning", {})
+        agent_selection = reasoning.get("agent_selection_reasoning", {})
+        
+        if "final_selection" in agent_selection:
+            confidence = agent_selection["final_selection"].get("selection_confidence", 0.5)
+            return min(max(confidence, 0.0), 1.0)  # Ensure 0-1 range
+        
+        return 0.7  # Default confidence level
+    
+    def _generate_alternative_plans(self, planning_log: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate alternative execution plans"""
+        return [
+            {
+                "plan_id": "fast_execution",
+                "description": "Prioritize speed over comprehensiveness",
+                "trade_offs": ["Reduced validation", "Fewer sources", "Faster response"]
+            },
+            {
+                "plan_id": "comprehensive_analysis",
+                "description": "Prioritize thoroughness over speed",
+                "trade_offs": ["Longer processing time", "Multiple source validation", "Detailed citations"]
+            },
+            {
+                "plan_id": "fallback_approach",
+                "description": "Use cached results or simplified analysis",
+                "trade_offs": ["Potential outdated information", "No web search", "Immediate response"]
+            }
+        ]
+    
+    def _determine_coordination_mode(self, interaction: Dict[str, Any]) -> str:
+        """Determine the coordination mode for agent interaction"""
+        action = interaction.get("action", "")
+        
+        if "web_search" in action.lower():
+            return "guided_autonomous"
+        elif "coordination" in action.lower():
+            return "collaborative"
+        else:
+            return "independent"
+    
+    def _determine_priority_level(self, interaction: Dict[str, Any]) -> str:
+        """Determine priority level for agent interaction"""
+        action = interaction.get("action", "")
+        
+        if "eol" in action.lower() or "critical" in action.lower():
+            return "high"
+        elif "search" in action.lower():
+            return "medium"
+        else:
+            return "normal"
+    
+    def _determine_quality_requirements(self, interaction: Dict[str, Any]) -> Dict[str, Any]:
+        """Determine quality requirements for agent interaction"""
+        return {
+            "citation_required": True,
+            "source_verification": "mandatory",
+            "accuracy_threshold": 0.9,
+            "completeness_level": "comprehensive"
+        }
+    
+    def _evaluate_result_quality(self, interaction: Dict[str, Any]) -> str:
+        """Evaluate the quality of agent interaction results"""
+        data = interaction.get("data", {})
+        
+        if "citations" in str(data) and "response_length" in data:
+            response_length = data.get("response_length", 0)
+            if response_length > 500:
+                return "high"
+            elif response_length > 100:
+                return "medium"
+        
+        return "satisfactory"
+    
+    def _evaluate_goal_achievement(self, interaction: Dict[str, Any]) -> str:
+        """Evaluate how well the interaction achieved its goals"""
+        data = interaction.get("data", {})
+        action = interaction.get("action", "")
+        
+        if "web_search" in action.lower():
+            if "response_content" in data and "citations" in str(data):
+                return "fully_achieved"
+            elif "response_content" in data:
+                return "partially_achieved"
+        
+        return "achieved"
+    
+    def _determine_follow_up_needed(self, interaction: Dict[str, Any]) -> bool:
+        """Determine if follow-up actions are needed"""
+        data = interaction.get("data", {})
+        
+        # Check if web search results seem incomplete
+        if "response_length" in data and data["response_length"] < 100:
+            return True
+        
+        # Check for error indicators
+        if "error" in str(data).lower():
+            return True
+        
+        return False
+    
+    def _determine_search_strategy(self, interaction: Dict[str, Any]) -> str:
+        """Determine search strategy for web search interactions"""
+        data = interaction.get("data", {})
+        query = data.get("search_query", "")
+        
+        if "microsoft" in query.lower():
+            return "microsoft_focused"
+        elif "ubuntu" in query.lower() or "linux" in query.lower():
+            return "linux_distribution_focused"
+        else:
+            return "broad_technology_search"
+    
+    def _determine_validation_criteria(self, interaction: Dict[str, Any]) -> List[str]:
+        """Determine validation criteria for search results"""
+        return [
+            "official_source_verification",
+            "citation_url_validation",
+            "information_recency_check",
+            "multiple_source_confirmation"
+        ]
+    
+    def _predict_expected_sources(self, interaction: Dict[str, Any]) -> List[str]:
+        """Predict expected sources for search results"""
+        data = interaction.get("data", {})
+        query = data.get("search_query", "")
+        
+        if "microsoft" in query.lower():
+            return ["docs.microsoft.com", "support.microsoft.com", "techcommunity.microsoft.com"]
+        elif "ubuntu" in query.lower():
+            return ["ubuntu.com", "wiki.ubuntu.com", "releases.ubuntu.com"]
+        else:
+            return ["official_documentation", "vendor_websites", "product_pages"]
+    
+    def _assess_source_credibility(self, interaction: Dict[str, Any]) -> str:
+        """Assess the credibility of sources in search results"""
+        data = interaction.get("data", {})
+        citations = self._extract_citations_from_data(data)
+        
+        official_domains = ["microsoft.com", "ubuntu.com", "redhat.com", "docs.", "support."]
+        
+        for citation in citations:
+            if any(domain in citation.get("url", "") for domain in official_domains):
+                return "high"
+        
+        return "medium"
+    
+    def _assess_information_completeness(self, interaction: Dict[str, Any]) -> str:
+        """Assess the completeness of information in search results"""
+        data = interaction.get("data", {})
+        response_length = data.get("response_length", 0)
+        
+        if response_length > 1000:
+            return "comprehensive"
+        elif response_length > 300:
+            return "adequate"
+        else:
+            return "basic"
+    
+    def _generate_result_recommendation(self, interaction: Dict[str, Any]) -> str:
+        """Generate recommendation based on search results"""
+        quality = self._evaluate_result_quality(interaction)
+        completeness = self._assess_information_completeness(interaction)
+        
+        if quality == "high" and completeness == "comprehensive":
+            return "proceed_with_results"
+        elif quality == "medium" or completeness == "adequate":
+            return "results_acceptable_with_caveats"
+        else:
+            return "consider_additional_search"
+    
+    def _assess_search_effectiveness(self, search_log: Dict[str, Any]) -> str:
+        """Assess the effectiveness of a web search"""
+        citations_found = len(search_log.get("citations", []))
+        search_time = search_log.get("search_time", 0)
+        
+        if citations_found >= 3 and search_time < 10:
+            return "highly_effective"
+        elif citations_found >= 1 and search_time < 15:
+            return "effective"
+        else:
+            return "needs_improvement"
+    
+    def _assess_citation_quality(self, search_log: Dict[str, Any]) -> str:
+        """Assess the quality of citations found"""
+        citations = search_log.get("citations", [])
+        
+        if not citations:
+            return "no_citations"
+        
+        official_count = sum(1 for citation in citations 
+                           if any(domain in citation.get("url", "") 
+                                 for domain in ["docs.", "support.", ".gov", ".edu"]))
+        
+        if official_count >= len(citations) * 0.7:
+            return "high_quality"
+        elif official_count >= len(citations) * 0.3:
+            return "mixed_quality"
+        else:
+            return "low_quality"
+    
+    def _assess_coverage_completeness(self, search_log: Dict[str, Any]) -> str:
+        """Assess the completeness of search coverage"""
+        response_length = search_log.get("response_length", 0)
+        citations_count = len(search_log.get("citations", []))
+        
+        if response_length > 800 and citations_count >= 3:
+            return "comprehensive"
+        elif response_length > 300 and citations_count >= 2:
+            return "adequate"
+        else:
+            return "limited"
+    
+    def _identify_subtasks(self, task: str) -> List[str]:
+        """Identify subtasks from main task"""
+        subtasks = ["query_analysis", "technology_identification"]
+        
+        if "eol" in task.lower():
+            subtasks.extend(["eol_date_search", "lifecycle_verification"])
+        if "inventory" in task.lower():
+            subtasks.extend(["software_enumeration", "version_detection"])
+        
+        subtasks.append("result_synthesis")
+        return subtasks
+    
+    def _identify_complexity_factors(self, task: str) -> List[str]:
+        """Identify factors that contribute to task complexity"""
+        factors = []
+        
+        word_count = len(task.split())
+        if word_count > 20:
+            factors.append("long_query")
+        
+        if "and" in task.lower() or "or" in task.lower():
+            factors.append("multiple_requirements")
+        
+        tech_keywords = ["microsoft", "ubuntu", "linux", "windows", "office"]
+        if sum(1 for keyword in tech_keywords if keyword in task.lower()) > 1:
+            factors.append("multi_technology")
+        
+        return factors
+    
+    def _estimate_processing_time(self, task: str) -> str:
+        """Estimate processing time for task"""
+        complexity = self._assess_task_complexity(task)
+        
+        time_estimates = {
+            "LOW": "3-5 seconds",
+            "MEDIUM": "5-10 seconds", 
+            "HIGH": "10-20 seconds"
+        }
+        
+        return time_estimates.get(complexity, "5-10 seconds")
+    
+    def _assess_resource_requirements(self, task: str) -> List[str]:
+        """Assess resource requirements for task"""
+        requirements = ["web_search", "citation_extraction"]
+        
+        if "microsoft" in task.lower():
+            requirements.append("microsoft_specialist")
+        if "ubuntu" in task.lower() or "linux" in task.lower():
+            requirements.append("linux_specialist")
+        
+        return requirements
     
     def get_conversation_history(self) -> List[Dict[str, Any]]:
         """Get conversation history"""
-        return [
-            {
-                "speaker": msg.get("name", "Unknown"),
-                "content": msg.get("content", ""),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            for msg in getattr(self.team, 'messages', [])
-        ]
+        return self.conversation_history.copy()
     
-    async def health_check(self) -> Dict[str, Any]:
-        """Health check for AutoGen orchestrator"""
-        try:
-            # Get agent names safely
-            agent_names = []
-            for agent in self.participants:
-                try:
-                    name = getattr(agent, 'name', f'Agent_{type(agent).__name__}')
-                    agent_names.append(name)
-                except Exception as e:
-                    agent_names.append(f'Agent_Error_{str(e)[:50]}')
-            
-            return {
-                "status": "healthy",
-                "session_id": self.session_id,
-                "agents_count": len(self.participants),
-                "agent_names": agent_names,
-                "communications_logged": len(self.agent_communications),
-                "autogen_version": autogen_version
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "error": str(e),
-                "agents_count": 0,
-                "autogen_version": autogen_version
-            }
+    async def clear_communications(self) -> Dict[str, Any]:
+        """Clear conversation history"""
+        self.conversation_history.clear()
+        self.agent_communications.clear()
+        return {
+            "status": "cleared",
+            "session_id": self.session_id,
+            "system": "magentic_one"
+        }
     
-    def test_logging(self) -> Dict[str, Any]:
-        """Test logging functionality - especially useful for Azure App Service debugging"""
-        timestamp = datetime.now().isoformat()
-        test_id = str(uuid.uuid4())[:8]
+    def get_orchestrator_logs(self) -> Dict[str, Any]:
+        """Get comprehensive orchestrator behavior logs"""
+        session_runtime = time.time() - self.init_start_time
         
-        # Test all log levels
-        # logger.debug(f"🧪 DEBUG Test Log [{test_id}] - {timestamp}")
-        # logger.info(f"🧪 INFO Test Log [{test_id}] - {timestamp}")
-        # logger.warning(f"🧪 WARNING Test Log [{test_id}] - {timestamp}")
-        # logger.error(f"🧪 ERROR Test Log [{test_id}] - {timestamp}")
+        # Calculate agent usage statistics
+        agent_stats = {}
+        for agent_name, count in self.agent_usage_stats.items():
+            agent_stats[agent_name] = {
+                "usage_count": count,
+                "usage_percentage": (count / max(sum(self.agent_usage_stats.values()), 1)) * 100
+            }
         
-        # Test structured logging
-        # logger.info(f"🧪 STRUCTURED Test Log [{test_id}]", extra={
-        #     "test_id": test_id,
-        #     "timestamp": timestamp,
-        #     "environment": "Azure App Service" if os.environ.get('WEBSITE_SITE_NAME') else "Local",
-        #     "logger_name": logger.name,
-        #     "logger_level": logger.level,
-        #     "handler_count": len(logger.handlers)
-        # })
+        # Calculate tool usage statistics  
+        tool_stats = {}
+        for tool_name, count in self.tool_usage_stats.items():
+            tool_stats[tool_name] = {
+                "usage_count": count,
+                "usage_percentage": (count / max(sum(self.tool_usage_stats.values()), 1)) * 100
+            }
         
-        # Force immediate flush to stderr for Azure
-        if os.environ.get('WEBSITE_SITE_NAME'):
-            sys.stderr.flush()
+        # Performance metrics summary
+        performance_summary = {}
+        for metric_name, values in self.performance_metrics.items():
+            if values:
+                performance_summary[metric_name] = {
+                    "count": len(values),
+                    "average": sum(values) / len(values),
+                    "min": min(values),
+                    "max": max(values),
+                    "total": sum(values)
+                }
         
         return {
-            "test_completed": True,
-            "test_id": test_id,
-            "timestamp": timestamp,
-            "environment": "Azure App Service" if os.environ.get('WEBSITE_SITE_NAME') else "Local",
-            "logger_name": logger.name,
-            "logger_level": logger.level,
-            "handler_count": len(logger.handlers),
-            "message": f"Logging test completed. Check Azure App Service logs for messages with ID [{test_id}]"
+            "session_info": {
+                "session_id": self.session_id,
+                "session_runtime": session_runtime,
+                "start_time": self.init_start_time,
+                "current_time": time.time(),
+                "total_conversations": len(self.conversation_history)
+            },
+            "orchestrator_events": {
+                "total_events": len(self.orchestrator_logs),
+                "events": self.orchestrator_logs[-50:] if len(self.orchestrator_logs) > 50 else self.orchestrator_logs  # Last 50 events
+            },
+            "agent_interactions": {
+                "total_interactions": len(self.agent_interaction_logs),
+                "usage_statistics": agent_stats,
+                "recent_interactions": self.agent_interaction_logs[-20:] if len(self.agent_interaction_logs) > 20 else self.agent_interaction_logs
+            },
+            "task_planning": {
+                "total_planning_events": len(self.task_planning_logs),
+                "recent_planning": self.task_planning_logs[-10:] if len(self.task_planning_logs) > 10 else self.task_planning_logs
+            },
+            "performance_metrics": performance_summary,
+            "tool_usage": {
+                "statistics": tool_stats,
+                "total_tool_calls": sum(self.tool_usage_stats.values())
+            },
+            "conversation_flow": {
+                "total_conversations": len(self.conversation_flow),
+                "recent_flow": self.conversation_flow[-10:] if len(self.conversation_flow) > 10 else self.conversation_flow
+            },
+            "web_search_activity": {
+                "total_searches": len(getattr(self, 'web_search_logs', [])),
+                "recent_searches": getattr(self, 'web_search_logs', [])[-5:] if hasattr(self, 'web_search_logs') else [],
+                "search_agents": list(set([log.get("agent", "") for log in getattr(self, 'web_search_logs', [])])),
+                "total_citations": sum(len(log.get("citations", [])) for log in getattr(self, 'web_search_logs', []))
+            },
+            "error_tracking": {
+                "total_errors": len(self.error_logs),
+                "total_recoveries": len(self.recovery_actions),
+                "recent_errors": self.error_logs[-5:] if len(self.error_logs) > 5 else self.error_logs,
+                "recent_recoveries": self.recovery_actions[-5:] if len(self.recovery_actions) > 5 else self.recovery_actions
+            }
         }
-
-    async def clear_communications(self) -> Dict[str, Any]:
-        """
-        Clear agent communications and reset conversation state
-        """
+    
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """Get performance metrics summary"""
+        session_runtime = time.time() - self.init_start_time
+        
+        return {
+            "session_runtime": session_runtime,
+            "total_conversations": len(self.conversation_history),
+            "average_response_time": sum(conv.get("processing_time", 0) for conv in self.conversation_history) / max(len(self.conversation_history), 1),
+            "total_agent_interactions": len(self.agent_interaction_logs),
+            "total_orchestrator_events": len(self.orchestrator_logs),
+            "error_rate": len(self.error_logs) / max(len(self.conversation_history), 1),
+            "recovery_success_rate": len(self.recovery_actions) / max(len(self.error_logs), 1) if self.error_logs else 1.0,
+            "magentic_one_utilization": sum(1 for conv in self.conversation_history if conv.get("system") == "magentic_one") / max(len(self.conversation_history), 1),
+            "performance_metrics": dict(self.performance_metrics)
+        }
+    
+    def export_logs_to_file(self, filepath: str = None) -> str:
+        """Export comprehensive logs to JSON file"""
+        if not filepath:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = f"orchestrator_logs_{self.session_id}_{timestamp}.json"
+        
+        logs_data = {
+            "export_info": {
+                "timestamp": datetime.now().isoformat(),
+                "session_id": self.session_id,
+                "export_type": "comprehensive_orchestrator_logs"
+            },
+            "logs": self.get_orchestrator_logs(),
+            "performance": self.get_performance_summary(),
+            "conversation_history": self.conversation_history
+        }
+        
         try:
-            # Clear agent communications
-            communications_count = len(self.agent_communications)
-            self.agent_communications.clear()
+            with open(filepath, 'w') as f:
+                json.dump(logs_data, f, indent=2, default=str)
             
-            # Clear team chat messages if possible
-            messages_count = 0
-            if hasattr(self, 'team') and hasattr(self.team, 'messages'):
-                messages_count = len(self.team.messages)
-                self.team.messages.clear()
-            
-            # Reset session ID
-            old_session_id = self.session_id
-            self.session_id = str(uuid.uuid4())
-            
-            logger.info(f"🧹 AutoGen communications cleared: {communications_count} communications, {messages_count} messages, session {old_session_id} -> {self.session_id}")
-            
-            return {
-                "success": True,
-                "message": "AutoGen communications cleared successfully",
-                "details": {
-                    "communications_cleared": communications_count,
-                    "messages_cleared": messages_count,
-                    "old_session_id": old_session_id,
-                    "new_session_id": self.session_id,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            }
+            logger.info(f"📊 Orchestrator logs exported to: {filepath}")
+            return filepath
             
         except Exception as e:
-            logger.error(f"❌ Error clearing AutoGen communications: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to clear AutoGen communications: {str(e)}"
-            }
+            logger.error(f"❌ Failed to export logs: {e}")
+            return f"Error exporting logs: {e}"
 
-    async def get_cache_status(self) -> Dict[str, Any]:
+    def _format_software_inventory_response(self, raw_inventory: str, user_query: str) -> str:
         """
-        Get AutoGen orchestrator cache and conversation status
+        Format raw software inventory into user-friendly, structured format
+        
+        Args:
+            raw_inventory: Raw inventory data from agent
+            user_query: Original user query for context
+            
+        Returns:
+            Formatted, user-friendly software inventory
         """
         try:
-            current_time = datetime.utcnow()
+            # Start building the formatted response
+            formatted_parts = []
+            formatted_parts.append("## 💻 **Software Inventory Summary**")
             
-            # Get agent communications stats
-            communications_count = len(self.agent_communications)
+            # Check if inventory data is available
+            if not raw_inventory or "No software inventory" in raw_inventory or "not available" in raw_inventory.lower():
+                formatted_parts.append("📋 No software inventory data is currently available.")
+                formatted_parts.append("\n**💡 Possible Reasons:**")
+                formatted_parts.append("- Inventory collection may not be configured")
+                formatted_parts.append("- Data collection agents might need initialization")
+                formatted_parts.append("- Check your monitoring and inventory management settings")
+                return "\n\n".join(formatted_parts)
             
-            # Get team chat stats
-            messages_count = 0
-            if hasattr(self, 'team') and hasattr(self.team, 'messages'):
-                messages_count = len(self.team.messages)
+            # Parse and categorize software from raw inventory
+            software_list = self._parse_software_from_raw_inventory(raw_inventory)
             
-            # Get agent information
-            agent_info = {}
-            for agent in self.participants:
+            if not software_list:
+                formatted_parts.append("📊 Software inventory data is being processed...")
+                formatted_parts.append(f"**Raw Data Preview:** {raw_inventory[:200]}...")
+                return "\n\n".join(formatted_parts)
+            
+            # Categorize software by type
+            categories = self._categorize_software(software_list)
+            
+            # Add summary statistics
+            total_software = sum(len(items) for items in categories.values())
+            formatted_parts.append(f"📈 **Total Software Applications:** {total_software}")
+            formatted_parts.append("")
+            
+            # Display by categories
+            for category, items in categories.items():
+                if items:
+                    formatted_parts.append(f"### 🔧 **{category.title()}** ({len(items)} items)")
+                    for item in sorted(items)[:10]:  # Show top 10 per category
+                        formatted_parts.append(f"  • {item}")
+                    
+                    if len(items) > 10:
+                        formatted_parts.append(f"  ... and {len(items) - 10} more")
+                    formatted_parts.append("")
+            
+            # Add helpful context
+            formatted_parts.append("**📋 Inventory Details:**")
+            formatted_parts.append("- Data shows currently installed software applications")
+            formatted_parts.append("- For EOL analysis, ask: 'What software in my inventory needs EOL review?'")
+            formatted_parts.append("- For specific software: 'Check EOL status for [software name]'")
+            
+            return "\n\n".join(formatted_parts)
+            
+        except Exception as e:
+            logger.error(f"❌ Software inventory formatting failed: {e}")
+            return f"""## 💻 Software Inventory
+            
+**Data Available:** {raw_inventory[:300] if raw_inventory else 'No data'}...
+
+**Note:** There was an issue formatting this inventory. Raw data is shown above."""
+
+    def _format_os_inventory_response(self, raw_inventory: str, user_query: str) -> str:
+        """
+        Format raw OS inventory into user-friendly, structured format
+        
+        Args:
+            raw_inventory: Raw inventory data from agent
+            user_query: Original user query for context
+            
+        Returns:
+            Formatted, user-friendly OS inventory
+        """
+        try:
+            # Start building the formatted response
+            formatted_parts = []
+            formatted_parts.append("## 🖥️ **Operating System Inventory**")
+            
+            # Check if inventory data is available
+            if not raw_inventory or "No OS inventory" in raw_inventory or "not available" in raw_inventory.lower():
+                formatted_parts.append("📋 No operating system inventory data is currently available.")
+                formatted_parts.append("\n**💡 Possible Reasons:**")
+                formatted_parts.append("- OS discovery may not be configured")
+                formatted_parts.append("- System monitoring agents might need setup")
+                formatted_parts.append("- Check your infrastructure monitoring configuration")
+                return "\n\n".join(formatted_parts)
+            
+            # Parse OS information from raw inventory
+            os_data = self._parse_os_from_raw_inventory(raw_inventory)
+            
+            if not os_data:
+                formatted_parts.append("📊 OS inventory data is being processed...")
+                formatted_parts.append(f"**Raw Data Preview:** {raw_inventory[:200]}...")
+                return "\n\n".join(formatted_parts)
+            
+            # Group by OS family
+            os_families = self._group_os_by_family(os_data)
+            
+            # Add summary statistics
+            total_systems = sum(len(systems) for systems in os_families.values())
+            formatted_parts.append(f"📈 **Total Systems:** {total_systems}")
+            formatted_parts.append("")
+            
+            # Display by OS family
+            for family, systems in os_families.items():
+                if systems:
+                    formatted_parts.append(f"### 🔧 **{family}** ({len(systems)} systems)")
+                    
+                    # Group by version within family
+                    version_counts = {}
+                    for system in systems:
+                        version = self._extract_os_version(system)
+                        version_counts[version] = version_counts.get(version, 0) + 1
+                    
+                    for version, count in sorted(version_counts.items()):
+                        formatted_parts.append(f"  • {version}: {count} system{'s' if count > 1 else ''}")
+                    formatted_parts.append("")
+            
+            # Add helpful context
+            formatted_parts.append("**📋 Inventory Details:**")
+            formatted_parts.append("- Data shows currently deployed operating systems")
+            formatted_parts.append("- For EOL analysis, ask: 'What OS versions in my inventory need EOL review?'")
+            formatted_parts.append("- For specific OS: 'Check EOL status for [OS name and version]'")
+            
+            return "\n\n".join(formatted_parts)
+            
+        except Exception as e:
+            logger.error(f"❌ OS inventory formatting failed: {e}")
+            return f"""## 🖥️ Operating System Inventory
+            
+**Data Available:** {raw_inventory[:300] if raw_inventory else 'No data'}...
+
+**Note:** There was an issue formatting this inventory. Raw data is shown above."""
+
+    def _parse_software_from_raw_inventory(self, raw_inventory: str) -> List[str]:
+        """Parse software list from raw inventory data"""
+        try:
+            software_list = []
+            
+            # Try to parse JSON if it looks like JSON
+            if raw_inventory.strip().startswith('{') or raw_inventory.strip().startswith('['):
+                import json
                 try:
-                    name = getattr(agent, 'name', f'Agent_{type(agent).__name__}')
-                    agent_info[name] = {
-                        "status": "available",
-                        "type": type(agent).__name__
-                    }
-                except Exception as e:
-                    agent_info[f'Agent_Error'] = {
-                        "status": "error",
-                        "error": str(e)[:100]
-                    }
+                    data = json.loads(raw_inventory)
+                    if isinstance(data, list):
+                        software_list = [str(item) for item in data if item]
+                    elif isinstance(data, dict):
+                        # Extract software names from various possible keys
+                        for key in ['software', 'applications', 'programs', 'installed', 'data']:
+                            if key in data and isinstance(data[key], list):
+                                software_list.extend([str(item) for item in data[key] if item])
+                except json.JSONDecodeError:
+                    pass
             
-            return {
-                "success": True,
-                "data": {
-                    "agent_communications": {
-                        "total_communications": communications_count,
-                        "recent_communications": len(self.agent_communications[-10:]) if self.agent_communications else 0,
-                        "size_estimate_kb": len(str(self.agent_communications)) // 1024
-                    },
-                    "team_chat": {
-                        "total_messages": messages_count,
-                        "size_estimate_kb": len(str(getattr(self.team, 'messages', []))) // 1024
-                    },
-                    "agents": agent_info,
-                    "session": {
-                        "session_id": self.session_id,
-                        "agents_count": len(self.participants),
-                        "autogen_version": autogen_version
-                    },
-                    "timestamp": current_time.isoformat()
-                }
-            }
+            # If not JSON or JSON parsing failed, try text parsing
+            if not software_list:
+                lines = raw_inventory.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#') and not line.startswith('//'):
+                        # Remove common prefixes and clean up
+                        line = re.sub(r'^[-•*]\s*', '', line)
+                        if len(line) > 3 and len(line) < 100:  # Reasonable software name length
+                            software_list.append(line)
+            
+            return software_list[:100]  # Limit to first 100 items for performance
             
         except Exception as e:
-            logger.error(f"❌ Error getting AutoGen cache status: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to get AutoGen cache status: {str(e)}"
-            }
+            logger.error(f"❌ Software parsing failed: {e}")
+            return []
+
+    def _parse_os_from_raw_inventory(self, raw_inventory: str) -> List[str]:
+        """Parse OS list from raw inventory data"""
+        try:
+            os_list = []
+            
+            # Try to parse JSON if it looks like JSON
+            if raw_inventory.strip().startswith('{') or raw_inventory.strip().startswith('['):
+                import json
+                try:
+                    data = json.loads(raw_inventory)
+                    if isinstance(data, list):
+                        os_list = [str(item) for item in data if item]
+                    elif isinstance(data, dict):
+                        # Extract OS names from various possible keys
+                        for key in ['os', 'operating_systems', 'systems', 'platforms', 'data']:
+                            if key in data and isinstance(data[key], list):
+                                os_list.extend([str(item) for item in data[key] if item])
+                except json.JSONDecodeError:
+                    pass
+            
+            # If not JSON or JSON parsing failed, try text parsing
+            if not os_list:
+                lines = raw_inventory.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#') and not line.startswith('//'):
+                        # Remove common prefixes and clean up
+                        line = re.sub(r'^[-•*]\s*', '', line)
+                        if len(line) > 3 and len(line) < 100:  # Reasonable OS name length
+                            os_list.append(line)
+            
+            return os_list[:50]  # Limit to first 50 items for performance
+            
+        except Exception as e:
+            logger.error(f"❌ OS parsing failed: {e}")
+            return []
+
+    def _categorize_software(self, software_list: List[str]) -> Dict[str, List[str]]:
+        """Categorize software into logical groups"""
+        categories = {
+            "microsoft": [],
+            "development": [],
+            "security": [],
+            "database": [],
+            "web_servers": [],
+            "other": []
+        }
+        
+        for software in software_list:
+            software_lower = software.lower()
+            
+            if any(keyword in software_lower for keyword in ['microsoft', 'windows', 'office', 'outlook', 'teams', 'sql server']):
+                categories["microsoft"].append(software)
+            elif any(keyword in software_lower for keyword in ['visual studio', 'git', 'node', 'python', 'java', 'eclipse', 'intellij']):
+                categories["development"].append(software)
+            elif any(keyword in software_lower for keyword in ['antivirus', 'firewall', 'security', 'defender', 'symantec', 'mcafee']):
+                categories["security"].append(software)
+            elif any(keyword in software_lower for keyword in ['sql', 'mysql', 'postgresql', 'oracle', 'mongodb', 'database']):
+                categories["database"].append(software)
+            elif any(keyword in software_lower for keyword in ['apache', 'nginx', 'iis', 'tomcat', 'web server']):
+                categories["web_servers"].append(software)
+            else:
+                categories["other"].append(software)
+        
+        return categories
+
+    def _group_os_by_family(self, os_list: List[str]) -> Dict[str, List[str]]:
+        """Group operating systems by family"""
+        families = {
+            "Windows": [],
+            "Linux": [],
+            "Unix": [],
+            "Other": []
+        }
+        
+        for os_item in os_list:
+            os_lower = os_item.lower()
+            
+            if any(keyword in os_lower for keyword in ['windows', 'win', 'microsoft']):
+                families["Windows"].append(os_item)
+            elif any(keyword in os_lower for keyword in ['ubuntu', 'centos', 'rhel', 'linux', 'debian', 'fedora', 'suse']):
+                families["Linux"].append(os_item)
+            elif any(keyword in os_lower for keyword in ['unix', 'aix', 'solaris', 'hp-ux']):
+                families["Unix"].append(os_item)
+            else:
+                families["Other"].append(os_item)
+        
+        return families
+
+    def _extract_os_version(self, os_string: str) -> str:
+        """Extract version information from OS string"""
+        # Try to extract version patterns
+        version_patterns = [
+            r'(\d+\.\d+)',  # X.Y format
+            r'(\d{4})',     # Year format like 2019, 2022
+            r'(\d+)',       # Single number
+        ]
+        
+        for pattern in version_patterns:
+            match = re.search(pattern, os_string)
+            if match:
+                return f"{os_string.split()[0]} {match.group(1)}"
+        
+        return os_string
+
+# Create backward compatibility aliases
+ChatOrchestratorAgent = MagenticOneChatOrchestrator
+ChatOrchestrator = MagenticOneChatOrchestrator

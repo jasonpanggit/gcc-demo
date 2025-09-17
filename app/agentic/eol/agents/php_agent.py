@@ -33,8 +33,7 @@ class PHPEOLAgent(BaseEOLAgent):
     """Agent for scraping PHP official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "php"
+        super().__init__("php")
         
         self.timeout = 15
         self.headers = {

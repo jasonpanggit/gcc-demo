@@ -176,7 +176,7 @@ class UbuntuEOLAgent:
             return cached_data
 
         # Check static data first for accuracy and speed
-        static_result = self._check_static_ubuntu_data(software_name, version)
+        static_result = self._check_static_data(software_name, version)
         if static_result:
             result = self.create_success_response(
                 software_name=software_name,

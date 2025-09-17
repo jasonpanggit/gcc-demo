@@ -7,7 +7,8 @@ from .microsoft_agent import MicrosoftEOLAgent
 from .redhat_agent import RedHatEOLAgent
 from .ubuntu_agent import UbuntuEOLAgent
 from .inventory_agent import InventoryAgent
-from .bing_agent import BingEOLAgent
+from .azure_ai_agent import AzureAIAgentEOLAgent  # Modern replacement for Bing Search
+from .websurfer_agent import WebsurferEOLAgent
 from .oracle_agent import OracleEOLAgent
 from .vmware_agent import VMwareEOLAgent
 from .apache_agent import ApacheEOLAgent
@@ -24,7 +25,8 @@ __all__ = [
     'RedHatEOLAgent',
     'UbuntuEOLAgent',
     'InventoryAgent',
-    'BingEOLAgent',
+    'AzureAIAgentEOLAgent',
+    'WebsurferEOLAgent',
     'OracleEOLAgent',
     'VMwareEOLAgent',
     'ApacheEOLAgent',

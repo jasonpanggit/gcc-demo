@@ -102,6 +102,32 @@ deploy_hub_nongen_peering = false
 deploy_hub_gen_peering    = false
 
 # ==============================================================================
+# AGENTIC EOL APP CONFIGURATION
+# ==============================================================================
+deploy_agentic_app = true
+agentic_app_name = "eol-agentic"
+
+# ==============================================================================
+# AZURE CONTAINER REGISTRY CONFIGURATION
+# ==============================================================================
+deploy_acr        = false
+acr_sku           = "Basic"
+acr_admin_enabled = false
+
+# ==============================================================================
+# BING SEARCH API CONFIGURATION - DEPRECATED
+# ==============================================================================
+deploy_bing_search   = false  # DEPRECATED - Microsoft recommends Azure AI Agent Service
+# bing_search_sku_name = "S1"
+
+# ==============================================================================
+# AZURE AI AGENT SERVICE CONFIGURATION (Modern replacement for Bing Search)
+# ==============================================================================
+deploy_azure_ai_agent        = false   # Enable Azure AI Foundry with grounding capabilities
+azure_ai_foundry_sku_name    = "S0"    # Standard pricing tier
+# azure_ai_foundry_name      = null    # Auto-generated if not specified
+
+# ==============================================================================
 # STORAGE
 # ==============================================================================
 deploy_script_storage = false # Required for VM extensions and Arc onboarding

@@ -17,10 +17,11 @@ const AGENT_DISPLAY_MAPPING = {
     "vmware": "VMware",
     "openai": "OpenAI",
     "os_inventory": "OS Inventory",
-    "bing_search": "Bing Search", 
+    "azure_ai": "Azure AI", 
     "postgresql": "PostgreSQL",
     "microsoft": "Microsoft",
-    "orchestrator": "Orchestrator"
+    "orchestrator": "Orchestrator",
+    "websurfer": "WebSurfer"
 };
 
 // Function to get display name for an agent

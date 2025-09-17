@@ -35,8 +35,7 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
     """Agent for scraping PostgreSQL official EOL information"""
 
     def __init__(self):
-        # Agent identification
-        self.agent_name = "postgresql"
+        super().__init__("postgresql")
         
         self.timeout = 15
         self.headers = {

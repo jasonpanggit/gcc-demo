@@ -17,4 +17,10 @@
   "AZURE_COSMOS_DB_ENDPOINT": "enter-cosmos-db-endpoint-url",
   "AZURE_COSMOS_DB_DATABASE": "enter-cosmos-db-database-name",
   "AZURE_COSMOS_DB_CONTAINER": "enter-cosmos-db-container-name"
+  "AZURE_CONTAINER_REGISTRY": "enter-container-registry-name",
+  "IMAGE_NAME": "eol-app",
+  "IMAGE_TAG": "latest",
+  "AZURE_AI_PROJECT_NAME": "enter-azure-ai-project-name",
+  "AZURE_AI_RESOURCE_GROUP": "enter-azure-ai-resource-group",
+  "AZURE_AI_ENDPOINT": "enter-azure-ai-endpoint"
 }
