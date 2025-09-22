@@ -1530,7 +1530,6 @@ class MagenticOneChatOrchestrator:
             # Determine if user wants OS inventory, software inventory, or both
             inventory_type = self._determine_inventory_type(user_message)
             inventory_response = await self._collect_inventory_data(inventory_type)
-            
             result["inventory_data"] = inventory_response
             result["steps_completed"].append("trigger_inventory_specialist")
             
@@ -1557,8 +1556,10 @@ class MagenticOneChatOrchestrator:
             eol_analyses = []
             for item in parsed_items:
                 try:
+                    # logger.info("*****************Processing item: %s", item)
                     # Determine the right EOL specialist type for this item
                     specialist_type = self._determine_eol_specialist_type(item)
+                    # logger.info("*****************Processing specialist type: %s", specialist_type)
                     name = item.get("name", "")
                     version = item.get("version", "")
                     
@@ -1573,7 +1574,7 @@ class MagenticOneChatOrchestrator:
                         cache_key=None,  # No caching for workflow items
                         timeout_seconds=planning_data.get("timeout_seconds", 60)
                     )
-                    
+                    # logger.info("*****************Processing EOL result: %s", eol_result)
                     eol_analyses.append({
                         "item": item,
                         "specialist_used": f"{specialist_type.title()}EOLSpecialist",
@@ -1834,8 +1835,8 @@ class MagenticOneChatOrchestrator:
         """Direct call to OS inventory specialist for inventory-only tasks"""
         try:
             # Call our Magentic-One OS inventory tool for real data
-            os_response = self._get_os_inventory_tool_sync()
-            
+            os_response = self._get_os_inventory_tool_sync(direct=True)
+            logger.info("**************[Line 1839]Processing os_response: %s", os_response)
             return {
                 "response": os_response,
                 "conversation_id": conversation_id,
@@ -2133,11 +2134,13 @@ class MagenticOneChatOrchestrator:
         
         try:
             # Use existing OS parsing logic if available
-            if hasattr(self, "_parse_os_from_raw_inventory"):
-                os_list = self._parse_os_from_raw_inventory(os_inventory)
-                for os_item in os_list:
+            # if hasattr(self, "_parse_os_from_raw_inventory"):
+                # os_list = self._parse_os_from_raw_inventory(os_inventory)
+                for os_item in os_inventory:
                     # Extract name and version from OS string
-                    name, version = self._extract_name_version_from_os(os_item)
+                    name = os_item.get("os_name")
+                    version = os_item.get("os_version")
+                    # name, version = self._extract_name_version_from_os(os_item)
                     items.append({
                         "type": "os",
                         "name": name,
@@ -2145,20 +2148,20 @@ class MagenticOneChatOrchestrator:
                         "raw_string": os_item,
                         "category": "operating_system"
                     })
-            else:
-                # Fallback parsing
-                lines = str(os_inventory).split('\n')
-                for line in lines:
-                    if line.strip():
-                        name, version = self._extract_name_version_from_os(line.strip())
-                        if name:
-                            items.append({
-                                "type": "os",
-                                "name": name,
-                                "version": version,
-                                "raw_string": line.strip(),
-                                "category": "operating_system"
-                            })
+            # else:
+            #     # Fallback parsing
+            #     lines = str(os_inventory).split('\n')
+            #     for line in lines:
+            #         if line.strip():
+            #             name, version = self._extract_name_version_from_os(line.strip())
+            #             if name:
+            #                 items.append({
+            #                     "type": "os",
+            #                     "name": name,
+            #                     "version": version,
+            #                     "raw_string": line.strip(),
+            #                     "category": "operating_system"
+            #                 })
         except Exception as e:
             self._log_error_and_recovery("os_parsing_error", {"error": str(e)}, "skip_os_items")
         
@@ -2203,7 +2206,6 @@ class MagenticOneChatOrchestrator:
     def _extract_name_version_from_os(self, os_string: str) -> Tuple[str, str]:
         """Extract OS name and version from OS string"""
         import re
-        
         # Special handling for Windows Server to preserve year in name for proper EOL mapping
         # Pattern to capture: "Windows Server 2025 Standard | 10.0 (1)" or "Windows Server 2025 Datacenter Azure Edition"
         windows_server_match = re.search(r'(Windows Server)\s+(\d{4})(?:\s+([^|]+?))?(?:\s*\|.*)?$', os_string, re.IGNORECASE)
@@ -2580,6 +2582,7 @@ class MagenticOneChatOrchestrator:
         unknown_status = []
         
         for analysis in successful_analyses:
+            # logger.info("*****************Processing analysis: %s", analysis)
             eol_result = analysis.get("eol_result", {})
             item_name = analysis["item"]["name"]
             item_version = analysis["item"]["version"]
@@ -2591,15 +2594,16 @@ class MagenticOneChatOrchestrator:
             # Try to extract EOL date from different possible locations in the response
             if isinstance(eol_result, dict):
                 # Check for structured response with eol_date field
-                if "eol_date" in eol_result:
-                    eol_date = eol_result["eol_date"]
-                elif "support_end_date" in eol_result:
-                    support_end_date = eol_result["support_end_date"]
-                elif "response" in eol_result and isinstance(eol_result["response"], dict):
-                    # Check nested response object
-                    response_data = eol_result["response"]
-                    eol_date = response_data.get("eol_date") or response_data.get("eol") or response_data.get("end_of_life")
-                    support_end_date = response_data.get("support_end_date") or response_data.get("support_end")
+                if "eol_data" in eol_result:
+                    eol_date = eol_result["eol_data"].get("data").get("eol_date")
+                    support_end_date = eol_result["eol_data"].get("data").get("support_end_date")
+                # elif "support_end_date" in eol_result:
+                #     support_end_date = eol_result["support_end_date"]
+                # elif "response" in eol_result and isinstance(eol_result["response"], dict):
+                     # Check nested response object
+                #     response_data = eol_result["response"]
+                #     eol_date = response_data.get("eol_date") or response_data.get("eol") or response_data.get("end_of_life")
+                #     support_end_date = response_data.get("support_end_date") or response_data.get("support_end")
             
             # Determine the relevant date to use
             relevant_date = eol_date or support_end_date
@@ -2623,7 +2627,7 @@ class MagenticOneChatOrchestrator:
                     logger.debug(f"Could not parse date {relevant_date}: {e}")
             
             # Categorize based on EOL status and date
-            eol_response = analysis.get("eol_result", {}).get("response", "")
+            eol_response = eol_result.get("response", "")
             current_date = datetime.now()
             
             item_with_date = {
@@ -2757,12 +2761,12 @@ class MagenticOneChatOrchestrator:
         # Recommendations
         response_parts.append("## 💡 **Recommendations**")
         if eol_passed:
-            response_parts.append("1. **Immediate Action**: Replace or upgrade EOL products")
+            response_parts.append("- **Immediate Action**: Replace or upgrade EOL products")
         if eol_soon:
-            response_parts.append("2. **Plan Ahead**: Schedule migrations for products approaching EOL")
+            response_parts.append("- **Plan Ahead**: Schedule migrations for products approaching EOL")
         if unknown_status or failed_analyses:
-            response_parts.append("3. **Manual Review**: Research EOL status for unknown items")
-        response_parts.append("4. **Regular Monitoring**: Set up periodic EOL checks for your inventory")
+            response_parts.append("- **Manual Review**: Research EOL status for unknown items")
+        response_parts.append("- **Regular Monitoring**: Set up periodic EOL checks for your inventory")
         
         return "\n".join(response_parts)
     
@@ -5399,8 +5403,8 @@ You are the authoritative source for Linux distribution lifecycle analysis using
         # Add OS distribution summary
         if os_by_name:
             os_summary += """### 📊 Operating System Distribution
-| Operating System | Systems | Version Details |
-|------------------|---------|-----------------|
+| Operating System | Installations | Version Details |
+|------------------|---------------|-----------------|
 """
             # Sort by number of systems
             sorted_os = sorted(os_by_name.items(), key=lambda x: len(x[1]), reverse=True)
@@ -5496,8 +5500,17 @@ You are the authoritative source for Linux distribution lifecycle analysis using
 **Ready for EOL Analysis** ✅ All discovered operating systems are now available for lifecycle assessment."""
         
         return os_summary
+
+    # def format_os_inventory_as_table(self, data: List[Dict[str, Any]], count: int, days: int) -> str:
+    #     """Public wrapper for formatting OS inventory as table/markdown.
+
+    #     Some callers expect a public method `format_os_inventory_as_table`. Keep
+    #     backwards compatibility by delegating to the existing private
+    #     implementation.
+    #     """
+    #     return self._format_os_inventory_as_table(data, count, days)
     
-    def _get_os_inventory_tool_sync(self, days: int = 90, limit: int = 2000) -> str:
+    def _get_os_inventory_tool_sync(self, direct: bool = False, days: int = 90, limit: int = 2000) -> str:
         """Pure Magentic-One OS inventory tool - direct agent access for real data"""
         try:
             # Import and use the OS inventory agent directly for Magentic-One
@@ -5531,14 +5544,18 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             # Format the result for Magentic-One specialists
             if isinstance(result, dict) and result.get("success"):
                 data = result.get("data", [])
-                count = len(data) if isinstance(data, list) else 0
                 
-                if count > 0:
-                    # Create HTML table for all discovered OS instead of summary
-                    table_html = self._format_os_inventory_as_table(data, count, days)
-                    return table_html
-                else:
-                    return f"**OS Inventory**: No systems found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
+                if not direct:
+                    return data
+                else:                    
+                    count = len(data) if isinstance(data, list) else 0
+                    
+                    if count > 0:
+                        # Create HTML table for all discovered OS instead of summary
+                        table_html = self._format_os_inventory_as_table(data, count, days)
+                        return table_html
+                    else:
+                        return f"**OS Inventory**: No systems found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
             else:
                 error_msg = result.get("error", "Unknown error") if isinstance(result, dict) else str(result)
                 return f"**OS Inventory Error**: {error_msg}\n\n**Status**: Unable to collect OS inventory data.\n**Recommendation**: Check Azure Log Analytics workspace connectivity and permissions."

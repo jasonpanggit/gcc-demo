@@ -1,7 +1,7 @@
 # Multi-agent EOL analysis system
 
 from .eol_orchestrator import EOLOrchestratorAgent
-from .chat_orchestrator import ChatOrchestratorAgent
+from .chat_orchestrator import MagenticOneChatOrchestrator
 from .endoflife_agent import EndOfLifeAgent
 from .microsoft_agent import MicrosoftEOLAgent
 from .redhat_agent import RedHatEOLAgent
@@ -19,7 +19,7 @@ from .python_agent import PythonEOLAgent
 
 __all__ = [
     'EOLOrchestratorAgent',
-    'ChatOrchestratorAgent',
+    'MagenticOneChatOrchestrator',
     'EndOfLifeAgent', 
     'MicrosoftEOLAgent',
     'RedHatEOLAgent',

@@ -638,11 +638,11 @@
     function formatOrchestratorType(type) {
         const types = {
             'eol_orchestrator': 'EOL Orchestrator',
-            'eol-orchestrator': 'EOL Orchestrator',
+            // 'eol-orchestrator': 'EOL Orchestrator',
             'chat_orchestrator': 'Chat Orchestrator',
-            'chat-orchestrator': 'Chat Orchestrator',
-            'magentic_one': 'Magentic-One',
-            'magentic-one': 'Magentic-One'
+            // 'chat-orchestrator': 'Chat Orchestrator',
+            'magentic_one': 'Magentic-One'
+            // 'magentic-one': 'Magentic-One'
         };
         return types[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
@@ -650,31 +650,31 @@
     function formatAgentName(name) {
         const agentNames = {
             'microsoft_agent': 'Microsoft EOL',
-            'microsoft-agent': 'Microsoft EOL',
+            // 'microsoft-agent': 'Microsoft EOL',
             'endoflife_agent': 'EndOfLife.date',
-            'endoflife-agent': 'EndOfLife.date',
+            // 'endoflife-agent': 'EndOfLife.date',
             'ubuntu_agent': 'Ubuntu EOL',
-            'ubuntu-agent': 'Ubuntu EOL',
+            // 'ubuntu-agent': 'Ubuntu EOL',
             'redhat_agent': 'Red Hat EOL',
-            'redhat-agent': 'Red Hat EOL',
+            // 'redhat-agent': 'Red Hat EOL',
             'oracle_agent': 'Oracle EOL',
-            'oracle-agent': 'Oracle EOL',
+            // 'oracle-agent': 'Oracle EOL',
             'vmware_agent': 'VMware EOL',
-            'vmware-agent': 'VMware EOL',
+            // 'vmware-agent': 'VMware EOL',
             'apache_agent': 'Apache EOL',
-            'apache-agent': 'Apache EOL',
+            // 'apache-agent': 'Apache EOL',
             'nodejs_agent': 'Node.js EOL',
-            'nodejs-agent': 'Node.js EOL',
+            // 'nodejs-agent': 'Node.js EOL',
             'python_agent': 'Python EOL',
-            'python-agent': 'Python EOL',
+            // 'python-agent': 'Python EOL',
             'php_agent': 'PHP EOL',
-            'php-agent': 'PHP EOL',
+            // 'php-agent': 'PHP EOL',
             'postgresql_agent': 'PostgreSQL EOL',
-            'postgresql-agent': 'PostgreSQL EOL',
+            // 'postgresql-agent': 'PostgreSQL EOL',
             'websurfer': 'WebSurfer',
-            'azure_ai_agent': 'Azure AI Agent',
-            'azure-ai-agent': 'Azure AI Agent',
-            'azureai': 'Azure AI Agent'
+            'azure_ai_agent': 'Azure AI Agent'
+            // 'azure-ai-agent': 'Azure AI Agent',
+            // 'azureai': 'Azure AI Agent'
         };
         
         return agentNames[name] || name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
