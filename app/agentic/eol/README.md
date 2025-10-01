@@ -30,7 +30,7 @@ The application uses a sophisticated multi-agent architecture:
 - **`OSInventoryAgent`**: Retrieves operating system inventory from Azure Log Analytics
 - **`SoftwareInventoryAgent`**: Retrieves software inventory from Azure Log Analytics
 
-#### EOL Specialist Agents
+#### EOL Agents
 - **`MicrosoftEOLAgent`**: Windows, SQL Server, Office lifecycle data
 - **`RedHatEOLAgent`**: RHEL, CentOS, Fedora lifecycle information
 - **`UbuntuEOLAgent`**: Ubuntu and Canonical product lifecycles
@@ -50,7 +50,7 @@ The application uses a sophisticated multi-agent architecture:
 ### Intelligent Routing
 
 The system uses intelligent agent routing based on:
-- **Software Vendor Detection**: Automatically routes queries to the most appropriate specialist agents
+- **Software Vendor Detection**: Automatically routes queries to the most appropriate agents
 - **Confidence Scoring**: Each agent provides confidence scores for their results
 - **Early Termination**: High-confidence results (≥90%) terminate searches early for efficiency
 - **Fallback Mechanisms**: Multiple agents provide redundancy and coverage
@@ -90,12 +90,12 @@ app/agentic/eol/
 │   ├── inventory_agent.py     # Inventory coordination
 │   ├── os_inventory_agent.py  # OS inventory from Log Analytics
 │   ├── software_inventory_agent.py # Software inventory
-│   ├── microsoft_agent.py     # Microsoft EOL specialist
-│   ├── redhat_agent.py        # Red Hat EOL specialist
-│   ├── ubuntu_agent.py        # Ubuntu EOL specialist
+│   ├── microsoft_agent.py     # Microsoft EOL agent
+│   ├── redhat_agent.py        # Red Hat EOL agent
+│   ├── ubuntu_agent.py        # Ubuntu EOL agent
 │   ├── endoflife_agent.py     # General EOL API agent
 │   ├── openai_agent.py        # Azure OpenAI integration
-│   └── [other specialist agents]
+│   └── [other agents]
 ├── templates/                 # Web interface templates
 │   ├── chat.html             # Conversational AI interface
 │   ├── eol.html              # EOL analysis dashboard
@@ -344,7 +344,7 @@ docker run -p 8000:8000 \
 
 ### Adding New EOL Agents
 
-To add a new EOL specialist agent:
+To add a new EOL agent:
 
 1. Create a new agent class inheriting from `BaseEOLAgent`
 2. Implement required methods: `get_eol_data()`, `search_eol()`

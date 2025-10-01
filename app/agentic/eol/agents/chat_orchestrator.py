@@ -226,6 +226,12 @@ class MagenticOneChatOrchestrator:
             self._inventory_cache_timestamp: Dict[Tuple[str, int, int], float] = {}
             self._cache_ttl_seconds = 180  # 3 minutes for rapid follow-up queries
             
+            # Persistent Playwright browser for performance optimization
+            self._playwright = None
+            self._browser = None
+            self._browser_context = None
+            self._browser_lock = asyncio.Lock()  # Thread-safe browser access
+            
             self._log_orchestrator_event("orchestrator_init_start", {
                 "session_id": self.session_id,
                 "magentic_one_available": MAGENTIC_ONE_IMPORTS_OK,
@@ -383,6 +389,63 @@ class MagenticOneChatOrchestrator:
                 logger.error(f"❌ Failed to lazy load Magentic-One: {e}")
                 self.model_client = None
                 self.team = None
+    
+    async def _get_playwright_browser(self):
+        """
+        Get or create a persistent Playwright browser instance.
+        Thread-safe with async lock to prevent concurrent initialization.
+        """
+        async with self._browser_lock:
+            if self._browser is None or not self._browser.is_connected():
+                try:
+                    logger.info("🌐 Initializing persistent Playwright browser...")
+                    from playwright.async_api import async_playwright
+                    
+                    if self._playwright is None:
+                        self._playwright = await async_playwright().start()
+                    
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--single-process',
+                            '--disable-gpu'
+                        ]
+                    )
+                    
+                    self._browser_context = await self._browser.new_context(
+                        viewport={'width': 1280, 'height': 1024},
+                        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    )
+                    
+                    logger.info("✅ Playwright browser initialized and ready for reuse")
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize Playwright browser: {e}")
+                    raise
+            
+            return self._browser, self._browser_context
+    
+    async def _close_playwright_browser(self):
+        """Close the persistent Playwright browser instance gracefully."""
+        async with self._browser_lock:
+            try:
+                if self._browser_context:
+                    await self._browser_context.close()
+                    self._browser_context = None
+                    
+                if self._browser:
+                    await self._browser.close()
+                    self._browser = None
+                    
+                if self._playwright:
+                    await self._playwright.stop()
+                    self._playwright = None
+                    
+                logger.info("✅ Playwright browser closed successfully")
+            except Exception as e:
+                logger.error(f"❌ Error closing Playwright browser: {e}")
     
     def _log_orchestrator_event(self, event_type: str, event_data: Dict[str, Any]):
         """Log orchestrator behavior events with structured data"""
@@ -1735,56 +1798,202 @@ class MagenticOneChatOrchestrator:
         })
         
         try:
-            # Primary: Try WebSurfer for internet search
             logger.info(f"🔍 Attempting WebSurfer internet search for {software_name} {version or ''}")
+
+            result = None
+
+            # cant seen to get autogen to work here
+            # stream = self.team.run_stream(task=f"Searching for end-of-life information for {software_name} {version or ''}")
             
-            websurfer_result = await self._call_eol_specialist_unified("websurfer", software_name, version, 
-                                                                     user_message, conversation_id, start_time, cache_key, timeout_seconds)
+            # using playwright directly for now with persistent browser
+            logger.info("🌐 Using persistent Playwright browser...")
+            browser, context = await self._get_playwright_browser()
             
-            # Convert to chat format and check if successful
-            websurfer_chat_result = self._convert_tracking_to_chat_response(websurfer_result, user_message, conversation_id, start_time)
-            
-            # Check if WebSurfer was successful
-            if websurfer_result.get("eol_data", {}).get("success", False):
-                logger.info(f"✅ WebSurfer internet search successful for {software_name} {version or ''}")
-                return websurfer_chat_result
-            else:
-                logger.warning(f"⚠️ WebSurfer search failed for {software_name} {version or ''}, trying Azure AI fallback")
+            page = await context.new_page()
+            try:
+                query = f"what is {software_name} {version or ''} end of life date?"  
+                query = query.replace(" ", "%20")
+                requestUrl = f"https://www.bing.com/copilotsearch/?q={query}&form=CSBRAND"
+                logger.info(f"🌐 Navigating to {requestUrl} ...")                
                 
-                # Fallback: Try Azure AI Agent Service
-                logger.info(f"🤖 Attempting Azure AI Agent Service fallback for {software_name} {version or ''}")
+                await page.goto(requestUrl, timeout=60000, wait_until='domcontentloaded')
                 
-                azure_ai_result = await self._call_eol_specialist_unified("azure_ai", software_name, version, 
-                                                                         user_message, conversation_id, start_time, cache_key, timeout_seconds)
+                # Wait for initial page load
+                logger.info("⏳ Waiting for initial page load...")
+                await asyncio.sleep(3)
                 
-                # Convert to chat format and check if successful
-                azure_ai_chat_result = self._convert_tracking_to_chat_response(azure_ai_result, user_message, conversation_id, start_time)
-                
-                # Check if Azure AI was successful
-                if azure_ai_result.get("eol_data", {}).get("success", False):
-                    logger.info(f"✅ Azure AI Agent Service fallback successful for {software_name} {version or ''}")
-                    return azure_ai_chat_result
-                else:
-                    logger.error(f"❌ Both WebSurfer and Azure AI searches failed for {software_name} {version or ''}")
+                # The answer is inside an iframe, not the main page
+                # Look for the iframe that contains the search results
+                result = None
+                try:
+                    logger.info("🔍 Looking for iframe with search results...")
                     
-                    # Return the best available result with error indication
-                    return {
-                        "response": f"Internet search for {software_name} {version or ''} EOL information failed. Both WebSurfer and Azure AI were unable to find reliable EOL data. Please try with more specific software name or version, or consider using specialist agents for known technologies.",
-                        "conversation_id": conversation_id,
-                        "response_time": time.time() - start_time,
-                        "agent_used": "InternetSearchFallback",
-                        "query_type": "internet_eol_failed",
-                        "error": "All internet search agents failed",
-                        "search_attempts": ["WebSurfer", "Azure AI"],
-                        "eol_data": {
-                            "success": False,
-                            "error": {
-                                "message": "Internet search exhausted - no reliable EOL data found",
-                                "software_name": software_name,
-                                "version": version
-                            }
-                        }
-                    }
+                    # Wait for iframe to be present - it has a URL pattern like:
+                    # https://www.bing.com/search?q=...&form=DEEPSH&shm=co...
+                    await asyncio.sleep(5)  # Give iframe time to load
+                    
+                    frames = page.frames
+                    logger.info(f"📊 Found {len(frames)} frames")
+                    
+                    # Find the iframe that contains the search results
+                    # The iframe URL pattern is: https://www.bing.com/search?q=...&cpl... or form=DEEPSH
+                    search_frame = None
+                    for frame in frames:
+                        frame_url = frame.url
+                        # Check for Bing search iframe patterns
+                        if 'bing.com/search' in frame_url and ('form=DEEPSH' in frame_url or 'cpl' in frame_url):
+                            logger.info(f"✅ Found search results iframe: {frame_url[:100]}...")
+                            search_frame = frame
+                            break
+                    
+                    if search_frame:
+                        # Wait for the answer_container to appear in the iframe
+                        logger.info("⏳ Waiting for answer_container in iframe...")
+                        try:
+                            answer_element = await search_frame.wait_for_selector('.answer_container', timeout=15000)
+                            if answer_element:
+                                logger.info("✅ Found answer_container in iframe!")
+                                result = await answer_element.inner_html()
+                                logger.info(f"📝 Extracted answer HTML length: {len(result)}")
+                            else:
+                                logger.warning("⚠️ answer_container selector returned None")
+                                result = await search_frame.content()
+                        except Exception as e:
+                            logger.warning(f"⚠️ Could not find answer_container in iframe: {e}")
+                            result = await search_frame.content()
+                    else:
+                        logger.warning("⚠️ Could not find search results iframe, falling back to main page")
+                        result = await page.content()
+                        
+                except Exception as e:
+                    logger.error(f"❌ Playwright iframe extraction failed: {e}")
+                    result = await page.content()
+            finally:
+                # Close the page but keep the browser and context for reuse
+                await page.close()
+
+            # Parse and format the HTML for chat interface
+            from bs4 import BeautifulSoup
+            import re
+            
+            soup = BeautifulSoup(result, 'html.parser')
+            
+            # Extract the answer_container div
+            target_div = soup.find('div', class_='answer_container')
+            if not target_div:
+                # Fallback: use entire result if answer_container not found
+                logger.warning("⚠️ answer_container not found, using full content")
+                target_div = soup
+            
+            # Extract data-snippet content FIRST (before removing any elements)
+            # These contain the actual answers from Bing Copilot Search
+            snippets = []
+            snippet_elements = target_div.find_all(attrs={'data-snippet': True})
+            for elem in snippet_elements:
+                snippet_text = elem.get('data-snippet', '').strip()
+                snippet_url = elem.get('data-url', '').strip()
+                snippet_title = elem.get('data-title', '').strip()
+                
+                if snippet_text and len(snippet_text) > 20:  # Only meaningful snippets
+                    snippets.append({
+                        'text': snippet_text,
+                        'url': snippet_url,
+                        'title': snippet_title
+                    })
+            
+            # Helper function to convert plain URLs in text to clickable markdown links
+            def make_urls_clickable(text: str) -> str:
+                """Convert any plain URLs in text to markdown links"""
+                # Regex pattern to match URLs (http, https)
+                url_pattern = r'(?<!\()(?<!\[)(https?://[^\s\)]+)(?!\))'
+                
+                def replace_url(match):
+                    url = match.group(1)
+                    # Don't re-wrap if already in markdown format
+                    return f"[{url}]({url})"
+                
+                return re.sub(url_pattern, replace_url, text)
+            
+            # Build formatted response for chat
+            formatted_lines = []
+            
+            # Add main snippets as the primary answer
+            if snippets:
+                logger.info(f"📝 Found {len(snippets)} answer snippets")
+                
+                # Use the first snippet as the main answer
+                main_snippet = snippets[0]
+                # Convert any plain URLs in snippet text to clickable links
+                main_text = make_urls_clickable(main_snippet['text'])
+                formatted_lines.append(f"**{main_text}**\n")
+                
+                # Add source link if available
+                if main_snippet['url']:
+                    source_text = main_snippet['title'] if main_snippet['title'] else main_snippet['url']
+                    formatted_lines.append(f"**Source:** [{source_text}]({main_snippet['url']})\n")
+                
+                # Add additional relevant snippets as context
+                if len(snippets) > 1:
+                    formatted_lines.append("\n**Additional Information:**")
+                    for snippet in snippets[1:3]:  # Limit to 2 additional snippets
+                        # Convert any plain URLs in snippet text to clickable links
+                        snippet_text = make_urls_clickable(snippet['text'])
+                        formatted_lines.append(f"- {snippet_text}")
+                        if snippet['url']:
+                            title = snippet['title'] if snippet['title'] else "Learn more"
+                            formatted_lines.append(f"  [{title}]({snippet['url']})")
+                
+            # Extract regular paragraphs and links as fallback
+            else:
+                logger.info("📝 No snippets found, extracting regular content")
+                
+                # Get main text content
+                for p in target_div.find_all('p'):
+                    text = p.get_text(strip=True)
+                    if text and len(text) > 10:
+                        # Convert any plain URLs in paragraph text to clickable links
+                        text = make_urls_clickable(text)
+                        formatted_lines.append(text)
+                        formatted_lines.append("")  # Add blank line
+                
+                # Extract links separately
+                links = []
+                for link in target_div.find_all('a', href=True):
+                    link_text = link.get_text(strip=True)
+                    link_url = link.get('href', '')
+                    if link_text and link_url and len(link_text) > 5:
+                        links.append(f"[{link_text}]({link_url})")
+                
+                if links:
+                    formatted_lines.append("\n**Sources:**")
+                    for link in links[:5]:  # Limit to 5 links
+                        formatted_lines.append(f"- {link}")
+            
+            # Join all formatted lines
+            result = '\n'.join(formatted_lines)
+            
+            # Final cleanup
+            result = re.sub(r'\n{3,}', '\n\n', result)  # Max 2 consecutive newlines
+            result = '\n'.join(line.rstrip() for line in result.split('\n'))  # Trim lines
+            result = result.strip()  # Trim overall
+            
+            logger.info(f"✅ Formatted response for chat interface ({len(result)} characters)")
+        
+            # Normalize to a chat-style response dict to keep caller expectations stable
+            response_text = result if result is not None else ""
+            chat_result = {
+                "response": response_text,
+                "conversation_id": conversation_id,
+                "response_time": time.time() - start_time if start_time else None,
+                "agent_used": "WebSurfer",
+                "query_type": "internet_eol",
+                "eol_data": {
+                    "success": bool(response_text),
+                    "text": response_text if response_text else "",
+                }
+            }
+
+            return chat_result
                     
         except Exception as e:
             logger.error(f"❌ Internet EOL search failed with exception: {e}")
@@ -1836,7 +2045,6 @@ class MagenticOneChatOrchestrator:
         try:
             # Call our Magentic-One OS inventory tool for real data
             os_response = self._get_os_inventory_tool_sync(direct=True)
-            logger.info("**************[Line 1839]Processing os_response: %s", os_response)
             return {
                 "response": os_response,
                 "conversation_id": conversation_id,
@@ -2398,19 +2606,20 @@ class MagenticOneChatOrchestrator:
                         logger.info(f"✅ WebSurfer fallback successful for {software_name} {version or ''}")
                         eol_result = websurfer_result
                         specialist_type = "websurfer"  # Update for response formatting
-                    else:
-                        logger.warning(f"⚠️ WebSurfer fallback failed for {software_name} {version or ''}, trying Azure AI fallback")
-                        # Try Azure AI as final fallback
-                        azure_ai_result = await self.azure_ai_eol_agent.get_eol_data(software_name, version)
-                        if azure_ai_result is None:
-                            azure_ai_result = {"success": False, "error": "Azure AI returned None", "data": {}}
+                    # disabled for now
+                    # else:
+                    #     logger.warning(f"⚠️ WebSurfer fallback failed for {software_name} {version or ''}, trying Azure AI fallback")
+                    #     # Try Azure AI as final fallback
+                    #     azure_ai_result = await self.azure_ai_eol_agent.get_eol_data(software_name, version)
+                    #     if azure_ai_result is None:
+                    #         azure_ai_result = {"success": False, "error": "Azure AI returned None", "data": {}}
                             
-                        if azure_ai_result.get("success", False):
-                            logger.info(f"✅ Azure AI fallback successful for {software_name} {version or ''}")
-                            eol_result = azure_ai_result
-                            specialist_type = "azure_ai"  # Update for response formatting
-                        else:
-                            logger.error(f"❌ All fallback agents failed for {software_name} {version or ''}")
+                    #     if azure_ai_result.get("success", False):
+                    #         logger.info(f"✅ Azure AI fallback successful for {software_name} {version or ''}")
+                    #         eol_result = azure_ai_result
+                    #         specialist_type = "azure_ai"  # Update for response formatting
+                    #     else:
+                    #         logger.error(f"❌ All fallback agents failed for {software_name} {version or ''}")
                 except Exception as fallback_error:
                     logger.error(f"❌ Fallback mechanism failed: {fallback_error}")
             
@@ -3696,7 +3905,7 @@ You are the authoritative source for Linux distribution lifecycle analysis using
                 model_client=self.model_client,
                 termination_condition=MaxMessageTermination(max_messages=20),
                 # WebSurfer functionality handled by WebsurferEOLAgent class
-                web_surfer=None
+                web_surfer=self.websurfer_eol_agent
             )
             logger.info("✅ Magentic-One team initialized with orchestrator and specialized agents (WebSurfer functionality via WebsurferEOLAgent)")
             
@@ -3861,7 +4070,20 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             try:
                 # Set a shorter timeout for team execution (30 seconds)
                 team_timeout = min(30, timeout_seconds * 0.5)
-                stream_result = self.team.run_stream(task=user_message)
+                # team.run_stream may return either an async generator or a coroutine
+                # that resolves to an async generator. Handle both cases.
+                stream_candidate = self.team.run_stream(task=user_message)
+                if asyncio.iscoroutine(stream_candidate):
+                    try:
+                        stream_result = await stream_candidate
+                    except Exception as e:
+                        logger.exception("Error awaiting team.run_stream coroutine during team execution")
+                        # Fall back to a simple iterator that yields the exception
+                        async def _error_gen():
+                            yield repr(e)
+                        stream_result = _error_gen()
+                else:
+                    stream_result = stream_candidate
                 
                 # Collect all results from the async generator with timeout
                 async for chunk in stream_result:
@@ -4275,7 +4497,19 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             try:
                 # Set a shorter timeout for team execution (30 seconds)
                 team_timeout = min(30, timeout_seconds * 0.5)
-                stream_result = self.team.run_stream(task=processing_message)
+                # team.run_stream may return either an async generator or a coroutine
+                # that resolves to an async generator. Handle both cases.
+                stream_candidate = self.team.run_stream(task=processing_message)
+                if asyncio.iscoroutine(stream_candidate):
+                    try:
+                        stream_result = await stream_candidate
+                    except Exception as e:
+                        logger.exception("Error awaiting team.run_stream coroutine during processing_message execution")
+                        async def _error_gen2():
+                            yield repr(e)
+                        stream_result = _error_gen2()
+                else:
+                    stream_result = stream_candidate
                 
                 # Collect all results from the async generator with timeout
                 async for chunk in stream_result:
@@ -5206,7 +5440,7 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             logger.error(f"❌ Citation extraction failed: {e}")
             return []
     
-    def _get_software_inventory_tool_sync(self, days: int = 90, limit: int = 5000) -> str:
+    def _get_software_inventory_tool_sync(self, direct: bool = True, days: int = 90, limit: int = 10000) -> str:
         """Pure Magentic-One software inventory tool - direct agent access for real data"""
         try:
             # Import and use the software inventory agent directly for Magentic-One
@@ -5240,19 +5474,22 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             # Format the result for Magentic-One specialists
             if isinstance(result, dict) and result.get("success"):
                 data = result.get("data", [])
-                count = len(data) if isinstance(data, list) else 0
-                
-                # Debug logging to understand data structure
-                if count > 0 and data:
-                    logger.info(f"📊 Software inventory sample item keys: {list(data[0].keys()) if data[0] else 'empty item'}")
-                    logger.info(f"📊 Software inventory sample item: {data[0] if data[0] else 'empty item'}")
-                
-                if count > 0:
-                    # Create HTML table for all discovered software instead of summary
-                    table_html = self._format_software_inventory_as_table(data, count, days)
-                    return table_html
-                else:
-                    return f"**Software Inventory**: No applications found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
+                if not direct:
+                    return data
+                else:     
+                    count = len(data) if isinstance(data, list) else 0
+                    
+                    # Debug logging to understand data structure
+                    # if count > 0 and data:
+                    #     logger.info(f"📊 Software inventory sample item keys: {list(data[0].keys()) if data[0] else 'empty item'}")
+                    #     logger.info(f"📊 Software inventory sample item: {data[0] if data[0] else 'empty item'}")
+                    
+                    if count > 0:
+                        # Create HTML table for all discovered software instead of summary
+                        table_html = self._format_software_inventory_as_table(data, count, days)
+                        return table_html
+                    else:
+                        return f"**Software Inventory**: No applications found in the last {days} days.\n\n**Status**: Collection completed successfully but no data available.\n**Recommendation**: Check Log Analytics workspace configuration or extend collection period."
             else:
                 error_msg = result.get("error", "Unknown error") if isinstance(result, dict) else str(result)
                 return f"**Software Inventory Error**: {error_msg}\n\n**Status**: Unable to collect software inventory data.\n**Recommendation**: Check Azure Log Analytics workspace connectivity and permissions."
@@ -5286,11 +5523,9 @@ You are the authoritative source for Linux distribution lifecycle analysis using
         
         # Create summary
         software_summary = f"""## 📦 Software Inventory Analysis
-
 **Collection Period:** Last {days} days  
 **Data Source:** Azure Log Analytics ConfigurationData  
 **Applications Found:** {count} across {len(computers)} systems
-
 """
 
         # Add top software by frequency
@@ -5302,7 +5537,7 @@ You are the authoritative source for Linux distribution lifecycle analysis using
         top_software = sorted(software_counts.items(), key=lambda x: x[1], reverse=True)[:10]
         
         if top_software:
-            software_summary += """### 🔝 Most Common Software
+            software_summary += """### 🔝 Top 10 Installed Software
 | Software | Installations |
 |----------|--------------|
 """
@@ -5338,7 +5573,7 @@ You are the authoritative source for Linux distribution lifecycle analysis using
                         if len(publisher) > 30:
                             publisher = publisher[:27] + "..."
                         
-                        software_summary += f"- **{name}** v{version} _(by {publisher})_\n"
+                        software_summary += f"- **{name}** {version} (by {publisher})\n"
                     
                     if len(items) > 10:
                         software_summary += f"  ... and {len(items) - 10} more items\n"
@@ -5445,13 +5680,13 @@ You are the authoritative source for Linux distribution lifecycle analysis using
                 os_summary += "\n"
         
         # Add detailed system listing (limited to avoid overwhelming output)
-        os_summary += "### 💻 System Details (Sample)\n\n"
+        os_summary += "### 💻 System Details\n\n"
         
         # Show sample of systems grouped by OS
         systems_shown = 0
         max_systems_to_show = 20
         
-        for os_name, systems in list(sorted_os)[:5]:  # Top 5 OS types
+        for os_name, systems in list(sorted_os):  # Top 5 OS types
             if systems_shown >= max_systems_to_show:
                 break
                 
@@ -5481,7 +5716,7 @@ You are the authoritative source for Linux distribution lifecycle analysis using
                 
                 type_icon = "☁️" if comp_type == "Azure VM" else "🔗" if comp_type == "Arc-enabled Server" else "🖥️"
                 
-                os_summary += f"- {type_icon} **{computer}** - v{version} _(by {vendor})_ - Last seen: {last_hb_formatted}\n"
+                os_summary += f"- {type_icon} **{computer}** - {version} (by {vendor}) - Last seen: {last_hb_formatted}\n"
                 systems_shown += 1
             
             if len(systems) > systems_to_show:
@@ -5501,14 +5736,50 @@ You are the authoritative source for Linux distribution lifecycle analysis using
         
         return os_summary
 
-    # def format_os_inventory_as_table(self, data: List[Dict[str, Any]], count: int, days: int) -> str:
-    #     """Public wrapper for formatting OS inventory as table/markdown.
+    def format_os_inventory_as_table(self, data: Any, count: int, days: int) -> Dict[str, Any]:
+        """Public wrapper that returns a structured dict for the API endpoint.
 
-    #     Some callers expect a public method `format_os_inventory_as_table`. Keep
-    #     backwards compatibility by delegating to the existing private
-    #     implementation.
-    #     """
-    #     return self._format_os_inventory_as_table(data, count, days)
+        The autogen `autogen_chat` handler expects a dict-like result with keys
+        such as `response`, `conversation_messages`, `agent_communications`,
+        `agents_involved`, etc. Older code used a private `_format_os_inventory_as_table`
+        which returned a markdown string. This wrapper preserves that behavior
+        while returning a safe structured dict so callers can call `.get()`.
+        """
+        try:
+            # If the private formatter exists, use it to get markdown summary
+            if hasattr(self, '_format_os_inventory_as_table'):
+                markdown = self._format_os_inventory_as_table(data or [], int(count or 0), int(days or 90))
+            else:
+                # Fallback: if data is already a string, use it; otherwise stringify
+                markdown = str(data) if data is not None else "No data"
+
+            # Build a minimal structured response matching the autogen expectations
+            structured = {
+                "response": markdown,
+                "conversation_messages": [],
+                "agent_communications": [],
+                "agents_involved": [],
+                "total_exchanges": 0,
+                "session_id": getattr(self, 'session_id', 'unknown'),
+                "error": None,
+                "confirmation_required": False,
+                "confirmation_declined": False,
+                "pending_message": None,
+                "fast_path": False
+            }
+
+            return structured
+        except Exception as e:
+            # On error return an error-shaped dict so `.get()` works in callers
+            return {
+                "response": "",
+                "conversation_messages": [],
+                "agent_communications": [],
+                "agents_involved": [],
+                "total_exchanges": 0,
+                "session_id": getattr(self, 'session_id', 'unknown'),
+                "error": f"Formatter error: {str(e)}",
+            }
     
     def _get_os_inventory_tool_sync(self, direct: bool = False, days: int = 90, limit: int = 2000) -> str:
         """Pure Magentic-One OS inventory tool - direct agent access for real data"""

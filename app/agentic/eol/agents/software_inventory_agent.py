@@ -91,7 +91,7 @@ class SoftwareInventoryAgent:
                 logger.error("❌ Software Inventory Agent failed to initialize logs client: %s", e)
         return self._logs_client
 
-    async def get_software_inventory(self, days: int = 30, software_filter: Optional[str] = None, limit: int = 10000, use_cache: bool = True) -> Dict[str, Any]:
+    async def get_software_inventory(self, days: int = 90, software_filter: Optional[str] = None, limit: int = 10000, use_cache: bool = True) -> Dict[str, Any]:
         """Retrieve software inventory from ConfigurationData table with caching"""
         
         # Prepare query parameters for cache key

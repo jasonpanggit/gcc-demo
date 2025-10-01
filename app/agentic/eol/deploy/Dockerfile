@@ -1,10 +1,14 @@
 # Use standard Python image for better cross-platform compatibility
-FROM python:3.11-slim
+#FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright:v1.50.0-jammy
 
 # Set environment variables for Playwright in container
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 ENV DEBIAN_FRONTEND=noninteractive
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Install minimal required system dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,19 +16,25 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     ca-certificates \
+    # added for Playwright
+    gnupg \
+    unzip \
+    python3.11 \
+    python3-pip \
     # Essential libraries for Chromium
-    libglib2.0-0 \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libxss1 \
-    libasound2 \
-    libgtk-3-0 \
-    libxkbcommon0 \
+    # fonts-liberation \
+    # libglib2.0-0 \
+    # libnss3 \
+    # libatk-bridge2.0-0 \
+    # libdrm2 \
+    # libxcomposite1 \
+    # libxdamage1 \
+    # libxrandr2 \
+    # libgbm1 \
+    # libxss1 \
+    # libasound2 \
+    # libgtk-3-0 \
+    # libxkbcommon0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -52,7 +62,7 @@ RUN python -c "import playwright; print('✅ Playwright imported successfully')"
 ENV CONTAINER_MODE=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Copy application code from parent directory

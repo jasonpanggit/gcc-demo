@@ -30,7 +30,7 @@ ls -la /temp 2>/dev/null || echo "[startup] 💡 /temp not found (this is normal
 # Use the pre-configured path from Docker build
 export PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 export NODE_OPTIONS="--max-old-space-size=4096"
 export CONTAINER_MODE=true
 
@@ -66,38 +66,39 @@ if [ -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
     fi
 fi
 
-timeout 30 python3 -c "
-try:
-    from playwright.sync_api import sync_playwright
-    print('[startup] 🌐 Initializing Playwright...')
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--single-process',
-                '--disable-gpu'
-            ]
-        )
-        page = browser.new_page()
-        page.goto('data:text/html,<h1>Test</h1>', timeout=10000)
-        content = page.content()
-        browser.close()
-        print(f'[startup] ✅ Playwright browser test successful! Content length: {len(content)}')
-except Exception as e:
-    print(f'[startup] ⚠️ Playwright browser test failed: {e}')
-    print('[startup] 💡 Application will use fallback mode without browser automation')
+#timeout 30 python3 -c "
+#try:
+#    from playwright.sync_api import sync_playwright
+#    print('[startup] 🌐 Initializing Playwright...')
+#    with sync_playwright() as p:
+#        browser = p.chromium.launch(
+#            headless=True,
+#            args=[
+#                '--no-sandbox',
+#                '--disable-setuid-sandbox', 
+#                '--disable-dev-shm-usage',
+#                '--single-process',
+#                '--disable-gpu'
+#            ]
+#        )
+#        page = browser.new_page()
+#        page.goto('https://www.bing.com', timeout=10000)
+#        content = page.content()
+#        browser.close()
+#        print(f'[startup] ✅ Playwright browser test successful! Content length: {len(content)}')
+#        print(f'[startup] ✅ Playwright browser test successful! First 500 chars: {content[:500]}')
+#except Exception as e:
+#    print(f'[startup] ⚠️ Playwright browser test failed: {e}')
+#    print('[startup] 💡 Application will use fallback mode without browser automation')
     # Additional diagnostic information
-    import os
-    print(f'[startup] 🔍 PLAYWRIGHT_BROWSERS_PATH: {os.environ.get(\"PLAYWRIGHT_BROWSERS_PATH\", \"Not set\")}')
-    try:
-        import playwright
-        print(f'[startup] 🔍 Playwright version: {playwright.__version__}')
-    except:
-        print('[startup] 🔍 Playwright import failed')
-" || echo "[startup] ⚠️ Playwright browser test timed out or failed - continuing with fallback mode"
+#    import os
+#    print(f'[startup] 🔍 PLAYWRIGHT_BROWSERS_PATH: {os.environ.get(\"PLAYWRIGHT_BROWSERS_PATH\", \"Not set\")}')
+#    try:
+#        import playwright
+#        print(f'[startup] 🔍 Playwright version: {playwright.__version__}')
+#    except:
+#        print('[startup] 🔍 Playwright import failed')
+#" || echo "[startup] ⚠️ Playwright browser test timed out or failed - continuing with fallback mode"
 
 echo "[startup] 🚀 Starting web application with system Python..."
 exec python3 -m uvicorn main:app --host 0.0.0.0 --port "$PORT"

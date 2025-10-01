@@ -2484,30 +2484,6 @@ async def autogen_chat(req: AutoGenChatRequest):
             ),
             timeout=effective_timeout + 10  # Add buffer for FastAPI timeout
         )
-        
-        # logger.info("**************[Line 2488]Processing result: %s", result)
-        # # call formatter only when we have a list of inventory items
-        # if isinstance(result, list):
-        #     count = len(result)
-        #     try:
-        #         formatted = chat_orch.format_os_inventory_as_table(result, count, 90)
-        #         logger.info("**************[Line 2492]Processing after result: %s", formatted)
-        #         # If formatter returned a string, wrap in expected dict shape
-        #         result = {"response": formatted, "conversation_messages": [], "agent_communications": [], "agents_involved": [], "total_exchanges": 0, "session_id": getattr(chat_orch, 'session_id', 'unknown')}
-        #     except Exception as fe:
-        #         logger.warning("Formatter failed, falling back to raw result: %s", fe)
-        #         # Keep original result but wrap for downstream processing
-        #         result = {"response": str(result), "conversation_messages": [], "agent_communications": [], "agents_involved": [], "total_exchanges": 0, "session_id": getattr(chat_orch, 'session_id', 'unknown'), "error": str(fe)}
-        # else:
-        #     # Non-list results may be plain strings or dicts from chat orchestrator - normalize
-        #     if isinstance(result, str):
-        #         result = {"response": result}
-        #     elif isinstance(result, dict):
-        #         # keep as-is but ensure 'response' exists
-        #         if 'response' not in result:
-        #             result['response'] = str(result)
-        #     else:
-        #         result = {"response": str(result)}
 
         # Ensure all data is JSON serializable and limit size to prevent parsing issues
         def clean_for_json(obj):

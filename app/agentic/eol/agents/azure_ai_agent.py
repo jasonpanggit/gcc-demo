@@ -19,6 +19,7 @@ import time
 import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+import inspect
 
 from .base_eol_agent import BaseEOLAgent
 
@@ -68,7 +69,8 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         self.project_name = os.getenv("AZURE_AI_PROJECT_NAME", "")
         self.resource_group = os.getenv("RESOURCE_GROUP_NAME", "")
         self.subscription_id = os.getenv("SUBSCRIPTION_ID", "")
-        
+        self.bing_connection_id = os.getenv("AZURE_AI_BING_CONNECTION_ID", "")
+    
         # Initialize Azure credential for managed identity
         self.credential = None
         self.ai_client = None
@@ -93,7 +95,8 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                 self.ai_client = None
         
         self.timeout = 30
-    
+
+        
     def is_available(self) -> bool:
         """Check if Azure AI Agent Service is properly configured"""
         if not AZURE_AI_AVAILABLE:
@@ -111,6 +114,112 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
             logger.info("   Required: AZURE_AI_PROJECT_ENDPOINT, Azure credentials")
         
         return is_configured
+
+    def _get_bing_connection_id(self) -> Optional[str]:
+        """
+        Try to obtain a Bing grounding connection id from the AI project client.
+        Returns the first available connection id/name if found, otherwise None.
+        """
+        try:
+            if not self.ai_client:
+                return None
+
+            # Respect explicit env var override first
+            if getattr(self, 'bing_connection_id', None):
+                logger.debug("Using AZURE_AI_BING_CONNECTION_ID from environment")
+                return self.bing_connection_id
+
+            connections_coll = getattr(self.ai_client, "connections", None)
+            if not connections_coll:
+                return None
+
+            # Try list() pattern
+            if hasattr(connections_coll, "list"):
+                try:
+                    conns = connections_coll.list()
+                    # Log discovered connection identifiers for debugging (non-sensitive)
+                    discovered = []
+                    try:
+                        iterator = iter(conns)
+                        for idx, item in enumerate(iterator):
+                            if idx >= 20:
+                                break
+                            cid = getattr(item, "id", None) or getattr(item, "connection_id", None) or getattr(item, "name", None)
+                            if cid:
+                                discovered.append(str(cid))
+                        # Re-create first element via a new listing if necessary
+                        conns = connections_coll.list()
+                    except TypeError:
+                        # conns may be indexable
+                        if isinstance(conns, (list, tuple)) and len(conns) > 0:
+                            first = conns[0]
+                            cid = getattr(first, "id", None) or getattr(first, "connection_id", None) or getattr(first, "name", None)
+                            if cid:
+                                discovered.append(str(cid))
+
+                    if discovered:
+                        logger.debug(f"Discovered Bing connections (sample): {discovered}")
+
+                    # Return first discovered id if present
+                    if discovered:
+                        return discovered[0]
+                except Exception as e:
+                    logger.debug(f"Error while listing Bing connections: {e}")
+                    pass
+
+            # Try get() pattern using project_name as hint
+            if hasattr(connections_coll, "get") and self.project_name:
+                try:
+                    conn = connections_coll.get(self.project_name)
+                    if conn:
+                        return (
+                            getattr(conn, "id", None)
+                            or getattr(conn, "connection_id", None)
+                            or getattr(conn, "name", None)
+                        )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.debug(f"Error while enumerating Bing connections: {e}")
+
+        return None
+
+    def _build_bing_search_params(self, search_query: str):
+        """
+        Robustly construct a BingGroundingSearchToolParameters instance.
+        Tries common parameter names and positional construction; falls back to a simple dict.
+        """
+        try:
+            Target = globals().get('BingGroundingSearchToolParameters', None)
+            if not Target:
+                return {"query": search_query}
+
+            candidates = ['query', 'search_query', 'q', 'text', 'content', 'prompt', 'input']
+            for key in candidates:
+                try:
+                    kwargs = {key: search_query}
+                    return Target(**kwargs)
+                except TypeError:
+                    continue
+
+            # Try positional if signature accepts it
+            try:
+                sig = inspect.signature(Target)
+                params = [p for p in sig.parameters.values() if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+                if params:
+                    try:
+                        return Target(search_query)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.debug(f"Error while building Bing grounding search params: {e}")
+
+        # Fallback: return plain dict that our simulated executor can handle
+        return {"query": search_query}
     
     async def get_eol_data(self, software_name: str, version: Optional[str] = None, technology_context: str = "general") -> Dict[str, Any]:
         """
@@ -242,17 +351,56 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                 logger.info("🔍 Azure AI Agent Service performing REAL internet search")
                 
                 # Create Bing Grounding Tool for real web search
-                # Note: connection_id should be obtained from project_client.connections.get()
-                # For now, using minimal initialization to avoid parameter errors
-                bing_tool = BingGroundingTool()
+                # Note: connection_id may be required by the installed SDK. Be defensive.
+                bing_tool = None
+                try:
+                    if AZURE_AI_AVAILABLE and self.ai_client:
+                        conn_id = self._get_bing_connection_id()
+
+                        # Try to detect whether BingGroundingTool requires 'connection_id'
+                        try:
+                            sig = inspect.signature(BingGroundingTool)
+                            requires_conn = 'connection_id' in sig.parameters and sig.parameters['connection_id'].default is inspect._empty
+                        except Exception:
+                            requires_conn = True
+
+                        if requires_conn:
+                            if conn_id:
+                                try:
+                                    bing_tool = BingGroundingTool(connection_id=conn_id)
+                                except TypeError:
+                                    bing_tool = BingGroundingTool(conn_id)
+                            else:
+                                logger.warning("⚠️ Azure AI grounding requires a Bing connection_id but none was found; skipping real grounding.")
+                                bing_tool = None
+                        else:
+                            # connection_id optional
+                            if conn_id:
+                                try:
+                                    bing_tool = BingGroundingTool(connection_id=conn_id)
+                                except Exception:
+                                    try:
+                                        bing_tool = BingGroundingTool()
+                                    except Exception as e:
+                                        logger.debug(f"Couldn't instantiate BingGroundingTool even without connection_id: {e}")
+                                        bing_tool = None
+                            else:
+                                try:
+                                    bing_tool = BingGroundingTool()
+                                except Exception as e:
+                                    logger.debug(f"Couldn't instantiate BingGroundingTool without connection_id: {e}")
+                                    bing_tool = None
+                    else:
+                        logger.info("💡 Azure AI dependencies or client not available; skipping real grounding.")
+                except Exception as e:
+                    logger.error(f"❌ Error while creating BingGroundingTool: {e}")
+                    bing_tool = None
                 
                 # Execute the grounded search
                 logger.info(f"🔍 [DEBUG] Executing Bing grounded search with query: '{search_query}'")
                 
                 # Use Azure AI Agents to perform the search
-                search_params = BingGroundingSearchToolParameters(
-                    query=search_query
-                )
+                search_params = self._build_bing_search_params(search_query)
                 
                 # Execute the search through Azure AI Agent Service
                 grounding_result = await self._execute_grounded_search(bing_tool, search_params)

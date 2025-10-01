@@ -9,11 +9,6 @@ from .base_eol_agent import BaseEOLAgent
 
 logger = logging.getLogger(__name__)
 
-class UbuntuEOLAgent(BaseEOLAgent):
-    """Agent for querying Ubuntu EOL information"""
-
-    def __init__(self):
-        super().__init__("ubuntu")
 import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any, Optional, List
@@ -46,12 +41,13 @@ except ImportError:
     eol_cache = None
 
 
-class UbuntuEOLAgent:
+class UbuntuEOLAgent(BaseEOLAgent):
     """Agent for scraping Ubuntu official EOL information with Cosmos DB caching"""
 
     def __init__(self):
+        super().__init__("ubuntu")
+
         # Agent identification
-        self.agent_name = "ubuntu"
         
         self.timeout = 15
         self.headers = {

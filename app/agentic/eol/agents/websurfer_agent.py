@@ -50,6 +50,8 @@ class WebsurferEOLAgent(BaseEOLAgent):
     def __init__(self, model_client):
         super().__init__("websurfer_eol")
         self.web_surfer = None
+        self.playwright = None
+        # self.agent_team = None
         self._initialization_error = None
         self._health_checked = False
         self._initialize_websurfer(model_client)
@@ -65,116 +67,117 @@ class WebsurferEOLAgent(BaseEOLAgent):
             from autogen_ext.agents.web_surfer import MultimodalWebSurfer
             import os
             
-            # Configure browser options for Azure App Services container environment
-            # Set environment variables for Playwright browser configuration
-            import os
-            
             # Check if running in container environment
-            if os.getenv('CONTAINER_MODE') or os.getenv('WEBSITE_SITE_NAME'):
-                logger.info("🐳 Container environment detected - configuring Playwright for Azure App Services")
+            # if os.getenv('CONTAINER_MODE') or os.getenv('WEBSITE_SITE_NAME'):
+            #     logger.info("🐳 Container environment detected - configuring Playwright for Azure App Services")
                 
-                # Set Playwright browser arguments via environment variable
-                # This is the recommended approach for autogen-ext WebSurfer
-                browser_args = [
-                    # Core security and sandbox arguments
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox", 
-                    "--disable-dev-shm-usage",
+            #     # Set Playwright browser arguments via environment variable
+            #     # This is the recommended approach for autogen-ext WebSurfer
+            #     browser_args = [
+            #         # Core security and sandbox arguments
+            #         "--no-sandbox",
+            #         "--disable-setuid-sandbox", 
+            #         "--disable-dev-shm-usage",
                     
-                    # Performance optimizations for containers
-                    "--disable-accelerated-2d-canvas",
-                    "--disable-gpu",
-                    "--disable-gpu-sandbox",
-                    "--disable-software-rasterizer",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-features=TranslateUI",
-                    "--disable-features=VizDisplayCompositor",
-                    "--disable-ipc-flooding-protection",
+            #         # Performance optimizations for containers
+            #         "--disable-accelerated-2d-canvas",
+            #         "--disable-gpu",
+            #         "--disable-gpu-sandbox",
+            #         "--disable-software-rasterizer",
+            #         "--disable-background-timer-throttling",
+            #         "--disable-backgrounding-occluded-windows",
+            #         "--disable-renderer-backgrounding",
+            #         "--disable-features=TranslateUI",
+            #         "--disable-features=VizDisplayCompositor",
+            #         "--disable-ipc-flooding-protection",
                     
-                    # Memory and process management
-                    "--memory-pressure-off",
-                    "--max_old_space_size=4096",
-                    "--no-zygote",
-                    "--single-process",
+            #         # Memory and process management
+            #         "--memory-pressure-off",
+            #         "--max_old_space_size=4096",
+            #         "--no-zygote",
+            #         "--single-process",
                     
-                    # Azure App Service specific optimizations
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-default-apps",
-                    "--disable-extensions",
-                    "--disable-component-extensions-with-background-pages",
-                    "--disable-background-networking",
-                    "--disable-sync",
-                    "--disable-translate",
-                    "--hide-scrollbars",
-                    "--mute-audio",
+            #         # Azure App Service specific optimizations
+            #         "--no-first-run",
+            #         "--no-default-browser-check",
+            #         "--disable-default-apps",
+            #         "--disable-extensions",
+            #         "--disable-component-extensions-with-background-pages",
+            #         "--disable-background-networking",
+            #         "--disable-sync",
+            #         "--disable-translate",
+            #         "--hide-scrollbars",
+            #         "--mute-audio",
                     
-                    # Network and security settings
-                    "--disable-web-security",
-                    "--disable-features=VizDisplayCompositor",
-                    "--ignore-certificate-errors",
-                    "--ignore-ssl-errors",
-                    "--ignore-certificate-errors-spki-list",
+            #         # Network and security settings
+            #         "--disable-web-security",
+            #         "--disable-features=VizDisplayCompositor",
+            #         "--ignore-certificate-errors",
+            #         "--ignore-ssl-errors",
+            #         "--ignore-certificate-errors-spki-list",
                     
-                    # Window and display settings for headless mode
-                    "--window-size=1920,1080",
-                    "--virtual-time-budget=5000",
+            #         # Window and display settings for headless mode
+            #         "--window-size=1920,1080",
+            #         "--virtual-time-budget=5000",
                     
-                    # Disable screenshot and visual operations that can cause issues in containers
-                    "--disable-canvas-aa",
-                    "--disable-2d-canvas-clip-aa", 
-                    "--disable-gl-drawing-for-tests",
-                    "--disable-gl-extensions",
-                    "--disable-skia-runtime-opts",
-                    "--disable-system-font-check",
-                    "--disable-vulkan-fallback-to-gl-for-testing",
+            #         # Disable screenshot and visual operations that can cause issues in containers
+            #         "--disable-canvas-aa",
+            #         "--disable-2d-canvas-clip-aa", 
+            #         "--disable-gl-drawing-for-tests",
+            #         "--disable-gl-extensions",
+            #         "--disable-skia-runtime-opts",
+            #         "--disable-system-font-check",
+            #         "--disable-vulkan-fallback-to-gl-for-testing",
                     
-                    # Additional stability for Azure App Service
-                    "--force-color-profile=srgb",
-                    "--disable-lcd-text",
-                    "--disable-logging",
-                    "--disable-breakpad"
-                ]
+            #         # Additional stability for Azure App Service
+            #         "--force-color-profile=srgb",
+            #         "--disable-lcd-text",
+            #         "--disable-logging",
+            #         "--disable-breakpad"
+            #     ]
                 
-                # Set environment variables that Playwright/WebSurfer will use
-                os.environ['PLAYWRIGHT_CHROMIUM_ARGS'] = ' '.join(browser_args)
-                os.environ['PLAYWRIGHT_BROWSER_HEADLESS'] = 'true'
+            #     # Set environment variables that Playwright/WebSurfer will use
+            #     os.environ['PLAYWRIGHT_CHROMIUM_ARGS'] = ' '.join(browser_args)
+            #     os.environ['PLAYWRIGHT_BROWSER_HEADLESS'] = 'true'
                 
-                # Additional Playwright environment variables for container compatibility
-                os.environ['PLAYWRIGHT_LAUNCH_OPTIONS'] = '{"headless": true, "args": ["' + '", "'.join(browser_args) + '"]}'
+            #     # Additional Playwright environment variables for container compatibility
+            #     os.environ['PLAYWRIGHT_LAUNCH_OPTIONS'] = '{"headless": true, "args": ["' + '", "'.join(browser_args) + '"]}'
                 
-                # Disable screenshot and multimodal features to prevent container issues
-                os.environ['PLAYWRIGHT_DISABLE_SCREENSHOTS'] = 'true'
-                os.environ['PLAYWRIGHT_SKIP_BROWSER_VALIDATION'] = 'true'
-                os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/ms-playwright'
+            #     # Disable screenshot and multimodal features to prevent container issues
+            #     os.environ['PLAYWRIGHT_DISABLE_SCREENSHOTS'] = 'true'
+            #     os.environ['PLAYWRIGHT_SKIP_BROWSER_VALIDATION'] = 'true'
+            #     os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/ms-playwright'
                 
-                # Disable problematic page evaluation operations that cause CancelledError
-                os.environ['AUTOGEN_DISABLE_MULTIMODAL'] = 'true'
-                os.environ['AUTOGEN_DISABLE_FOCUS_TRACKING'] = 'true'
-                os.environ['PLAYWRIGHT_DISABLE_FOCUS_RECT'] = 'true'
+            #     # Disable problematic page evaluation operations that cause CancelledError
+            #     os.environ['AUTOGEN_DISABLE_MULTIMODAL'] = 'true'
+            #     os.environ['AUTOGEN_DISABLE_FOCUS_TRACKING'] = 'true'
+            #     os.environ['PLAYWRIGHT_DISABLE_FOCUS_RECT'] = 'true'
                 
-                # Additional WebSurfer-specific environment variables to disable screenshots
-                os.environ['WEBSURFER_DISABLE_SCREENSHOTS'] = 'true'
-                os.environ['MULTIMODAL_WEBSURFER_DISABLE_SCREENSHOTS'] = 'true'
-                os.environ['AUTOGEN_WEBSURFER_DISABLE_VISION'] = 'true'
+            #     # Additional WebSurfer-specific environment variables to disable screenshots
+            #     os.environ['WEBSURFER_DISABLE_SCREENSHOTS'] = 'true'
+            #     os.environ['MULTIMODAL_WEBSURFER_DISABLE_SCREENSHOTS'] = 'true'
+            #     os.environ['AUTOGEN_WEBSURFER_DISABLE_VISION'] = 'true'
                 
-                # Additional focus and interaction disabling for container stability
-                os.environ['AUTOGEN_WEBSURFER_DISABLE_FOCUS'] = 'true'
-                os.environ['PLAYWRIGHT_DISABLE_PAGE_EVALUATION'] = 'true'
-                os.environ['WEBSURFER_SIMPLE_MODE'] = 'true'
+            #     # Additional focus and interaction disabling for container stability
+            #     os.environ['AUTOGEN_WEBSURFER_DISABLE_FOCUS'] = 'true'
+            #     os.environ['PLAYWRIGHT_DISABLE_PAGE_EVALUATION'] = 'true'
+            #     os.environ['WEBSURFER_SIMPLE_MODE'] = 'true'
                 
-                logger.info(f"🔧 Configured {len(browser_args)} browser args for container environment")
-                logger.info(f"🔧 Set PLAYWRIGHT_CHROMIUM_ARGS environment variable")
-                logger.info("🔧 Disabled screenshot operations for container compatibility")
+            #     logger.info(f"🔧 Configured {len(browser_args)} browser args for container environment")
+            #     logger.info(f"🔧 Set PLAYWRIGHT_CHROMIUM_ARGS environment variable")
+            #     logger.info("🔧 Disabled screenshot operations for container compatibility")
             
-            # Create WebSurfer instance for cloud-friendly deployment
+            
+            
             # Note: Browser configuration is handled via environment variables set above
             self.web_surfer = MultimodalWebSurfer(
-                name="websurfer_eol_agent", 
-                model_client=model_client
+                name="websurfer_eol_agent",
+                model_client=model_client,
+                start_page="https://www.bing.com"  # Start page can be any valid URL
             )
+
+            # from autogen_agentchat.teams import RoundRobinGroupChat
+            # self.agent_team = RoundRobinGroupChat([self.web_surfer], max_turns=3)
 
             logger.info("🌐 WebSurfer instance created successfully - will test browser on first use")
             
@@ -294,13 +297,11 @@ class WebsurferEOLAgent(BaseEOLAgent):
             self._initialization_error = "health_check_skipped"
             return False
         
-        # Auto-skip in Azure App Service environments where WebSurfer commonly fails
-        # Note: Re-enabled to allow WebSurfer to attempt running in Azure App Service
-        # The focus tracking operations may fail, but we'll try with improved environment variables
-        if os.getenv('WEBSITE_SITE_NAME') or os.getenv('WEBSITE_INSTANCE_ID'):
-            logger.info("🔍 WebSurfer health check: Auto-skipping in Azure App Service environment due to focus tracking issues")
-            self._initialization_error = "azure_app_service_environment"
-            return False
+        # Uncomment to skip in Azure App Service environments where WebSurfer commonly fails
+        # if os.getenv('WEBSITE_SITE_NAME') or os.getenv('WEBSITE_INSTANCE_ID'):
+        #     logger.info("🔍 WebSurfer health check: Auto-skipping in Azure App Service environment due to focus tracking issues")
+        #     self._initialization_error = "azure_app_service_environment"
+        #     return False
         
         # Return cached health status if already checked successfully
         if self._health_checked:
@@ -315,7 +316,7 @@ class WebsurferEOLAgent(BaseEOLAgent):
             
             # Use a very simple test message with minimal AI processing required
             test_messages = [TextMessage(
-                content="Visit example.com and respond with just 'OK'", 
+                content="Visit bing.com and respond with just 'OK'", 
                 source="user"
             )]
             
@@ -326,6 +327,8 @@ class WebsurferEOLAgent(BaseEOLAgent):
                 self.web_surfer.on_messages(test_messages, CancellationToken()), 
                 timeout=timeout_seconds
             )
+            
+            logger.info(f"🔍 WebSurfer health check: Browser test response received: {response}")
             
             if response and response.chat_message:
                 content = response.chat_message.content
