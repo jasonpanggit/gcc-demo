@@ -163,6 +163,7 @@ from .postgresql_agent import PostgreSQLEOLAgent
 from .php_agent import PHPEOLAgent
 from .python_agent import PythonEOLAgent
 from .websurfer_agent import WebsurferEOLAgent
+from .playwright_agent import PlaywrightEOLAgent
 from .azure_ai_agent import AzureAIAgentEOLAgent  # Modern Azure AI Agent Service
 # from .openai_agent import OpenAIAgent
 
@@ -227,10 +228,10 @@ class MagenticOneChatOrchestrator:
             self._cache_ttl_seconds = 180  # 3 minutes for rapid follow-up queries
             
             # Persistent Playwright browser for performance optimization
-            self._playwright = None
-            self._browser = None
-            self._browser_context = None
-            self._browser_lock = asyncio.Lock()  # Thread-safe browser access
+            # self._playwright = None
+            # self._browser = None
+            # self._browser_context = None
+            # self._browser_lock = asyncio.Lock()  # Thread-safe browser access
             
             self._log_orchestrator_event("orchestrator_init_start", {
                 "session_id": self.session_id,
@@ -390,62 +391,62 @@ class MagenticOneChatOrchestrator:
                 self.model_client = None
                 self.team = None
     
-    async def _get_playwright_browser(self):
-        """
-        Get or create a persistent Playwright browser instance.
-        Thread-safe with async lock to prevent concurrent initialization.
-        """
-        async with self._browser_lock:
-            if self._browser is None or not self._browser.is_connected():
-                try:
-                    logger.info("🌐 Initializing persistent Playwright browser...")
-                    from playwright.async_api import async_playwright
+    # async def _get_playwright_browser(self):
+    #     """
+    #     Get or create a persistent Playwright browser instance.
+    #     Thread-safe with async lock to prevent concurrent initialization.
+    #     """
+    #     async with self._browser_lock:
+    #         if self._browser is None or not self._browser.is_connected():
+    #             try:
+    #                 logger.info("🌐 Initializing persistent Playwright browser...")
+    #                 from playwright.async_api import async_playwright
                     
-                    if self._playwright is None:
-                        self._playwright = await async_playwright().start()
+    #                 if self._playwright is None:
+    #                     self._playwright = await async_playwright().start()
                     
-                    self._browser = await self._playwright.chromium.launch(
-                        headless=True,
-                        args=[
-                            '--no-sandbox',
-                            '--disable-setuid-sandbox',
-                            '--disable-dev-shm-usage',
-                            '--single-process',
-                            '--disable-gpu'
-                        ]
-                    )
+    #                 self._browser = await self._playwright.chromium.launch(
+    #                     headless=True,
+    #                     args=[
+    #                         '--no-sandbox',
+    #                         '--disable-setuid-sandbox',
+    #                         '--disable-dev-shm-usage',
+    #                         '--single-process',
+    #                         '--disable-gpu'
+    #                     ]
+    #                 )
                     
-                    self._browser_context = await self._browser.new_context(
-                        viewport={'width': 1280, 'height': 1024},
-                        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    )
+    #                 self._browser_context = await self._browser.new_context(
+    #                     viewport={'width': 1280, 'height': 1024},
+    #                     user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    #                 )
                     
-                    logger.info("✅ Playwright browser initialized and ready for reuse")
-                except Exception as e:
-                    logger.error(f"❌ Failed to initialize Playwright browser: {e}")
-                    raise
+    #                 logger.info("✅ Playwright browser initialized and ready for reuse")
+    #             except Exception as e:
+    #                 logger.error(f"❌ Failed to initialize Playwright browser: {e}")
+    #                 raise
             
-            return self._browser, self._browser_context
+    #         return self._browser, self._browser_context
     
-    async def _close_playwright_browser(self):
-        """Close the persistent Playwright browser instance gracefully."""
-        async with self._browser_lock:
-            try:
-                if self._browser_context:
-                    await self._browser_context.close()
-                    self._browser_context = None
+    # async def _close_playwright_browser(self):
+    #     """Close the persistent Playwright browser instance gracefully."""
+    #     async with self._browser_lock:
+    #         try:
+    #             if self._browser_context:
+    #                 await self._browser_context.close()
+    #                 self._browser_context = None
                     
-                if self._browser:
-                    await self._browser.close()
-                    self._browser = None
+    #             if self._browser:
+    #                 await self._browser.close()
+    #                 self._browser = None
                     
-                if self._playwright:
-                    await self._playwright.stop()
-                    self._playwright = None
+    #             if self._playwright:
+    #                 await self._playwright.stop()
+    #                 self._playwright = None
                     
-                logger.info("✅ Playwright browser closed successfully")
-            except Exception as e:
-                logger.error(f"❌ Error closing Playwright browser: {e}")
+    #             logger.info("✅ Playwright browser closed successfully")
+    #         except Exception as e:
+    #             logger.error(f"❌ Error closing Playwright browser: {e}")
     
     def _log_orchestrator_event(self, event_type: str, event_data: Dict[str, Any]):
         """Log orchestrator behavior events with structured data"""
@@ -1783,8 +1784,8 @@ class MagenticOneChatOrchestrator:
             return "both"  # Default to both if unclear
     
     async def _route_internet_eol_task(self, user_message: str, conversation_id: int, start_time: float, cache_key: str, timeout_seconds: int) -> Dict[str, Any]:
-        """Route INTERNET_EOL tasks directly to internet search agents (WebSurfer -> Azure AI fallback)"""
-        logger.info(f"🌐 Routing INTERNET_EOL task - Direct internet search for EOL data")
+        """Route INTERNET_EOL tasks directly to Playwright agent for reliable Bing search extraction"""
+        logger.info(f"🌐 Routing INTERNET_EOL task to Playwright Agent")
         
         # Extract software name and version for targeted search
         software_name, version = self._extract_software_name_version(user_message)
@@ -1794,227 +1795,23 @@ class MagenticOneChatOrchestrator:
             "user_message_preview": user_message[:100],
             "software_name": software_name,
             "version": version,
-            "routing_strategy": "websurfer_primary_azure_ai_fallback"
+            "routing_strategy": "playwright_agent"
         })
         
-        try:
-            logger.info(f"🔍 Attempting WebSurfer internet search for {software_name} {version or ''}")
-
-            result = None
-
-            # cant seen to get autogen to work here
-            # stream = self.team.run_stream(task=f"Searching for end-of-life information for {software_name} {version or ''}")
-            
-            # using playwright directly for now with persistent browser
-            logger.info("🌐 Using persistent Playwright browser...")
-            browser, context = await self._get_playwright_browser()
-            
-            page = await context.new_page()
-            try:
-                query = f"what is {software_name} {version or ''} end of life date?"  
-                query = query.replace(" ", "%20")
-                requestUrl = f"https://www.bing.com/copilotsearch/?q={query}&form=CSBRAND"
-                logger.info(f"🌐 Navigating to {requestUrl} ...")                
-                
-                await page.goto(requestUrl, timeout=60000, wait_until='domcontentloaded')
-                
-                # Wait for initial page load
-                logger.info("⏳ Waiting for initial page load...")
-                await asyncio.sleep(3)
-                
-                # The answer is inside an iframe, not the main page
-                # Look for the iframe that contains the search results
-                result = None
-                try:
-                    logger.info("🔍 Looking for iframe with search results...")
-                    
-                    # Wait for iframe to be present - it has a URL pattern like:
-                    # https://www.bing.com/search?q=...&form=DEEPSH&shm=co...
-                    await asyncio.sleep(5)  # Give iframe time to load
-                    
-                    frames = page.frames
-                    logger.info(f"📊 Found {len(frames)} frames")
-                    
-                    # Find the iframe that contains the search results
-                    # The iframe URL pattern is: https://www.bing.com/search?q=...&cpl... or form=DEEPSH
-                    search_frame = None
-                    for frame in frames:
-                        frame_url = frame.url
-                        # Check for Bing search iframe patterns
-                        if 'bing.com/search' in frame_url and ('form=DEEPSH' in frame_url or 'cpl' in frame_url):
-                            logger.info(f"✅ Found search results iframe: {frame_url[:100]}...")
-                            search_frame = frame
-                            break
-                    
-                    if search_frame:
-                        # Wait for the answer_container to appear in the iframe
-                        logger.info("⏳ Waiting for answer_container in iframe...")
-                        try:
-                            answer_element = await search_frame.wait_for_selector('.answer_container', timeout=15000)
-                            if answer_element:
-                                logger.info("✅ Found answer_container in iframe!")
-                                result = await answer_element.inner_html()
-                                logger.info(f"📝 Extracted answer HTML length: {len(result)}")
-                            else:
-                                logger.warning("⚠️ answer_container selector returned None")
-                                result = await search_frame.content()
-                        except Exception as e:
-                            logger.warning(f"⚠️ Could not find answer_container in iframe: {e}")
-                            result = await search_frame.content()
-                    else:
-                        logger.warning("⚠️ Could not find search results iframe, falling back to main page")
-                        result = await page.content()
-                        
-                except Exception as e:
-                    logger.error(f"❌ Playwright iframe extraction failed: {e}")
-                    result = await page.content()
-            finally:
-                # Close the page but keep the browser and context for reuse
-                await page.close()
-
-            # Parse and format the HTML for chat interface
-            from bs4 import BeautifulSoup
-            import re
-            
-            soup = BeautifulSoup(result, 'html.parser')
-            
-            # Extract the answer_container div
-            target_div = soup.find('div', class_='answer_container')
-            if not target_div:
-                # Fallback: use entire result if answer_container not found
-                logger.warning("⚠️ answer_container not found, using full content")
-                target_div = soup
-            
-            # Extract data-snippet content FIRST (before removing any elements)
-            # These contain the actual answers from Bing Copilot Search
-            snippets = []
-            snippet_elements = target_div.find_all(attrs={'data-snippet': True})
-            for elem in snippet_elements:
-                snippet_text = elem.get('data-snippet', '').strip()
-                snippet_url = elem.get('data-url', '').strip()
-                snippet_title = elem.get('data-title', '').strip()
-                
-                if snippet_text and len(snippet_text) > 20:  # Only meaningful snippets
-                    snippets.append({
-                        'text': snippet_text,
-                        'url': snippet_url,
-                        'title': snippet_title
-                    })
-            
-            # Helper function to convert plain URLs in text to clickable markdown links
-            def make_urls_clickable(text: str) -> str:
-                """Convert any plain URLs in text to markdown links"""
-                # Regex pattern to match URLs (http, https)
-                url_pattern = r'(?<!\()(?<!\[)(https?://[^\s\)]+)(?!\))'
-                
-                def replace_url(match):
-                    url = match.group(1)
-                    # Don't re-wrap if already in markdown format
-                    return f"[{url}]({url})"
-                
-                return re.sub(url_pattern, replace_url, text)
-            
-            # Build formatted response for chat
-            formatted_lines = []
-            
-            # Add main snippets as the primary answer
-            if snippets:
-                logger.info(f"📝 Found {len(snippets)} answer snippets")
-                
-                # Use the first snippet as the main answer
-                main_snippet = snippets[0]
-                # Convert any plain URLs in snippet text to clickable links
-                main_text = make_urls_clickable(main_snippet['text'])
-                formatted_lines.append(f"**{main_text}**\n")
-                
-                # Add source link if available
-                if main_snippet['url']:
-                    source_text = main_snippet['title'] if main_snippet['title'] else main_snippet['url']
-                    formatted_lines.append(f"**Source:** [{source_text}]({main_snippet['url']})\n")
-                
-                # Add additional relevant snippets as context
-                if len(snippets) > 1:
-                    formatted_lines.append("\n**Additional Information:**")
-                    for snippet in snippets[1:3]:  # Limit to 2 additional snippets
-                        # Convert any plain URLs in snippet text to clickable links
-                        snippet_text = make_urls_clickable(snippet['text'])
-                        formatted_lines.append(f"- {snippet_text}")
-                        if snippet['url']:
-                            title = snippet['title'] if snippet['title'] else "Learn more"
-                            formatted_lines.append(f"  [{title}]({snippet['url']})")
-                
-            # Extract regular paragraphs and links as fallback
-            else:
-                logger.info("📝 No snippets found, extracting regular content")
-                
-                # Get main text content
-                for p in target_div.find_all('p'):
-                    text = p.get_text(strip=True)
-                    if text and len(text) > 10:
-                        # Convert any plain URLs in paragraph text to clickable links
-                        text = make_urls_clickable(text)
-                        formatted_lines.append(text)
-                        formatted_lines.append("")  # Add blank line
-                
-                # Extract links separately
-                links = []
-                for link in target_div.find_all('a', href=True):
-                    link_text = link.get_text(strip=True)
-                    link_url = link.get('href', '')
-                    if link_text and link_url and len(link_text) > 5:
-                        links.append(f"[{link_text}]({link_url})")
-                
-                if links:
-                    formatted_lines.append("\n**Sources:**")
-                    for link in links[:5]:  # Limit to 5 links
-                        formatted_lines.append(f"- {link}")
-            
-            # Join all formatted lines
-            result = '\n'.join(formatted_lines)
-            
-            # Final cleanup
-            result = re.sub(r'\n{3,}', '\n\n', result)  # Max 2 consecutive newlines
-            result = '\n'.join(line.rstrip() for line in result.split('\n'))  # Trim lines
-            result = result.strip()  # Trim overall
-            
-            logger.info(f"✅ Formatted response for chat interface ({len(result)} characters)")
+        # Call unified EOL specialist with playwright type for consistent tracking
+        result = await self._call_eol_specialist_unified(
+            "playwright", 
+            software_name, 
+            version,
+            user_message, 
+            conversation_id, 
+            start_time, 
+            cache_key, 
+            timeout_seconds
+        )
         
-            # Normalize to a chat-style response dict to keep caller expectations stable
-            response_text = result if result is not None else ""
-            chat_result = {
-                "response": response_text,
-                "conversation_id": conversation_id,
-                "response_time": time.time() - start_time if start_time else None,
-                "agent_used": "WebSurfer",
-                "query_type": "internet_eol",
-                "eol_data": {
-                    "success": bool(response_text),
-                    "text": response_text if response_text else "",
-                }
-            }
-
-            return chat_result
-                    
-        except Exception as e:
-            logger.error(f"❌ Internet EOL search failed with exception: {e}")
-            
-            # Return error response
-            return {
-                "response": f"Internet search for {software_name} {version or ''} EOL information encountered an error: {str(e)}",
-                "conversation_id": conversation_id,
-                "response_time": time.time() - start_time,
-                "agent_used": "InternetSearchError",
-                "query_type": "internet_eol_error",
-                "error": str(e),
-                "eol_data": {
-                    "success": False,
-                    "error": {
-                        "message": str(e),
-                        "software_name": software_name,
-                        "version": version
-                    }
-                }
-            }
+        # Convert tracking format to chat response format for direct calls
+        return self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
     
     async def _call_software_inventory_specialist_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
         """Direct call to software inventory specialist for inventory-only tasks"""
@@ -2574,7 +2371,8 @@ class MagenticOneChatOrchestrator:
                 'apache': self.apache_eol_agent,
                 'general': self.endoflife_agent,
                 'azure_ai': self.azure_ai_eol_agent,
-                'websurfer': self.websurfer_eol_agent
+                'websurfer': self.websurfer_eol_agent,
+                'playwright': self.playwright_eol_agent
             }
             
             agent = agent_map.get(specialist_type.lower())
@@ -2638,17 +2436,60 @@ class MagenticOneChatOrchestrator:
             self._track_eol_agent_response(specialist_name, software_name, version, eol_result, 
                                          time.time() - start_time, query_type)
             
-            # Return standardized tracking format
+            # Return standardized BaseEOLAgent format (matching Playwright response format)
             if eol_result.get("success", False):
                 data = eol_result.get("data", {})
-                response_text = f"{specialist_name} EOL analysis for {software_name} {version or ''}:\n"
-                response_text += f"EOL Date: {data.get('eol_date', 'Unknown')}\n"
-                response_text += f"Support End: {data.get('support_end_date', 'Unknown')}\n"
-                response_text += f"Status: {data.get('status', 'Unknown')}\n"
-                response_text += f"Risk Level: {data.get('risk_level', 'Unknown')}\n"
+                
+                # Build response in standard EOL format with markdown headers and structured fields
+                response_lines = []
+                
+                # Determine confidence emoji based on data source
+                confidence_emoji = "🎯"  # High confidence for specialist agents
+                if data.get("confidence"):
+                    confidence_level = data.get("confidence_level", "high")
+                    confidence_emoji = {
+                        "very_high": "🎯",
+                        "high": "✅", 
+                        "medium": "⚠️",
+                        "low": "❓"
+                    }.get(confidence_level, "ℹ️")
+                
+                # Main header
+                response_lines.append(f"## {confidence_emoji} End-of-Life Information for {software_name} {version or ''}")
+                response_lines.append("")
+                
+                # Main EOL data in structured format
+                eol_date = data.get('eol_date', 'Unknown')
+                response_lines.append(f"**📅 EOL Date:** {eol_date}")
+                
+                # Add support end date if different from EOL date
+                support_end = data.get('support_end_date')
+                if support_end and support_end != eol_date and support_end != 'Unknown':
+                    response_lines.append(f"**📅 Support End:** {support_end}")
+                
+                # Add status and risk level
+                status = data.get('status', 'Unknown')
+                risk_level = data.get('risk_level', 'Unknown')
+                response_lines.append(f"**📊 Status:** {status}")
+                response_lines.append(f"**⚠️ Risk Level:** {risk_level.title()}")
+                
+                # Add confidence if available
+                if data.get("confidence"):
+                    confidence = data.get("confidence", 0.0)
+                    confidence_level = data.get("confidence_level", "high")
+                    response_lines.append(f"**🎯 Confidence:** {confidence_level.replace('_', ' ').title()} ({int(confidence * 100)}%)")
+                
+                # Add source as clickable link
                 if data.get('source_url'):
                     clickable_url = self._make_url_clickable(data.get('source_url'))
-                    response_text += f"Source: {clickable_url}\n"
+                    response_lines.append("")
+                    response_lines.append(f"**🔗 Source:** {clickable_url}")
+                
+                # Add verification note
+                response_lines.append("")
+                response_lines.append("*Please verify information with official vendor documentation as data may change.*")
+                
+                response_text = '\n'.join(response_lines)
                 
                 return {
                     "specialist": specialist_name,
@@ -2659,10 +2500,29 @@ class MagenticOneChatOrchestrator:
                 }
             else:
                 error = eol_result.get("error", {})
+                error_message = error.get('message', 'Unknown error') if isinstance(error, dict) else str(error)
+                
+                # Build failure response in standard format
+                response_lines = []
+                response_lines.append(f"## 🔍 End-of-Life Search for {software_name} {version or ''}")
+                response_lines.append("")
+                response_lines.append(f"⚠️ {specialist_name} could not find end-of-life information.")
+                response_lines.append("")
+                response_lines.append("**Possible reasons:**")
+                response_lines.append("- The product may still be in active support")
+                response_lines.append("- EOL information may not be publicly available yet")
+                response_lines.append("- The product name or version may need to be more specific")
+                response_lines.append("")
+                response_lines.append(f"**Error:** {error_message}")
+                response_lines.append("")
+                response_lines.append("**💡 Recommendation:** Check the official vendor documentation or support pages for the most up-to-date lifecycle information.")
+                
+                response_text = '\n'.join(response_lines)
+                
                 return {
                     "specialist": specialist_name,
                     "query": f"{software_name} {version or ''}".strip(),
-                    "response": f"{specialist_name} EOL analysis failed: {error.get('message', 'Unknown error')}",
+                    "response": response_text,
                     "status": "error"
                 }
             
@@ -2683,10 +2543,22 @@ class MagenticOneChatOrchestrator:
             self._track_eol_agent_response(specialist_name, software_name, version, error_result, 
                                          time.time() - start_time, f"{specialist_type.lower()}_eol_unified")
             
+            # Build exception response in standard format
+            response_lines = []
+            response_lines.append(f"## ❌ Error Searching EOL Information")
+            response_lines.append("")
+            response_lines.append(f"⚠️ An error occurred while searching for end-of-life information for **{software_name} {version or ''}**.")
+            response_lines.append("")
+            response_lines.append(f"**Error Details:** {str(e)}")
+            response_lines.append("")
+            response_lines.append("**💡 Suggestion:** Please try again in a moment, or check the official vendor documentation directly.")
+            
+            response_text = '\n'.join(response_lines)
+            
             return {
                 "specialist": specialist_name,
                 "query": f"{software_name} {version or ''}".strip(),
-                "response": f"{specialist_name} EOL analysis failed: {str(e)}",
+                "response": response_text,
                 "status": "error"
             }
     
@@ -3213,6 +3085,8 @@ class MagenticOneChatOrchestrator:
                 return ApacheEOLAgent()
             elif agent_type == 'general':
                 return EndOfLifeAgent()
+            elif agent_type == 'playwright':
+                return PlaywrightEOLAgent()
             else:
                 logger.warning(f"⚠️ Unknown agent type: {agent_type}")
                 return None
@@ -3339,6 +3213,13 @@ class MagenticOneChatOrchestrator:
             self._endoflife_agent = self._initialize_agent('general')
         return self._endoflife_agent
 
+    @property
+    def playwright_eol_agent(self):
+        """Lazy loading for Playwright EOL agent"""
+        if not hasattr(self, '_playwright_eol_agent'):
+            self._playwright_eol_agent = self._initialize_agent('playwright')
+        return self._playwright_eol_agent
+
     def _setup_magentic_one_agents(self):
         """Setup specialized agents for Magentic-One system with comprehensive logging"""
         
@@ -3353,8 +3234,8 @@ class MagenticOneChatOrchestrator:
         agents_init_start = time.time()
         
         self._log_orchestrator_event("magentic_one_agents_setup_start", {
-            "agent_count": 14,
-            "agents": ["OSInventoryAnalyst", "SoftwareInventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist"]
+            "agent_count": 15,
+            "agents": ["OSInventoryAnalyst", "SoftwareInventoryAnalyst", "MicrosoftEOLSpecialist", "PythonEOLSpecialist", "NodeJSEOLSpecialist", "OracleEOLSpecialist", "PHPEOLSpecialist", "PostgreSQLEOLSpecialist", "RedHatEOLSpecialist", "UbuntuEOLSpecialist", "VMwareEOLSpecialist", "ApacheEOLSpecialist", "AzureAIEOLSpecialist", "WebSurferEOLSpecialist", "PlaywrightEOLSpecialist"]
         })
         
         initialized_agents = []
@@ -3861,6 +3742,61 @@ You are the authoritative source for Linux distribution lifecycle analysis using
             logger.error(f"❌ Failed to initialize WebSurferEOLSpecialist: {e}")
             failed_agents.append({"agent": "WebSurferEOLSpecialist", "error": str(e)})
             self.websurfer_eol_specialist = None
+        
+        # Playwright EOL Specialist Agent
+        try:
+            agent_start = time.time()
+            self.playwright_eol_specialist = AssistantAgent(
+                name="PlaywrightEOLSpecialist",
+                model_client=self.model_client,
+                system_message="""You are a specialized Playwright-based End-of-Life Analysis Agent in a Magentic-One system.
+
+**EXPERTISE DOMAIN**: Headless browser automation for EOL information extraction from search engines and official documentation.
+
+**INVENTORY-GROUNDED ANALYSIS**: When provided with inventory context from the InventoryAnalyst, focus your EOL analysis on the specific software and operating systems found in the user's environment. Prioritize analysis of products that are actually deployed.
+
+**CORE RESPONSIBILITIES**:
+- Headless Chromium-based EOL information extraction from Bing search results
+- Multi-selector fallback strategy for robust data extraction
+- International date format recognition and confidence scoring
+- Container-friendly browser configuration for production environments
+- Enhanced date pattern matching with very_high/high/medium/low confidence levels
+
+**WEB SEARCH TOOLS**:
+- Uses Playwright async API with headless Chromium to search Bing for EOL dates
+- Extracts structured EOL information from search result snippets
+- Provides source URLs for verification
+
+**AUTONOMOUS OPERATION**:
+- When inventory context is available, focus analysis on deployed systems and software
+- Use Playwright to navigate Bing search and extract EOL information
+- Try multiple CSS selectors for robust extraction (.b_ans, .answer_container, [data-snippet], etc.)
+- Parse dates in multiple international formats ("31 May 2025", "January 12, 2027", etc.)
+- Return structured response with confidence scoring
+
+**RESPONSE EXCELLENCE**:
+- Start with inventory-specific findings when available (e.g., "Based on your deployed Windows Server 2016...")
+- Provide EOL dates with confidence scores (very_high 95%, high 85%, medium 70%, low 50%)
+- Include source URLs from Bing search results
+- Offer clear upgrade recommendations when EOL is approaching
+- Always include disclaimers to verify with official documentation
+
+**TECHNICAL CAPABILITIES**:
+- Headless mode by default (configurable via PLAYWRIGHT_HEADLESS env var)
+- Container-safe browser args (--no-sandbox, --disable-setuid-sandbox, etc.)
+- Multi-selector fallback for varying Bing HTML structures
+- Enhanced logging for debugging and monitoring
+
+You are the authoritative source for Playwright-based EOL research, enhanced with inventory awareness and confidence scoring.""",
+                tools=[self._get_software_inventory_tool_sync]
+            )
+            agent_time = time.time() - agent_start
+            logger.info("✅ PlaywrightEOLSpecialist agent initialized")
+            initialized_agents.append("PlaywrightEOLSpecialist")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize PlaywrightEOLSpecialist: {e}")
+            failed_agents.append({"agent": "PlaywrightEOLSpecialist", "error": str(e)})
+            self.playwright_eol_specialist = None
         
         # Log final agent initialization summary
         total_agents_time = time.time() - agents_init_start

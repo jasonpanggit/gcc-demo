@@ -21,7 +21,8 @@ const AGENT_DISPLAY_MAPPING = {
     "postgresql": "PostgreSQL",
     "microsoft": "Microsoft",
     "orchestrator": "Orchestrator",
-    "websurfer": "WebSurfer"
+    "websurfer": "WebSurfer",
+    "playwright": "Playwright (Bing Search)"
 };
 
 // Function to get display name for an agent
