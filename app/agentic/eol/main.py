@@ -253,6 +253,7 @@ class SoftwareSearchRequest(BaseModel):
     software_name: str
     software_version: Optional[str] = None
     search_hints: Optional[dict] = None  # Additional search optimization hints
+    search_internet_only: Optional[bool] = False  # Force use of Playwright web search only
 
 
 # ============================================================================
@@ -1295,14 +1296,18 @@ async def search_software_eol(request: SoftwareSearchRequest):
     try:
         # Log the enhanced search request
         version_display = f" v{request.software_version}" if request.software_version else " (no version)"
-        logger.info(f"EOL search request: {request.software_name}{version_display}")
+        search_mode = " [Internet Only]" if request.search_internet_only else ""
+        logger.info(f"EOL search request: {request.software_name}{version_display}{search_mode}")
         if request.search_hints:
             logger.info(f"Search hints: {request.search_hints}")
+        if request.search_internet_only:
+            logger.info("🌐 Internet-only search mode enabled (Playwright only)")
         
         # Route through regular orchestrator which will select appropriate agent
         result = await get_eol_orchestrator().get_autonomous_eol_data(
             software_name=request.software_name,
-            version=request.software_version
+            version=request.software_version,
+            search_internet_only=request.search_internet_only
         )
         
         # Debug logging to understand what the orchestrator returns

@@ -24,6 +24,7 @@ from .nodejs_agent import NodeJSEOLAgent
 from .postgresql_agent import PostgreSQLEOLAgent
 from .php_agent import PHPEOLAgent
 from .python_agent import PythonEOLAgent
+from .playwright_agent import PlaywrightEOLAgent
 
 # Import logger
 try:
@@ -70,6 +71,7 @@ class EOLOrchestratorAgent:
             "php": PHPEOLAgent(),
             "python": PythonEOLAgent(),
             "azure_ai": AzureAIAgentEOLAgent(),
+            "playwright": PlaywrightEOLAgent(),  # Web search fallback agent
         }
         
         # Agent routing map for efficient lookups
@@ -279,35 +281,53 @@ class EOLOrchestratorAgent:
             logger.error(f"Error analyzing OS item EOL: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def get_autonomous_eol_data(self, software_name, version=None, item_type="software"):
+    async def get_autonomous_eol_data(self, software_name, version=None, item_type="software", search_internet_only=False):
         """
         Autonomous EOL data retrieval with intelligent agent routing
+        
+        Args:
+            software_name: Name of the software to search for
+            version: Version of the software (optional)
+            item_type: Type of item (software, os, etc.)
+            search_internet_only: If True, skip all specialized agents and use only Playwright web search
         """
         try:
             await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
                 "software_name": software_name,
                 "version": version,
-                "item_type": item_type
+                "item_type": item_type,
+                "search_internet_only": search_internet_only
             })
             
             software_name_lower = software_name.lower()
             
-            # Determine optimal agents for this software
-            target_agents = self._route_to_agents(software_name_lower, item_type)
-            
-            # Always include endoflife.date as fallback
-            if "endoflife" not in target_agents:
-                target_agents.append("endoflife")
+            # If search_internet_only is True, use ONLY the playwright agent
+            if search_internet_only:
+                logger.info(f"🌐 Internet-only search mode: Using Playwright agent exclusively for '{software_name}'")
+                target_agents = ["playwright"]
+                
+                await self.log_communication("eol_orchestrator", "agent_selection", {
+                    "software_name": software_name,
+                    "version": version,
+                    "selected_agents": target_agents,
+                    "selection_method": "internet_only_mode"
+                })
+            else:
+                # Determine optimal agents for this software
+                target_agents = self._route_to_agents(software_name_lower, item_type)
+                
+                # add fallback agent (always include EndOfLifeAgent as fallback)
+                if "endoflife" not in target_agents:
+                    target_agents.append("endoflife")
+                
+                await self.log_communication("eol_orchestrator", "agent_selection", {
+                    "software_name": software_name,
+                    "version": version,
+                    "selected_agents": target_agents,
+                    "selection_method": "intelligent_routing"
+                })
             
             logger.debug(f"🎯 Routing '{software_name}' to agents: {target_agents}")
-            
-            # Log agent selection
-            await self.log_communication("eol_orchestrator", "agent_selection", {
-                "software_name": software_name,
-                "version": version,
-                "selected_agents": target_agents,
-                "selection_method": "intelligent_routing"
-            })
             
             # Execute searches in priority order with early termination
             best_result = None
@@ -440,15 +460,24 @@ class EOLOrchestratorAgent:
                 logger.info(f"✅ EOL data found for {software_name} (confidence: {best_confidence:.2f}, agent: {best_result.get('agent_used', 'unknown')})")
                 return best_result
             
+            # Determine appropriate error message based on search mode
+            if search_internet_only:
+                error_message = "No EOL data found via internet search (Playwright)"
+                logger.warning(f"❌ Internet-only search failed for {software_name}")
+            else:
+                error_message = "No EOL data found from any source including Playwright fallback"
+                logger.warning(f"❌ All agents failed to find EOL data for {software_name}")
+            
             await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
                 "software_name": software_name,
                 "version": version
-            }, {"success": False, "error": "No EOL data found from any source"})
+            }, {"success": False, "error": error_message})
             
             failure_response = {
                 "success": False, 
-                "error": "No EOL data found from any source",
-                "agent_used": "orchestrator",
+                "error": error_message,
+                "agent_used": "playwright" if search_internet_only else "orchestrator",
+                "search_mode": "internet_only" if search_internet_only else "intelligent_routing",
                 "communications": self.get_recent_communications()
             }
             

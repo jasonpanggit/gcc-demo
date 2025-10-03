@@ -205,7 +205,8 @@ class SoftwareInventoryAgent:
         if software_filter:
             query += f'| where SoftwareName contains "{software_filter}"\n'
 
-        # Complete the query with aggregation to show unique software with multiple versions/computers
+        # Complete the query - Keep individual Computer + Software + Version records
+        # This preserves the relationship between computers, software, and versions
         query += f"""
         | extend 
             NormalizedPublisher = case(
@@ -216,16 +217,12 @@ class SoftwareInventoryAgent:
             ),
             ActualSoftwareType = coalesce(SoftwareType, "Application")
         | summarize 
-            Versions = make_set(CurrentVersion, 5),
-            ComputerCount = dcount(Computer),
-            Computers = make_set(Computer, 10),
             LastSeen = max(TimeGenerated),
             Publisher = any(NormalizedPublisher),
             SoftwareType = any(ActualSoftwareType)
-            by SoftwareName
-        | project SoftwareName, Versions, Publisher, SoftwareType, 
-                 LastSeen, ComputerCount, Computers
-        | order by SoftwareName asc
+            by Computer, SoftwareName, CurrentVersion
+        | project Computer, SoftwareName, CurrentVersion, Publisher, SoftwareType, LastSeen
+        | order by SoftwareName asc, Computer asc
         | take {limit}
         """
 
@@ -269,30 +266,19 @@ class SoftwareInventoryAgent:
                 
                 for row_index, row in enumerate(table.rows):
                     try:
-                        # Row mapping for aggregated query (unique software names):
-                        # row[0] = SoftwareName, row[1] = Versions (array), row[2] = Publisher, 
-                        # row[3] = SoftwareType, row[4] = LastSeen, row[5] = ComputerCount, row[6] = Computers (array)
-                        
-                        # Extract versions array and format it
-                        versions = row[1] if row[1] else []
-                        version_str = ", ".join(str(v) for v in versions[:3]) if versions else ""
-                        if len(versions) > 3:
-                            version_str += f" (+{len(versions) - 3} more)"
-                        
-                        # Extract computers array
-                        computers = row[6] if row[6] else []
-                        computer_list = [str(c) for c in computers[:10]] if computers else []
+                        # Row mapping for individual computer records:
+                        # row[0] = Computer, row[1] = SoftwareName, row[2] = CurrentVersion,
+                        # row[3] = Publisher, row[4] = SoftwareType, row[5] = LastSeen
                         
                         item = {
-                            "name": row[0] if row[0] else "Unknown",
-                            "version": version_str,
-                            "versions": versions,  # Keep full list for reference
-                            "publisher": row[2] if row[2] else "Unknown",
-                            "software_type": row[3] if row[3] else "Unknown",
+                            "computer": row[0] if row[0] else "Unknown",
+                            "name": row[1] if row[1] else "Unknown",
+                            "version": row[2] if row[2] else "",
+                            "publisher": row[3] if row[3] else "Unknown",
+                            "software_type": row[4] if row[4] else "Unknown",
                             "install_date": None,  # Not available in ConfigurationData
-                            "last_seen": row[4].isoformat() if row[4] else None,
-                            "computer_count": row[5] if row[5] is not None else 0,
-                            "computers": computer_list,
+                            "last_seen": row[5].isoformat() if row[5] else None,
+                            "computer_count": 1,  # Each record is for one computer
                             "source": "log_analytics_configurationdata",
                         }
                         results.append(item)
