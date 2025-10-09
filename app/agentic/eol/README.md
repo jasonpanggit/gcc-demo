@@ -1,19 +1,29 @@
-# 🔄 End-of-Life (EOL) Multi-Agent Analysis Application
+# 🔄 EOL Agentic Platform
 
-A sophisticated software End-of-Life (EOL) analysis application that combines Azure Log Analytics inventory data with intelligent multi-agent AI systems to provide comprehensive software lifecycle insights and risk assessment.
+An advanced End-of-Life (EOL) analysis platform built on Azure App Service, Cosmos DB, FastAPI, and OpenAI with the AutoGen Framework. This intelligent agentic system pulls real-time inventory data (captured by Azure Arc inventory features) from Log Analytics Workspace to provide comprehensive software lifecycle insights and proactive management capabilities.
 
 ## 🚀 Overview
 
-This application leverages a multi-agent architecture to automatically discover, analyze, and report on software end-of-life status across your IT infrastructure. It integrates Azure Log Analytics for inventory data with specialized EOL agents for accurate lifecycle information.
+The EOL Agentic Platform orchestrates multi-agent workflows to automatically discover, analyze, and report on software end-of-life status across your IT infrastructure. It combines Azure Log Analytics inventory data with specialized AI agents for accurate lifecycle information and intelligent decision-making.
+
+**Live Demo Statistics** (from actual deployment):
+- 🤖 **6 Active Agents**: orchestrator, os_inventory, software_inventory, inventory, microsoft, endoflife
+- 💾 **84 Cached Items**: Across agent caches, inventory, and Cosmos DB
+- 🎯 **188 AI Sessions**: Total requests served with 43% cache hit rate
+- 🗄️ **3 Database Operations**: Cosmos DB cached queries
+- ⚡ **638ms Avg Response**: With intelligent caching and parallel processing
 
 ### Key Features
 
-- **🔍 Intelligent Inventory Discovery**: Automated software and OS inventory from Azure Log Analytics
+- **🔍 Intelligent Inventory Discovery**: Real-time software and OS inventory from Azure Log Analytics (Azure Arc enabled)
 - **🤖 Multi-Agent EOL Analysis**: Specialized agents for different software vendors (Microsoft, Red Hat, Ubuntu, Oracle, etc.)
-- **💬 AI-Powered Chat Interface**: Interactive EOL analysis using Azure OpenAI and AutoGen framework
+- **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4) with AutoGen 0.7.x multi-agent framework
 - **📊 Real-time Risk Assessment**: Automatic categorization of EOL risks (Critical, High, Medium, Low)
-- **🎯 Smart Search**: Intelligent EOL lookups with confidence scoring and early termination
-- **⚡ Performance Optimized**: Caching, parallel processing, and load management
+- **🔔 Intelligent Alert Management**: Configurable EOL alerts with SMTP email notifications
+- **🎯 Smart EOL Search**: Confidence scoring, early termination, and comprehensive EOL history tracking
+- **⚡ Performance Optimized**: Multi-level caching (in-memory, Cosmos DB), parallel processing, and performance monitoring
+- **📈 Advanced Analytics**: Real-time statistics dashboard with agent performance metrics and cache analytics
+- **🌐 Web Scraping Capabilities**: Playwright and Azure AI Agent Service for automated web data extraction
 
 ## 🏗️ Architecture
 
@@ -31,7 +41,7 @@ The application uses a sophisticated multi-agent architecture:
 - **`SoftwareInventoryAgent`**: Retrieves software inventory from Azure Log Analytics
 
 #### EOL Agents
-- **`MicrosoftEOLAgent`**: Windows, SQL Server, Office lifecycle data
+- **`MicrosoftEOLAgent`**: Windows, SQL Server, Office, .NET lifecycle data
 - **`RedHatEOLAgent`**: RHEL, CentOS, Fedora lifecycle information
 - **`UbuntuEOLAgent`**: Ubuntu and Canonical product lifecycles
 - **`EndOfLifeAgent`**: General EOL data from endoflife.date API
@@ -44,8 +54,10 @@ The application uses a sophisticated multi-agent architecture:
 - **`PythonEOLAgent`**: Python interpreter lifecycle
 
 #### Supporting Agents
-- **`OpenAIAgent`**: Azure OpenAI integration for AI-powered analysis
-- **`BingEOLAgent`**: Web search fallback for EOL information
+- **`OpenAIAgent`**: Azure OpenAI (GPT-4) integration for AI-powered analysis
+- **`AzureAIAgent`**: Azure AI Agent Service for intelligent web data extraction
+- **`PlaywrightAgent`**: Automated browser-based web scraping
+- **`WebSurferAgent`**: AutoGen web surfer for dynamic content retrieval
 
 ### Intelligent Routing
 
@@ -58,57 +70,120 @@ The system uses intelligent agent routing based on:
 ## 🛠️ Technology Stack
 
 ### Backend
-- **FastAPI**: High-performance async web framework
-- **Python 3.9+**: Core runtime environment
-- **Azure SDK**: Integration with Azure services
-- **AutoGen 0.7.x**: Multi-agent conversation framework
-- **Pydantic**: Data validation and serialization
+- **FastAPI 0.112.x**: High-performance async web framework
+- **Python 3.11+**: Core runtime environment
+- **Azure SDK**: Integration with Azure services (Identity, Monitor Query, Cosmos DB)
+- **AutoGen 0.7.4**: Multi-agent conversation framework (agentchat + extensions)
+- **Pydantic 2.x**: Data validation and serialization
 
-### AI & Analytics
-- **Azure OpenAI**: GPT-4 powered conversational AI
-- **Azure Log Analytics**: Inventory data source
-- **Custom ML Models**: EOL prediction and risk assessment
+### AI & Web Automation
+- **Azure OpenAI**: GPT-4 powered conversational AI (OpenAI 1.51.0)
+- **Azure AI Agent Service**: Modern intelligent agent capabilities (replaces Bing Search)
+- **Playwright 1.50.0**: Browser automation for web scraping
+- **AutoGen Web Surfer**: Dynamic web content retrieval
+- **Azure Log Analytics**: Real-time inventory data source
 
 ### Data & Caching
-- **Azure Cosmos DB**: Communication logs and session data
-- **In-memory Caching**: Performance optimization
-- **JSON Processing**: Data transformation and aggregation
+- **Azure Cosmos DB 4.7.0**: Persistent storage for communications, EOL results, and cache
+- **Multi-level Caching**: In-memory + Cosmos DB with intelligent cache management
+- **Cache Statistics Manager**: Real-time performance monitoring and metrics
+- **Alert Manager**: EOL alert configuration and SMTP notifications
 
 ### Frontend
-- **Jinja2 Templates**: Server-side rendering
-- **HTML5/CSS3/JavaScript**: Interactive web interface
-- **Bootstrap**: Responsive UI framework
-- **Chart.js**: Data visualization
+- **Jinja2 Templates**: Server-side rendering with dynamic data
+- **HTML5/CSS3/JavaScript**: Modern interactive web interface
+- **Bootstrap 5**: Responsive UI framework with custom styling
+- **Font Awesome**: Icon library for visual indicators
+- **Real-time Updates**: Auto-refresh dashboards and live statistics
 
 ## 📁 Project Structure
 
 ```
 app/agentic/eol/
-├── agents/                    # Multi-agent system
-│   ├── chat_orchestrator.py   # Conversational AI orchestrator
-│   ├── eol_orchestrator.py    # EOL analysis orchestrator
-│   ├── inventory_agent.py     # Inventory coordination
-│   ├── os_inventory_agent.py  # OS inventory from Log Analytics
-│   ├── software_inventory_agent.py # Software inventory
-│   ├── microsoft_agent.py     # Microsoft EOL agent
-│   ├── redhat_agent.py        # Red Hat EOL agent
-│   ├── ubuntu_agent.py        # Ubuntu EOL agent
-│   ├── endoflife_agent.py     # General EOL API agent
-│   ├── openai_agent.py        # Azure OpenAI integration
-│   └── [other agents]
-├── templates/                 # Web interface templates
-│   ├── chat.html             # Conversational AI interface
-│   ├── eol.html              # EOL analysis dashboard
-│   ├── inventory.html        # Inventory management
-│   └── agents.html           # Agent status monitoring
-├── static/                   # Static web assets
-├── utils/                    # Utility modules
-│   ├── cache_stats_manager.py # Performance monitoring
-│   ├── cosmos_cache.py       # Cosmos DB integration
-│   └── config.py            # Configuration management
-├── deploy/                   # Deployment configuration
-├── main.py                   # FastAPI application
-└── requirements.txt          # Python dependencies
+├── agents/                           # Multi-agent system
+│   ├── base_eol_agent.py             # Base class for all EOL agents
+│   ├── chat_orchestrator.py          # Conversational AI orchestrator (AutoGen)
+│   ├── eol_orchestrator.py           # EOL analysis orchestrator
+│   ├── inventory_agent.py            # Inventory coordination
+│   ├── os_inventory_agent.py         # OS inventory from Log Analytics
+│   ├── software_inventory_agent.py   # Software inventory from Log Analytics
+│   ├── microsoft_agent.py            # Microsoft EOL agent
+│   ├── redhat_agent.py               # Red Hat EOL agent
+│   ├── ubuntu_agent.py               # Ubuntu EOL agent
+│   ├── endoflife_agent.py            # General EOL API agent
+│   ├── oracle_agent.py               # Oracle EOL agent
+│   ├── vmware_agent.py               # VMware EOL agent
+│   ├── apache_agent.py               # Apache EOL agent
+│   ├── nodejs_agent.py               # Node.js EOL agent
+│   ├── postgresql_agent.py           # PostgreSQL EOL agent
+│   ├── php_agent.py                  # PHP EOL agent
+│   ├── python_agent.py               # Python EOL agent
+│   ├── openai_agent.py               # Azure OpenAI (GPT-4) integration
+│   ├── azure_ai_agent.py             # Azure AI Agent Service integration
+│   ├── playwright_agent.py           # Playwright web scraping
+│   └── websurfer_agent.py            # AutoGen web surfer agent
+├── templates/                        # Web interface templates
+│   ├── base.html                     # Base template with common layout
+│   ├── index.html                    # Dashboard homepage with statistics
+│   ├── chat.html                     # Conversational AI interface
+│   ├── eol.html                      # EOL analysis interface (deprecated)
+│   ├── eol-searches.html             # EOL search history viewer
+│   ├── inventory.html                # Inventory management
+│   ├── alerts.html                   # Alert management interface
+│   ├── cache.html                    # Cache statistics dashboard
+│   ├── agent-cache-details.html      # Detailed agent cache metrics
+│   └── agents.html                   # Agent status monitoring
+├── static/                           # Static web assets (CSS, JS, images)
+├── utils/                            # Utility modules
+│   ├── __init__.py                   # Utilities export
+│   ├── config.py                     # Configuration management
+│   ├── logger.py                     # Structured logging
+│   ├── helpers.py                    # Helper functions
+│   ├── cache_stats_manager.py        # Real-time performance monitoring
+│   ├── cosmos_cache.py               # Cosmos DB base client
+│   ├── eol_cache.py                  # EOL results caching
+│   ├── inventory_cache.py            # Unified inventory cache
+│   ├── os_inventory_cache.py         # OS inventory cache
+│   ├── software_inventory_cache.py   # Software inventory cache
+│   ├── alert_manager.py              # EOL alert configuration & SMTP
+│   └── data/                         # Static data files (vendor mappings, etc.)
+├── deploy/                           # Deployment configuration
+│   ├── Dockerfile                    # Container image definition
+│   ├── deploy-container.sh           # Azure Container Registry deployment
+│   └── app-service-config/           # App Service settings
+├── tests/                            # Unit and integration tests
+├── tools/                            # Development and maintenance tools
+├── main.py                           # FastAPI application entry point
+├── requirements.txt                  # Python dependencies
+├── web.config                        # IIS/App Service configuration
+└── README.md                         # This file
+```
+
+## ⚡ Quick Start
+
+```bash
+# 1. Clone and navigate
+git clone <repository-url>
+cd gcc-demo/app/agentic/eol
+
+# 2. Install dependencies
+pip install -r requirements.txt
+playwright install chromium
+
+# 3. Configure Azure authentication
+az login
+az account set --subscription <your-subscription-id>
+
+# 4. Set required environment variables
+export LOG_ANALYTICS_WORKSPACE_ID="your-workspace-id"
+export AZURE_OPENAI_ENDPOINT="your-openai-endpoint"
+export AZURE_OPENAI_API_KEY="your-api-key"
+
+# 5. Run the application
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# 6. Access the dashboard
+open http://localhost:8000
 ```
 
 ## 🚀 Getting Started
@@ -116,30 +191,57 @@ app/agentic/eol/
 ### Prerequisites
 
 - **Azure Subscription**: Required for Log Analytics and OpenAI services
-- **Python 3.9+**: Core runtime requirement
+- **Python 3.11+**: Core runtime requirement (3.9+ supported)
 - **Azure CLI**: For authentication and deployment
-- **Log Analytics Workspace**: For inventory data
+- **Log Analytics Workspace**: For inventory data with Azure Arc enabled machines
+- **Azure OpenAI**: GPT-4 deployment for conversational AI
+- **Azure Cosmos DB**: (Optional) For persistent caching and communication logs
+- **Playwright**: For web scraping capabilities
 
 ### Environment Variables
 
-Create a `.env` file or set these environment variables:
+Create a `.env` file or configure these in Azure App Service Application Settings:
 
 ```bash
-# Azure Authentication
-AZURE_CLIENT_ID=your-client-id
-AZURE_CLIENT_SECRET=your-client-secret
+# Azure Authentication (Managed Identity recommended for production)
+AZURE_CLIENT_ID=your-client-id                    # Optional with Managed Identity
+AZURE_CLIENT_SECRET=your-client-secret            # Optional with Managed Identity
 AZURE_TENANT_ID=your-tenant-id
 
-# Azure Services
-LOG_ANALYTICS_WORKSPACE_ID=your-workspace-id
-AZURE_OPENAI_ENDPOINT=your-openai-endpoint
-AZURE_OPENAI_API_KEY=your-openai-key
+# Azure Log Analytics
+LOG_ANALYTICS_WORKSPACE_ID=your-workspace-id      # Required for inventory data
+
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=your-openai-endpoint        # Required for GPT-4 chat
+AZURE_OPENAI_API_KEY=your-openai-key              # Required
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4                # GPT-4 deployment name
+AZURE_OPENAI_MODEL=gpt-4                          # Model version
+
+# Azure Cosmos DB (Optional - for persistent caching and communications)
+COSMOS_ENDPOINT=your-cosmos-endpoint
+COSMOS_KEY=your-cosmos-key
+COSMOS_DATABASE_NAME=eol-agentic                  # Default database name
+COSMOS_CONTAINER_NAME=communications              # Default container name
+
+# Alert Configuration (Optional - for email notifications)
+SMTP_SERVER=smtp.office365.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@domain.com
+SMTP_PASSWORD=your-smtp-password
+ALERT_FROM_EMAIL=alerts@domain.com
+ALERT_TO_EMAIL=admin@domain.com
 
 # Application Configuration
-ENVIRONMENT=development
-PYTHONUNBUFFERED=1
-WEBSITES_PORT=8000
+ENVIRONMENT=production                             # production, development, or staging
+PYTHONUNBUFFERED=1                                # Required for Azure App Service logging
+WEBSITES_PORT=8000                                # Required for Azure App Service
+WEBSITE_SITE_NAME=your-app-name                   # Auto-set by Azure App Service
+
+# Performance Tuning (Optional)
+CACHE_TTL_SECONDS=300                             # Cache TTL (default: 5 minutes)
+AGENT_TIMEOUT_SECONDS=30                          # Agent timeout (default: 30s)
+MAX_CONCURRENT_AGENTS=10                          # Max concurrent agents
 ```
 
 ### Installation
@@ -147,7 +249,7 @@ WEBSITES_PORT=8000
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd LinkLandingZone/app/agentic/eol
+   cd gcc-demo/app/agentic/eol
    ```
 
 2. **Install dependencies**:
@@ -158,19 +260,44 @@ WEBSITES_PORT=8000
 3. **Configure authentication**:
    ```bash
    az login
+   az account set --subscription <your-subscription-id>
    ```
 
-4. **Run the application**:
+4. **Set environment variables** (or create `.env` file):
    ```bash
+   export LOG_ANALYTICS_WORKSPACE_ID="your-workspace-id"
+   export AZURE_OPENAI_ENDPOINT="your-openai-endpoint"
+   export AZURE_OPENAI_API_KEY="your-openai-key"
+   # Optional: Cosmos DB for persistence
+   export COSMOS_ENDPOINT="your-cosmos-endpoint"
+   export COSMOS_KEY="your-cosmos-key"
+   ```
+
+5. **Install Playwright browsers** (required for web scraping):
+   ```bash
+   playwright install chromium
+   ```
+
+6. **Run the application**:
+   ```bash
+   # Using uvicorn directly
+   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   
+   # Or using Python
    python main.py
    ```
 
-5. **Access the web interface**:
+7. **Access the web interface**:
    - Navigate to `http://localhost:8000`
-   - Try the different interfaces:
-     - `/chat` - Conversational AI interface
-     - `/eol` - EOL analysis dashboard
+   - Dashboard homepage with live statistics
+   - Key interfaces:
+     - `/` - Dashboard with real-time metrics
      - `/inventory` - Inventory management
+     - `/eol-search` - EOL search interface
+     - `/eol-searches` - Search history viewer
+     - `/chat` - Conversational AI interface
+     - `/alerts` - Alert management
+     - `/cache` - Cache statistics
      - `/agents` - Agent monitoring
 
 ## 🔧 Configuration
@@ -204,25 +331,79 @@ The intelligent EOL search system supports:
 
 ## 📊 API Endpoints
 
+### Web Interface Routes
+- `GET /` - Dashboard homepage with real-time statistics
+- `GET /inventory` - Inventory management interface
+- `GET /eol-search` - EOL search interface
+- `GET /eol-searches` - EOL search history viewer
+- `GET /chat` - Conversational AI interface
+- `GET /alerts` - Alert management interface
+- `GET /cache` - Cache statistics dashboard
+- `GET /agent-cache-details` - Detailed agent cache metrics
+- `GET /agents` - Agent status monitoring
+
 ### Inventory Endpoints
-- `GET /api/inventory` - Get software inventory with EOL analysis
-- `GET /api/os-inventory` - Get operating system inventory
-- `GET /api/inventory-summary` - Get inventory summary statistics
+- `GET /api/inventory` - Get enhanced software inventory with EOL data
+- `GET /api/inventory/status` - Get inventory processing status
+- `GET /api/os` - Get operating system inventory
+- `GET /api/os/summary` - Get OS inventory summary
+- `GET /api/inventory/raw/software` - Get raw software inventory from Log Analytics
+- `GET /api/inventory/raw/os` - Get raw OS inventory from Log Analytics
+- `POST /api/inventory/reload` - Force reload inventory from Log Analytics
+- `POST /api/inventory/clear-cache` - Clear inventory caches
 
 ### EOL Analysis Endpoints
-- `GET /api/eol/{software}` - Get EOL data for specific software
+- `GET /api/eol` - Get EOL data with filters (software, version, vendor)
 - `POST /api/analyze` - Comprehensive EOL risk analysis
+- `POST /api/search/eol` - Search EOL data with smart routing
+- `POST /api/verify-eol-result` - Verify EOL result accuracy
+- `POST /api/cache-eol-result` - Cache EOL result to Cosmos DB
+- `GET /api/eol-agent-responses` - Get EOL search history
+- `POST /api/eol-agent-responses/clear` - Clear EOL search history
+
+### Agent Management Endpoints
 - `GET /api/agents/status` - Agent health and performance metrics
+- `GET /api/status` - Application status overview
 
-### Chat & Conversation Endpoints
-- `POST /api/chat` - Interactive AI-powered EOL analysis
-- `GET /api/chat/history` - Conversation history
-- `POST /api/autogen/start` - Start multi-agent conversation
+### Alert Management Endpoints
+- `GET /api/alerts/config` - Get alert configuration
+- `POST /api/alerts/config` - Save alert configuration
+- `POST /api/alerts/config/reload` - Reload alert configuration
+- `GET /api/alerts/preview` - Preview alerts without sending
+- `POST /api/alerts/smtp/test` - Test SMTP configuration
+- `POST /api/alerts/send` - Send EOL alerts via email
 
-### Utility Endpoints
-- `GET /api/health` - Application health check
-- `GET /api/cache/stats` - Cache performance statistics
-- `POST /api/cache/clear` - Clear application caches
+### Cache Management Endpoints
+- `GET /api/cache/status` - Get cache status across all agents
+- `GET /api/cache/inventory/stats` - Get inventory cache statistics
+- `GET /api/cache/inventory/details` - Get detailed inventory cache data
+- `GET /api/cache/webscraping/details` - Get web scraping cache details
+- `GET /api/cache/stats/enhanced` - Get comprehensive cache statistics
+- `GET /api/cache/stats/agents` - Get agent cache statistics
+- `GET /api/cache/stats/performance` - Get cache performance summary
+- `POST /api/cache/clear` - Clear inventory and alert caches
+- `POST /api/cache/purge` - Purge all caches (inventory + EOL)
+- `POST /api/cache/stats/reset` - Reset cache statistics
+
+### Cosmos DB Cache Endpoints
+- `GET /api/cache/cosmos/stats` - Get Cosmos DB cache statistics
+- `GET /api/cache/cosmos/config` - Get Cosmos DB configuration
+- `GET /api/cache/cosmos/debug` - Debug Cosmos DB cache state
+- `POST /api/cache/cosmos/clear` - Clear Cosmos DB cache
+- `POST /api/cache/cosmos/initialize` - Initialize Cosmos DB connection
+- `POST /api/cache/cosmos/test` - Test Cosmos DB cache operations
+
+### Communication History Endpoints
+- `GET /api/communications/eol` - Get EOL orchestrator communications
+- `GET /api/communications/chat` - Get chat orchestrator communications
+- `POST /api/communications/clear` - Clear EOL communications
+- `POST /api/communications/chat/clear` - Clear chat communications
+
+### Health & Monitoring Endpoints
+- `GET /health` - Basic health check
+- `GET /api/health/detailed` - Detailed health status with dependencies
+- `GET /api/test-logging` - Test logging configuration
+- `GET /api/cosmos/test` - Test Cosmos DB connectivity
 
 ## 🎯 Smart EOL Search
 
@@ -252,74 +433,166 @@ The application implements a sophisticated 3-strategy search approach:
 
 ## 🔍 Key Features Deep Dive
 
-### 1. Inventory Enhancement
-- **Product Extraction**: Intelligent parsing of inventory data
+### 1. Real-time Dashboard
+- **Live Statistics**: Active agents, cached items, AI sessions, database items
+- **Performance Metrics**: Average response times, cache hit rates, system health
+- **Recent Activity**: Real-time view of agent interactions and operations
+- **Auto-refresh**: Updates every 2 minutes with manual refresh option
+
+### 2. Intelligent Inventory Management
+- **Product Extraction**: Intelligent parsing of Azure Log Analytics inventory data
 - **Version Matching**: Precise product-to-line matching using name+version validation
 - **EOL Integration**: Automatic enhancement of inventory with EOL information
-- **Performance Optimization**: Parallel processing and caching
+- **Unified Cache**: Consolidated caching for software and OS inventory
+- **Performance Optimization**: Parallel processing, multi-level caching (5-minute TTL)
 
-### 2. Risk Assessment
-- **Critical**: Software already end-of-life
-- **High**: EOL within 6 months
-- **Medium**: EOL within 2 years
-- **Low**: Currently supported with long runway
+### 3. Risk Assessment & Alerts
+- **Risk Levels**:
+  - **Critical**: Software already end-of-life
+  - **High**: EOL within 6 months
+  - **Medium**: EOL within 2 years
+  - **Low**: Currently supported with long runway
+- **Alert Management**: Configurable EOL alerts with customizable thresholds
+- **SMTP Notifications**: Email alerts for critical and high-risk software
+- **Alert Preview**: Preview alerts before sending to validate configuration
 
-### 3. Agent Monitoring
-- **Performance Metrics**: Response times, success rates, cache hit ratios
+### 4. Advanced Caching System
+- **Multi-level Caching**: In-memory + Cosmos DB persistence
+- **Cache Statistics**: Real-time metrics for all agents and operations
+- **Performance Tracking**: Request counts, hit rates, response times, error rates
+- **Intelligent Expiration**: TTL-based cache with manual purge options
+- **Agent-specific Caching**: Dedicated caches for inventory, EOL, and web scraping
+
+### 5. Agent Orchestration & Monitoring
+- **Performance Metrics**: Response times, success rates, cache hit ratios per agent
 - **Health Checks**: Agent availability and error rates
-- **Communication Logs**: Detailed agent interaction history
-- **Load Balancing**: Intelligent request distribution
+- **Communication Logs**: Detailed interaction history stored in Cosmos DB
+- **Agent Statistics**: Request counts, cache performance, URL-level metrics
+- **Load Management**: Intelligent request distribution and timeout handling
 
-### 4. Conversational AI
-- **Natural Language**: Ask questions about your software inventory
-- **Multi-Agent Collaboration**: Different agents provide specialized insights
+### 6. Conversational AI (AutoGen Integration)
+- **Natural Language**: Ask questions about your software inventory using GPT-4
+- **Multi-Agent Collaboration**: Specialized agents collaborate to provide insights
 - **Context Awareness**: Maintains conversation context and history
+- **Web Surfer Integration**: Dynamic web content retrieval for up-to-date information
+- **Search History**: Track all EOL searches with timestamps and confidence scores
 - **Actionable Insights**: Specific recommendations for EOL management
+
+### 7. Web Scraping Capabilities
+- **Playwright Agent**: Browser automation for JavaScript-rendered content
+- **Azure AI Agent Service**: Modern intelligent web data extraction
+- **Web Surfer Agent**: AutoGen-based dynamic content retrieval
+- **Cache Management**: Separate cache for web scraping results
 
 ## 🚀 Deployment
 
-### Azure App Service
+### Azure App Service (Recommended)
 
-The application is designed for Azure App Service deployment:
+The application is optimized for Azure App Service deployment with Managed Identity:
 
 ```bash
-# Deploy using the provided script
+# Navigate to deployment directory
 cd deploy/
-./deploy-app.sh
+
+# Deploy container to Azure Container Registry and App Service
+./deploy-container.sh
+
+# The script will:
+# 1. Build the Docker image
+# 2. Push to Azure Container Registry
+# 3. Update App Service with new image
+# 4. Configure application settings
 ```
+
+**App Service Configuration Requirements:**
+- **Runtime**: Python 3.11+ or Docker container
+- **Plan**: At least B1 or higher (B2+ recommended for production)
+- **Authentication**: Managed Identity enabled for Azure resource access
+- **Application Settings**: Configure all required environment variables
+- **Logging**: Enable Application Insights for monitoring
+- **Always On**: Enable for production workloads
 
 ### Docker Deployment
 
 ```bash
-# Build the container
-docker build -t eol-app .
+# Build the container image
+docker build -t eol-agentic-app:latest .
 
-# Run the container
+# Run locally for testing
 docker run -p 8000:8000 \
   -e LOG_ANALYTICS_WORKSPACE_ID=your-workspace-id \
   -e AZURE_OPENAI_ENDPOINT=your-endpoint \
-  eol-app
+  -e AZURE_OPENAI_API_KEY=your-key \
+  -e COSMOS_ENDPOINT=your-cosmos-endpoint \
+  -e COSMOS_KEY=your-cosmos-key \
+  eol-agentic-app:latest
+
+# Push to Azure Container Registry
+az acr login --name your-registry
+docker tag eol-agentic-app:latest your-registry.azurecr.io/eol-agentic-app:latest
+docker push your-registry.azurecr.io/eol-agentic-app:latest
+```
+
+### Azure Container Instances
+
+```bash
+# Deploy to Azure Container Instances
+az container create \
+  --resource-group your-rg \
+  --name eol-agentic-app \
+  --image your-registry.azurecr.io/eol-agentic-app:latest \
+  --cpu 2 --memory 4 \
+  --ports 8000 \
+  --environment-variables \
+    LOG_ANALYTICS_WORKSPACE_ID=your-workspace-id \
+    AZURE_OPENAI_ENDPOINT=your-endpoint \
+  --secure-environment-variables \
+    AZURE_OPENAI_API_KEY=your-key \
+    COSMOS_KEY=your-cosmos-key
 ```
 
 ### Configuration Files
 
-- `deploy/appsettings.json` - Default settings
-- `deploy/appsettings.production.json` - Production overrides
-- `deploy/appsettings.development.json` - Development settings
+- `deploy/Dockerfile` - Container image definition
+- `deploy/deploy-container.sh` - Automated deployment script
+- `web.config` - IIS/App Service configuration
+- `.azure/` - Azure-specific configuration files
 
 ## 📈 Performance & Monitoring
 
-### Metrics Tracked
-- **Response Times**: Agent and endpoint performance
-- **Cache Hit Rates**: Caching efficiency
-- **Error Rates**: Reliability metrics
-- **Throughput**: Requests per second
+### Real-time Metrics Dashboard
+Access comprehensive metrics at `/cache` and `/`:
+- **Active Agents**: Count of all registered agents
+- **Cached Items**: Total cached items across all caches
+- **AI Sessions**: Total AutoGen conversation sessions
+- **Database Items**: Cosmos DB operations count
+- **Cache Hit Rates**: Per-agent and global cache efficiency
+- **Response Times**: Average, min, max response times per agent
+- **Error Rates**: Error tracking and alerting
+- **Recent Activity**: Last 20 operations per agent
+
+### Cache Statistics Manager
+The `cache_stats_manager` provides comprehensive tracking:
+- **Agent Statistics**: Per-agent request counts, cache hits/misses, response times
+- **Inventory Statistics**: Unified inventory cache performance
+- **Cosmos Statistics**: Database cache hit rates and response times
+- **Performance Summary**: Overall system metrics including uptime and throughput
+- **URL-level Metrics**: Granular tracking for specific API endpoints
 
 ### Optimization Features
-- **Intelligent Caching**: Multi-level caching strategy
-- **Parallel Processing**: Concurrent agent execution
-- **Load Management**: Request throttling and queuing
-- **Early Termination**: Confidence-based search optimization
+- **Multi-level Caching**: In-memory (5-min TTL) + Cosmos DB persistence
+- **Parallel Processing**: Concurrent agent execution with configurable limits
+- **Smart Cache Expiration**: TTL-based with manual purge options
+- **Early Termination**: Confidence-based search optimization (≥90% confidence)
+- **Request Deduplication**: Prevent duplicate concurrent requests
+- **Connection Pooling**: Efficient Azure service connections
+
+### Monitoring Endpoints
+- `GET /api/cache/stats/enhanced` - Comprehensive cache statistics
+- `GET /api/cache/stats/agents` - Per-agent cache metrics
+- `GET /api/cache/stats/performance` - Performance summary
+- `GET /api/health/detailed` - Detailed health check with dependencies
+- `GET /api/agents/status` - Agent health and availability
 
 ## 🤝 Contributing
 
@@ -360,43 +633,147 @@ To add a new EOL agent:
 - **Caching**: Implement caching for expensive operations
 - **Configuration**: Use environment variables for configuration
 
+## 🆕 Recent Updates
+
+### Dashboard & Statistics (October 2025)
+- **Real-time Dashboard**: New homepage with live statistics and metrics
+- **Enhanced Cache Statistics**: Comprehensive tracking with `cache_stats_manager`
+- **Agent Performance Monitoring**: Per-agent metrics with URL-level granularity
+- **Recent Activity Feed**: Live view of the last 20 operations across all agents
+- **Auto-refresh**: Dashboard updates every 2 minutes automatically
+
+### Alert Management System
+- **Configurable Alerts**: JSON-based alert configuration with risk thresholds
+- **SMTP Integration**: Email notifications for critical and high-risk software
+- **Alert Preview**: Preview alerts before sending to validate configuration
+- **Test Functionality**: Test SMTP settings without sending actual alerts
+
+### Enhanced Caching Architecture
+- **Multi-level Caching**: In-memory + Cosmos DB with intelligent TTL management
+- **Unified Inventory Cache**: Consolidated caching for software and OS inventory
+- **Web Scraping Cache**: Dedicated cache for Playwright and web surfer results
+- **Cache Management UI**: Visual interface for cache statistics and purging
+
+### AutoGen 0.7.x Integration
+- **Modern Framework**: Upgraded to AutoGen 0.7.4 with agentchat + extensions
+- **Web Surfer Agent**: Dynamic web content retrieval for up-to-date EOL data
+- **Improved Chat Experience**: Better conversation handling and context management
+
+### Azure AI Integration
+- **Azure AI Agent Service**: Modern replacement for deprecated Bing Search API
+- **Playwright Automation**: Browser-based web scraping for JavaScript-rendered content
+- **Enhanced Search**: Multiple search strategies with fallback mechanisms
+
 ## 📄 License
 
-This project is part of the LinkLandingZone infrastructure automation toolkit.
+This project is part of the GCC Demo infrastructure automation toolkit.
 
 ## 🆘 Support & Troubleshooting
 
 ### Common Issues
 
 1. **Azure Authentication Failures**:
-   - Verify Azure CLI login: `az account show`
-   - Check service principal permissions
-   - Validate environment variables
+   ```bash
+   # Verify Azure CLI login
+   az account show
+   
+   # Check Managed Identity status (for App Service)
+   az webapp identity show --name your-app --resource-group your-rg
+   
+   # Validate environment variables
+   curl http://localhost:8000/api/health/detailed
+   ```
 
 2. **Log Analytics Connection Issues**:
-   - Verify workspace ID and permissions
-   - Check network connectivity
-   - Validate KQL queries
+   - Verify workspace ID: Check `LOG_ANALYTICS_WORKSPACE_ID` environment variable
+   - Ensure Managed Identity has "Log Analytics Reader" role on workspace
+   - Test connectivity: `GET /api/inventory/raw/software`
+   - Validate KQL queries in Azure portal first
 
-3. **Agent Performance Issues**:
+3. **Cosmos DB Connection Issues**:
+   ```bash
+   # Test Cosmos DB connectivity
+   curl -X POST http://localhost:8000/api/cache/cosmos/initialize
+   
+   # Check Cosmos DB debug info
+   curl http://localhost:8000/api/cache/cosmos/debug
+   
+   # Verify Managed Identity has "Cosmos DB Account Contributor" role
+   ```
+
+4. **Agent Performance Issues**:
    - Check agent status: `GET /api/agents/status`
-   - Review cache statistics: `GET /api/cache/stats`
-   - Monitor application logs
+   - Review cache statistics: `GET /api/cache/stats/enhanced`
+   - Monitor recent activity: Visit `/` dashboard
+   - Check Application Insights for detailed traces
+
+5. **Cache Not Working**:
+   ```bash
+   # Check cache status
+   curl http://localhost:8000/api/cache/status
+   
+   # Clear and reinitialize caches
+   curl -X POST http://localhost:8000/api/cache/purge
+   curl -X POST http://localhost:8000/api/inventory/reload
+   ```
+
+6. **Playwright/Web Scraping Errors**:
+   ```bash
+   # Install Playwright browsers
+   playwright install chromium
+   
+   # Check web scraping cache
+   curl http://localhost:8000/api/cache/webscraping/details
+   ```
 
 ### Performance Tuning
 
-- **Increase Cache TTL**: For more stable environments
-- **Adjust Concurrency Limits**: Based on Azure quotas
-- **Optimize KQL Queries**: For faster inventory retrieval
-- **Configure Agent Timeouts**: Based on network conditions
+**Environment Variables**:
+```bash
+# Increase cache TTL for stable environments (default: 300s)
+CACHE_TTL_SECONDS=600
+
+# Adjust agent timeout based on network conditions (default: 30s)
+AGENT_TIMEOUT_SECONDS=45
+
+# Configure concurrency based on Azure quotas (default: 10)
+MAX_CONCURRENT_AGENTS=15
+```
+
+**App Service Configuration**:
+- Use B2 or higher for production workloads
+- Enable "Always On" to prevent cold starts
+- Configure auto-scaling rules based on CPU/memory
+- Enable Application Insights for detailed monitoring
+
+**Database Optimization**:
+- Use Cosmos DB Serverless for variable workloads
+- Configure appropriate RU/s for provisioned throughput
+- Enable Cosmos DB caching for frequently accessed data
 
 ### Monitoring & Alerts
 
-The application provides comprehensive monitoring through:
-- Azure Application Insights integration
-- Custom performance metrics
-- Health check endpoints
-- Structured logging for troubleshooting
+**Built-in Monitoring**:
+- Dashboard (`/`): Real-time statistics and recent activity
+- Cache Dashboard (`/cache`): Detailed cache metrics and performance
+- Agent Monitor (`/agents`): Agent health and communication history
+- Search History (`/eol-searches`): Track all EOL searches
+
+**Azure Integration**:
+- **Application Insights**: Automatic request tracking and performance monitoring
+- **Log Stream**: Real-time application logs via Azure portal or CLI
+- **Alerts**: Configure Azure Monitor alerts for critical metrics
+- **Health Endpoints**: `/health` and `/api/health/detailed` for availability monitoring
+
+**Structured Logging**:
+All logs include correlation IDs and structured data for easy troubleshooting:
+```bash
+# View logs in Azure App Service
+az webapp log tail --name your-app --resource-group your-rg
+
+# Download logs
+az webapp log download --name your-app --resource-group your-rg
+```
 
 ---
 
