@@ -41,6 +41,7 @@ from utils.eol_cache import eol_cache
 from api.health import router as health_router
 from api.cache import router as cache_router
 from api.inventory import router as inventory_router
+from api.eol import router as eol_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -56,6 +57,7 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(cache_router)
 app.include_router(inventory_router)
+app.include_router(eol_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -731,9 +733,13 @@ async def agents_status():
     return await get_eol_orchestrator().get_agents_status()
 
 
-@app.get("/api/eol", response_model=StandardResponse)
-@standard_endpoint(agent_name="eol_search", timeout_seconds=30)
-async def get_eol(name: str, version: Optional[str] = None):
+# EOL SEARCH ENDPOINTS - Moved to api/eol.py
+# 
+# /api/eol/* and /api/search/eol endpoints are now handled by eol_router
+
+# @app.get("/api/eol", response_model=StandardResponse)
+# @standard_endpoint(agent_name="eol_search", timeout_seconds=30)
+async def get_eol_OLD(name: str, version: Optional[str] = None):
     """
     Get EOL data using multi-agent system with prioritized sources.
     
@@ -1179,9 +1185,9 @@ async def send_test_alert(request_data: dict):
     return result
 
 
-@app.post("/api/analyze")
-@write_endpoint(agent_name="analyze_inventory", timeout_seconds=60)
-async def analyze_inventory_eol():
+# @app.post("/api/analyze")
+# @write_endpoint(agent_name="analyze_inventory", timeout_seconds=60)
+async def analyze_inventory_eol_OLD():
     """
     Comprehensive EOL risk analysis using multi-agent orchestration.
     
@@ -1203,14 +1209,14 @@ async def analyze_inventory_eol():
     )
 
 
-@app.post("/api/search/eol")
-@with_timeout_and_stats(
-    agent_name="orchestrator",
-    timeout_seconds=45,
-    track_cache=True,
-    auto_wrap_response=False
-)
-async def search_software_eol(request: SoftwareSearchRequest):
+# @app.post("/api/search/eol")
+# @with_timeout_and_stats(
+#     agent_name="orchestrator",
+#     timeout_seconds=45,
+#     track_cache=True,
+#     auto_wrap_response=False
+# )
+async def search_software_eol_OLD(request: SoftwareSearchRequest):
     """
     Search for end-of-life information for specific software using the orchestrator.
     
@@ -1484,9 +1490,9 @@ async def get_chat_communications():
         }
 
 
-@app.get("/api/eol-agent-responses", response_model=StandardResponse)
-@readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
-async def get_eol_agent_responses():
+# @app.get("/api/eol-agent-responses", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
+async def get_eol_agent_responses_OLD():
     """
     Get all tracked EOL agent responses from both Chat and EOL orchestrators.
     
@@ -1540,9 +1546,9 @@ async def get_eol_agent_responses():
     }
 
 
-@app.post("/api/eol-agent-responses/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="clear_eol_responses", timeout_seconds=30)
-async def clear_eol_agent_responses():
+# @app.post("/api/eol-agent-responses/clear", response_model=StandardResponse)
+# @write_endpoint(agent_name="clear_eol_responses", timeout_seconds=30)
+async def clear_eol_agent_responses_OLD():
     """
     Clear all tracked EOL agent responses from both orchestrators.
     
@@ -2150,9 +2156,9 @@ async def reset_cache_stats():
     verification_status: Optional[str] = "verified"  # "verified" or "failed"
 
 
-@app.post("/api/verify-eol-result", response_model=StandardResponse)
-@write_endpoint(agent_name="verify_eol", timeout_seconds=45)
-async def verify_eol_result(request: VerifyEOLRequest):
+# @app.post("/api/verify-eol-result", response_model=StandardResponse)
+# @write_endpoint(agent_name="verify_eol", timeout_seconds=45)
+async def verify_eol_result_OLD(request: VerifyEOLRequest):
     """
     Mark EOL result as verified or failed and cache with appropriate priority.
     
@@ -2236,9 +2242,9 @@ async def verify_eol_result(request: VerifyEOLRequest):
         }
 
 
-@app.post("/api/cache-eol-result", response_model=StandardResponse)
-@write_endpoint(agent_name="cache_eol", timeout_seconds=45)
-async def cache_eol_result(request: CacheEOLRequest):
+# @app.post("/api/cache-eol-result", response_model=StandardResponse)
+# @write_endpoint(agent_name="cache_eol", timeout_seconds=45)
+async def cache_eol_result_OLD(request: CacheEOLRequest):
     """
     Manually cache EOL result for user validation.
     
