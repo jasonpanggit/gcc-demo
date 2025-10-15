@@ -68,7 +68,7 @@ def run_all_tests():
         
         # Run pytest for this module
         exit_code = pytest.main([
-            f"tests/{module}",
+            f"{module}",
             "-v",
             "--tb=short",
             "--no-header",
