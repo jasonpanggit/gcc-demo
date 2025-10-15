@@ -51,12 +51,31 @@ class EOLOrchestratorAgent:
         # EOL Response Tracking - Track all agent responses for detailed history
         self.eol_agent_responses = []
 
+        # Check if mock mode is enabled via environment variable
+        import os
+        use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
+        
+        # Initialize inventory agents (with mock support)
+        if use_mock:
+            try:
+                from tests.mock_agents import MockSoftwareInventoryAgent, MockOSInventoryAgent
+                logger.info("🧪 Initializing EOL Orchestrator in MOCK MODE")
+                software_agent = MockSoftwareInventoryAgent()
+                os_agent = MockOSInventoryAgent()
+            except ImportError as e:
+                logger.warning(f"Failed to import mock agents: {e}. Falling back to real agents.")
+                software_agent = SoftwareInventoryAgent()
+                os_agent = OSInventoryAgent()
+        else:
+            software_agent = SoftwareInventoryAgent()
+            os_agent = OSInventoryAgent()
+
         # Initialize only essential agents for EOL analysis
         self.agents = {
             # Inventory agents
             "inventory": InventoryAgent(),
-            "os_inventory": OSInventoryAgent(),
-            "software_inventory": SoftwareInventoryAgent(),
+            "os_inventory": os_agent,
+            "software_inventory": software_agent,
             
             # EOL data sources (prioritized by reliability)
             "endoflife": EndOfLifeAgent(),
