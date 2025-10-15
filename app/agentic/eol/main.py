@@ -8,7 +8,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -129,7 +129,7 @@ orchestrator = None
 chat_orchestrator = None
 
 
-def get_eol_orchestrator():
+def get_eol_orchestrator() -> EOLOrchestratorAgent:
     """Get or initialize the EOL orchestrator instance lazily"""
     global orchestrator
     if orchestrator is None:
@@ -137,7 +137,7 @@ def get_eol_orchestrator():
     return orchestrator
 
 
-def get_chat_orchestrator():
+def get_chat_orchestrator() -> Optional[Any]:
     """Get or initialize the Chat orchestrator instance lazily
     
     Note: Chat functionality is in separate chat.html interface.
