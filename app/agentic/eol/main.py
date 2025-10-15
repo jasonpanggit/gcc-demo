@@ -1412,31 +1412,31 @@ async def get_eol_communications():
         }
 
 
-@app.get("/api/communications/chat")
+@app.get("/api/communications/chat", response_model=StandardResponse)
+@readonly_endpoint(agent_name="chat_communications", timeout_seconds=15)
 async def get_chat_communications():
-    """Get real-time chat orchestrator communications"""
-    try:
-        orchestrator = get_chat_orchestrator()
-        if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
-            communications = await orchestrator.get_agent_communications()
-            return {
-                "success": True,
-                "communications": communications,
-                "count": len(communications),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        else:
-            return {
-                "success": False,
-                "error": "Chat orchestrator not available or communications not supported",
-                "communications": [],
-                "count": 0
-            }
-    except Exception as e:
-        logger.error("Error getting chat communications: %s", e)
+    """
+    Get real-time chat orchestrator communications log.
+    
+    Retrieves the communication history from the chat orchestrator,
+    including agent interactions and OpenAI API calls.
+    
+    Returns:
+        StandardResponse with list of recent communications from chat orchestrator.
+    """
+    orchestrator = get_chat_orchestrator()
+    if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
+        communications = await orchestrator.get_agent_communications()
+        return {
+            "success": True,
+            "communications": communications,
+            "count": len(communications),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    else:
         return {
             "success": False,
-            "error": str(e),
+            "error": "Chat orchestrator not available or communications not supported",
             "communications": [],
             "count": 0
         }
@@ -1533,23 +1533,28 @@ async def clear_eol_agent_responses():
     }
 
 
-@app.post("/api/communications/chat/clear")
+@app.post("/api/communications/chat/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="clear_chat_comms", timeout_seconds=30)
 async def clear_chat_communications():
-    """Clear chat orchestrator communications log"""
-    try:
-        orchestrator = get_chat_orchestrator()
-        if orchestrator and hasattr(orchestrator, 'clear_communications'):
-            result = await orchestrator.clear_communications()
-            logger.info("Chat communications cleared: %s", result)
-            return result
-        else:
-            return {
-                "success": False,
-                "error": "Chat orchestrator not available or clear not supported"
-            }
-    except Exception as e:
-        logger.error("Error clearing chat communications: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error clearing chat communications: {str(e)}")
+    """
+    Clear chat orchestrator communications log.
+    
+    Removes all communication history from the chat orchestrator,
+    freeing up memory and resetting the conversation context.
+    
+    Returns:
+        StandardResponse indicating success of the clear operation.
+    """
+    orchestrator = get_chat_orchestrator()
+    if orchestrator and hasattr(orchestrator, 'clear_communications'):
+        result = await orchestrator.clear_communications()
+        logger.info("Chat communications cleared: %s", result)
+        return result
+    else:
+        return {
+            "success": False,
+            "error": "Chat orchestrator not available or clear not supported"
+        }
 
 
 @app.get("/api/cache/inventory/stats")
@@ -2831,215 +2836,232 @@ class AgentToggleRequest(BaseModel):
     active: bool
 
 
-@app.get("/api/agents/list")
+@app.get("/api/agents/list", response_model=StandardResponse)
+@readonly_endpoint(agent_name="list_agents", timeout_seconds=20)
 async def list_agents():
-    """Get list of all agents with their statistics and URLs"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        agents_data = {}
-        
-        # Get agent statistics and configuration
-        for agent_name, agent in orchestrator.agents.items():
-            # Get basic statistics
-            stats = {
-                "usage_count": getattr(agent, 'usage_count', 0),
-                "average_confidence": getattr(agent, 'average_confidence', 0.0),
-                "last_used": getattr(agent, 'last_used', None)
-            }
-            
-            # Get agent URLs - try multiple methods
-            urls = []
-            
-            # Method 1: Use get_urls() method if available (for some EOL agents)
-            if hasattr(agent, 'get_urls') and callable(getattr(agent, 'get_urls')):
-                try:
-                    urls = agent.get_urls()
-                except Exception as e:
-                    logger.debug(f"Error calling get_urls() for {agent_name}: {e}")
-            
-            # Method 2: Use urls property if available (for most EOL agents)
-            elif hasattr(agent, 'urls') and agent.urls:
-                try:
-                    urls_data = agent.urls
-                    # If it's already a list of dictionaries, use it directly
-                    if isinstance(urls_data, list):
-                        urls = urls_data
-                    else:
-                        urls = [urls_data]  # Wrap single URL in list
-                except Exception as e:
-                    logger.debug(f"Error accessing urls property for {agent_name}: {e}")
-            
-            # Method 3: Check for eol_urls dictionary (fallback)
-            elif hasattr(agent, 'eol_urls') and agent.eol_urls:
-                try:
-                    # Convert eol_urls dictionary to URL list with metadata
-                    urls = []
-                    for key, url_data in agent.eol_urls.items():
-                        if isinstance(url_data, dict) and 'url' in url_data:
-                            urls.append({
-                                'url': url_data['url'],
-                                'description': url_data.get('description', f'{key.title()} EOL Information'),
-                                'active': url_data.get('active', True),
-                                'priority': url_data.get('priority', 1)
-                            })
-                        elif isinstance(url_data, str):
-                            urls.append({
-                                'url': url_data,
-                                'description': f'{key.title()} EOL Information',
-                                'active': True,
-                                'priority': 1
-                            })
-                except Exception as e:
-                    logger.debug(f"Error extracting eol_urls for {agent_name}: {e}")
-            
-            # Method 4: Legacy fallbacks
-            elif hasattr(agent, 'base_url') and agent.base_url:
-                urls = [{'url': agent.base_url, 'description': 'Base URL', 'active': True, 'priority': 1}]
-            elif hasattr(agent, 'api_url') and agent.api_url:
-                urls = [{'url': agent.api_url, 'description': 'API URL', 'active': True, 'priority': 1}]
-            
-            # Get agent status
-            active = getattr(agent, 'active', True)
-            
-            agents_data[agent_name] = {
-                "statistics": stats,
-                "urls": urls,
-                "active": active,
-                "type": type(agent).__name__
-            }
-        
-        return {
-            "success": True,
-            "agents": agents_data
+    """
+    Get list of all agents with their statistics and URLs.
+    
+    Retrieves comprehensive information about all registered EOL agents including:
+    - Usage statistics (count, confidence, last used)
+    - Configured URLs with descriptions and priorities
+    - Active/inactive status
+    - Agent type information
+    
+    Returns:
+        StandardResponse with dictionary of agent configurations keyed by agent name.
+    """
+    orchestrator = get_eol_orchestrator()
+    agents_data = {}
+    
+    # Get agent statistics and configuration
+    for agent_name, agent in orchestrator.agents.items():
+        # Get basic statistics
+        stats = {
+            "usage_count": getattr(agent, 'usage_count', 0),
+            "average_confidence": getattr(agent, 'average_confidence', 0.0),
+            "last_used": getattr(agent, 'last_used', None)
         }
         
-    except Exception as e:
-        logger.error(f"Error listing agents: {e}")
-        return {
-            "success": False,
-            "error": str(e)
+        # Get agent URLs - try multiple methods
+        urls = []
+        
+        # Method 1: Use get_urls() method if available (for some EOL agents)
+        if hasattr(agent, 'get_urls') and callable(getattr(agent, 'get_urls')):
+            try:
+                urls = agent.get_urls()
+            except Exception as e:
+                logger.debug(f"Error calling get_urls() for {agent_name}: {e}")
+        
+        # Method 2: Use urls property if available (for most EOL agents)
+        elif hasattr(agent, 'urls') and agent.urls:
+            try:
+                urls_data = agent.urls
+                # If it's already a list of dictionaries, use it directly
+                if isinstance(urls_data, list):
+                    urls = urls_data
+                else:
+                    urls = [urls_data]  # Wrap single URL in list
+            except Exception as e:
+                logger.debug(f"Error accessing urls property for {agent_name}: {e}")
+        
+        # Method 3: Check for eol_urls dictionary (fallback)
+        elif hasattr(agent, 'eol_urls') and agent.eol_urls:
+            try:
+                # Convert eol_urls dictionary to URL list with metadata
+                urls = []
+                for key, url_data in agent.eol_urls.items():
+                    if isinstance(url_data, dict) and 'url' in url_data:
+                        urls.append({
+                            'url': url_data['url'],
+                            'description': url_data.get('description', f'{key.title()} EOL Information'),
+                            'active': url_data.get('active', True),
+                            'priority': url_data.get('priority', 1)
+                        })
+                    elif isinstance(url_data, str):
+                        urls.append({
+                            'url': url_data,
+                            'description': f'{key.title()} EOL Information',
+                            'active': True,
+                            'priority': 1
+                        })
+            except Exception as e:
+                logger.debug(f"Error extracting eol_urls for {agent_name}: {e}")
+        
+        # Method 4: Legacy fallbacks
+        elif hasattr(agent, 'base_url') and agent.base_url:
+            urls = [{'url': agent.base_url, 'description': 'Base URL', 'active': True, 'priority': 1}]
+        elif hasattr(agent, 'api_url') and agent.api_url:
+            urls = [{'url': agent.api_url, 'description': 'API URL', 'active': True, 'priority': 1}]
+        
+        # Get agent status
+        active = getattr(agent, 'active', True)
+        
+        agents_data[agent_name] = {
+            "statistics": stats,
+            "urls": urls,
+            "active": active,
+            "type": type(agent).__name__
         }
+    
+    return {
+        "success": True,
+        "agents": agents_data
+    }
 
 
-@app.post("/api/agents/add-url")
+@app.post("/api/agents/add-url", response_model=StandardResponse)
+@write_endpoint(agent_name="add_agent_url", timeout_seconds=30)
 async def add_agent_url(request: AgentUrlRequest):
-    """Add URL to an agent"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        
-        if request.agent_name not in orchestrator.agents:
-            return {
-                "success": False,
-                "error": f"Agent '{request.agent_name}' not found"
-            }
-        
-        agent = orchestrator.agents[request.agent_name]
-        
-        # Initialize URLs list if it doesn't exist
-        if not hasattr(agent, 'urls'):
-            agent.urls = []
-        
-        # Add URL (check for duplicates)
-        url_entry = {
-            "url": request.url,
-            "description": request.description or ""
-        } if request.description else request.url
-        
-        if request.url not in [u["url"] if isinstance(u, dict) else u for u in agent.urls]:
-            agent.urls.append(url_entry)
-            logger.info(f"Added URL {request.url} to agent {request.agent_name}")
-            
-            return {
-                "success": True,
-                "message": f"URL added to {request.agent_name}"
-            }
-        else:
-            return {
-                "success": False,
-                "error": "URL already exists for this agent"
-            }
-        
-    except Exception as e:
-        logger.error(f"Error adding URL to agent: {e}")
+    """
+    Add URL to an agent's configuration.
+    
+    Adds a new URL endpoint to the specified agent's list of EOL data sources.
+    Checks for duplicates before adding. URL can include optional description.
+    
+    Args:
+        request: AgentUrlRequest with agent name, URL, and optional description
+    
+    Returns:
+        StandardResponse indicating success or failure with appropriate message.
+    """
+    orchestrator = get_eol_orchestrator()
+    
+    if request.agent_name not in orchestrator.agents:
         return {
             "success": False,
-            "error": str(e)
+            "error": f"Agent '{request.agent_name}' not found"
         }
-
-
-@app.post("/api/agents/remove-url")
-async def remove_agent_url(request: AgentUrlRequest):
-    """Remove URL from an agent"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        
-        if request.agent_name not in orchestrator.agents:
-            return {
-                "success": False,
-                "error": f"Agent '{request.agent_name}' not found"
-            }
-        
-        agent = orchestrator.agents[request.agent_name]
-        
-        if not hasattr(agent, 'urls') or not agent.urls:
-            return {
-                "success": False,
-                "error": "No URLs configured for this agent"
-            }
-        
-        # Remove URL
-        original_count = len(agent.urls)
-        agent.urls = [u for u in agent.urls if (u["url"] if isinstance(u, dict) else u) != request.url]
-        
-        if len(agent.urls) < original_count:
-            logger.info(f"Removed URL {request.url} from agent {request.agent_name}")
-            return {
-                "success": True,
-                "message": f"URL removed from {request.agent_name}"
-            }
-        else:
-            return {
-                "success": False,
-                "error": "URL not found for this agent"
-            }
-        
-    except Exception as e:
-        logger.error(f"Error removing URL from agent: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@app.post("/api/agents/toggle")
-async def toggle_agent(request: AgentToggleRequest):
-    """Toggle agent active status"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        
-        if request.agent_name not in orchestrator.agents:
-            return {
-                "success": False,
-                "error": f"Agent '{request.agent_name}' not found"
-            }
-        
-        agent = orchestrator.agents[request.agent_name]
-        agent.active = request.active
-        
-        status = "enabled" if request.active else "disabled"
-        logger.info(f"Agent {request.agent_name} {status}")
+    
+    agent = orchestrator.agents[request.agent_name]
+    
+    # Initialize URLs list if it doesn't exist
+    if not hasattr(agent, 'urls'):
+        agent.urls = []
+    
+    # Add URL (check for duplicates)
+    url_entry = {
+        "url": request.url,
+        "description": request.description or ""
+    } if request.description else request.url
+    
+    if request.url not in [u["url"] if isinstance(u, dict) else u for u in agent.urls]:
+        agent.urls.append(url_entry)
+        logger.info(f"Added URL {request.url} to agent {request.agent_name}")
         
         return {
             "success": True,
-            "message": f"Agent {request.agent_name} {status}"
+            "message": f"URL added to {request.agent_name}"
         }
-        
-    except Exception as e:
-        logger.error(f"Error toggling agent: {e}")
+    else:
         return {
             "success": False,
-            "error": str(e)
+            "error": "URL already exists for this agent"
         }
+
+
+@app.post("/api/agents/remove-url", response_model=StandardResponse)
+@write_endpoint(agent_name="remove_agent_url", timeout_seconds=30)
+async def remove_agent_url(request: AgentUrlRequest):
+    """
+    Remove URL from an agent's configuration.
+    
+    Removes the specified URL from the agent's list of EOL data sources.
+    Returns error if agent or URL not found.
+    
+    Args:
+        request: AgentUrlRequest with agent name and URL to remove
+    
+    Returns:
+        StandardResponse indicating success or failure with appropriate message.
+    """
+    orchestrator = get_eol_orchestrator()
+    
+    if request.agent_name not in orchestrator.agents:
+        return {
+            "success": False,
+            "error": f"Agent '{request.agent_name}' not found"
+        }
+    
+    agent = orchestrator.agents[request.agent_name]
+    
+    if not hasattr(agent, 'urls') or not agent.urls:
+        return {
+            "success": False,
+            "error": "No URLs configured for this agent"
+        }
+    
+    # Remove URL
+    original_count = len(agent.urls)
+    agent.urls = [u for u in agent.urls if (u["url"] if isinstance(u, dict) else u) != request.url]
+    
+    if len(agent.urls) < original_count:
+        logger.info(f"Removed URL {request.url} from agent {request.agent_name}")
+        return {
+            "success": True,
+            "message": f"URL removed from {request.agent_name}"
+        }
+    else:
+        return {
+            "success": False,
+            "error": "URL not found for this agent"
+        }
+
+
+@app.post("/api/agents/toggle", response_model=StandardResponse)
+@write_endpoint(agent_name="toggle_agent", timeout_seconds=30)
+async def toggle_agent(request: AgentToggleRequest):
+    """
+    Toggle agent active/inactive status.
+    
+    Enables or disables the specified agent. Disabled agents are not used
+    for EOL lookups. Useful for temporarily removing problematic agents
+    without deleting their configuration.
+    
+    Args:
+        request: AgentToggleRequest with agent name and active status (true/false)
+    
+    Returns:
+        StandardResponse indicating success with status message.
+    """
+    orchestrator = get_eol_orchestrator()
+    
+    if request.agent_name not in orchestrator.agents:
+        return {
+            "success": False,
+            "error": f"Agent '{request.agent_name}' not found"
+        }
+    
+    agent = orchestrator.agents[request.agent_name]
+    agent.active = request.active
+    
+    status = "enabled" if request.active else "disabled"
+    logger.info(f"Agent {request.agent_name} {status}")
+    
+    return {
+        "success": True,
+        "message": f"Agent {request.agent_name} {status}"
+    }
 
 
 @app.get("/api/validate-cache")
