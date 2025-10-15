@@ -400,86 +400,105 @@ async def health_check():
     }
 
 
-@app.get("/api/health/detailed")
+@app.get("/api/health/detailed", response_model=StandardResponse)
+@readonly_endpoint(agent_name="health_check", timeout_seconds=15)
 async def detailed_health():
-    """Detailed health check with service status"""
-    try:
-        validation = config.validate_config()
-        
-        # EOL interface uses only regular orchestrator
-        autogen_status = "not_available"
-        autogen_agents_count = 0
-        
-        health_status = {
-            "status": "ok" if validation["valid"] else "degraded",
-            "timestamp": datetime.utcnow().isoformat(),
-            "services": validation["services"],
-            "errors": validation["errors"],
-            "warnings": validation["warnings"],
-            "autogen": {
-                "available": CHAT_AVAILABLE,
-                "status": autogen_status,
-                "agents_count": autogen_agents_count
-            }
+    """
+    Detailed health check with service status.
+    
+    Validates application configuration and checks status of all services
+    including Cosmos DB, orchestrators, and agents.
+    
+    Returns:
+        StandardResponse with health status, service validation, and warnings/errors.
+    """
+    validation = config.validate_config()
+    
+    # EOL interface uses only regular orchestrator
+    autogen_status = "not_available"
+    autogen_agents_count = 0
+    
+    health_status = {
+        "status": "ok" if validation["valid"] else "degraded",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": validation["services"],
+        "errors": validation["errors"],
+        "warnings": validation["warnings"],
+        "autogen": {
+            "available": CHAT_AVAILABLE,
+            "status": autogen_status,
+            "agents_count": autogen_agents_count
         }
-        return health_status
-    except Exception as e:
-        logger.error("Health check failed: %s", e)
-        return create_error_response(e, "health_check")
+    }
+    return health_status
 
 
-@app.get("/api/test-logging")
+@app.get("/api/test-logging", response_model=StandardResponse)
+@readonly_endpoint(agent_name="test_logging", timeout_seconds=15)
 async def test_logging():
-    """Test logging functionality - especially useful for Azure App Service debugging"""
-    try:
-        timestamp = datetime.utcnow().isoformat()
-        test_id = str(uuid.uuid4())[:8]
-        
-        # Test main app logger
-        logger.debug(f"🧪 MAIN-DEBUG Test Log [{test_id}] - {timestamp}")
-        logger.info(f"🧪 MAIN-INFO Test Log [{test_id}] - {timestamp}")
-        logger.warning(f"🧪 MAIN-WARNING Test Log [{test_id}] - {timestamp}")
-        logger.error(f"🧪 MAIN-ERROR Test Log [{test_id}] - {timestamp}")
-        
-        # Test Chat orchestrator logging if available
-        # EOL interface uses only regular orchestrator
-        autogen_test_result = None
-        
-        # Force flush for Azure
-        if os.environ.get('WEBSITE_SITE_NAME'):
-            import sys
-            sys.stderr.flush()
-            sys.stdout.flush()
-        
-        result = {
-            "test_completed": True,
-            "test_id": test_id,
-            "timestamp": timestamp,
-            "environment": "Azure App Service" if os.environ.get('WEBSITE_SITE_NAME') else "Local",
-            "main_logger": {
-                "name": logger.name,
-                "level": logger.level,
-                "handler_count": len(logger.handlers)
-            },
-            "autogen_test": autogen_test_result,
-            "message": f"Logging test completed. Check Azure App Service logs for messages with ID [{test_id}]"
-        }
-        
-        logger.info(f"🧪 Logging test result: {result}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"Logging test failed: {e}")
-        return create_error_response(e, "logging_test")
+    """
+    Test logging functionality for Azure App Service debugging.
+    
+    Generates test log messages at all levels (debug, info, warning, error)
+    and validates logger configuration. Useful for troubleshooting Azure
+    App Service log streaming.
+    
+    Returns:
+        StandardResponse with test results, logger configuration, and environment info.
+    """
+    timestamp = datetime.utcnow().isoformat()
+    test_id = str(uuid.uuid4())[:8]
+    
+    # Test main app logger
+    logger.debug(f"🧪 MAIN-DEBUG Test Log [{test_id}] - {timestamp}")
+    logger.info(f"🧪 MAIN-INFO Test Log [{test_id}] - {timestamp}")
+    logger.warning(f"🧪 MAIN-WARNING Test Log [{test_id}] - {timestamp}")
+    logger.error(f"🧪 MAIN-ERROR Test Log [{test_id}] - {timestamp}")
+    
+    # Test Chat orchestrator logging if available
+    # EOL interface uses only regular orchestrator
+    autogen_test_result = None
+    
+    # Force flush for Azure
+    if os.environ.get('WEBSITE_SITE_NAME'):
+        import sys
+        sys.stderr.flush()
+        sys.stdout.flush()
+    
+    result = {
+        "test_completed": True,
+        "test_id": test_id,
+        "timestamp": timestamp,
+        "environment": "Azure App Service" if os.environ.get('WEBSITE_SITE_NAME') else "Local",
+        "main_logger": {
+            "name": logger.name,
+            "level": logger.level,
+            "handler_count": len(logger.handlers)
+        },
+        "autogen_test": autogen_test_result,
+        "message": f"Logging test completed. Check Azure App Service logs for messages with ID [{test_id}]"
+    }
+    
+    logger.info(f"🧪 Logging test result: {result}")
+    return result
 
 
 # ============================================================================
 # MAIN ENDPOINTS
 # ============================================================================
 
-@app.get("/api/status")
+@app.get("/api/status", response_model=StandardResponse)
+@readonly_endpoint(agent_name="status", timeout_seconds=10)
 async def status():
-    """Status endpoint - for health checks"""
+    """
+    Simple status endpoint for health checks.
+    
+    Quick health check endpoint for load balancers and monitoring systems.
+    Returns basic application information.
+    
+    Returns:
+        StandardResponse with app status, name, and version.
+    """
     return {
         "message": config.app.title, 
         "status": "running",
@@ -1286,52 +1305,57 @@ async def search_software_eol(request: SoftwareSearchRequest):
 # CACHE MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@app.get("/api/cache/status")
+@app.get("/api/cache/status", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cache_status", timeout_seconds=20)
 async def get_cache_status():
-    """Get status of cached data across all agents with enhanced statistics"""
+    """
+    Get status of cached data across all agents with enhanced statistics.
+    
+    Retrieves comprehensive cache status including agent-level cache info,
+    inventory context cache stats, and enhanced performance metrics.
+    
+    Returns:
+        StandardResponse with cache status for all agents and inventory context.
+    """
+    # Get basic cache status from orchestrator
+    cache_status = await get_eol_orchestrator().get_cache_status()
+    
+    # Add inventory context cache stats
+    inventory_stats = {
+        "cached": _inventory_context_cache["data"] is not None,
+        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
+        "ttl_seconds": _inventory_context_cache["ttl"],
+        "items_count": len(_inventory_context_cache["data"]) if _inventory_context_cache["data"] else 0,
+        "size_kb": len(str(_inventory_context_cache["data"])) // 1024 if _inventory_context_cache["data"] else 0
+    }
+    
+    # Add enhanced statistics from cache_stats_manager
     try:
-        # Get basic cache status from orchestrator
-        cache_status = await get_eol_orchestrator().get_cache_status()
+        enhanced_stats = cache_stats_manager.get_all_statistics()
         
-        # Add inventory context cache stats
-        inventory_stats = {
-            "cached": _inventory_context_cache["data"] is not None,
-            "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-            "ttl_seconds": _inventory_context_cache["ttl"],
-            "items_count": len(_inventory_context_cache["data"]) if _inventory_context_cache["data"] else 0,
-            "size_kb": len(str(_inventory_context_cache["data"])) // 1024 if _inventory_context_cache["data"] else 0
-        }
+        # Merge enhanced agent stats with existing agent data
+        if "agents_with_cache" in cache_status and "agent_stats" in enhanced_stats:
+            for agent_data in cache_status["agents_with_cache"]:
+                agent_name = agent_data.get("name") or agent_data.get("agent")
+                if agent_name in enhanced_stats["agent_stats"]["agents"]:
+                    enhanced_agent_data = enhanced_stats["agent_stats"]["agents"][agent_name]
+                    agent_data.update({
+                        "usage_count": enhanced_agent_data["request_count"],
+                        "cache_hit_rate": enhanced_agent_data["cache_hit_rate"],
+                        "avg_response_time_ms": enhanced_agent_data["avg_response_time_ms"],
+                        "error_count": enhanced_agent_data["error_count"],
+                        "last_used": enhanced_agent_data["last_request_time"]
+                    })
         
-        # Add enhanced statistics from cache_stats_manager
-        try:
-            enhanced_stats = cache_stats_manager.get_all_statistics()
-            
-            # Merge enhanced agent stats with existing agent data
-            if "agents_with_cache" in cache_status and "agent_stats" in enhanced_stats:
-                for agent_data in cache_status["agents_with_cache"]:
-                    agent_name = agent_data.get("name") or agent_data.get("agent")
-                    if agent_name in enhanced_stats["agent_stats"]["agents"]:
-                        enhanced_agent_data = enhanced_stats["agent_stats"]["agents"][agent_name]
-                        agent_data.update({
-                            "usage_count": enhanced_agent_data["request_count"],
-                            "cache_hit_rate": enhanced_agent_data["cache_hit_rate"],
-                            "avg_response_time_ms": enhanced_agent_data["avg_response_time_ms"],
-                            "error_count": enhanced_agent_data["error_count"],
-                            "last_used": enhanced_agent_data["last_request_time"]
-                        })
-            
-            # Add performance summary to cache status
-            cache_status["enhanced_stats"] = enhanced_stats
-            
-        except Exception as e:
-            logger.warning(f"Could not load enhanced cache statistics: {e}")
-            cache_status["enhanced_stats"] = {"error": str(e)}
+        # Add performance summary to cache status
+        cache_status["enhanced_stats"] = enhanced_stats
         
-        cache_status["inventory_context_cache"] = inventory_stats
-        return cache_status
     except Exception as e:
-        logger.error("Error getting cache status: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error getting cache status: {str(e)}")
+        logger.warning(f"Could not load enhanced cache statistics: {e}")
+        cache_status["enhanced_stats"] = {"error": str(e)}
+    
+    cache_status["inventory_context_cache"] = inventory_stats
+    return cache_status
 
 
 @app.post("/api/cache/clear", response_model=StandardResponse)
@@ -1582,90 +1606,80 @@ async def clear_chat_communications():
         }
 
 
-@app.get("/api/cache/inventory/stats")
+@app.get("/api/cache/inventory/stats", response_model=StandardResponse)
+@readonly_endpoint(agent_name="inventory_cache_stats", timeout_seconds=15)
 async def get_inventory_cache_stats():
-    """Get detailed inventory context cache statistics with enhanced metrics"""
-    try:
-        start_time = time.time()
+    """
+    Get detailed inventory context cache statistics with enhanced metrics.
+    
+    Provides comprehensive cache statistics including cache hit/miss info,
+    data size, expiration status, and content analysis (computers, software counts).
+    
+    Returns:
+        StandardResponse with cache stats and enhanced performance metrics.
+    """
+    start_time = time.time()
+    
+    stats = {
+        "cached": _inventory_context_cache["data"] is not None,
+        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
+        "ttl_seconds": _inventory_context_cache["ttl"],
+        "age_seconds": (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds() if _inventory_context_cache["timestamp"] else None,
+        "expired": False,
+        "items_count": 0,
+        "size_bytes": 0,
+        "computers_count": 0,
+        "software_count": 0
+    }
+    
+    was_cache_hit = False
+    
+    if _inventory_context_cache["data"]:
+        was_cache_hit = True
+        data = _inventory_context_cache["data"]
+        stats["size_bytes"] = len(str(data))
+        stats["items_count"] = len(data) if isinstance(data, list) else 1
         
-        stats = {
-            "cached": _inventory_context_cache["data"] is not None,
-            "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-            "ttl_seconds": _inventory_context_cache["ttl"],
-            "age_seconds": (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds() if _inventory_context_cache["timestamp"] else None,
-            "expired": False,
-            "items_count": 0,
-            "size_bytes": 0,
-            "computers_count": 0,
-            "software_count": 0
-        }
+        # Check if expired
+        if _inventory_context_cache["timestamp"]:
+            age = (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds()
+            stats["expired"] = age > _inventory_context_cache["ttl"]
         
-        was_cache_hit = False
-        
-        if _inventory_context_cache["data"]:
-            was_cache_hit = True
-            data = _inventory_context_cache["data"]
-            stats["size_bytes"] = len(str(data))
-            stats["items_count"] = len(data) if isinstance(data, list) else 1
+        # Try to analyze the inventory data structure
+        if isinstance(data, list):
+            computers = set()
+            software_items = 0
+            for item in data:
+                if isinstance(item, dict):
+                    if "ComputerName" in item:
+                        computers.add(item["ComputerName"])
+                    if "ProductName" in item or "DisplayName" in item:
+                        software_items += 1
             
-            # Check if expired
-            if _inventory_context_cache["timestamp"]:
-                age = (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds()
-                stats["expired"] = age > _inventory_context_cache["ttl"]
-            
-            # Try to analyze the inventory data structure
-            if isinstance(data, list):
-                computers = set()
-                software_items = 0
-                for item in data:
-                    if isinstance(item, dict):
-                        if "ComputerName" in item:
-                            computers.add(item["ComputerName"])
-                        if "ProductName" in item or "DisplayName" in item:
-                            software_items += 1
-                
-                stats["computers_count"] = len(computers)
-                stats["software_count"] = software_items
-            elif isinstance(data, dict):
-                if "computers" in data:
-                    stats["computers_count"] = len(data.get("computers", []))
-                if "software" in data:
-                    stats["software_count"] = len(data.get("software", []))
-        
-        # Record performance metrics
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_inventory_request(
-            response_time_ms=response_time_ms,
-            was_cache_hit=was_cache_hit,
-            items_count=stats["items_count"]
-        )
-        
-        # Add enhanced statistics
-        enhanced_inventory_stats = cache_stats_manager.get_inventory_statistics()
-        
-        return {
-            "success": True,
-            "cache_stats": stats,
-            "enhanced_stats": enhanced_inventory_stats
-        }
-    except Exception as e:
-        # Record error
-        response_time_ms = (time.time() - start_time) * 1000 if 'start_time' in locals() else 0
-        cache_stats_manager.record_inventory_request(response_time_ms, False, 0)
-        
-        logger.error("Error getting inventory cache stats: %s", e)
-        return {
-            "success": False,
-            "error": str(e),
-            "cache_stats": {
-                "cached": False,
-                "timestamp": None,
-                "ttl_seconds": 300,
-                "items_count": 0,
-                "size_bytes": 0
-            },
-            "enhanced_stats": {"error": str(e)}
-        }
+            stats["computers_count"] = len(computers)
+            stats["software_count"] = software_items
+        elif isinstance(data, dict):
+            if "computers" in data:
+                stats["computers_count"] = len(data.get("computers", []))
+            if "software" in data:
+                stats["software_count"] = len(data.get("software", []))
+    
+    # Record performance metrics
+    response_time_ms = (time.time() - start_time) * 1000
+    cache_stats_manager.record_inventory_request(
+        response_time_ms=response_time_ms,
+        was_cache_hit=was_cache_hit,
+        items_count=stats["items_count"]
+    )
+    
+    # Add enhanced statistics
+    enhanced_inventory_stats = cache_stats_manager.get_inventory_statistics()
+    
+    return {
+        "success": True,
+        "cache_stats": stats,
+        "enhanced_stats": enhanced_inventory_stats
+    }
 
 
 @app.get("/api/cache/inventory/details")
