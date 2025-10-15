@@ -1153,22 +1153,27 @@ async def send_test_alert(request_data: dict):
 
 
 @app.post("/api/analyze")
+@write_endpoint(agent_name="analyze_inventory", timeout_seconds=60)
 async def analyze_inventory_eol():
-    """Comprehensive EOL risk analysis using multi-agent orchestration"""
-    try:
-        analysis = await get_eol_orchestrator().analyze_inventory_eol_risks()
-        communications = await get_eol_orchestrator().get_communication_history()
-        
-        return MultiAgentResponse(
-            session_id=get_eol_orchestrator().session_id,
-            analysis_result=analysis,
-            communication_history=communications,
-            timestamp=datetime.utcnow().isoformat()
-        )
-        
-    except Exception as e:
-        logger.error("Error analyzing inventory: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error analyzing inventory: {str(e)}")
+    """
+    Comprehensive EOL risk analysis using multi-agent orchestration.
+    
+    Analyzes the entire software and OS inventory to identify EOL risks,
+    prioritize updates, and provide actionable recommendations.
+    
+    Returns:
+        MultiAgentResponse with risk analysis, affected systems, and
+        communication history from all agents involved.
+    """
+    analysis = await get_eol_orchestrator().analyze_inventory_eol_risks()
+    communications = await get_eol_orchestrator().get_communication_history()
+    
+    return MultiAgentResponse(
+        session_id=get_eol_orchestrator().session_id,
+        analysis_result=analysis,
+        communication_history=communications,
+        timestamp=datetime.utcnow().isoformat()
+    )
 
 
 @app.post("/api/search/eol")
@@ -1377,31 +1382,31 @@ async def clear_communications():
     return result
 
 
-@app.get("/api/communications/eol")
+@app.get("/api/communications/eol", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_communications", timeout_seconds=15)
 async def get_eol_communications():
-    """Get real-time EOL orchestrator communications"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        if hasattr(orchestrator, 'get_recent_communications'):
-            communications = orchestrator.get_recent_communications()
-            return {
-                "success": True,
-                "communications": communications,
-                "count": len(communications),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        else:
-            return {
-                "success": False,
-                "error": "Communications not available",
-                "communications": [],
-                "count": 0
-            }
-    except Exception as e:
-        logger.error("Error getting EOL communications: %s", e)
+    """
+    Get real-time EOL orchestrator communications log.
+    
+    Retrieves the recent communication history from the EOL orchestrator,
+    including agent interactions, search queries, and response details.
+    
+    Returns:
+        StandardResponse with list of recent communications from EOL orchestrator.
+    """
+    orchestrator = get_eol_orchestrator()
+    if hasattr(orchestrator, 'get_recent_communications'):
+        communications = orchestrator.get_recent_communications()
+        return {
+            "success": True,
+            "communications": communications,
+            "count": len(communications),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    else:
         return {
             "success": False,
-            "error": str(e),
+            "error": "Communications not available",
             "communications": [],
             "count": 0
         }
@@ -1437,94 +1442,95 @@ async def get_chat_communications():
         }
 
 
-@app.get("/api/eol-agent-responses")
+@app.get("/api/eol-agent-responses", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
 async def get_eol_agent_responses():
-    """Get all tracked EOL agent responses from both Chat and EOL orchestrators"""
-    try:
-        all_responses = []
-        
-        # Get responses from Chat orchestrator
-        chat_orchestrator = get_chat_orchestrator()
-        if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
-            chat_responses = chat_orchestrator.get_eol_agent_responses()
-            # Mark these as from chat orchestrator
-            for response in chat_responses:
-                response['orchestrator_type'] = 'chat_orchestrator'
-            all_responses.extend(chat_responses)
-            logger.info(f"🔍 [API] Chat orchestrator returned {len(chat_responses)} EOL responses")
-        else:
-            logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
-        
-        # Get responses from EOL orchestrator
-        eol_orchestrator = get_eol_orchestrator()
-        if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
-            eol_responses = eol_orchestrator.get_eol_agent_responses()
-            # Mark these as from eol orchestrator
-            for response in eol_responses:
-                response['orchestrator_type'] = 'eol_orchestrator'
-            all_responses.extend(eol_responses)
-            logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
-        else:
-            logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
-        
-        # Sort by timestamp (newest first)
-        all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-        
-        logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
-        
-        return {
-            "success": True,
-            "responses": all_responses,
-            "count": len(all_responses),
-            "timestamp": datetime.utcnow().isoformat(),
-            "sources": {
-                "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
-                "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
-            }
+    """
+    Get all tracked EOL agent responses from both Chat and EOL orchestrators.
+    
+    Retrieves historical EOL search results from all orchestrators, including
+    which agents were used, confidence scores, and timestamps.
+    
+    Returns:
+        StandardResponse with list of EOL responses from all sources,
+        sorted by timestamp (newest first).
+    """
+    all_responses = []
+    
+    # Get responses from Chat orchestrator
+    chat_orchestrator = get_chat_orchestrator()
+    if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
+        chat_responses = chat_orchestrator.get_eol_agent_responses()
+        # Mark these as from chat orchestrator
+        for response in chat_responses:
+            response['orchestrator_type'] = 'chat_orchestrator'
+        all_responses.extend(chat_responses)
+        logger.info(f"🔍 [API] Chat orchestrator returned {len(chat_responses)} EOL responses")
+    else:
+        logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
+    
+    # Get responses from EOL orchestrator
+    eol_orchestrator = get_eol_orchestrator()
+    if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
+        eol_responses = eol_orchestrator.get_eol_agent_responses()
+        # Mark these as from eol orchestrator
+        for response in eol_responses:
+            response['orchestrator_type'] = 'eol_orchestrator'
+        all_responses.extend(eol_responses)
+        logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
+    else:
+        logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
+    
+    # Sort by timestamp (newest first)
+    all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
+    
+    return {
+        "success": True,
+        "responses": all_responses,
+        "count": len(all_responses),
+        "timestamp": datetime.utcnow().isoformat(),
+        "sources": {
+            "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
+            "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
         }
-        
-    except Exception as e:
-        logger.error("Error getting EOL agent responses: %s", e)
-        return {
-            "success": False,
-            "error": str(e),
-            "responses": [],
-            "count": 0
-        }
+    }
 
 
-@app.post("/api/eol-agent-responses/clear")
+@app.post("/api/eol-agent-responses/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="clear_eol_responses", timeout_seconds=30)
 async def clear_eol_agent_responses():
-    """Clear all tracked EOL agent responses from both orchestrators"""
-    try:
-        cleared_count = 0
-        
-        # Clear from Chat orchestrator
-        chat_orchestrator = get_chat_orchestrator()
-        if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
-            chat_responses_before = len(chat_orchestrator.get_eol_agent_responses()) if hasattr(chat_orchestrator, 'get_eol_agent_responses') else 0
-            chat_orchestrator.clear_eol_agent_responses()
-            cleared_count += chat_responses_before
-        
-        # Clear from EOL orchestrator
-        eol_orchestrator = get_eol_orchestrator()
-        if eol_orchestrator and hasattr(eol_orchestrator, 'clear_eol_agent_responses'):
-            eol_responses_before = len(eol_orchestrator.get_eol_agent_responses()) if hasattr(eol_orchestrator, 'get_eol_agent_responses') else 0
-            eol_orchestrator.clear_eol_agent_responses()
-            cleared_count += eol_responses_before
-        
-        return {
-            "success": True,
-            "message": f"EOL agent responses cleared successfully. {cleared_count} responses cleared.",
-            "cleared_count": cleared_count
-        }
-        
-    except Exception as e:
-        logger.error("Error clearing EOL agent responses: %s", e)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+    """
+    Clear all tracked EOL agent responses from both orchestrators.
+    
+    Removes all historical EOL search responses from memory, resetting
+    the response tracking for both chat and EOL orchestrators.
+    
+    Returns:
+        StandardResponse with count of cleared responses.
+    """
+    cleared_count = 0
+    
+    # Clear from Chat orchestrator
+    chat_orchestrator = get_chat_orchestrator()
+    if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
+        chat_responses_before = len(chat_orchestrator.get_eol_agent_responses()) if hasattr(chat_orchestrator, 'get_eol_agent_responses') else 0
+        chat_orchestrator.clear_eol_agent_responses()
+        cleared_count += chat_responses_before
+    
+    # Clear from EOL orchestrator
+    eol_orchestrator = get_eol_orchestrator()
+    if eol_orchestrator and hasattr(eol_orchestrator, 'clear_eol_agent_responses'):
+        eol_responses_before = len(eol_orchestrator.get_eol_agent_responses()) if hasattr(eol_orchestrator, 'get_eol_agent_responses') else 0
+        eol_orchestrator.clear_eol_agent_responses()
+        cleared_count += eol_responses_before
+    
+    return {
+        "success": True,
+        "message": f"EOL agent responses cleared successfully. {cleared_count} responses cleared.",
+        "cleared_count": cleared_count
+    }
 
 
 @app.post("/api/communications/chat/clear")
@@ -2080,121 +2086,128 @@ async def reset_cache_stats():
     verification_status: Optional[str] = "verified"  # "verified" or "failed"
 
 
-@app.post("/api/verify-eol-result")
+@app.post("/api/verify-eol-result", response_model=StandardResponse)
+@write_endpoint(agent_name="verify_eol", timeout_seconds=45)
 async def verify_eol_result(request: VerifyEOLRequest):
-    """Mark EOL result as verified or failed and cache with appropriate priority"""
-    try:
-        verification_status = request.verification_status or "verified"
-        is_verified = verification_status == "verified"
-        is_failed = verification_status == "failed"
-        
-        # Get the orchestrator to perform the search 
-        result = await get_eol_orchestrator().get_autonomous_eol_data(
-            software_name=request.software_name,
-            version=request.software_version
-        )
-        
-        # If we have a result, cache it with appropriate verification status
-        if result.get('success') and result.get('data'):
-            # Use eol_cache to handle verification status
-            from utils.cosmos_cache import base_cosmos
-            from utils.eol_cache import eol_cache
-            if getattr(base_cosmos, 'initialized', False):
-                if is_failed:
-                    # For failed verifications, delete the cache entry to clear it completely
-                    await eol_cache.delete_failed_cache_entry(
-                        software_name=request.software_name,
-                        version=request.software_version,
-                        agent_name=request.agent_name
-                    )
-                else:
-                    # For verified results, update the cache with verification status
-                    await eol_cache.cache_response(
-                        software_name=request.software_name,
-                        version=request.software_version,
-                        agent_name=request.agent_name,
-                        response_data=result,
-                        verified=is_verified,
-                        source_url=request.source_url,
-                        verification_status=verification_status
-                    )
-            
-            # Return appropriate response based on verification status
+    """
+    Mark EOL result as verified or failed and cache with appropriate priority.
+    
+    Performs EOL lookup and caches the result with verification status.
+    Failed verifications are removed from cache, while verified results
+    are cached with high priority.
+    
+    Args:
+        request: VerifyEOLRequest with software name, version, and verification status
+    
+    Returns:
+        StandardResponse with verification details and cache status.
+    """
+    verification_status = request.verification_status or "verified"
+    is_verified = verification_status == "verified"
+    is_failed = verification_status == "failed"
+    
+    # Get the orchestrator to perform the search 
+    result = await get_eol_orchestrator().get_autonomous_eol_data(
+        software_name=request.software_name,
+        version=request.software_version
+    )
+    
+    # If we have a result, cache it with appropriate verification status
+    if result.get('success') and result.get('data'):
+        # Use eol_cache to handle verification status
+        from utils.cosmos_cache import base_cosmos
+        from utils.eol_cache import eol_cache
+        if getattr(base_cosmos, 'initialized', False):
             if is_failed:
-                return {
-                    "success": True,
-                    "message": f"EOL result marked as FAILED for {request.software_name}",
-                    "software_name": request.software_name,
-                    "software_version": request.software_version,
-                    "agent_used": result.get('agent_used'),
-                    "verified": False,
-                    "failed": True,
-                    "verification_status": "failed",
-                    "source_url": request.source_url,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+                # For failed verifications, delete the cache entry to clear it completely
+                await eol_cache.delete_failed_cache_entry(
+                    software_name=request.software_name,
+                    version=request.software_version,
+                    agent_name=request.agent_name
+                )
             else:
-                return {
-                    "success": True,
-                    "message": f"EOL result verified for {request.software_name}",
-                    "software_name": request.software_name,
-                    "software_version": request.software_version,
-                    "agent_used": result.get('agent_used'),
-                    "verified": True,
-                    "failed": False,
-                    "verification_status": "verified",
-                    "source_url": request.source_url,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-        else:
-            return {
-                "success": False,
-                "message": f"Failed to find EOL data for {request.software_name}",
-                "error": "No EOL data found to verify"
-            }
-            
-    except Exception as e:
-        logger.error("Error verifying EOL result: %s", e)
-        return {
-            "success": False,
-            "message": f"Error verifying EOL result: {str(e)}",
-            "error": str(e)
-        }
-
-
-@app.post("/api/cache-eol-result")
-async def cache_eol_result(request: CacheEOLRequest):
-    """Manually cache EOL result for user validation"""
-    try:
-        # Get the orchestrator to perform the search and cache it
-        result = await get_eol_orchestrator().get_autonomous_eol_data(
-            software_name=request.software_name,
-            version=request.software_version
-        )
+                # For verified results, update the cache with verification status
+                await eol_cache.cache_response(
+                    software_name=request.software_name,
+                    version=request.software_version,
+                    agent_name=request.agent_name,
+                    response_data=result,
+                    verified=is_verified,
+                    source_url=request.source_url,
+                    verification_status=verification_status
+                )
         
-        # If we have a result, the caching should have been handled by the agent
-        if result.get('success') and result.get('data'):
+        # Return appropriate response based on verification status
+        if is_failed:
             return {
                 "success": True,
-                "message": f"EOL result cached for {request.software_name}",
+                "message": f"EOL result marked as FAILED for {request.software_name}",
                 "software_name": request.software_name,
                 "software_version": request.software_version,
                 "agent_used": result.get('agent_used'),
+                "verified": False,
+                "failed": True,
+                "verification_status": "failed",
+                "source_url": request.source_url,
                 "timestamp": datetime.utcnow().isoformat()
             }
         else:
             return {
-                "success": False,
-                "message": f"Failed to find EOL data for {request.software_name}",
-                "error": "No EOL data found to cache"
+                "success": True,
+                "message": f"EOL result verified for {request.software_name}",
+                "software_name": request.software_name,
+                "software_version": request.software_version,
+                "agent_used": result.get('agent_used'),
+                "verified": True,
+                "failed": False,
+                "verification_status": "verified",
+                "source_url": request.source_url,
+                "timestamp": datetime.utcnow().isoformat()
             }
-            
-    except Exception as e:
-        logger.error("Error caching EOL result: %s", e)
+    else:
         return {
             "success": False,
-            "message": f"Error caching EOL result: {str(e)}",
-            "error": str(e)
+            "message": f"Failed to find EOL data for {request.software_name}",
+            "error": "No EOL data found to verify"
+        }
+
+
+@app.post("/api/cache-eol-result", response_model=StandardResponse)
+@write_endpoint(agent_name="cache_eol", timeout_seconds=45)
+async def cache_eol_result(request: CacheEOLRequest):
+    """
+    Manually cache EOL result for user validation.
+    
+    Performs EOL lookup and stores the result in cache for future queries.
+    Useful for pre-caching known EOL data or validating cache behavior.
+    
+    Args:
+        request: CacheEOLRequest with software name and version
+    
+    Returns:
+        StandardResponse with cache operation status and agent information.
+    """
+    # Get the orchestrator to perform the search and cache it
+    result = await get_eol_orchestrator().get_autonomous_eol_data(
+        software_name=request.software_name,
+        version=request.software_version
+    )
+    
+    # If we have a result, the caching should have been handled by the agent
+    if result.get('success') and result.get('data'):
+        return {
+            "success": True,
+            "message": f"EOL result cached for {request.software_name}",
+            "software_name": request.software_name,
+            "software_version": request.software_version,
+            "agent_used": result.get('agent_used'),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Failed to find EOL data for {request.software_name}",
+            "error": "No EOL data found to cache"
         }
 
 
