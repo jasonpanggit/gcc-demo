@@ -1,17 +1,13 @@
 """
 API Module Package
 
-This package contains FastAPI router modules organized by functional area.
-Each module handles a specific set of related endpoints.
+This package contains modular API route handlers organized by functional area.
+Each module provides focused endpoints for specific features.
 
 Modules:
-    health: Health check and diagnostic endpoints
-    
-Usage:
-    from api.health import router as health_router
-    app.include_router(health_router)
+    health: Health check and system status endpoints
+    cache: Cache management and statistics endpoints
+    inventory: Software and OS inventory endpoints
 """
 
-__all__ = [
-    "health",
-]
+__all__ = ["health", "cache", "inventory"]

@@ -40,6 +40,7 @@ from utils.eol_cache import eol_cache
 # Import API routers
 from api.health import router as health_router
 from api.cache import router as cache_router
+from api.inventory import router as inventory_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -54,6 +55,7 @@ app = FastAPI(
 # Include API routers
 app.include_router(health_router)
 app.include_router(cache_router)
+app.include_router(inventory_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -477,14 +479,18 @@ async def index(request: Request):
         return HTMLResponse("EOL Multi-Agent App", status_code=200)
 
 
-@app.get("/api/inventory", response_model=StandardResponse)
-@with_timeout_and_stats(
-    agent_name="inventory",
-    timeout_seconds=config.app.timeout,
-    track_cache=True,
-    auto_wrap_response=False  # Keep original response format for now
-)
-async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = True):
+# INVENTORY ENDPOINTS - Moved to api/inventory.py
+# 
+# /api/inventory/* endpoints are now handled by inventory_router
+
+# @app.get("/api/inventory", response_model=StandardResponse)
+# @with_timeout_and_stats(
+#     agent_name="inventory",
+#     timeout_seconds=config.app.timeout,
+#     track_cache=True,
+#     auto_wrap_response=False  # Keep original response format for now
+# )
+async def get_inventory_OLD(limit: int = 5000, days: int = 90, use_cache: bool = True):
     """
     Get software inventory using multi-agent system.
     
@@ -516,9 +522,9 @@ async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = Tru
     return result
 
 
-@app.get("/api/inventory/status", response_model=StandardResponse)
-@readonly_endpoint(agent_name="inventory_status", timeout_seconds=30)
-async def inventory_status():
+# @app.get("/api/inventory/status", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="inventory_status", timeout_seconds=30)
+async def inventory_status_OLD():
     """
     Get inventory data status and summary.
     
@@ -533,9 +539,9 @@ async def inventory_status():
     }
 
 
-@app.get("/api/os", response_model=StandardResponse)
-@standard_endpoint(agent_name="os_inventory", timeout_seconds=30)
-async def get_os(days: int = 90):
+# @app.get("/api/os", response_model=StandardResponse)
+# @standard_endpoint(agent_name="os_inventory", timeout_seconds=30)
+async def get_os_OLD(days: int = 90):
     """
     Get operating system inventory from Heartbeat via OS agent.
     
@@ -549,9 +555,9 @@ async def get_os(days: int = 90):
     return await get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
 
 
-@app.get("/api/os/summary", response_model=StandardResponse)
-@readonly_endpoint(agent_name="os_summary", timeout_seconds=30)
-async def get_os_summary(days: int = 90):
+# @app.get("/api/os/summary", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="os_summary", timeout_seconds=30)
+async def get_os_summary_OLD(days: int = 90):
     """
     Get summarized OS counts and top versions.
     
@@ -566,14 +572,14 @@ async def get_os_summary(days: int = 90):
     return {"status": "ok", "summary": summary}
 
 
-@app.get("/api/inventory/raw/software", response_model=StandardResponse)
-@with_timeout_and_stats(
-    agent_name="software_inventory_raw",
-    timeout_seconds=60,
-    track_cache=True,
-    auto_wrap_response=False
-)
-async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_refresh: bool = False):
+# @app.get("/api/inventory/raw/software", response_model=StandardResponse)
+# @with_timeout_and_stats(
+#     agent_name="software_inventory_raw",
+#     timeout_seconds=60,
+#     track_cache=True,
+#     auto_wrap_response=False
+# )
+async def get_raw_software_inventory_OLD(days: int = 90, limit: int = 1000, force_refresh: bool = False):
     """
     Get raw software inventory data directly from Log Analytics ConfigurationData table.
     
@@ -638,14 +644,14 @@ async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_re
     return result
 
 
-@app.get("/api/inventory/raw/os", response_model=StandardResponse)
-@with_timeout_and_stats(
-    agent_name="os_inventory_raw",
-    timeout_seconds=60,
-    track_cache=True,
-    auto_wrap_response=False
-)
-async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh: bool = False):
+# @app.get("/api/inventory/raw/os", response_model=StandardResponse)
+# @with_timeout_and_stats(
+#     agent_name="os_inventory_raw",
+#     timeout_seconds=60,
+#     track_cache=True,
+#     auto_wrap_response=False
+# )
+async def get_raw_os_inventory_OLD(days: int = 90, limit: int = 2000, force_refresh: bool = False):
     """
     Get raw operating system inventory data directly from Log Analytics Heartbeat table.
     
@@ -2307,9 +2313,9 @@ async def test_cosmos_cache(req: CachedEOLRequest):
         }
 
 
-@app.post("/api/inventory/reload", response_model=StandardResponse)
-@write_endpoint(agent_name="inventory_reload", timeout_seconds=120)
-async def reload_inventory(days: int = 90):
+# @app.post("/api/inventory/reload", response_model=StandardResponse)
+# @write_endpoint(agent_name="inventory_reload", timeout_seconds=120)
+async def reload_inventory_OLD(days: int = 90):
     """
     Reload inventory data from Log Analytics Workspace with EOL enrichment.
     
@@ -2327,9 +2333,9 @@ async def reload_inventory(days: int = 90):
     return result
 
 
-@app.post("/api/inventory/clear-cache", response_model=StandardResponse)
-@write_endpoint(agent_name="inventory_clear_cache", timeout_seconds=30)
-async def clear_inventory_cache():
+# @app.post("/api/inventory/clear-cache", response_model=StandardResponse)
+# @write_endpoint(agent_name="inventory_clear_cache", timeout_seconds=30)
+async def clear_inventory_cache_OLD():
     """
     Clear the raw inventory data cache to force fresh data from Log Analytics.
     
