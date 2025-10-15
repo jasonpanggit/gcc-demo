@@ -3182,66 +3182,11 @@
         window.open(url, '_blank');
     }
 
-    // Enhanced parameter extraction functions (duplicated from eol.html for inventory functionality)
-    function cleanSoftwareName(name) {
-        if (!name) return name;
-
-        // Remove common noise patterns that might interfere with EOL lookup
-        let cleaned = name
-            .replace(/\s*\(Arc-enabled\)/gi, '')  // Remove Arc-enabled markers
-            .replace(/\s*\(x64\)/gi, '')          // Remove architecture markers
-            .replace(/\s*\(x86\)/gi, '')
-            .replace(/\s*64-bit/gi, '')
-            .replace(/\s*32-bit/gi, '')
-            .replace(/\s*\([^)]*bit[^)]*\)/gi, '') // Remove any parenthetical bit references
-            .replace(/\s+/g, ' ')                  // Normalize whitespace
-            .trim();
-
-        return cleaned;
-    }
-
-    function parseVersionFromName(name) {
-        if (!name) return { name: name, version: null };
-
-        // Common version patterns to extract
-        const versionPatterns = [
-            // Standard version patterns: "Software 2019", "Windows Server 2016"
-            /^(.+?)\s+(\d{4})$/i,
-            // Version with dots: "Software 1.2.3"
-            /^(.+?)\s+(v?(?:\d+\.)+\d+(?:\.\d+)*)$/i,
-            // Version with single number: "Software 12"
-            /^(.+?)\s+v?(\d+)$/i,
-            // Ubuntu-style: "Ubuntu 20.04", "RHEL 8.5"
-            /^(.+?)\s+(\d+\.\d+(?:\.\d+)?)$/i,
-        ];
-
-        for (const pattern of versionPatterns) {
-            const match = name.match(pattern);
-            if (match) {
-                const baseName = match[1].trim();
-                const version = match[2].trim();
-
-                // Validate that we're not accidentally parsing a valid part of the name
-                if (!isCommonSoftwareWord(version)) {
-                    return {
-                        name: baseName,
-                        version: version
-                    };
-                }
-            }
-        }
-
-        return { name: name, version: null };
-    }
-
-    function isCommonSoftwareWord(word) {
-        const commonWords = [
-            'server', 'client', 'pro', 'professional', 'enterprise', 'standard',
-            'express', 'developer', 'runtime', 'framework', 'sdk', 'tools',
-            'service', 'pack', 'update', 'hotfix', 'patch'
-        ];
-        return commonWords.includes(word.toLowerCase());
-    }
+    // ========================================================================
+    // NOTE: cleanSoftwareName, parseVersionFromName, isCommonSoftwareWord
+    //       are now provided by eol-utils.js
+    //       Loaded via: <script src="/static/js/eol-utils.js"></script>
+    // ========================================================================
 
     // Helper function to check if EOL data contains valid information
     function hasValidEOLData(eolInfo) {
@@ -3446,32 +3391,7 @@
         }
     }
 
-    function calculateSearchConfidence(name, version) {
-        let confidence = 0.5; // Base confidence
-
-        // Increase confidence for well-known software patterns
-        const knownPatterns = [
-            /windows.*server/i, /microsoft.*office/i, /visual.*studio/i,
-            /red.*hat/i, /rhel/i, /ubuntu/i, /centos/i,
-            /sql.*server/i, /\.net/i, /iis/i
-        ];
-
-        if (knownPatterns.some(pattern => pattern.test(name))) {
-            confidence += 0.3;
-        }
-
-        // Increase confidence if version is provided
-        if (version) {
-            confidence += 0.2;
-
-            // Boost for year-based versions (common for enterprise software)
-            if (/^\d{4}$/.test(version)) {
-                confidence += 0.1;
-            }
-        }
-
-        return Math.min(confidence, 1.0);
-    }
+    // calculateSearchConfidence function provided by eol-utils.js
 
     function getEnhancedEOLStatus(eolInfo) {
         // console.log('getEnhancedEOLStatus called with:', eolInfo);
