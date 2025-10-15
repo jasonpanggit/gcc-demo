@@ -46,6 +46,7 @@ from api.alerts import router as alerts_router
 from api.agents import router as agents_router
 from api.communications import router as communications_router
 from api.chat import router as chat_router
+from api.ui import router as ui_router
 from api.debug import router as debug_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
@@ -67,6 +68,7 @@ app.include_router(alerts_router)
 app.include_router(agents_router)
 app.include_router(communications_router)
 app.include_router(chat_router)
+app.include_router(ui_router)
 app.include_router(debug_router)
 
 # Configure logging to prevent duplicate log messages
