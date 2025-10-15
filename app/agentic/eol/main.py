@@ -39,6 +39,7 @@ from utils.eol_cache import eol_cache
 
 # Import API routers
 from api.health import router as health_router
+from api.cache import router as cache_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -52,6 +53,7 @@ app = FastAPI(
 
 # Include API routers
 app.include_router(health_router)
+app.include_router(cache_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -1280,9 +1282,14 @@ async def search_software_eol(request: SoftwareSearchRequest):
 # CACHE MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@app.get("/api/cache/status", response_model=StandardResponse)
-@with_timeout_and_stats(agent_name="cache_status", timeout_seconds=20, track_cache=False, auto_wrap_response=False)
-async def get_cache_status():
+# ============================================================================
+# CACHE ENDPOINTS - Moved to api/cache.py
+# ============================================================================
+# /api/cache/* endpoints are now handled by cache_router
+
+# @app.get("/api/cache/status", response_model=StandardResponse)
+# @with_timeout_and_stats(agent_name="cache_status", timeout_seconds=20, track_cache=False, auto_wrap_response=False)
+async def get_cache_status_OLD():
     """
     Get status of cached data across all agents with enhanced statistics.
     
@@ -1338,9 +1345,9 @@ async def get_cache_status():
     )
 
 
-@app.post("/api/cache/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="cache_clear", timeout_seconds=30)
-async def clear_cache():
+# @app.post("/api/cache/clear", response_model=StandardResponse)
+# @write_endpoint(agent_name="cache_clear", timeout_seconds=30)
+async def clear_cache_OLD():
     """
     Clear all inventory caches (software and OS).
     
