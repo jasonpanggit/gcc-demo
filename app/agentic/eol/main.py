@@ -744,29 +744,38 @@ async def agents_status():
     return await get_eol_orchestrator().get_agents_status()
 
 
-@app.get("/api/eol")
+@app.get("/api/eol", response_model=StandardResponse)
+@standard_endpoint(agent_name="eol_search", timeout_seconds=30)
 async def get_eol(name: str, version: Optional[str] = None):
-    """Get EOL data using multi-agent system with prioritized sources"""
-    try:
-        eol_data = await get_eol_orchestrator().get_eol_data(name, version)
-        
-        if not eol_data.get("data"):
-            raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
-        
-        return {
-            "software_name": name,
-            "version": version,
-            "primary_source": eol_data["primary_source"],
-            "eol_data": eol_data["data"],
-            "all_sources": eol_data.get("all_sources", {}),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error retrieving EOL data for %s: %s", name, e)
-        raise HTTPException(status_code=500, detail=f"Error retrieving EOL data: {str(e)}")
+    """
+    Get EOL data using multi-agent system with prioritized sources.
+    
+    Searches for end-of-life information across multiple specialized agents
+    (Microsoft, Red Hat, endoflife.date, etc.) and returns consolidated results.
+    
+    Args:
+        name: Software name to search for (required)
+        version: Specific version to check (optional)
+    
+    Returns:
+        StandardResponse with EOL data including dates, support status, and sources.
+    
+    Raises:
+        HTTPException: 404 if no EOL data found, 500 for other errors
+    """
+    eol_data = await get_eol_orchestrator().get_eol_data(name, version)
+    
+    if not eol_data.get("data"):
+        raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
+    
+    return {
+        "software_name": name,
+        "version": version,
+        "primary_source": eol_data["primary_source"],
+        "eol_data": eol_data["data"],
+        "all_sources": eol_data.get("all_sources", {}),
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 @app.get("/alerts", response_class=HTMLResponse)
@@ -1163,96 +1172,84 @@ async def analyze_inventory_eol():
 
 
 @app.post("/api/search/eol")
+@with_timeout_and_stats(
+    agent_name="orchestrator",
+    timeout_seconds=45,
+    track_cache=True,
+    auto_wrap_response=False
+)
 async def search_software_eol(request: SoftwareSearchRequest):
-    """Search for end-of-life information for specific software using the orchestrator agent"""
-    start_time = time.time()
-    agent_name = "orchestrator"
+    """
+    Search for end-of-life information for specific software using the orchestrator.
     
-    try:
-        # Log the enhanced search request
-        version_display = f" v{request.software_version}" if request.software_version else " (no version)"
-        search_mode = " [Internet Only]" if request.search_internet_only else ""
-        logger.info(f"EOL search request: {request.software_name}{version_display}{search_mode}")
-        if request.search_hints:
-            logger.info(f"Search hints: {request.search_hints}")
-        if request.search_internet_only:
-            logger.info("🌐 Internet-only search mode enabled (Playwright only)")
-        
-        # Route through regular orchestrator which will select appropriate agent
-        result = await get_eol_orchestrator().get_autonomous_eol_data(
-            software_name=request.software_name,
-            version=request.software_version,
-            search_internet_only=request.search_internet_only
-        )
-        
-        # Debug logging to understand what the orchestrator returns
-        logger.info(f"Orchestrator returned: {type(result)} - {result}")
-        
-        # Record cache performance metrics
-        response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-        cache_hit = bool(result and result.get("cached", False))
-        
-        cache_stats_manager.record_agent_request(
-            agent_name=agent_name,
-            response_time_ms=response_time,
-            was_cache_hit=cache_hit
-        )
-        
-        # Extract the actual EOL data from the orchestrator response
-        # The orchestrator returns {"success": bool, "data": {...}} but frontend expects the data directly
+    Uses intelligent agent routing to search across multiple EOL data sources.
+    Supports internet-only search mode for web scraping when structured data unavailable.
+    
+    Args:
+        request: SoftwareSearchRequest containing software_name, software_version,
+                search_hints, and search_internet_only flag
+    
+    Returns:
+        Dict with EOL result, session_id, communications, and search metadata.
+    """
+    # Log the enhanced search request
+    version_display = f" v{request.software_version}" if request.software_version else " (no version)"
+    search_mode = " [Internet Only]" if request.search_internet_only else ""
+    logger.info(f"EOL search request: {request.software_name}{version_display}{search_mode}")
+    if request.search_hints:
+        logger.info(f"Search hints: {request.search_hints}")
+    if request.search_internet_only:
+        logger.info("🌐 Internet-only search mode enabled (Playwright only)")
+    
+    # Route through regular orchestrator which will select appropriate agent
+    result = await get_eol_orchestrator().get_autonomous_eol_data(
+        software_name=request.software_name,
+        version=request.software_version,
+        search_internet_only=request.search_internet_only
+    )
+    
+    # Debug logging to understand what the orchestrator returns
+    logger.info(f"Orchestrator returned: {type(result)} - {result}")
+    
+    # Extract the actual EOL data from the orchestrator response
+    # The orchestrator returns {"success": bool, "data": {...}} but frontend expects the data directly
+    actual_eol_data = None
+    if result and result.get("success") and result.get("data"):
+        actual_eol_data = result["data"]
+        logger.info(f"Extracted EOL data from orchestrator result: {actual_eol_data}")
+    elif result and result.get("success") == False:
+        # Handle case where orchestrator indicates failure
+        logger.info(f"Orchestrator indicated failure: {result.get('error', 'Unknown error')}")
         actual_eol_data = None
-        if result and result.get("success") and result.get("data"):
-            actual_eol_data = result["data"]
-            logger.info(f"Extracted EOL data from orchestrator result: {actual_eol_data}")
-        elif result and result.get("success") == False:
-            # Handle case where orchestrator indicates failure
-            logger.info(f"Orchestrator indicated failure: {result.get('error', 'Unknown error')}")
-            actual_eol_data = None
-        elif result:
-            # Handle case where result is already the direct data (backward compatibility)
-            logger.info("Using orchestrator result directly (backward compatibility)")
-            actual_eol_data = result
-        else:
-            logger.info("No result from orchestrator")
-            actual_eol_data = None
-        
-        # Get simple communication history from orchestrator if available
-        communications = []
-        if hasattr(get_eol_orchestrator(), 'get_recent_communications'):
-            try:
-                communications = get_eol_orchestrator().get_recent_communications()
-            except Exception as comm_error:
-                logger.warning(f"Failed to get communications from orchestrator: {comm_error}")
-        
-        return {
-            "result": actual_eol_data,
-            "session_id": get_eol_orchestrator().session_id,
-            "agent_communications": communications,
-            "communication_history": communications,  # Backward compatibility
-            "communications": communications,  # Another backward compatibility alias
-            "timestamp": datetime.utcnow().isoformat(),
-            "search_request": {
-                "software_name": request.software_name,
-                "software_version": request.software_version,
-                "search_hints": request.search_hints
-            }
+    elif result:
+        # Handle case where result is already the direct data (backward compatibility)
+        logger.info("Using orchestrator result directly (backward compatibility)")
+        actual_eol_data = result
+    else:
+        logger.info("No result from orchestrator")
+        actual_eol_data = None
+    
+    # Get simple communication history from orchestrator if available
+    communications = []
+    if hasattr(get_eol_orchestrator(), 'get_recent_communications'):
+        try:
+            communications = get_eol_orchestrator().get_recent_communications()
+        except Exception as comm_error:
+            logger.warning(f"Failed to get communications from orchestrator: {comm_error}")
+    
+    return {
+        "result": actual_eol_data,
+        "session_id": get_eol_orchestrator().session_id,
+        "agent_communications": communications,
+        "communication_history": communications,  # Backward compatibility
+        "communications": communications,  # Another backward compatibility alias
+        "timestamp": datetime.utcnow().isoformat(),
+        "search_request": {
+            "software_name": request.software_name,
+            "software_version": request.software_version,
+            "search_hints": request.search_hints
         }
-        
-    except Exception as e:
-        # Record error in performance statistics
-        response_time = (time.time() - start_time) * 1000
-        cache_stats_manager.record_agent_request(
-            agent_name=agent_name,
-            response_time_ms=response_time,
-            was_cache_hit=False,
-            had_error=True
-        )
-        
-        logger.error("EOL search failed for %s: %s", request.software_name, e)
-        # Communication history not implemented in current orchestrator version
-        communications = []
-            
-        return create_error_response(e, f"eol_search_{request.software_name}")
+    }
 
 
 # ============================================================================
