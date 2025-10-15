@@ -585,190 +585,163 @@ async def get_os_summary(days: int = 90):
     return {"status": "ok", "summary": summary}
 
 
-@app.get("/api/inventory/raw/software")
+@app.get("/api/inventory/raw/software", response_model=StandardResponse)
+@with_timeout_and_stats(
+    agent_name="software_inventory_raw",
+    timeout_seconds=60,
+    track_cache=True,
+    auto_wrap_response=False
+)
 async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_refresh: bool = False):
     """
-    Get raw software inventory data directly from Log Analytics ConfigurationData table
-    Returns clean JSON response with validation and error handling
+    Get raw software inventory data directly from Log Analytics ConfigurationData table.
+    
+    Returns unprocessed inventory data with comprehensive validation and error handling.
+    Supports forced cache refresh for troubleshooting.
+    
+    Args:
+        days: Number of days to look back for inventory data (default: 90)
+        limit: Maximum number of records to return (default: 1000)
+        force_refresh: Clear cache and fetch fresh data (default: False)
+    
+    Returns:
+        StandardResponse with raw software inventory data including computer names,
+        software details, publishers, and installation timestamps.
     """
-    try:
-        logger.info(f"📊 Raw inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
-        
-        # Get the software inventory agent directly
-        inventory_agent = get_eol_orchestrator().agents.get("software_inventory")
-        if not inventory_agent:
-            raise HTTPException(
-                status_code=503, 
-                detail="Software inventory agent is not available"
-            )
-        
-        # If force refresh is requested, clear cache first
-        if force_refresh:
-            logger.info("🔄 Force refresh requested - clearing software inventory cache")
-            try:
-                await inventory_agent.clear_cache()
-                logger.info("✅ Software inventory cache cleared successfully")
-            except Exception as cache_error:
-                logger.warning(f"⚠️ Failed to clear software inventory cache: {cache_error}")
-        
-        # Call the software inventory method with appropriate cache setting
-        use_cache = not force_refresh
-        result = await asyncio.wait_for(
-            inventory_agent.get_software_inventory(days=days, limit=limit, use_cache=use_cache),
-            timeout=60.0  # 1 minute timeout for raw data queries
+    logger.info(f"📊 Raw inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
+    
+    # Get the software inventory agent directly
+    inventory_agent = get_eol_orchestrator().agents.get("software_inventory")
+    if not inventory_agent:
+        raise HTTPException(
+            status_code=503, 
+            detail="Software inventory agent is not available"
         )
-        
-        # Handle case where result might be a string instead of dict
-        if isinstance(result, str):
-            logger.warning(f"Raw software inventory returned string instead of dict: {result}")
-            return {
-                "success": False,
-                "error": f"Invalid response format: {result}",
-                "data": [],
-                "count": 0,
-                "query_days": days,
-                "query_limit": limit
-            }
-        elif not isinstance(result, dict):
-            logger.warning(f"Raw software inventory returned unexpected type {type(result)}: {result}")
-            return {
-                "success": False,
-                "error": f"Invalid response type: {type(result).__name__}",
-                "data": [],
-                "count": 0,
-                "query_days": days,
-                "query_limit": limit
-            }
-
-        logger.info(f"✅ Raw software inventory result: success={result.get('success')}, count={result.get('count', 0)}")
-
-        return result
-        
-    except asyncio.TimeoutError:
-        logger.error("Raw software inventory request timed out after 60 seconds")
+    
+    # If force refresh is requested, clear cache first
+    if force_refresh:
+        logger.info("🔄 Force refresh requested - clearing software inventory cache")
+        try:
+            await inventory_agent.clear_cache()
+            logger.info("✅ Software inventory cache cleared successfully")
+        except Exception as cache_error:
+            logger.warning(f"⚠️ Failed to clear software inventory cache: {cache_error}")
+    
+    # Call the software inventory method with appropriate cache setting
+    use_cache = not force_refresh
+    result = await inventory_agent.get_software_inventory(days=days, limit=limit, use_cache=use_cache)
+    
+    # Validate result type
+    if isinstance(result, str):
+        logger.warning(f"Raw software inventory returned string instead of dict: {result}")
         return {
             "success": False,
-            "error": "Raw software inventory request timed out after 60 seconds",
+            "error": f"Invalid response format: {result}",
             "data": [],
             "count": 0,
             "query_days": days,
             "query_limit": limit
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving raw software inventory: {str(e)}", exc_info=True)
+    elif not isinstance(result, dict):
+        logger.warning(f"Raw software inventory returned unexpected type {type(result)}: {result}")
         return {
             "success": False,
-            "error": f"Error retrieving raw software inventory: {str(e)}",
-            "error_type": type(e).__name__,
+            "error": f"Invalid response type: {type(result).__name__}",
             "data": [],
             "count": 0,
             "query_days": days,
             "query_limit": limit
         }
 
+    logger.info(f"✅ Raw software inventory result: success={result.get('success')}, count={result.get('count', 0)}")
+    return result
 
-@app.get("/api/inventory/raw/os")
+
+@app.get("/api/inventory/raw/os", response_model=StandardResponse)
+@with_timeout_and_stats(
+    agent_name="os_inventory_raw",
+    timeout_seconds=60,
+    track_cache=True,
+    auto_wrap_response=False
+)
 async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh: bool = False):
     """
-    Get raw operating system inventory data directly from Log Analytics Heartbeat table
-    Returns clean JSON response with validation and error handling
+    Get raw operating system inventory data directly from Log Analytics Heartbeat table.
     
-    Caching is handled automatically by the inventory agent using InventoryRawCache.
+    Returns unprocessed OS inventory data with validation. Caching is handled
+    automatically by the inventory agent using InventoryRawCache.
+    
+    Args:
+        days: Number of days to look back for OS data (default: 90)
+        limit: Maximum number of records to return (default: 2000)
+        force_refresh: Clear cache and fetch fresh data (default: False)
+    
+    Returns:
+        StandardResponse with raw OS inventory including computer names, OS types,
+        versions, last heartbeat times, and health status.
     """
-    try:
-        logger.info(f"📊 Raw OS inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
-        
-        # Get the inventory agent directly
-        inventory_agent = get_eol_orchestrator().agents.get("os_inventory")
-        if not inventory_agent:
-            raise HTTPException(
-                status_code=503, 
-                detail="OS inventory agent is not available"
-            )
-        
-        # If force refresh is requested, clear cache first
-        if force_refresh:
-            logger.info("🔄 Force refresh requested - clearing OS inventory cache")
-            try:
-                await inventory_agent.clear_cache()
-                logger.info("✅ OS inventory cache cleared successfully")
-            except Exception as cache_error:
-                logger.warning(f"⚠️ Failed to clear OS inventory cache: {cache_error}")
-        
-        # Call the OS inventory method with appropriate cache setting
-        # Agent's built-in caching will handle cache hits/misses
-        use_cache = not force_refresh
-        result = await asyncio.wait_for(
-            inventory_agent.get_os_inventory(days=days, limit=limit, use_cache=use_cache),
-            timeout=60.0  # 1 minute timeout for raw data queries
+    logger.info(f"📊 Raw OS inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
+    
+    # Get the inventory agent directly
+    inventory_agent = get_eol_orchestrator().agents.get("os_inventory")
+    if not inventory_agent:
+        raise HTTPException(
+            status_code=503, 
+            detail="OS inventory agent is not available"
         )
-        
-        # Handle case where result might be a string instead of dict
-        if isinstance(result, str):
-            logger.warning(f"Raw OS inventory returned string instead of dict: {result}")
-            error_result = {
-                "success": False,
-                "error": f"Invalid response format: {result}",
-                "data": [],
-                "count": 0,
-                "query_days": days,
-                "query_limit": limit
-            }
-            return error_result
-        elif not isinstance(result, dict):
-            logger.warning(f"Raw OS inventory returned unexpected type {type(result)}: {result}")
-            error_result = {
-                "success": False,
-                "error": f"Invalid response type: {type(result).__name__}",
-                "data": [],
-                "count": 0,
-                "query_days": days,
-                "query_limit": limit
-            }
-            return error_result
-        
-        logger.info(f"✅ Raw OS inventory result: success={result.get('success')}, count={result.get('count', 0)}")
-        
-        return result
-        
-    except asyncio.TimeoutError:
-        logger.error("Raw OS inventory request timed out after 60 seconds")
+    
+    # If force refresh is requested, clear cache first
+    if force_refresh:
+        logger.info("🔄 Force refresh requested - clearing OS inventory cache")
+        try:
+            await inventory_agent.clear_cache()
+            logger.info("✅ OS inventory cache cleared successfully")
+        except Exception as cache_error:
+            logger.warning(f"⚠️ Failed to clear OS inventory cache: {cache_error}")
+    
+    # Call the OS inventory method with appropriate cache setting
+    use_cache = not force_refresh
+    result = await inventory_agent.get_os_inventory(days=days, limit=limit, use_cache=use_cache)
+    
+    # Validate result type
+    if isinstance(result, str):
+        logger.warning(f"Raw OS inventory returned string instead of dict: {result}")
         return {
             "success": False,
-            "error": "Raw OS inventory request timed out after 60 seconds",
+            "error": f"Invalid response format: {result}",
             "data": [],
             "count": 0,
             "query_days": days,
             "query_limit": limit
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving raw OS inventory: {str(e)}", exc_info=True)
+    elif not isinstance(result, dict):
+        logger.warning(f"Raw OS inventory returned unexpected type {type(result)}: {result}")
         return {
             "success": False,
-            "error": f"Error retrieving raw OS inventory: {str(e)}",
-            "error_type": type(e).__name__,
+            "error": f"Invalid response type: {type(result).__name__}",
             "data": [],
             "count": 0,
             "query_days": days,
             "query_limit": limit
         }
+    
+    logger.info(f"✅ Raw OS inventory result: success={result.get('success')}, count={result.get('count', 0)}")
+    return result
 
 
-@app.get("/api/agents/status")
+@app.get("/api/agents/status", response_model=StandardResponse)
+@readonly_endpoint(agent_name="agents_status", timeout_seconds=20)
 async def agents_status():
-    """Get readiness/health of registered agents, including the new OS agent"""
-    try:
-        status = await asyncio.wait_for(get_eol_orchestrator().get_agents_status(), timeout=20.0)
-        return status
-    except asyncio.TimeoutError:
-        return {"status": "timeout", "error": "Agents status timed out"}
-    except Exception as e:
-        logger.error("Error retrieving agents status: %s", e)
-        return create_error_response(e, "agents_status")
+    """
+    Get readiness/health of all registered agents.
+    
+    Returns status information for all agents in the EOL orchestrator including
+    inventory agents, EOL search agents, and specialized agents.
+    
+    Returns:
+        StandardResponse with agent health status, capabilities, and availability.
+    """
+    return await get_eol_orchestrator().get_agents_status()
 
 
 @app.get("/api/eol")
@@ -2260,69 +2233,81 @@ async def test_cosmos_cache(req: CachedEOLRequest):
         raise HTTPException(status_code=500, detail=f"Error testing cache: {str(e)}")
 
 
-@app.post("/api/inventory/reload")
+@app.post("/api/inventory/reload", response_model=StandardResponse)
+@write_endpoint(agent_name="inventory_reload", timeout_seconds=120)
 async def reload_inventory(days: int = 90):
-    """Reload inventory data from Log Analytics Workspace with EOL enrichment and refresh cache"""
-    try:
-        result = await get_eol_orchestrator().reload_inventory_from_law(days=days)
-        logger.info("Inventory reloaded: %s items", result.get("total_items", 0))
-        return result
-    except Exception as e:
-        logger.error("Error reloading inventory: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error reloading inventory: {str(e)}")
+    """
+    Reload inventory data from Log Analytics Workspace with EOL enrichment.
+    
+    Refreshes cached inventory data by querying Log Analytics, enriching with
+    EOL information, and updating caches. Long-running operation (up to 2 minutes).
+    
+    Args:
+        days: Number of days of data to reload (default: 90)
+    
+    Returns:
+        StandardResponse with reload results including total items and processing time.
+    """
+    result = await get_eol_orchestrator().reload_inventory_from_law(days=days)
+    logger.info("Inventory reloaded: %s items", result.get("total_items", 0))
+    return result
 
 
-@app.post("/api/inventory/clear-cache")
+@app.post("/api/inventory/clear-cache", response_model=StandardResponse)
+@write_endpoint(agent_name="inventory_clear_cache", timeout_seconds=30)
 async def clear_inventory_cache():
-    """Clear the raw inventory data cache to force fresh data from Log Analytics Workspace"""
+    """
+    Clear the raw inventory data cache to force fresh data from Log Analytics.
+    
+    Clears both software and OS inventory caches, forcing next query to retrieve
+    fresh data from Log Analytics Workspace rather than using cached data.
+    
+    Returns:
+        StandardResponse with clear results for software and OS caches.
+    """
+    # Get orchestrator to access inventory agents
+    orch = get_eol_orchestrator()
+    
+    # Clear both software and OS inventory caches
+    software_result = {"software_cache_cleared": False}
+    os_result = {"os_cache_cleared": False}
+    
     try:
-        # Get orchestrator to access inventory agents
-        orch = get_eol_orchestrator()
-        
-        # Clear both software and OS inventory caches
-        software_result = {"software_cache_cleared": False}
-        os_result = {"os_cache_cleared": False}
-        
-        try:
-            # Access the software inventory agent through the inventory agent
-            if hasattr(orch, 'inventory_agent') and orch.inventory_agent:
-                if hasattr(orch.inventory_agent, 'software_inventory_agent'):
-                    await orch.inventory_agent.software_inventory_agent.clear_cache()
-                    software_result["software_cache_cleared"] = True
-                    logger.info("Software inventory cache cleared")
-        except Exception as e:
-            logger.warning(f"Error clearing software cache: {e}")
-            software_result["error"] = str(e)
-        
-        try:
-            # Access the OS inventory agent directly and through inventory agent
-            if hasattr(orch, 'os_agent') and orch.os_agent:
-                await orch.os_agent.clear_cache()
-                os_result["os_cache_cleared"] = True
-                logger.info("OS inventory cache cleared")
-            elif hasattr(orch, 'inventory_agent') and orch.inventory_agent:
-                if hasattr(orch.inventory_agent, 'os_inventory_agent'):
-                    await orch.inventory_agent.os_inventory_agent.clear_cache()
-                    os_result["os_cache_cleared"] = True
-                    logger.info("OS inventory cache cleared via inventory agent")
-        except Exception as e:
-            logger.warning(f"Error clearing OS cache: {e}")
-            os_result["error"] = str(e)
-        
-        result = {
-            "success": True,
-            "message": "Inventory cache clear requested",
-            "software": software_result,
-            "os": os_result,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        logger.info("Inventory cache cleared successfully")
-        return result
-        
+        # Access the software inventory agent through the inventory agent
+        if hasattr(orch, 'inventory_agent') and orch.inventory_agent:
+            if hasattr(orch.inventory_agent, 'software_inventory_agent'):
+                await orch.inventory_agent.software_inventory_agent.clear_cache()
+                software_result["software_cache_cleared"] = True
+                logger.info("Software inventory cache cleared")
     except Exception as e:
-        logger.error("Error clearing inventory cache: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error clearing inventory cache: {str(e)}")
+        logger.warning(f"Error clearing software cache: {e}")
+        software_result["error"] = str(e)
+    
+    try:
+        # Access the OS inventory agent directly and through inventory agent
+        if hasattr(orch, 'os_agent') and orch.os_agent:
+            await orch.os_agent.clear_cache()
+            os_result["os_cache_cleared"] = True
+            logger.info("OS inventory cache cleared")
+        elif hasattr(orch, 'inventory_agent') and orch.inventory_agent:
+            if hasattr(orch.inventory_agent, 'os_inventory_agent'):
+                await orch.inventory_agent.os_inventory_agent.clear_cache()
+                os_result["os_cache_cleared"] = True
+                logger.info("OS inventory cache cleared via inventory agent")
+    except Exception as e:
+        logger.warning(f"Error clearing OS cache: {e}")
+        os_result["error"] = str(e)
+    
+    result = {
+        "success": True,
+        "message": "Inventory cache clear requested",
+        "software": software_result,
+        "os": os_result,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    logger.info("Inventory cache cleared successfully")
+    return result
 
 
 # ============================================================================
