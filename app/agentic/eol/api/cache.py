@@ -38,11 +38,33 @@ logger = get_logger(__name__)
 # Create router for cache endpoints
 router = APIRouter(tags=["Cache Management"])
 
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return _get_eol_orchestrator()
+def _get_get_inventory_context_cache()():
+    """Lazy import to avoid circular dependency"""
+    from main import _get_inventory_context_cache()
+    return _get_inventory_context_cache()
+
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return __get_eol_orchestrator()
+def _get_get_get_inventory_context_cache()()():
+    """Lazy import to avoid circular dependency"""
+    from main import _get_get_inventory_context_cache()()
+    return _get_get_inventory_context_cache()()
+
+
 # Note: This module will be populated with cache endpoints from main.py
 # Keeping this structure for now to establish the pattern
 
 # Placeholder for inventory context cache (will be imported from main module state)
-_inventory_context_cache = {
+_get_get_inventory_context_cache()() = {
     "data": None,
     "timestamp": None,
     "ttl": 3600  # 1 hour
@@ -96,18 +118,18 @@ async def get_cache_status():
         }
     """
     # Import here to avoid circular dependency
-    from main import get_eol_orchestrator, _inventory_context_cache
+    from main import get_eol_orchestrator, _get_get_inventory_context_cache()()
     
     # Get basic cache status from orchestrator
-    cache_status = await get_eol_orchestrator().get_cache_status()
+    cache_status = await __get_eol_orchestrator().get_cache_status()
     
     # Add inventory context cache stats
     inventory_stats = {
-        "cached": _inventory_context_cache["data"] is not None,
-        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-        "ttl_seconds": _inventory_context_cache["ttl"],
-        "items_count": len(_inventory_context_cache["data"]) if _inventory_context_cache["data"] else 0,
-        "size_kb": len(str(_inventory_context_cache["data"])) // 1024 if _inventory_context_cache["data"] else 0
+        "cached": _get_get_inventory_context_cache()()["data"] is not None,
+        "timestamp": _get_get_inventory_context_cache()()["timestamp"].isoformat() if _get_get_inventory_context_cache()()["timestamp"] else None,
+        "ttl_seconds": _get_get_inventory_context_cache()()["ttl"],
+        "items_count": len(_get_get_inventory_context_cache()()["data"]) if _get_get_inventory_context_cache()()["data"] else 0,
+        "size_kb": len(str(_get_get_inventory_context_cache()()["data"])) // 1024 if _get_get_inventory_context_cache()()["data"] else 0
     }
     
     # Add enhanced statistics from cache_stats_manager
@@ -177,7 +199,7 @@ async def clear_cache():
         Use /api/cache/purge to clear specific EOL agent caches
     """
     from utils.inventory_cache import inventory_cache
-    from main import _inventory_context_cache
+    from main import _get_get_inventory_context_cache()()
     
     try:
         # Clear software and OS inventory caches
@@ -185,8 +207,8 @@ async def clear_cache():
         await inventory_cache.clear_cache(cache_type="os")
         
         # Clear inventory context cache
-        _inventory_context_cache["data"] = None
-        _inventory_context_cache["timestamp"] = None
+        _get_get_inventory_context_cache()()["data"] = None
+        _get_get_inventory_context_cache()()["timestamp"] = None
         
         return {
             "success": True,

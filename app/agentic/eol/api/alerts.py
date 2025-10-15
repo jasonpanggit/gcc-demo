@@ -40,14 +40,14 @@ from utils.endpoint_decorators import (
 
 logger = logging.getLogger(__name__)
 
-# Import main module dependencies
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from main import get_eol_orchestrator
-
 # Create router for alert endpoints
 router = APIRouter(tags=["Alert Management"])
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return get_eol_orchestrator()
 
 
 # ============================================================================
@@ -238,7 +238,7 @@ async def get_alert_preview(days: int = 90):
     # Get OS inventory data using agent's built-in caching
     logger.debug(f"🔄 Fetching OS inventory for alert preview (days={days})")
     os_data = await asyncio.wait_for(
-        get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days, use_cache=True),
+        _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days, use_cache=True),
         timeout=30.0,
     )
     

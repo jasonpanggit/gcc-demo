@@ -27,10 +27,39 @@ import logging
 
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 from utils.standard_response import StandardResponse
-from main import get_eol_orchestrator, get_chat_orchestrator, CHAT_AVAILABLE
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return _get_eol_orchestrator()
+def _get_chat_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_chat_orchestrator
+    return _get_chat_orchestrator()
+def _get_chat_available():
+    """Lazy import to avoid circular dependency"""
+    from main import CHAT_AVAILABLE
+    return CHAT_AVAILABLE
+
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return __get_eol_orchestrator()
+def _get_chat_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_chat_orchestrator
+    return __get_chat_orchestrator()
+def _get_chat_available():
+    """Lazy import to avoid circular dependency"""
+    from main import CHAT_AVAILABLE
+    return CHAT_AVAILABLE
+
 
 
 @router.get("/api/communications/eol", response_model=StandardResponse)
@@ -60,7 +89,7 @@ async def get_eol_communications():
             "timestamp": "2025-01-15T10:35:00Z"
         }
     """
-    orchestrator = get_eol_orchestrator()
+    orchestrator = __get_eol_orchestrator()
     if hasattr(orchestrator, 'get_recent_communications'):
         communications = orchestrator.get_recent_communications()
         return {
@@ -105,7 +134,7 @@ async def get_chat_communications():
             "timestamp": "2025-01-15T10:35:00Z"
         }
     """
-    orchestrator = get_chat_orchestrator()
+    orchestrator = __get_chat_orchestrator()
     if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
         communications = await orchestrator.get_agent_communications()
         return {
@@ -142,7 +171,7 @@ async def clear_communications():
             "cleared_count": 42
         }
     """
-    result = get_eol_orchestrator().clear_communications()
+    result = __get_eol_orchestrator().clear_communications()
     logger.info("Communications cleared: %s", result)
     return result
 
@@ -165,7 +194,7 @@ async def clear_chat_communications():
             "message": "Chat communications cleared successfully"
         }
     """
-    orchestrator = get_chat_orchestrator()
+    orchestrator = __get_chat_orchestrator()
     if orchestrator and hasattr(orchestrator, 'clear_communications'):
         result = await orchestrator.clear_communications()
         logger.info("Chat communications cleared: %s", result)
@@ -212,11 +241,11 @@ async def get_agent_communications(session_id: str):
             "debug_all_communications": [...]
         }
     """
-    if not CHAT_AVAILABLE:
+    if not _get_chat_available():
         return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
     
     # Get the chat orchestrator instance
-    chat_orch = get_chat_orchestrator()
+    chat_orch = __get_chat_orchestrator()
     if chat_orch is None:
         return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
     
@@ -265,11 +294,11 @@ async def debug_agent_communications():
             "orchestrator_session_id": "main-session-xyz"
         }
     """
-    if not CHAT_AVAILABLE:
+    if not _get_chat_available():
         return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
     
     # Get the chat orchestrator instance
-    chat_orch = get_chat_orchestrator()
+    chat_orch = __get_chat_orchestrator()
     if chat_orch is None:
         return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
     

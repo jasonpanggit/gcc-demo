@@ -41,14 +41,20 @@ from utils.endpoint_decorators import (
 
 logger = logging.getLogger(__name__)
 
-# Import main module dependencies
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from main import get_eol_orchestrator, get_chat_orchestrator
-
 # Create router for EOL endpoints
 router = APIRouter(tags=["EOL Search & Management"])
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return get_eol_orchestrator()
+
+
+def _get_chat_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_chat_orchestrator
+    return get_chat_orchestrator()
 
 
 # ============================================================================
@@ -127,7 +133,7 @@ async def get_eol(name: str, version: Optional[str] = None):
             "timestamp": "2025-10-15T10:45:00Z"
         }
     """
-    eol_data = await get_eol_orchestrator().get_eol_data(name, version)
+    eol_data = await _get_eol_orchestrator().get_eol_data(name, version)
     
     if not eol_data.get("data"):
         raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
@@ -194,7 +200,7 @@ async def search_software_eol(request: SoftwareSearchRequest):
         logger.info(f"Search hints provided: {request.search_hints}")
     
     # Call appropriate search method based on mode
-    orchestrator = get_eol_orchestrator()
+    orchestrator = _get_eol_orchestrator()
     
     if request.search_internet_only:
         # Internet-only search mode
@@ -251,11 +257,11 @@ async def analyze_inventory_eol():
             "timestamp": "2025-10-15T11:00:00Z"
         }
     """
-    analysis = await get_eol_orchestrator().analyze_inventory_eol_risks()
-    communications = await get_eol_orchestrator().get_communication_history()
+    analysis = await _get_eol_orchestrator().analyze_inventory_eol_risks()
+    communications = await _get_eol_orchestrator().get_communication_history()
     
     return MultiAgentResponse(
-        session_id=get_eol_orchestrator().session_id,
+        session_id=_get_eol_orchestrator().session_id,
         analysis_result=analysis,
         communication_history=communications,
         timestamp=datetime.utcnow().isoformat()
@@ -306,7 +312,7 @@ async def verify_eol_result(request: VerifyEOLRequest):
     is_failed = verification_status == "failed"
     
     # Get the orchestrator to perform the search 
-    result = await get_eol_orchestrator().get_autonomous_eol_data(
+    result = await _get_eol_orchestrator().get_autonomous_eol_data(
         software_name=request.software_name,
         version=request.software_version
     )
@@ -399,7 +405,7 @@ async def cache_eol_result(request: CacheEOLRequest):
         }
     """
     # Get the orchestrator to perform the search and cache it
-    result = await get_eol_orchestrator().get_autonomous_eol_data(
+    result = await _get_eol_orchestrator().get_autonomous_eol_data(
         software_name=request.software_name,
         version=request.software_version
     )
@@ -461,7 +467,7 @@ async def get_eol_agent_responses():
     all_responses = []
     
     # Get responses from Chat orchestrator
-    chat_orchestrator = get_chat_orchestrator()
+    chat_orchestrator = _get_chat_orchestrator()
     if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
         chat_responses = chat_orchestrator.get_eol_agent_responses()
         # Mark these as from chat orchestrator
@@ -473,7 +479,7 @@ async def get_eol_agent_responses():
         logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
     
     # Get responses from EOL orchestrator
-    eol_orchestrator = get_eol_orchestrator()
+    eol_orchestrator = _get_eol_orchestrator()
     if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
         eol_responses = eol_orchestrator.get_eol_agent_responses()
         # Mark these as from eol orchestrator
@@ -530,14 +536,14 @@ async def clear_eol_agent_responses():
     }
     
     # Clear chat orchestrator responses
-    chat_orchestrator = get_chat_orchestrator()
+    chat_orchestrator = _get_chat_orchestrator()
     if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
         count = chat_orchestrator.clear_eol_agent_responses()
         cleared_counts["chat_orchestrator"] = count
         logger.info(f"🧹 [API] Cleared {count} EOL responses from chat orchestrator")
     
     # Clear EOL orchestrator responses
-    eol_orchestrator = get_eol_orchestrator()
+    eol_orchestrator = _get_eol_orchestrator()
     if eol_orchestrator and hasattr(eol_orchestrator, 'clear_eol_agent_responses'):
         count = eol_orchestrator.clear_eol_agent_responses()
         cleared_counts["eol_orchestrator"] = count

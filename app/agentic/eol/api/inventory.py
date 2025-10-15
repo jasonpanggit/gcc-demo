@@ -41,14 +41,14 @@ from utils.endpoint_decorators import (
 
 logger = logging.getLogger(__name__)
 
-# Import main module dependencies
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from main import get_eol_orchestrator
-
 # Create router for inventory endpoints
 router = APIRouter(tags=["Inventory Management"])
+
+
+def _get_eol_orchestrator():
+    """Lazy import to avoid circular dependency"""
+    from main import get_eol_orchestrator
+    return get_eol_orchestrator()
 
 
 @router.get("/api/inventory", response_model=StandardResponse)
@@ -91,7 +91,7 @@ async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = Tru
             "timestamp": "2025-10-15T10:30:00Z"
         }
     """
-    result = await get_eol_orchestrator().get_software_inventory(
+    result = await _get_eol_orchestrator().get_software_inventory(
         days=days,
         use_cache=use_cache
     )
@@ -134,7 +134,7 @@ async def inventory_status():
             }
         }
     """
-    summary = await get_eol_orchestrator().agents["inventory"].get_inventory_summary()
+    summary = await _get_eol_orchestrator().agents["inventory"].get_inventory_summary()
     return {
         "status": "ok",
         "log_analytics_available": bool(config.azure.log_analytics_workspace_id),
@@ -174,7 +174,7 @@ async def get_os(days: int = 90):
             "count": 1
         }
     """
-    return await get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
+    return await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
 
 
 @router.get("/api/os/summary", response_model=StandardResponse)
@@ -212,7 +212,7 @@ async def get_os_summary(days: int = 90):
             }
         }
     """
-    summary = await get_eol_orchestrator().agents["os_inventory"].get_os_summary(days=days)
+    summary = await _get_eol_orchestrator().agents["os_inventory"].get_os_summary(days=days)
     return {"status": "ok", "summary": summary}
 
 
@@ -259,7 +259,7 @@ async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_re
     logger.info(f"📊 Raw inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
     
     # Get the software inventory agent directly
-    inventory_agent = get_eol_orchestrator().agents.get("software_inventory")
+    inventory_agent = _get_eol_orchestrator().agents.get("software_inventory")
     if not inventory_agent:
         raise HTTPException(
             status_code=503, 
@@ -348,7 +348,7 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
     logger.info(f"📊 Raw OS inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
     
     # Get the inventory agent directly
-    inventory_agent = get_eol_orchestrator().agents.get("os_inventory")
+    inventory_agent = _get_eol_orchestrator().agents.get("os_inventory")
     if not inventory_agent:
         raise HTTPException(
             status_code=503, 
@@ -417,7 +417,7 @@ async def reload_inventory(days: int = 90):
             "timestamp": "2025-10-15T10:30:00Z"
         }
     """
-    result = await get_eol_orchestrator().reload_inventory_from_law(days=days)
+    result = await _get_eol_orchestrator().reload_inventory_from_law(days=days)
     logger.info("Inventory reloaded: %s items", result.get("total_items", 0))
     return result
 
@@ -443,7 +443,7 @@ async def clear_inventory_cache():
         }
     """
     # Get orchestrator to access inventory agents
-    orch = get_eol_orchestrator()
+    orch = _get_eol_orchestrator()
     
     # Clear both software and OS inventory caches
     software_result = {"software_cache_cleared": False}
