@@ -37,6 +37,9 @@ logger = get_logger(__name__, config.app.log_level)
 from agents.eol_orchestrator import EOLOrchestratorAgent
 from utils.eol_cache import eol_cache
 
+# Import API routers
+from api.health import router as health_router
+
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
 CHAT_AVAILABLE = False  # Chat functionality is in separate chat interface
@@ -46,6 +49,9 @@ app = FastAPI(
     title=config.app.title,
     version=config.app.version
 )
+
+# Include API routers
+app.include_router(health_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -364,62 +370,10 @@ async def debug_tool_selection(request: DebugRequest):
     }
 
 
-@app.get('/health')
-@with_timeout_and_stats(
-    agent_name="health_check",
-    timeout_seconds=5,
-    track_cache=False,
-    auto_wrap_response=False
-)
-async def health_check():
-    """
-    Fast health check endpoint for load balancers and monitoring.
-    
-    Returns basic application health status including version and feature availability.
-    Optimized for speed with 5-second timeout.
-    
-    Returns:
-        Dict with status, timestamp, version, and feature flags.
-    """
-    return {
-        "status": "ok", 
-        "timestamp": datetime.utcnow().isoformat(),
-        "version": config.app.version,
-        "autogen_available": CHAT_AVAILABLE
-    }
-
-
-@app.get("/api/health/detailed", response_model=StandardResponse)
-@readonly_endpoint(agent_name="health_check", timeout_seconds=15)
-async def detailed_health():
-    """
-    Detailed health check with service status.
-    
-    Validates application configuration and checks status of all services
-    including Cosmos DB, orchestrators, and agents.
-    
-    Returns:
-        StandardResponse with health status, service validation, and warnings/errors.
-    """
-    validation = config.validate_config()
-    
-    # EOL interface uses only regular orchestrator
-    autogen_status = "not_available"
-    autogen_agents_count = 0
-    
-    health_status = {
-        "status": "ok" if validation["valid"] else "degraded",
-        "timestamp": datetime.utcnow().isoformat(),
-        "services": validation["services"],
-        "errors": validation["errors"],
-        "warnings": validation["warnings"],
-        "autogen": {
-            "available": CHAT_AVAILABLE,
-            "status": autogen_status,
-            "agents_count": autogen_agents_count
-        }
-    }
-    return health_status
+# ============================================================================
+# HEALTH ENDPOINTS - Moved to api/health.py
+# ============================================================================
+# /health and /api/health/detailed endpoints are now handled by health_router
 
 
 @app.get("/api/test-logging", response_model=StandardResponse)
