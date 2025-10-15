@@ -206,5 +206,46 @@ async def clear_cache():
         )
 
 
+@router.post("/api/cache/purge", response_model=StandardResponse)
+@write_endpoint(agent_name="cache_purge", timeout_seconds=30)
+async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[str] = None, version: Optional[str] = None):
+    """
+    Purge web scraping cache for specific agent or all agents.
+    
+    This endpoint allows selective clearing of EOL agent web scraping caches.
+    Unlike /api/cache/clear which clears inventory caches, this purges
+    cached web scraping results from EOL specialist agents.
+    
+    Args:
+        agent_type: Type of agent to purge cache for (e.g., "microsoft", "endoflife", "python")
+        software_name: Specific software name to purge from cache
+        version: Specific version to purge from cache
+    
+    Returns:
+        StandardResponse with purge results including number of items removed.
+    
+    Example Response:
+        {
+            "success": true,
+            "data": {
+                "purged_count": 15,
+                "agent_type": "microsoft",
+                "software_name": "Windows Server",
+                "timestamp": "2025-10-15T10:30:00Z"
+            }
+        }
+    
+    Usage Examples:
+        - Purge all caches: POST /api/cache/purge
+        - Purge Microsoft agent: POST /api/cache/purge?agent_type=microsoft
+        - Purge specific software: POST /api/cache/purge?software_name=Windows Server 2016
+    """
+    from main import get_eol_orchestrator
+    
+    result = await get_eol_orchestrator().purge_web_scraping_cache(agent_type, software_name, version)
+    logger.info(f"Cache purged: agent_type={agent_type}, software={software_name}, version={version}, result={result}")
+    return result
+
+
 # Additional cache endpoints will be added here as we extract them from main.py
 # This establishes the pattern and structure for the cache API module
