@@ -792,66 +792,82 @@ async def get_alerts_page(request: Request):
 # ALERT MANAGEMENT API ENDPOINTS
 # ============================================================================
 
-@app.get("/api/alerts/config")
+@app.get("/api/alerts/config", response_model=StandardResponse)
+@readonly_endpoint(agent_name="get_alert_config", timeout_seconds=20)
 async def get_alert_configuration():
-    """Get current alert configuration"""
-    try:
-        from utils.alert_manager import alert_manager
-        config = await alert_manager.load_configuration()
-        return {
-            "success": True,
-            "data": config.dict(),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error getting alert configuration: {e}")
-        raise HTTPException(status_code=500, detail=f"Error loading configuration: {str(e)}")
+    """
+    Get current alert configuration.
+    
+    Retrieves the alert configuration from Cosmos DB including SMTP settings,
+    recipient lists, and notification preferences.
+    
+    Returns:
+        StandardResponse with alert configuration dictionary.
+    """
+    from utils.alert_manager import alert_manager
+    config = await alert_manager.load_configuration()
+    return {
+        "success": True,
+        "data": config.dict(),
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
-@app.post("/api/alerts/config")
+@app.post("/api/alerts/config", response_model=StandardResponse)
+@write_endpoint(agent_name="save_alert_config", timeout_seconds=30)
 async def save_alert_configuration(config_data: dict):
-    """Save alert configuration"""
-    try:
-        from utils.alert_manager import alert_manager, AlertConfiguration
-        config = AlertConfiguration(**config_data)
-        success = await alert_manager.save_configuration(config)
-        
-        if success:
-            return {
-                "success": True,
-                "message": "Configuration saved successfully",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to save configuration")
-            
-    except Exception as e:
-        logger.error(f"Error saving alert configuration: {e}")
-        raise HTTPException(status_code=500, detail=f"Error saving configuration: {str(e)}")
-
-
-@app.post("/api/alerts/config/reload")
-async def reload_alert_configuration():
-    """Reload alert configuration from Cosmos DB (force refresh)"""
-    try:
-        from utils.alert_manager import alert_manager
-        
-        # Clear cached configuration to force reload
-        alert_manager._config = None
-        
-        # Load fresh configuration from Cosmos DB
-        config = await alert_manager.load_configuration()
-        
+    """
+    Save alert configuration to Cosmos DB.
+    
+    Updates the alert configuration with new SMTP settings, recipients,
+    and notification preferences. Validates configuration before saving.
+    
+    Args:
+        config_data: Dictionary with alert configuration (SMTP, recipients, etc.)
+    
+    Returns:
+        StandardResponse indicating success or failure of save operation.
+    """
+    from utils.alert_manager import alert_manager, AlertConfiguration
+    config = AlertConfiguration(**config_data)
+    success = await alert_manager.save_configuration(config)
+    
+    if success:
         return {
             "success": True,
-            "message": "Configuration reloaded successfully from Cosmos DB",
-            "data": config.dict(),
+            "message": "Configuration saved successfully",
             "timestamp": datetime.utcnow().isoformat()
         }
-        
-    except Exception as e:
-        logger.error(f"Error reloading alert configuration: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reloading configuration: {str(e)}")
+    else:
+        raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+
+@app.post("/api/alerts/config/reload", response_model=StandardResponse)
+@write_endpoint(agent_name="reload_alert_config", timeout_seconds=30)
+async def reload_alert_configuration():
+    """
+    Reload alert configuration from Cosmos DB (force refresh).
+    
+    Clears cached configuration and loads fresh settings from Cosmos DB.
+    Useful after external configuration changes or troubleshooting.
+    
+    Returns:
+        StandardResponse with reloaded configuration data.
+    """
+    from utils.alert_manager import alert_manager
+    
+    # Clear cached configuration to force reload
+    alert_manager._config = None
+    
+    # Load fresh configuration from Cosmos DB
+    config = await alert_manager.load_configuration()
+    
+    return {
+        "success": True,
+        "message": "Configuration reloaded successfully from Cosmos DB",
+        "data": config.dict(),
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 @app.get("/api/cosmos/test")
@@ -934,222 +950,231 @@ async def test_cosmos_connection():
         }
 
 
-@app.get("/api/alerts/preview")
+@app.get("/api/alerts/preview", response_model=StandardResponse)
+@standard_endpoint(agent_name="alert_preview", timeout_seconds=35)
 async def get_alert_preview(days: int = 90):
-    """Get preview of alerts based on current configuration
-    
-    Caching is handled automatically by the OS inventory agent using InventoryRawCache.
     """
-    try:
-        from utils.alert_manager import alert_manager
-        
-        # Get OS inventory data using agent's built-in caching
-        logger.debug(f"🔄 Fetching OS inventory for alert preview (days={days})")
-        os_data = await asyncio.wait_for(
-            get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days, use_cache=True),
-            timeout=30.0,
-        )
-        
-        # Extract inventory data from standardized response
-        if isinstance(os_data, dict) and os_data.get("success"):
-            inventory_data = os_data.get("data", [])
-        elif isinstance(os_data, list):
-            inventory_data = os_data
-        else:
-            logger.warning(f"Invalid OS data format: {type(os_data)}")
-            inventory_data = []
-        
-        # Load configuration and generate preview
-        config = await alert_manager.load_configuration()
-        alert_items, summary = await alert_manager.generate_alert_preview(inventory_data, config)
-        
-        return {
-            "success": True,
-            "data": {
-                "alerts": [item.dict() for item in alert_items],
-                "summary": summary.dict(),
-                "config": config.dict()
-            },
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error generating alert preview: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating preview: {str(e)}")
+    Get preview of alerts based on current configuration.
+    
+    Fetches OS inventory data and generates alert preview showing which
+    computers would trigger alerts based on current EOL rules. Uses cached
+    inventory data when available.
+    
+    Args:
+        days: Number of days of inventory history to include (default: 90)
+    
+    Returns:
+        StandardResponse with alert items, summary statistics, and configuration.
+    """
+    from utils.alert_manager import alert_manager
+    
+    # Get OS inventory data using agent's built-in caching
+    logger.debug(f"🔄 Fetching OS inventory for alert preview (days={days})")
+    os_data = await asyncio.wait_for(
+        get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days, use_cache=True),
+        timeout=30.0,
+    )
+    
+    # Extract inventory data from standardized response
+    if isinstance(os_data, dict) and os_data.get("success"):
+        inventory_data = os_data.get("data", [])
+    elif isinstance(os_data, list):
+        inventory_data = os_data
+    else:
+        logger.warning(f"Invalid OS data format: {type(os_data)}")
+        inventory_data = []
+    
+    # Load configuration and generate preview
+    config = await alert_manager.load_configuration()
+    alert_items, summary = await alert_manager.generate_alert_preview(inventory_data, config)
+    
+    return {
+        "success": True,
+        "data": {
+            "alerts": [item.dict() for item in alert_items],
+            "summary": summary.dict(),
+            "config": config.dict()
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
-@app.post("/api/alerts/smtp/test")
+@app.post("/api/alerts/smtp/test", response_model=StandardResponse)
+@write_endpoint(agent_name="test_smtp", timeout_seconds=30)
 async def test_smtp_connection(smtp_data: dict):
-    """Test SMTP connection with provided settings and detailed debugging"""
-    try:
-        logger.info("=== SMTP TEST ENDPOINT CALLED ===")
-        logger.info(f"SMTP test data received: {smtp_data}")
-        
-        from utils.alert_manager import alert_manager, SMTPSettings
-        
-        # Create settings and log them (masking password)
-        smtp_settings = SMTPSettings(**smtp_data)
-        logger.info(f"SMTP settings created - server: {smtp_settings.server}:{smtp_settings.port}")
-        logger.info(f"SMTP settings - SSL: {smtp_settings.use_ssl}, TLS: {smtp_settings.use_tls}")
-        logger.info(f"SMTP settings - username: {smtp_settings.username}")
-        logger.info(f"SMTP settings - password provided: {'Yes' if smtp_settings.password else 'No'}")
-        
-        # Execute the test
-        logger.info("Calling alert_manager.test_smtp_connection...")
-        success, message = await alert_manager.test_smtp_connection(smtp_settings)
-        
-        result = {
-            "success": success,
-            "message": message,
-            "timestamp": datetime.utcnow().isoformat(),
-            "debug_info": {
-                "server": smtp_settings.server,
-                "port": smtp_settings.port,
-                "use_ssl": smtp_settings.use_ssl,
-                "use_tls": smtp_settings.use_tls,
-                "username": smtp_settings.username,
-                "has_password": bool(smtp_settings.password),
-                "is_gmail": smtp_settings.is_gmail_config()
-            }
+    """
+    Test SMTP connection with provided settings.
+    
+    Validates SMTP settings by attempting to connect to the mail server.
+    Includes detailed debugging information for troubleshooting connection issues.
+    
+    Args:
+        smtp_data: Dictionary with SMTP settings (server, port, credentials, SSL/TLS)
+    
+    Returns:
+        StandardResponse with success status, message, and debug information.
+    """
+    logger.info("=== SMTP TEST ENDPOINT CALLED ===")
+    logger.info(f"SMTP test data received: {smtp_data}")
+    
+    from utils.alert_manager import alert_manager, SMTPSettings
+    
+    # Create settings and log them (masking password)
+    smtp_settings = SMTPSettings(**smtp_data)
+    logger.info(f"SMTP settings created - server: {smtp_settings.server}:{smtp_settings.port}")
+    logger.info(f"SMTP settings - SSL: {smtp_settings.use_ssl}, TLS: {smtp_settings.use_tls}")
+    logger.info(f"SMTP settings - username: {smtp_settings.username}")
+    logger.info(f"SMTP settings - password provided: {'Yes' if smtp_settings.password else 'No'}")
+    
+    # Execute the test
+    logger.info("Calling alert_manager.test_smtp_connection...")
+    success, message = await alert_manager.test_smtp_connection(smtp_settings)
+    
+    result = {
+        "success": success,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "debug_info": {
+            "server": smtp_settings.server,
+            "port": smtp_settings.port,
+            "use_ssl": smtp_settings.use_ssl,
+            "use_tls": smtp_settings.use_tls,
+            "username": smtp_settings.username,
+            "has_password": bool(smtp_settings.password),
+            "is_gmail": smtp_settings.is_gmail_config()
         }
-        
-        logger.info(f"SMTP test result: {result}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"=== SMTP TEST ENDPOINT ERROR === Error testing SMTP connection: {e}")
-        logger.error(f"Exception type: {type(e).__name__}")
-        logger.error(f"Exception details: {repr(e)}")
-        logger.error(f"SMTP data that caused error: {smtp_data}")
-        return {
-            "success": False,
-            "message": f"Error testing connection: {str(e)}",
-            "timestamp": datetime.utcnow().isoformat(),
-            "error_type": type(e).__name__
-        }
+    }
+    
+    logger.info(f"SMTP test result: {result}")
+    return result
 
 
-@app.post("/api/alerts/send")
+@app.post("/api/alerts/send", response_model=StandardResponse)
+@write_endpoint(agent_name="send_alert", timeout_seconds=45)
 async def send_test_alert(request_data: dict):
-    """Send a test alert email with detailed debugging"""
-    try:
-        logger.info("=== SEND TEST ALERT ENDPOINT CALLED ===")
-        logger.info(f"Request data: {request_data}")
-        
-        from utils.alert_manager import alert_manager
-        
-        logger.info("Loading alert configuration...")
-        config = await alert_manager.load_configuration()
-        recipients = request_data.get("recipients", config.email_recipients)
-        alert_level = request_data.get("level", "info")
-        
-        logger.info(f"Alert level: {alert_level}")
-        logger.info(f"Recipients: {recipients}")
-        logger.info(f"SMTP enabled: {config.smtp_settings.enabled}")
-        
-        if not recipients:
-            logger.error("No email recipients specified")
-            raise HTTPException(status_code=400, detail="No email recipients specified")
-        
-        # Create test alert
-        custom_subject = request_data.get("custom_subject")
-        custom_body = request_data.get("custom_body")
-        is_html = request_data.get("is_html", False)
-        
-        if custom_subject:
-            subject = custom_subject
-            logger.info(f"Using custom subject: {subject}")
+    """
+    Send a test alert email with current configuration.
+    
+    Sends a test email alert using configured SMTP settings. Supports custom
+    subject/body content or uses defaults. Content can be plain text or HTML.
+    
+    Args:
+        request_data: Dictionary with optional recipients, level, custom_subject,
+                     custom_body, and is_html fields
+    
+    Returns:
+        StandardResponse with send status, message, and debug information.
+    """
+    logger.info("=== SEND TEST ALERT ENDPOINT CALLED ===")
+    logger.info(f"Request data: {request_data}")
+    
+    from utils.alert_manager import alert_manager
+    
+    logger.info("Loading alert configuration...")
+    config = await alert_manager.load_configuration()
+    recipients = request_data.get("recipients", config.email_recipients)
+    alert_level = request_data.get("level", "info")
+    
+    logger.info(f"Alert level: {alert_level}")
+    logger.info(f"Recipients: {recipients}")
+    logger.info(f"SMTP enabled: {config.smtp_settings.enabled}")
+    
+    if not recipients:
+        logger.error("No email recipients specified")
+        raise HTTPException(status_code=400, detail="No email recipients specified")
+    
+    # Create test alert
+    custom_subject = request_data.get("custom_subject")
+    custom_body = request_data.get("custom_body")
+    is_html = request_data.get("is_html", False)
+    
+    if custom_subject:
+        subject = custom_subject
+        logger.info(f"Using custom subject: {subject}")
+    else:
+        subject = f"Test EOL {alert_level.capitalize()} Alert"
+        logger.info(f"Using default subject: {subject}")
+    
+    if custom_body:
+        # Check if content is already HTML or if is_html flag is set
+        if is_html or custom_body.strip().startswith('<!DOCTYPE') or custom_body.strip().startswith('<html'):
+            html_content = custom_body
+            logger.info(f"Using custom HTML body (length: {len(custom_body)} chars)")
         else:
-            subject = f"Test EOL {alert_level.capitalize()} Alert"
-            logger.info(f"Using default subject: {subject}")
-        
-        if custom_body:
-            # Check if content is already HTML or if is_html flag is set
-            if is_html or custom_body.strip().startswith('<!DOCTYPE') or custom_body.strip().startswith('<html'):
-                html_content = custom_body
-                logger.info(f"Using custom HTML body (length: {len(custom_body)} chars)")
-            else:
-                # Wrap plain text in HTML
-                html_content = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }}
-                        .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-                        .content {{ margin: 20px 0; white-space: pre-line; }}
-                        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 0.9em; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>End-of-Life Alert</h1>
-                    </div>
-                    <div class="content">
-                        {custom_body}
-                    </div>
-                    <div class="footer">
-                        <p>This is an automated alert from the End-of-Life Monitoring System.</p>
-                        <p>Timestamp: {datetime.utcnow().isoformat()}</p>
-                    </div>
-                </body>
-                </html>
-                """
-                logger.info(f"Wrapped plain text in HTML (length: {len(custom_body)} chars)")
-        else:
+            # Wrap plain text in HTML
             html_content = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <style>
-                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                    .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px; }}
-                    .content {{ margin: 20px 0; }}
+                    body {{ font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }}
+                    .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
+                    .content {{ margin: 20px 0; white-space: pre-line; }}
+                    .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 0.9em; }}
                 </style>
             </head>
             <body>
                 <div class="header">
-                    <h1>Test EOL Alert</h1>
-                    <p>This is a test email from the EOL Alert Management System.</p>
+                    <h1>End-of-Life Alert</h1>
                 </div>
                 <div class="content">
-                    <p>If you received this email, your SMTP configuration is working correctly.</p>
-                    <p>Alert Level: {alert_level.capitalize()}</p>
+                    {custom_body}
+                </div>
+                <div class="footer">
+                    <p>This is an automated alert from the End-of-Life Monitoring System.</p>
                     <p>Timestamp: {datetime.utcnow().isoformat()}</p>
                 </div>
             </body>
             </html>
             """
-            logger.info("Using default test email body")
-        
-        logger.info("Calling alert_manager.send_alert_email...")
-        success, message = await alert_manager.send_alert_email(
-            config.smtp_settings, recipients, subject, html_content
-        )
-        
-        result = {
-            "success": success,
-            "message": message,
-            "recipients_count": len(recipients),
-            "timestamp": datetime.utcnow().isoformat(),
-            "debug_info": {
-                "alert_level": alert_level,
-                "subject": subject,
-                "content_length": len(html_content),
-                "smtp_server": config.smtp_settings.server,
-                "smtp_enabled": config.smtp_settings.enabled
-            }
+            logger.info(f"Wrapped plain text in HTML (length: {len(custom_body)} chars)")
+    else:
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                .header {{ background-color: #2563eb; color: white; padding: 20px; border-radius: 8px; }}
+                .content {{ margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Test EOL Alert</h1>
+                <p>This is a test email from the EOL Alert Management System.</p>
+            </div>
+            <div class="content">
+                <p>If you received this email, your SMTP configuration is working correctly.</p>
+                <p>Alert Level: {alert_level.capitalize()}</p>
+                <p>Timestamp: {datetime.utcnow().isoformat()}</p>
+            </div>
+        </body>
+        </html>
+        """
+        logger.info("Using default test email body")
+    
+    logger.info("Calling alert_manager.send_alert_email...")
+    success, message = await alert_manager.send_alert_email(
+        config.smtp_settings, recipients, subject, html_content
+    )
+    
+    result = {
+        "success": success,
+        "message": message,
+        "recipients_count": len(recipients),
+        "timestamp": datetime.utcnow().isoformat(),
+        "debug_info": {
+            "alert_level": alert_level,
+            "subject": subject,
+            "content_length": len(html_content),
+            "smtp_server": config.smtp_settings.server,
+            "smtp_enabled": config.smtp_settings.enabled
         }
-        
-        logger.info(f"Send alert result: {result}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"=== SEND ALERT ENDPOINT ERROR === Error sending test alert: {e}")
-        logger.error(f"Exception type: {type(e).__name__}")
-        logger.error(f"Exception details: {repr(e)}")
-        logger.error(f"Request data that caused error: {request_data}")
-        raise HTTPException(status_code=500, detail=f"Error sending alert: {str(e)}")
+    }
+    
+    logger.info(f"Send alert result: {result}")
+    return result
 
 
 @app.post("/api/analyze")
@@ -3209,7 +3234,8 @@ async def validate_cache_system():
 # NOTIFICATION HISTORY API ENDPOINTS
 # ============================================================================
 
-@app.get("/api/notifications/history")
+@app.get("/api/notifications/history", response_model=StandardResponse)
+@readonly_endpoint(agent_name="notification_history", timeout_seconds=20)
 async def get_notification_history(
     alert_type: Optional[str] = None,
     limit: int = 100,
@@ -3218,107 +3244,102 @@ async def get_notification_history(
     """
     Get notification history with optional filtering.
     
+    Retrieves historical notification records from Cosmos DB with support
+    for filtering by alert type and pagination.
+    
     Args:
         alert_type: Filter by alert type ('critical', 'warning', 'info') or None for all
         limit: Maximum number of records to return (default: 100, max: 1000)
         offset: Number of records to skip for pagination (default: 0)
+    
+    Returns:
+        StandardResponse with notification list, statistics, and pagination info.
     """
-    try:
-        # Import alert manager
-        from utils.alert_manager import alert_manager
-        
-        # Validate parameters
-        if limit > 1000:
-            limit = 1000
-        if limit < 1:
-            limit = 1
-        if offset < 0:
-            offset = 0
-        if alert_type and alert_type not in ['critical', 'warning', 'info']:
-            raise HTTPException(status_code=400, detail="Invalid alert_type. Must be 'critical', 'warning', or 'info'")
-        
-        # Get notification history
-        history = await alert_manager.get_notification_history(
-            alert_type=alert_type,
-            limit=limit,
-            offset=offset
-        )
-        
-        return {
-            "success": True,
-            "notifications": [notification.dict() for notification in history.notifications],
-            "statistics": {
-                "total_count": history.total_count,
-                "successful_count": history.successful_count,
-                "failed_count": history.failed_count,
-                "last_notification_date": history.last_notification_date
-            },
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "has_more": len(history.notifications) == limit
-            }
+    # Import alert manager
+    from utils.alert_manager import alert_manager
+    
+    # Validate parameters
+    if limit > 1000:
+        limit = 1000
+    if limit < 1:
+        limit = 1
+    if offset < 0:
+        offset = 0
+    if alert_type and alert_type not in ['critical', 'warning', 'info']:
+        raise HTTPException(status_code=400, detail="Invalid alert_type. Must be 'critical', 'warning', or 'info'")
+    
+    # Get notification history
+    history = await alert_manager.get_notification_history(
+        alert_type=alert_type,
+        limit=limit,
+        offset=offset
+    )
+    
+    return {
+        "success": True,
+        "notifications": [notification.dict() for notification in history.notifications],
+        "statistics": {
+            "total_count": history.total_count,
+            "successful_count": history.successful_count,
+            "failed_count": history.failed_count,
+            "last_notification_date": history.last_notification_date
+        },
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "has_more": len(history.notifications) == limit
         }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving notification history: {e}")
-        return create_error_response(
-            f"Failed to retrieve notification history: {str(e)}", 
-            500
-        )
+    }
 
-@app.get("/api/notifications/stats")
+@app.get("/api/notifications/stats", response_model=StandardResponse)
+@readonly_endpoint(agent_name="notification_stats", timeout_seconds=20)
 async def get_notification_stats():
     """
     Get notification statistics summary.
+    
+    Calculates comprehensive statistics about notification history including
+    success rates, activity trends, and breakdowns by alert type.
+    
+    Returns:
+        StandardResponse with overall stats, recent activity, and per-type statistics.
     """
-    try:
-        from utils.alert_manager import alert_manager
-        
-        # Get recent history for stats calculation
-        history = await alert_manager.get_notification_history(limit=1000)
-        
-        # Calculate additional statistics
-        now = datetime.utcnow()
-        last_7_days = [n for n in history.notifications 
-                      if (now - datetime.fromisoformat(n.timestamp.replace('Z', ''))).days <= 7]
-        last_30_days = [n for n in history.notifications 
-                       if (now - datetime.fromisoformat(n.timestamp.replace('Z', ''))).days <= 30]
-        
-        stats_by_type = {}
-        for alert_type in ['critical', 'warning', 'info']:
-            type_notifications = [n for n in history.notifications if n.alert_type == alert_type]
-            stats_by_type[alert_type] = {
-                "total": len(type_notifications),
-                "successful": len([n for n in type_notifications if n.status == 'success']),
-                "failed": len([n for n in type_notifications if n.status == 'failed']),
-                "last_sent": type_notifications[0].timestamp if type_notifications else None
-            }
-        
-        return {
-            "success": True,
-            "overall": {
-                "total_notifications": history.total_count,
-                "successful_notifications": history.successful_count,
-                "failed_notifications": history.failed_count,
-                "success_rate": round((history.successful_count / max(history.total_count, 1)) * 100, 1),
-                "last_notification_date": history.last_notification_date
-            },
-            "recent_activity": {
-                "last_7_days": len(last_7_days),
-                "last_30_days": len(last_30_days)
-            },
-            "by_alert_type": stats_by_type
+    from utils.alert_manager import alert_manager
+    
+    # Get recent history for stats calculation
+    history = await alert_manager.get_notification_history(limit=1000)
+    
+    # Calculate additional statistics
+    now = datetime.utcnow()
+    last_7_days = [n for n in history.notifications 
+                  if (now - datetime.fromisoformat(n.timestamp.replace('Z', ''))).days <= 7]
+    last_30_days = [n for n in history.notifications 
+                   if (now - datetime.fromisoformat(n.timestamp.replace('Z', ''))).days <= 30]
+    
+    stats_by_type = {}
+    for alert_type in ['critical', 'warning', 'info']:
+        type_notifications = [n for n in history.notifications if n.alert_type == alert_type]
+        stats_by_type[alert_type] = {
+            "total": len(type_notifications),
+            "successful": len([n for n in type_notifications if n.status == 'success']),
+            "failed": len([n for n in type_notifications if n.status == 'failed']),
+            "last_sent": type_notifications[0].timestamp if type_notifications else None
         }
-        
-    except Exception as e:
-        logger.error(f"Error retrieving notification stats: {e}")
-        return create_error_response(
-            f"Failed to retrieve notification statistics: {str(e)}", 
-            500
-        )
+    
+    return {
+        "success": True,
+        "overall": {
+            "total_notifications": history.total_count,
+            "successful_notifications": history.successful_count,
+            "failed_notifications": history.failed_count,
+            "success_rate": round((history.successful_count / max(history.total_count, 1)) * 100, 1),
+            "last_notification_date": history.last_notification_date
+        },
+        "recent_activity": {
+            "last_7_days": len(last_7_days),
+            "last_30_days": len(last_30_days)
+        },
+        "by_alert_type": stats_by_type
+    }
 
 
 if __name__ == "__main__":
