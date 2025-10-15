@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Alert Management"])
 
 
-def __get_eol_orchestrator():
+def _get_eol_orchestrator():
     """Lazy import to avoid circular dependency"""
     from main import get_eol_orchestrator
-    return _get_eol_orchestrator()
+    return get_eol_orchestrator()
 
 
 # ============================================================================

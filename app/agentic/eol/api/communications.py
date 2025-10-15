@@ -32,16 +32,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def __get_eol_orchestrator():
+def _get_eol_orchestrator():
     """Lazy import to avoid circular dependency"""
     from main import get_eol_orchestrator
-    return _get_eol_orchestrator()
+    return get_eol_orchestrator()
 
 
-def __get_chat_orchestrator():
+def _get_chat_orchestrator():
     """Lazy import to avoid circular dependency"""
     from main import get_chat_orchestrator
-    return _get_chat_orchestrator()
+    return get_chat_orchestrator()
 
 
 def _get_chat_available():
