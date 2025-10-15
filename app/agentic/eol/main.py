@@ -44,6 +44,7 @@ from api.inventory import router as inventory_router
 from api.eol import router as eol_router
 from api.alerts import router as alerts_router
 from api.agents import router as agents_router
+from api.communications import router as communications_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -62,6 +63,7 @@ app.include_router(inventory_router)
 app.include_router(eol_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)
+app.include_router(communications_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -1425,9 +1427,11 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
     return result
 
 
-@app.post("/api/communications/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="communications_clear", timeout_seconds=10)
-async def clear_communications():
+# COMMUNICATIONS API ENDPOINTS - Moved to api/communications.py
+
+# @app.post("/api/communications/clear", response_model=StandardResponse)
+# @write_endpoint(agent_name="communications_clear", timeout_seconds=10)
+async def clear_communications_OLD():
     """
     Clear orchestrator communications log.
     
@@ -1442,9 +1446,9 @@ async def clear_communications():
     return result
 
 
-@app.get("/api/communications/eol", response_model=StandardResponse)
-@readonly_endpoint(agent_name="eol_communications", timeout_seconds=15)
-async def get_eol_communications():
+# @app.get("/api/communications/eol", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="eol_communications", timeout_seconds=15)
+async def get_eol_communications_OLD():
     """
     Get real-time EOL orchestrator communications log.
     
@@ -1472,9 +1476,9 @@ async def get_eol_communications():
         }
 
 
-@app.get("/api/communications/chat", response_model=StandardResponse)
-@readonly_endpoint(agent_name="chat_communications", timeout_seconds=15)
-async def get_chat_communications():
+# @app.get("/api/communications/chat", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="chat_communications", timeout_seconds=15)
+async def get_chat_communications_OLD():
     """
     Get real-time chat orchestrator communications log.
     
@@ -1502,6 +1506,7 @@ async def get_chat_communications():
         }
 
 
+# EOL AGENT RESPONSES ENDPOINTS - Already commented out, kept for reference
 # @app.get("/api/eol-agent-responses", response_model=StandardResponse)
 # @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
 async def get_eol_agent_responses_OLD():
@@ -1593,9 +1598,9 @@ async def clear_eol_agent_responses_OLD():
     }
 
 
-@app.post("/api/communications/chat/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="clear_chat_comms", timeout_seconds=30)
-async def clear_chat_communications():
+# @app.post("/api/communications/chat/clear", response_model=StandardResponse)
+# @write_endpoint(agent_name="clear_chat_comms", timeout_seconds=30)
+async def clear_chat_communications_OLD():
     """
     Clear chat orchestrator communications log.
     
@@ -2569,10 +2574,10 @@ async def autogen_chat(req: AutoGenChatRequest):
     return response
 
 
-# Agent communications endpoint for UI
-@app.get("/api/agent-communications/{session_id}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="agent_communications", timeout_seconds=15)
-async def get_agent_communications(session_id: str):
+# Agent communications endpoint for UI - Moved to api/communications.py
+# @app.get("/api/agent-communications/{session_id}", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="agent_communications", timeout_seconds=15)
+async def get_agent_communications_OLD(session_id: str):
     """
     Get agent communication history for a specific session.
     
@@ -2611,10 +2616,10 @@ async def get_agent_communications(session_id: str):
     }
 
 
-# Debug endpoint to check agent communications
-@app.get("/api/debug/agent-communications", response_model=StandardResponse)
-@readonly_endpoint(agent_name="debug_agent_communications", timeout_seconds=15)
-async def debug_agent_communications():
+# Debug endpoint to check agent communications - Moved to api/communications.py
+# @app.get("/api/debug/agent-communications", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="debug_agent_communications", timeout_seconds=15)
+async def debug_agent_communications_OLD():
     """
     Debug endpoint to check all agent communications across all sessions.
     

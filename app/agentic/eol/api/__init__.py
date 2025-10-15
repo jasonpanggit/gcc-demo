@@ -11,6 +11,7 @@ Modules:
     eol: End-of-Life search and management endpoints
     alerts: Alert configuration and email notification endpoints
     agents: Agent configuration and management endpoints
+    communications: Communication logs and agent interaction tracking endpoints
 """
 
-__all__ = ["health", "cache", "inventory", "eol", "alerts", "agents"]
+__all__ = ["health", "cache", "inventory", "eol", "alerts", "agents", "communications"]
