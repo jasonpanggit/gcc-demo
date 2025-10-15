@@ -296,7 +296,52 @@ class InventoryRawCache:
             'memory_cache_entries': memory_stats,
             'total_memory_entries': len(self._memory_cache),
             'cache_duration_hours': self.cache_duration.total_seconds() / 3600,
-            'supported_cache_types': list(self.container_mapping.keys())
+            'supported_cache_types': list(self.container_mapping.keys()),
+            'cosmos_initialized': self.cosmos_client.initialized
+        }
+    
+    async def clear_all_cache(self, cache_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Clear cache entries for specified type or all types.
+        Provides agent-compatible interface for cache clearing.
+        
+        Args:
+            cache_type: "software", "os", or None for all
+            
+        Returns:
+            Dictionary with operation results
+        """
+        if cache_type:
+            # Clear specific type
+            types_to_clear = [cache_type]
+        else:
+            # Clear all types
+            types_to_clear = list(self.container_mapping.keys())
+        
+        cleared_count = 0
+        
+        # Clear memory cache
+        keys_to_remove = []
+        for key in list(self._memory_cache.keys()):
+            for ct in types_to_clear:
+                if key.startswith(f"{ct}:"):
+                    keys_to_remove.append(key)
+                    break
+        
+        for key in keys_to_remove:
+            del self._memory_cache[key]
+            cleared_count += 1
+        
+        print(f"[InventoryRawCache] Cleared {cleared_count} memory cache entries for {types_to_clear}")
+        
+        # Note: Cosmos DB TTL will handle expiration of old entries
+        # No need to manually delete from Cosmos DB
+        
+        return {
+            "success": True,
+            "cleared_count": cleared_count,
+            "cache_types": types_to_clear,
+            "message": f"Cleared {cleared_count} cache entries"
         }
 
 

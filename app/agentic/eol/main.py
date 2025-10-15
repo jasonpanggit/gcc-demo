@@ -19,69 +19,20 @@ from azure.identity import DefaultAzureCredential
 from openai import AzureOpenAI
 
 # Import utilities and configuration
-try:
-    from utils import get_logger, config, create_error_response
-    # import base_cosmos (shared base client)
-    from utils.cosmos_cache import base_cosmos
-    from utils.cache_stats_manager import cache_stats_manager
-except ImportError:
-    # Fallback for different environments
-    import sys
-    import os
-    sys.path.append(os.path.dirname(__file__))
-    from utils import get_logger, config, create_error_response
-    
+from utils import get_logger, config, create_error_response
+from utils.cosmos_cache import base_cosmos
+from utils.cache_stats_manager import cache_stats_manager
+from utils.response_models import StandardResponse, ensure_standard_format
 
 # Initialize logger first
 logger = get_logger(__name__, config.app.log_level)
 
-# Alert preview cache - 5 minute expiration to reduce OS inventory requests
-_alert_preview_cache = {}
-_alert_preview_cache_expiry = {}
-ALERT_CACHE_DURATION_MINUTES = 5
-
-def _get_cached_alert_data(cache_key: str):
-    """Get cached alert data if not expired"""
-    if cache_key in _alert_preview_cache:
-        expiry = _alert_preview_cache_expiry.get(cache_key)
-        if expiry and datetime.now(timezone.utc) < expiry:
-            logger.debug(f"🔄 Alert preview cache HIT for key: {cache_key}")
-            return _alert_preview_cache[cache_key]
-    
-    logger.debug(f"🔄 Alert preview cache MISS for key: {cache_key}")
-    return None
-
-def _cache_alert_data(cache_key: str, data):
-    """Cache alert data with expiration"""
-    _alert_preview_cache[cache_key] = data
-    _alert_preview_cache_expiry[cache_key] = datetime.now(timezone.utc) + timedelta(minutes=ALERT_CACHE_DURATION_MINUTES)
-    logger.debug(f"✅ Alert preview cached for {ALERT_CACHE_DURATION_MINUTES} minutes: {cache_key}")
-
-def _clear_alert_cache():
-    """Clear all alert preview cache"""
-    global _alert_preview_cache, _alert_preview_cache_expiry
-    cache_count = len(_alert_preview_cache)
-    _alert_preview_cache.clear()
-    _alert_preview_cache_expiry.clear()
-    logger.info(f"🔄 Cleared {cache_count} alert preview cache entries")
-
 # Import multi-agent systems
-# Import both orchestrators for clear separation
 from agents.eol_orchestrator import EOLOrchestratorAgent
 from utils.eol_cache import eol_cache
 
-# Try to import Chat orchestrator for chat interface
-try:
-    from agents.chat_orchestrator import ChatOrchestratorAgent
-    CHAT_AVAILABLE = True
-    logger.info("✅ Chat orchestrator available")
-except ImportError as e:
-    CHAT_AVAILABLE = False
-    logger.warning(f"⚠️ Chat orchestrator not available: {e}")
-    ChatOrchestratorAgent = None
-
-# Maintain backward compatibility
-AUTOGEN_AVAILABLE = CHAT_AVAILABLE
+# Note: Chat orchestrator is available in separate chat.html interface
+# This EOL interface uses the standard EOL orchestrator only
 
 # Create FastAPI app
 app = FastAPI(

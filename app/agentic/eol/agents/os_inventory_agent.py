@@ -13,14 +13,14 @@ from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 # Import utilities
 try:
     from ..utils import get_logger, config
-    from ..utils.os_inventory_cache import os_inventory_cache
+    from ..utils.inventory_cache import inventory_cache
     from ..utils.cache_stats_manager import cache_stats_manager
 except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
-    from utils.os_inventory_cache import os_inventory_cache
+    from utils.inventory_cache import inventory_cache
     try:
         from utils.cache_stats_manager import cache_stats_manager
     except ImportError:
