@@ -291,51 +291,18 @@ async def debug_tool_selection(request: DebugRequest):
     Returns:
         StandardResponse with detected patterns, keywords, and recommended tool selection.
     """
-    query = request.query
-    
-    # Test the tool selection logic
+    from utils import QueryPatterns
     import re
     
-    # Check if keywords are found
-    get_inventory_patterns = [
-        r'show\s+(?:me\s+)?(?:the\s+)?inventory',
-        r'(?:get|retrieve|fetch)\s+(?:the\s+)?inventory',
-        r'what\s+software',
-        r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?software',
-        r'inventory\s+(?:of|for)',
-        r'software\s+(?:inventory|list)',
-        r'show\s+(?:all\s+)?applications',
-        r'what\s+(?:is\s+)?installed'
-    ]
+    query = request.query
     
-    eol_patterns = [
-        'end of life', 'end-of-life', 'eol', 'support status', 
-        'lifecycle', 'when does', 'reach end', 'support end',
-        'retire', 'deprecated', 'sunset', 'maintenance end'
-    ]
+    # Use centralized QueryPatterns for analysis
+    intent_analysis = QueryPatterns.analyze_query_intent(query)
     
-    approaching_eol_patterns = [
-        'approaching end', 'approaching eol', 'software approaching',
-        'expiring soon', 'ending support', 'near end of life',
-        'within a year', 'next year', 'soon to expire',
-        'what software is approaching', 'which software is ending'
-    ]
-    
-    found_inventory_keywords = []
-    found_eol_keywords = []
-    found_approaching_eol_keywords = []
-    
-    for pattern in get_inventory_patterns:
-        if re.search(pattern, query, re.IGNORECASE):
-            found_inventory_keywords.append(pattern)
-    
-    for pattern in eol_patterns:
-        if pattern.lower() in query.lower():
-            found_eol_keywords.append(pattern)
-            
-    for pattern in approaching_eol_patterns:
-        if pattern.lower() in query.lower():
-            found_approaching_eol_keywords.append(pattern)
+    # Extract matched patterns for backward compatibility
+    found_inventory_keywords = intent_analysis["matched_inventory_patterns"]
+    found_eol_keywords = intent_analysis["matched_eol_patterns"]
+    found_approaching_eol_keywords = intent_analysis["matched_approaching_patterns"]
     
     # Test filter detection logic
     query_lower = query.lower()
@@ -368,22 +335,23 @@ async def debug_tool_selection(request: DebugRequest):
             detected_version = match.group(2)
             break
     
-    # Determine tool choice
+    # Determine tool choice using centralized intent analysis
     tool_choice = "auto"
     primary_tool = None
     
-    if found_approaching_eol_keywords:
+    if intent_analysis["is_approaching_eol_query"]:
         tool_choice = {"type": "function", "function": {"name": "find_approaching_eol"}}
         primary_tool = "find_approaching_eol"
-    elif found_eol_keywords:
+    elif intent_analysis["is_eol_query"]:
         tool_choice = {"type": "function", "function": {"name": "check_software_eol"}}
         primary_tool = "check_software_eol"
-    elif found_inventory_keywords:
+    elif intent_analysis["is_inventory_query"]:
         tool_choice = {"type": "function", "function": {"name": "get_inventory"}}
         primary_tool = "get_inventory"
     
     return {
         'query': query,
+        'intent_analysis': intent_analysis,  # Include full analysis
         'found_inventory_keywords': found_inventory_keywords,
         'found_eol_keywords': found_eol_keywords,
         'found_approaching_eol_keywords': found_approaching_eol_keywords,

@@ -1980,57 +1980,24 @@ class MagenticOneChatOrchestrator:
                 version = match.group(1)
                 break
         
-        # Enhanced software name extraction with compound names support
-        # Priority order: compound names first, then simple names
-        compound_software_patterns = {
-            'Windows Server': ['windows server'],
-            'SQL Server': ['sql server'],
-            'Windows 10': ['windows 10'],
-            'Windows 11': ['windows 11'],
-            'Microsoft Office': ['microsoft office', 'office'],
-            'Node.js': ['node.js', 'nodejs'],
-            'Oracle Database': ['oracle database'],
-            'Red Hat': ['red hat', 'redhat'],
-            'PostgreSQL': ['postgresql', 'postgres'],
-            'VMware vSphere': ['vmware vsphere', 'vsphere'],
-            'Apache HTTP Server': ['apache http server', 'apache httpd'],
-            'Microsoft Exchange': ['microsoft exchange', 'exchange server'],
-            'Visual Studio': ['visual studio'],
-            'Microsoft Teams': ['microsoft teams', 'teams'],
-            'Microsoft Edge': ['microsoft edge', 'edge'],
-        }
+        # Use centralized SoftwareMappings for name extraction
+        from utils import SoftwareMappings
         
         # Check for compound software names first (higher priority)
-        for software_key, patterns in compound_software_patterns.items():
+        for canonical_name, patterns in SoftwareMappings.COMPOUND_PATTERNS.items():
             for pattern in patterns:
                 if pattern in message_lower:
-                    software_name = software_key
+                    software_name = canonical_name
                     break
             if software_name != "unknown":
                 break
         
         # If no compound name found, check simple software patterns
         if software_name == "unknown":
-            simple_software_patterns = {
-                'Python': ['python', 'py'],
-                'Java': ['java', 'jdk', 'jre'],
-                'PHP': ['php'],
-                'MySQL': ['mysql'],
-                'Ubuntu': ['ubuntu'],
-                'CentOS': ['centos'],
-                'Windows': ['windows', 'win'],
-                'Microsoft': ['microsoft', 'ms'],
-                'VMware': ['vmware'],
-                'Apache': ['apache'],
-                'Nginx': ['nginx'],
-                'Docker': ['docker'],
-                'Kubernetes': ['kubernetes', 'k8s'],
-            }
-            
-            for software_key, keywords in simple_software_patterns.items():
-                for keyword in keywords:
-                    if keyword in message_lower:
-                        software_name = software_key
+            for canonical_name, patterns in SoftwareMappings.SIMPLE_PATTERNS.items():
+                for pattern in patterns:
+                    if pattern in message_lower:
+                        software_name = canonical_name
                         break
                 if software_name != "unknown":
                     break

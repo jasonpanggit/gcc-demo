@@ -409,73 +409,56 @@ FORMATTING:
             try:
                 logger.info(f"🤖 OpenAI request: model={config.azure.aoai_deployment}, tools_enabled=True, query='{query[:100]}...', query_length={len(query)}")
                 
-                # Log key words that should trigger tools
-                inventory_keywords = ['inventory', 'show', 'list', 'software', 'installed', 'servers']
-                found_keywords = [word for word in inventory_keywords if word.lower() in query.lower()]
-                if found_keywords:
-                    logger.info(f"🔍 Detected inventory keywords in query: {found_keywords}")
+                # Use centralized QueryPatterns for tool selection
+                from utils import QueryPatterns
                 
-                # Determine tool choice based on query content with improved logic
+                # Analyze query intent using centralized patterns
+                intent_analysis = QueryPatterns.analyze_query_intent(query)
+                
+                # Log detected patterns
+                if intent_analysis["matched_eol_patterns"] or intent_analysis["matched_approaching_patterns"] or intent_analysis["matched_inventory_patterns"]:
+                    logger.info(f"🔍 Detected patterns in query:")
+                    if intent_analysis["matched_approaching_patterns"]:
+                        logger.info(f"  ⏰ Approaching EOL: {intent_analysis['matched_approaching_patterns'][:3]}")
+                    if intent_analysis["matched_eol_patterns"]:
+                        logger.info(f"  🕰️  EOL: {intent_analysis['matched_eol_patterns'][:3]}")
+                    if intent_analysis["matched_inventory_patterns"]:
+                        logger.info(f"  📦 Inventory: {intent_analysis['matched_inventory_patterns'][:3]}")
+                
+                # Determine tool choice based on centralized intent analysis
                 tool_choice = "auto"
                 query_lower = query.lower()
                 
-                # Enhanced keyword patterns for get_inventory
-                get_inventory_patterns = [
-                    'show me', 'show the', 'show all', 'display', 'list',
-                    'inventory', 'what software', 'what is installed',
-                    'software on', 'installed on', 'what do we have'
-                ]
-                
-                # Enhanced keyword patterns for search_inventory  
-                search_inventory_patterns = [
-                    'find ', 'search for', 'look for', 'locate'
-                ]
-                
-                # Enhanced keyword patterns for check_software_eol
-                eol_patterns = [
-                    'end of life', 'end-of-life', 'eol', 'support status', 
-                    'lifecycle', 'when does', 'reach end', 'support end',
-                    'retire', 'deprecated', 'sunset', 'maintenance end'
-                ]
-                
-                # Enhanced keyword patterns for find_approaching_eol
-                approaching_eol_patterns = [
-                    'approaching end', 'approaching eol', 'software approaching',
-                    'expiring soon', 'ending support', 'near end of life',
-                    'within a year', 'next year', 'soon to expire',
-                    'what software is approaching', 'which software is ending'
-                ]
+                # Additional search patterns not in QueryPatterns (specific to OpenAI agent)
+                search_inventory_patterns = ['find ', 'search for', 'look for', 'locate']
                 
                 # Check for approaching EOL patterns first (most specific)
-                if any(pattern in query_lower for pattern in approaching_eol_patterns):
+                if intent_analysis["is_approaching_eol_query"]:
                     tool_choice = {"type": "function", "function": {"name": "find_approaching_eol"}}
-                    matched_patterns = [pattern for pattern in approaching_eol_patterns if pattern in query_lower]
-                    logger.info(f"⏰ FORCING find_approaching_eol tool - matched patterns: {matched_patterns}")
+                    logger.info(f"⏰ FORCING find_approaching_eol tool")
                     logger.info(f"🔍 Query: '{query}'")
                 
                 # Check for EOL patterns (specific software EOL queries)
-                elif any(pattern in query_lower for pattern in eol_patterns):
+                elif intent_analysis["is_eol_query"]:
                     tool_choice = {"type": "function", "function": {"name": "check_software_eol"}}
-                    matched_patterns = [pattern for pattern in eol_patterns if pattern in query_lower]
-                    logger.info(f"🕰️ FORCING check_software_eol tool - matched patterns: {matched_patterns}")
+                    logger.info(f"🕰️ FORCING check_software_eol tool")
                     logger.info(f"📅 Query: '{query}'")
                 
                 # Check for get_inventory patterns
-                elif any(pattern in query_lower for pattern in get_inventory_patterns):
+                elif intent_analysis["is_inventory_query"]:
                     tool_choice = {"type": "function", "function": {"name": "get_inventory"}}
-                    matched_patterns = [pattern for pattern in get_inventory_patterns if pattern in query_lower]
-                    logger.info(f"🎯 FORCING get_inventory tool - matched patterns: {matched_patterns}")
-                    logger.info(f"� Query: '{query}'")
+                    logger.info(f"🎯 FORCING get_inventory tool")
+                    logger.info(f"📦 Query: '{query}'")
                     
                     # Log what we expect the AI to do with Windows filtering
                     if 'windows' in query_lower:
                         logger.info(f"🪟 Windows detected - AI should set software_filter='windows'")
-                    
+                
                 # Check for search_inventory patterns (only if get_inventory wasn't triggered)
                 elif any(pattern in query_lower for pattern in search_inventory_patterns):
                     tool_choice = {"type": "function", "function": {"name": "search_inventory"}}
-                    matched_patterns = [pattern for pattern in search_inventory_patterns if pattern in query_lower]
-                    logger.info(f"🎯 FORCING search_inventory tool - matched patterns: {matched_patterns} in query: '{query[:50]}...'")
+                    matched = [p for p in search_inventory_patterns if p in query_lower]
+                    logger.info(f"🔍 FORCING search_inventory tool - matched: {matched}")
                 
                 logger.info(f"🔧 Final tool_choice decision: {tool_choice}")
                 
@@ -497,8 +480,8 @@ FORMATTING:
                     return await self._handle_function_calls(response, messages, client, tools)
                 else:
                     logger.warning(f"⚠️ OpenAI did not request any function calls for query: '{query[:50]}...'")
-                    if found_keywords:
-                        logger.warning(f"⚠️ Query contained inventory keywords {found_keywords} but no tools were called!")
+                    if intent_analysis["is_inventory_query"] or intent_analysis["is_eol_query"]:
+                        logger.warning(f"⚠️ Query matched patterns but no tools were called!")
                     
                     # FALLBACK: If we forced a tool but it didn't work, manually call it
                     if tool_choice != "auto" and isinstance(tool_choice, dict):
