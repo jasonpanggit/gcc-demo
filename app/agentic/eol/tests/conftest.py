@@ -56,7 +56,7 @@ async def client(app, base_url) -> AsyncGenerator[AsyncClient, None]:
     if USE_MOCK_DATA and app is not None:
         # Local testing with ASGI transport
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with AsyncClient(transport=transport, base_url=base_url) as ac:
             yield ac
     else:
         # Remote testing with HTTP client
