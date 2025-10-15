@@ -23,6 +23,12 @@ from utils import get_logger, config, create_error_response
 from utils.cosmos_cache import base_cosmos
 from utils.cache_stats_manager import cache_stats_manager
 from utils.response_models import StandardResponse, ensure_standard_format
+from utils.endpoint_decorators import (
+    with_timeout_and_stats,
+    standard_endpoint,
+    readonly_endpoint,
+    write_endpoint
+)
 
 # Initialize logger first
 logger = get_logger(__name__, config.app.log_level)
@@ -490,132 +496,93 @@ async def index(request: Request):
         return HTMLResponse("EOL Multi-Agent App", status_code=200)
 
 
-@app.get("/api/inventory")
+@app.get("/api/inventory", response_model=StandardResponse)
+@with_timeout_and_stats(
+    agent_name="inventory",
+    timeout_seconds=config.app.timeout,
+    track_cache=True,
+    auto_wrap_response=False  # Keep original response format for now
+)
 async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = True):
-    """Get software inventory using multi-agent system"""
-    start_time = time.time()
-    agent_name = "inventory"
+    """
+    Get software inventory using multi-agent system.
     
-    try:
-        # Use timeout to prevent 504 errors
-        result = await asyncio.wait_for(
-            get_eol_orchestrator().get_software_inventory(days=days, use_cache=use_cache),
-            timeout=config.app.timeout
-        )
-        
-        # Record cache performance metrics
-        response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-        cache_hit = bool(use_cache and result and isinstance(result, dict) and result.get("cached", False))
-        
-        cache_stats_manager.record_agent_request(
-            agent_name=agent_name,
-            response_time_ms=response_time,
-            was_cache_hit=cache_hit
-        )
-        
-        # Handle both new Dict format and legacy List format
-        if isinstance(result, dict) and result.get("success"):
-            inventory_data = result.get("data", [])
-            # Apply limit if specified
-            if limit and limit > 0:
-                inventory_data = inventory_data[:limit]
-                result["data"] = inventory_data
-                result["count"] = len(inventory_data)
-            return result
-        elif isinstance(result, list):
-            # Legacy format - return as-is for backward compatibility
-            if limit and limit > 0:
-                result = result[:limit]
-            return result
-        else:
-            # Error case
-            return result if isinstance(result, dict) else {"success": False, "data": [], "error": "Unknown error"}
-            
-    except asyncio.TimeoutError:
-        # Record timeout as error in performance statistics
-        response_time = (time.time() - start_time) * 1000
-        cache_stats_manager.record_agent_request(
-            agent_name=agent_name,
-            response_time_ms=response_time,
-            was_cache_hit=False,
-            had_error=True
-        )
-        
-        logger.error("Inventory request timed out after %d seconds", config.app.timeout)
-        raise HTTPException(
-            status_code=504, 
-            detail=f"Inventory request timed out after {config.app.timeout} seconds"
-        )
-    except Exception as e:
-        # Record error in performance statistics
-        response_time = (time.time() - start_time) * 1000
-        cache_stats_manager.record_agent_request(
-            agent_name=agent_name,
-            response_time_ms=response_time,
-            was_cache_hit=False,
-            had_error=True
-        )
-        
-        logger.error("Error retrieving inventory: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error retrieving inventory: {str(e)}")
+    Retrieves software installation data from Azure Log Analytics and analyzes
+    it for EOL status. Results are cached for performance.
+    
+    Args:
+        limit: Maximum number of records to return (default: 5000)
+        days: Number of days to look back for inventory data (default: 90)
+        use_cache: Whether to use cached data if available (default: True)
+    
+    Returns:
+        StandardResponse with software inventory data including computer names,
+        software names, versions, publishers, and EOL status.
+    """
+    result = await get_eol_orchestrator().get_software_inventory(
+        days=days,
+        use_cache=use_cache
+    )
+    
+    # Apply limit if specified
+    if limit and limit > 0 and isinstance(result, dict) and "data" in result:
+        result["data"] = result["data"][:limit]
+        result["count"] = len(result["data"])
+    elif limit and limit > 0 and isinstance(result, list):
+        # Legacy format support
+        result = result[:limit]
+    
+    return result
 
 
-@app.get("/api/inventory/status")
+@app.get("/api/inventory/status", response_model=StandardResponse)
+@readonly_endpoint(agent_name="inventory_status", timeout_seconds=30)
 async def inventory_status():
-    """Get inventory data status and summary"""
-    try:
-        # Use asyncio timeout to prevent hanging
-        summary = await asyncio.wait_for(
-            get_eol_orchestrator().agents["inventory"].get_inventory_summary(),
-            timeout=30.0
-        )
-        return {
-            "status": "ok",
-            "log_analytics_available": bool(config.azure.log_analytics_workspace_id),
-            "summary": summary
-        }
-    except asyncio.TimeoutError:
-        logger.warning("Inventory status check timed out")
-        return {
-            "status": "timeout",
-            "error": "Inventory status check timed out",
-            "log_analytics_available": bool(config.azure.log_analytics_workspace_id)
-        }
-    except Exception as e:
-        logger.error("Error getting inventory status: %s", e)
-        return create_error_response(e, "inventory_status")
+    """
+    Get inventory data status and summary.
+    
+    Returns the current status of the inventory system including Log Analytics
+    availability and summary statistics.
+    """
+    summary = await get_eol_orchestrator().agents["inventory"].get_inventory_summary()
+    return {
+        "status": "ok",
+        "log_analytics_available": bool(config.azure.log_analytics_workspace_id),
+        "summary": summary
+    }
 
 
-@app.get("/api/os")
+@app.get("/api/os", response_model=StandardResponse)
+@standard_endpoint(agent_name="os_inventory", timeout_seconds=30)
 async def get_os(days: int = 90):
-    """Get operating system inventory from Heartbeat via OS agent"""
-    try:
-        data = await asyncio.wait_for(
-            get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days),
-            timeout=30.0,
-        )
-        return data
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="OS inventory request timed out")
-    except Exception as e:
-        logger.error("Error retrieving OS inventory: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error retrieving OS inventory: {str(e)}")
+    """
+    Get operating system inventory from Heartbeat via OS agent.
+    
+    Args:
+        days: Number of days to look back for OS data (default: 90)
+    
+    Returns:
+        StandardResponse with OS inventory including computer names, OS types,
+        versions, and EOL status.
+    """
+    return await get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
 
 
-@app.get("/api/os/summary")
+@app.get("/api/os/summary", response_model=StandardResponse)
+@readonly_endpoint(agent_name="os_summary", timeout_seconds=30)
 async def get_os_summary(days: int = 90):
-    """Get summarized OS counts and top versions"""
-    try:
-        summary = await asyncio.wait_for(
-            get_eol_orchestrator().agents["os_inventory"].get_os_summary(days=days),
-            timeout=30.0,
-        )
-        return {"status": "ok", "summary": summary}
-    except asyncio.TimeoutError:
-        return {"status": "timeout", "error": "OS summary request timed out"}
-    except Exception as e:
-        logger.error("Error retrieving OS summary: %s", e)
-        return create_error_response(e, "os_summary")
+    """
+    Get summarized OS counts and top versions.
+    
+    Args:
+        days: Number of days to look back for OS data (default: 90)
+    
+    Returns:
+        StandardResponse with OS summary statistics including counts by OS type,
+        version distributions, and EOL risk levels.
+    """
+    summary = await get_eol_orchestrator().agents["os_inventory"].get_os_summary(days=days)
+    return {"status": "ok", "summary": summary}
 
 
 @app.get("/api/inventory/raw/software")
