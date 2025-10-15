@@ -10,24 +10,32 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 
-def generate_cache_key(software_name: str, version: Optional[str] = None, agent_type: str = "general") -> str:
+def generate_cache_key(software_name: str, version: Optional[str] = None, agent_type: str = "general", **kwargs) -> str:
     """
-    Generate a consistent cache key for software data
+    Generate a consistent, optimized cache key for software data
+    Uses SHA256 for better performance and no collision risk
     
     Args:
         software_name: Name of the software
         version: Optional software version
         agent_type: Type of agent (for namespace separation)
+        **kwargs: Additional parameters to include in cache key
     
     Returns:
-        MD5 hash to use as cache key
+        SHA256 hash (16 chars) to use as cache key
     """
-    key_components = [agent_type, software_name.lower()]
+    key_components = [agent_type, software_name.lower().strip()]
     if version:
-        key_components.append(version.lower())
+        key_components.append(version.lower().strip())
+    
+    # Add any additional kwargs in sorted order for consistency
+    if kwargs:
+        sorted_kwargs = sorted(f"{k}:{v}" for k, v in kwargs.items())
+        key_components.extend(sorted_kwargs)
     
     key_string = "|".join(key_components)
-    return hashlib.md5(key_string.encode()).hexdigest()
+    # Use SHA256 and take first 16 chars for better performance
+    return hashlib.sha256(key_string.encode()).hexdigest()[:16]
 
 
 def normalize_software_name(name: str) -> str:

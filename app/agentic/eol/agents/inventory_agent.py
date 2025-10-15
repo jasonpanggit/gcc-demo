@@ -54,55 +54,6 @@ class InventoryAgent:
 
         logger.info("📊 Inventory Agent initialized with specialized agents for coordination")
 
-    # async def get_software_inventory(self, days: int = 90, use_cache: bool = True) -> Dict[str, Any]:
-    #     """
-    #     Legacy endpoint - delegates directly to software inventory agent
-    #     Frontend should use /inventory/raw/software instead
-    #     """
-    #     logger.info("🔄 Legacy get_software_inventory called - delegating to software agent")
-    #     start_time = time.time()
-        
-    #     try:
-    #         # Delegate directly to software inventory agent
-    #         result = await self.software_inventory_agent.get_software_inventory(
-    #             days=days, limit=10000, use_cache=use_cache
-    #         )
-            
-    #         # Record statistics
-    #         response_time_ms = (time.time() - start_time) * 1000
-    #         cache_stats_manager.record_agent_request(
-    #             agent_name=self.agent_name,
-    #             response_time_ms=response_time_ms,
-    #             was_cache_hit=result.get("from_cache", False) if result else False,
-    #             had_error=not (result and result.get("success")),
-    #             software_name="Software Inventory Legacy",
-    #             version="",
-    #             url="ConfigurationData Legacy"
-    #         )
-            
-    #         return result
-            
-    #     except Exception as e:
-    #         logger.error("❌ Error in legacy get_software_inventory: %s", e)
-    #         response_time_ms = (time.time() - start_time) * 1000
-    #         cache_stats_manager.record_agent_request(
-    #             agent_name=self.agent_name,
-    #             response_time_ms=response_time_ms,
-    #             was_cache_hit=False,
-    #             had_error=True,
-    #             software_name="Software Inventory Legacy",
-    #             version="",
-    #             url="ConfigurationData Legacy"
-    #         )
-            
-    #         return {
-    #             "success": False,
-    #             "data": [],
-    #             "error": str(e),
-    #             "from_cache": False,
-    #             "count": 0,
-    #         }
-
     async def get_inventory_summary(self, days: int = 90) -> Dict[str, Any]:
         """Get aggregated inventory summary from specialized agents"""
         try:
@@ -123,10 +74,6 @@ class InventoryAgent:
                 version="",
                 url="Summary Aggregation"
             )
-
-            # Debug: Check what we got
-            # logger.debug(f"Software summary type: {type(software_summary)}")
-            # logger.debug(f"OS summary type: {type(os_summary)}")
 
             # Ensure we have dict responses
             if not isinstance(software_summary, dict):

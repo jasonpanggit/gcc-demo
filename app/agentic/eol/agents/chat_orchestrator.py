@@ -1620,10 +1620,8 @@ class MagenticOneChatOrchestrator:
             eol_analyses = []
             for item in parsed_items:
                 try:
-                    # logger.info("*****************Processing item: %s", item)
                     # Determine the right EOL specialist type for this item
                     specialist_type = self._determine_eol_specialist_type(item)
-                    # logger.info("*****************Processing specialist type: %s", specialist_type)
                     name = item.get("name", "")
                     version = item.get("version", "")
                     
@@ -1638,7 +1636,6 @@ class MagenticOneChatOrchestrator:
                         cache_key=None,  # No caching for workflow items
                         timeout_seconds=planning_data.get("timeout_seconds", 60)
                     )
-                    # logger.info("*****************Processing EOL result: %s", eol_result)
                     eol_analyses.append({
                         "item": item,
                         "specialist_used": f"{specialist_type.title()}EOLSpecialist",
@@ -2663,7 +2660,6 @@ class MagenticOneChatOrchestrator:
         unknown_status = []
         
         for analysis in successful_analyses:
-            # logger.info("*****************Processing analysis: %s", analysis)
             eol_result = analysis.get("eol_result", {})
             item_name = analysis["item"]["name"]
             item_version = analysis["item"]["version"]
