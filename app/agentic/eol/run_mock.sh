@@ -25,4 +25,4 @@ export TEST_CACHE_ENABLED=false
 cd "$(dirname "$0")"
 
 # Run the FastAPI app with uvicorn
-python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
