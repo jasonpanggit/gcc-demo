@@ -154,6 +154,30 @@ const utils = {
 
 // API helper functions
 const api = {
+    // Unwrap StandardResponse format to get actual data
+    // StandardResponse: { success: bool, data: [], count: int, cached: bool, metadata: {} }
+    // Returns: First item from data array, or full data array if multiple items
+    unwrapResponse: function (responseData) {
+        // If it's already unwrapped or not a StandardResponse, return as-is
+        if (!responseData || typeof responseData !== 'object') {
+            return responseData;
+        }
+
+        // Check if this is a StandardResponse format
+        if (responseData.hasOwnProperty('success') && responseData.hasOwnProperty('data') && Array.isArray(responseData.data)) {
+            // If data array has exactly one item, unwrap it for convenience
+            // This maintains backward compatibility with code expecting single objects
+            if (responseData.data.length === 1) {
+                return responseData.data[0];
+            }
+            // Return the full data array for multiple items
+            return responseData.data;
+        }
+
+        // Not a StandardResponse, return as-is
+        return responseData;
+    },
+
     // Generic API call wrapper
     call: async function (endpoint, options = {}) {
         const {
@@ -161,7 +185,8 @@ const api = {
             body = null,
             headers = {},
             timeout = window.eolApp.config.defaultTimeout,
-            retries = window.eolApp.config.maxRetries
+            retries = window.eolApp.config.maxRetries,
+            unwrap = true  // New option: automatically unwrap StandardResponse
         } = options;
 
         const controller = new AbortController();
@@ -191,7 +216,11 @@ const api = {
                 }
 
                 const data = await response.json();
-                return { success: true, data };
+                
+                // Automatically unwrap StandardResponse if requested
+                const finalData = unwrap ? api.unwrapResponse(data) : data;
+                
+                return { success: true, data: finalData };
             } catch (error) {
                 lastError = error;
                 if (attempt < retries && !controller.signal.aborted) {
@@ -318,6 +347,10 @@ function initializeApp() {
 
     // EOL Agentic App initialized successfully
 }
+
+// Global helper for unwrapping API responses in HTML templates
+// Usage: const data = unwrapApiResponse(await response.json());
+window.unwrapApiResponse = api.unwrapResponse;
 
 // Export to global scope
 window.eolApp.utils = utils;
