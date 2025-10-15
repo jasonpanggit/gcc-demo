@@ -42,6 +42,7 @@ from api.health import router as health_router
 from api.cache import router as cache_router
 from api.inventory import router as inventory_router
 from api.eol import router as eol_router
+from api.alerts import router as alerts_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -58,6 +59,7 @@ app.include_router(health_router)
 app.include_router(cache_router)
 app.include_router(inventory_router)
 app.include_router(eol_router)
+app.include_router(alerts_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -799,12 +801,14 @@ async def get_alerts_page(request: Request):
 
 
 # ============================================================================
-# ALERT MANAGEMENT API ENDPOINTS
+# ALERT MANAGEMENT API ENDPOINTS - Moved to api/alerts.py
 # ============================================================================
+# 
+# /api/alerts/* endpoints are now handled by alerts_router
 
-@app.get("/api/alerts/config", response_model=StandardResponse)
-@readonly_endpoint(agent_name="get_alert_config", timeout_seconds=20)
-async def get_alert_configuration():
+# @app.get("/api/alerts/config", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="get_alert_config", timeout_seconds=20)
+async def get_alert_configuration_OLD():
     """
     Get current alert configuration.
     
@@ -823,9 +827,9 @@ async def get_alert_configuration():
     }
 
 
-@app.post("/api/alerts/config", response_model=StandardResponse)
-@write_endpoint(agent_name="save_alert_config", timeout_seconds=30)
-async def save_alert_configuration(config_data: dict):
+# @app.post("/api/alerts/config", response_model=StandardResponse)
+# @write_endpoint(agent_name="save_alert_config", timeout_seconds=30)
+async def save_alert_configuration_OLD(config_data: dict):
     """
     Save alert configuration to Cosmos DB.
     
@@ -852,9 +856,9 @@ async def save_alert_configuration(config_data: dict):
         raise HTTPException(status_code=500, detail="Failed to save configuration")
 
 
-@app.post("/api/alerts/config/reload", response_model=StandardResponse)
-@write_endpoint(agent_name="reload_alert_config", timeout_seconds=30)
-async def reload_alert_configuration():
+# @app.post("/api/alerts/config/reload", response_model=StandardResponse)
+# @write_endpoint(agent_name="reload_alert_config", timeout_seconds=30)
+async def reload_alert_configuration_OLD():
     """
     Reload alert configuration from Cosmos DB (force refresh).
     
@@ -958,9 +962,9 @@ async def test_cosmos_connection():
     }
 
 
-@app.get("/api/alerts/preview", response_model=StandardResponse)
-@standard_endpoint(agent_name="alert_preview", timeout_seconds=35)
-async def get_alert_preview(days: int = 90):
+# @app.get("/api/alerts/preview", response_model=StandardResponse)
+# @standard_endpoint(agent_name="alert_preview", timeout_seconds=35)
+async def get_alert_preview_OLD(days: int = 90):
     """
     Get preview of alerts based on current configuration.
     
@@ -1007,9 +1011,9 @@ async def get_alert_preview(days: int = 90):
     }
 
 
-@app.post("/api/alerts/smtp/test", response_model=StandardResponse)
-@write_endpoint(agent_name="test_smtp", timeout_seconds=30)
-async def test_smtp_connection(smtp_data: dict):
+# @app.post("/api/alerts/smtp/test", response_model=StandardResponse)
+# @write_endpoint(agent_name="test_smtp", timeout_seconds=30)
+async def test_smtp_connection_OLD(smtp_data: dict):
     """
     Test SMTP connection with provided settings.
     
@@ -1057,9 +1061,9 @@ async def test_smtp_connection(smtp_data: dict):
     return result
 
 
-@app.post("/api/alerts/send", response_model=StandardResponse)
-@write_endpoint(agent_name="send_alert", timeout_seconds=45)
-async def send_test_alert(request_data: dict):
+# @app.post("/api/alerts/send", response_model=StandardResponse)
+# @write_endpoint(agent_name="send_alert", timeout_seconds=45)
+async def send_test_alert_OLD(request_data: dict):
     """
     Send a test alert email with current configuration.
     

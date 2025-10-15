@@ -9,6 +9,7 @@ Modules:
     cache: Cache management and statistics endpoints
     inventory: Software and OS inventory endpoints
     eol: End-of-Life search and management endpoints
+    alerts: Alert configuration and email notification endpoints
 """
 
-__all__ = ["health", "cache", "inventory", "eol"]
+__all__ = ["health", "cache", "inventory", "eol", "alerts"]
