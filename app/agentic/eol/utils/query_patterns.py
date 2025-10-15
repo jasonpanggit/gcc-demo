@@ -1,13 +1,40 @@
 """
 Centralized Query Pattern Definitions
-Single source of truth for all query pattern matching across the application
+
+This module provides a single source of truth for all query pattern matching
+across the EOL Multi-Agent application. It consolidates patterns for EOL queries,
+inventory requests, and approaching EOL detection.
+
+Classes:
+    QueryPatterns: Pattern matching utilities for query intent analysis
+
+Example:
+    >>> from utils.query_patterns import QueryPatterns
+    >>> QueryPatterns.matches_eol_pattern("what is the eol for windows server 2016")
+    True
+    >>> intent = QueryPatterns.analyze_query_intent("show me software inventory")
+    >>> intent['intent_type']
+    'inventory'
 """
 import re
 from typing import List, Dict, Any
 
 
 class QueryPatterns:
-    """Centralized query pattern definitions for EOL analysis"""
+    """
+    Centralized query pattern definitions for EOL analysis.
+    
+    This class provides static methods and pattern lists for matching user queries
+    against known patterns for EOL information, inventory requests, and related
+    queries. All agents should use this class for consistent query interpretation.
+    
+    Attributes:
+        EOL_PATTERNS: List of patterns indicating EOL information requests
+        APPROACHING_EOL_PATTERNS: Patterns for approaching EOL queries  
+        INVENTORY_PATTERNS: Regex patterns for inventory requests
+        OS_INVENTORY_PATTERNS: Patterns specific to OS inventory
+        SOFTWARE_PATTERNS: Common software name patterns
+    """
     
     # EOL-related patterns
     EOL_PATTERNS = [
@@ -122,13 +149,40 @@ class QueryPatterns:
     @classmethod
     def analyze_query_intent(cls, query: str) -> Dict[str, Any]:
         """
-        Analyze query and return intent classification
+        Analyze user query and classify its intent.
+        
+        Performs comprehensive analysis of a user query to determine what type
+        of information or action is being requested. This method checks the query
+        against multiple pattern lists and returns a detailed classification.
+        
+        The intent analysis is used by agents to determine which specialized
+        agent(s) should handle the query and what type of response is expected.
         
         Args:
-            query: User query string
+            query: User query string to analyze. Should be natural language text
+                  such as "what is the EOL for Windows Server 2016" or
+                  "show me software inventory approaching end of life".
             
         Returns:
-            Dictionary with intent analysis results
+            Dictionary containing detailed intent analysis with the following keys:
+                - query (str): Original query text
+                - is_eol_query (bool): True if asking about EOL dates/status
+                - is_approaching_eol_query (bool): True if asking about upcoming EOL
+                - is_inventory_query (bool): True if requesting software inventory
+                - is_os_inventory_query (bool): True if requesting OS inventory
+                - matched_eol_patterns (List[str]): EOL patterns that matched
+                - matched_approaching_patterns (List[str]): Approaching EOL patterns matched
+                - intent_type (str): Primary intent classification
+                - confidence (float): Confidence score 0.0-1.0
+        
+        Example:
+            >>> intent = QueryPatterns.analyze_query_intent(
+            ...     "show me software approaching end of life"
+            ... )
+            >>> intent['intent_type']
+            'approaching_eol'
+            >>> intent['confidence']
+            0.9
         """
         return {
             "query": query,

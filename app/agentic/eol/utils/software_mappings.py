@@ -1,12 +1,56 @@
 """
 Centralized Software Name Mappings
-Single source of truth for software name normalization and pattern matching
+
+This module provides comprehensive software name normalization and mapping
+capabilities to ensure consistent software identification across all agents
+and data sources.
+
+The module handles:
+- Compound software names (e.g., "Microsoft SQL Server", "Red Hat Enterprise Linux")
+- Simple software patterns (e.g., "Python", "Docker", "Redis")
+- Version extraction from full software strings
+- Canonical name mapping from variants and abbreviations
+
+Classes:
+    SoftwareMappings: Software name normalization and pattern matching utilities
+
+Example:
+    >>> from utils.software_mappings import SoftwareMappings
+    >>> SoftwareMappings.normalize_software_name("ms sql server")
+    'Microsoft SQL Server'
+    >>> name, version = SoftwareMappings.extract_software_name_and_version(
+    ...     "Windows Server 2019"
+    ... )
+    >>> name
+    'Windows Server'
+    >>> version
+    '2019'
 """
 from typing import Dict, List, Optional, Tuple
 
 
 class SoftwareMappings:
-    """Centralized software name normalization and mapping"""
+    """
+    Centralized software name normalization and mapping utilities.
+    
+    This class provides pattern matching and normalization for software names
+    across the entire application. It ensures that different variations of
+    software names (abbreviations, full names, variants) are consistently
+    mapped to canonical names.
+    
+    All agents and data processors should use these methods for software
+    name normalization to ensure consistent EOL lookups and inventory matching.
+    
+    Attributes:
+        COMPOUND_PATTERNS: Dict mapping canonical names to pattern lists for
+            multi-word software products that must be kept together
+        SIMPLE_PATTERNS: Dict mapping canonical names to pattern lists for
+            single-word or common abbreviation software products
+    
+    Note:
+        Compound patterns are checked before simple patterns to avoid
+        breaking up multi-word product names.
+    """
     
     # Compound software names (multi-word products that must be kept together)
     COMPOUND_PATTERNS: Dict[str, List[str]] = {
@@ -72,20 +116,46 @@ class SoftwareMappings:
     @classmethod
     def normalize_software_name(cls, software_name: str) -> str:
         """
-        Normalize software name to canonical form
+        Normalize software name to its canonical form.
+        
+        This method takes any variation of a software name (abbreviation, full name,
+        variant spelling) and returns the canonical name that should be used across
+        the application. This ensures consistency in EOL lookups, cache keys, and
+        inventory matching.
+        
+        The normalization process:
+        1. Check against compound patterns (multi-word products like "Microsoft SQL Server")
+        2. Check against simple patterns (single-word products like "Python", "Redis")
+        3. Return original name if no match found
         
         Args:
-            software_name: Raw software name
+            software_name: Raw software name from any source (inventory, user query,
+                         agent response). Can be in any case or format.
             
         Returns:
-            Normalized software name
+            Canonical software name in standard format. Returns the original name
+            unchanged if no normalization pattern matches.
+            
+        Example:
+            >>> SoftwareMappings.normalize_software_name("ms sql server")
+            'Microsoft SQL Server'
+            >>> SoftwareMappings.normalize_software_name("nodejs")
+            'Node.js'
+            >>> SoftwareMappings.normalize_software_name("RHEL")
+            'Red Hat Enterprise Linux'
+            >>> SoftwareMappings.normalize_software_name("Custom App")
+            'Custom App'  # No match, returns original
+        
+        Note:
+            Compound patterns must be checked first to prevent breaking multi-word
+            product names into individual words.
         """
         if not software_name:
             return software_name
         
         software_lower = software_name.lower().strip()
         
-        # Check compound patterns first (higher priority)
+        # Check compound patterns first (to avoid breaking them up)
         for canonical_name, patterns in cls.COMPOUND_PATTERNS.items():
             for pattern in patterns:
                 if pattern in software_lower:

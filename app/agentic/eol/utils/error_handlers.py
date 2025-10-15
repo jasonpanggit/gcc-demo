@@ -1,6 +1,31 @@
 """
 Standardized Error Handling Decorators
-Provides consistent error handling across all API endpoints
+
+This module provides reusable decorators for consistent error handling across
+all API endpoints and agent methods. It ensures that errors are:
+- Logged consistently with context
+- Returned in standard response format
+- Handled gracefully without exposing internal details
+- Tracked for monitoring and debugging
+
+The module includes decorators for:
+- API endpoint error handling (@handle_api_errors)
+- Agent method error handling (@handle_agent_errors)  
+- Automatic retry with exponential backoff (@retry_on_failure)
+
+Functions:
+    handle_api_errors: Decorator for API endpoint error handling
+    handle_agent_errors: Decorator for agent method error handling
+    retry_on_failure: Decorator for automatic retry with backoff
+
+Example:
+    >>> @handle_api_errors("Inventory fetch")
+    ... async def get_inventory():
+    ...     return await fetch_data()
+    
+    >>> @retry_on_failure(max_retries=3, delay=1.0)
+    ... async def call_external_api():
+    ...     return await api_call()
 """
 import functools
 import logging
@@ -15,19 +40,34 @@ logger = logging.getLogger(__name__)
 
 def handle_api_errors(context: str = "", log_errors: bool = True):
     """
-    Decorator for consistent error handling across API endpoints
+    Decorator for consistent error handling across API endpoints.
+    
+    This decorator wraps API endpoint functions to provide standardized error
+    handling, logging, and response formatting. It catches all exceptions
+    (except HTTPException which is re-raised) and converts them to
+    StandardResponse format with appropriate error details.
+    
+    The decorator automatically:
+    - Logs errors with full context and stack traces
+    - Returns errors in StandardResponse format
+    - Preserves HTTPException for FastAPI error handling
+    - Adds timestamp and error classification
+    - Supports both sync and async functions
     
     Args:
-        context: Descriptive context for the operation (e.g., "Software inventory fetch")
-        log_errors: Whether to log errors (default True)
+        context: Descriptive context for the operation. This helps identify
+                where the error occurred. Example: "Software inventory fetch",
+                "EOL data lookup", "Cache clear operation".
+        log_errors: Whether to log errors to the application logger. Set to
+                   False for errors that are expected/handled (default True).
     
     Returns:
-        Decorated function with standardized error handling
+        Decorated function that returns StandardResponse on errors.
     
-    Usage:
-        @app.get("/api/inventory/software")
-        @handle_api_errors("Software inventory fetch")
-        async def get_software_inventory():
+    Example:
+        >>> @app.get("/api/inventory/software")
+        ... @handle_api_errors("Software inventory fetch")
+        ... async def get_software_inventory():
             return await inventory_agent.get_software_inventory()
     """
     def decorator(func: Callable) -> Callable:
