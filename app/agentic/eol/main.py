@@ -397,8 +397,22 @@ async def debug_tool_selection(request: DebugRequest):
 
 
 @app.get('/health')
+@with_timeout_and_stats(
+    agent_name="health_check",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def health_check():
-    """Fast health check endpoint"""
+    """
+    Fast health check endpoint for load balancers and monitoring.
+    
+    Returns basic application health status including version and feature availability.
+    Optimized for speed with 5-second timeout.
+    
+    Returns:
+        Dict with status, timestamp, version, and feature flags.
+    """
     return {
         "status": "ok", 
         "timestamp": datetime.utcnow().isoformat(),
@@ -514,8 +528,25 @@ async def status():
 
 
 @app.get("/", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="index_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def index(request: Request):
-    """Fast index route to improve warm-up."""
+    """
+    Main dashboard landing page (fast route for warm-up).
+    
+    Serves the primary application dashboard with minimal processing
+    to ensure fast initial page load times.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered index.html template.
+    """
     try:
         return templates.TemplateResponse("index.html", {"request": request})
     except Exception:
@@ -805,8 +836,25 @@ async def get_eol(name: str, version: Optional[str] = None):
 
 
 @app.get("/alerts", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="alerts_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def get_alerts_page(request: Request):
-    """Serve the alerts management page"""
+    """
+    Alert management interface page.
+    
+    Serves the alerts configuration and management UI for configuring
+    email notifications and alert thresholds.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered alerts.html template.
+    """
     try:
         return templates.TemplateResponse("alerts.html", {"request": request})
     except Exception as e:
@@ -2790,14 +2838,47 @@ KEY RECOMMENDATIONS:
 # ============================================================================
 
 @app.get("/", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="dashboard_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def index(request: Request):
-    """Main dashboard page"""
+    """
+    Main dashboard page.
+    
+    Serves the primary application dashboard with navigation to all features.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered index.html template.
+    """
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/inventory", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="inventory_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def inventory_ui(request: Request):
-    """Inventory management page"""
+    """
+    Inventory management page.
+    
+    Serves the software and OS inventory management interface with Azure
+    integration details.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered inventory.html template and Azure config.
+    """
     return templates.TemplateResponse("inventory.html", {
         "request": request,
         "subscription_id": config.azure.subscription_id,
@@ -2806,26 +2887,94 @@ async def inventory_ui(request: Request):
 
 
 @app.get("/eol-search", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="eol_search_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def eol_ui(request: Request):
-    """EOL search page"""
+    """
+    EOL search page.
+    
+    Serves the end-of-life search interface for querying software lifecycle
+    information across multiple agent sources.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered eol.html template.
+    """
     return templates.TemplateResponse("eol.html", {"request": request})
 
 
 @app.get("/eol-searches", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="eol_history_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def eol_searches_ui(request: Request):
-    """EOL search history page"""
+    """
+    EOL search history page.
+    
+    Serves the historical EOL search results interface for reviewing
+    past queries and cached responses.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered eol-searches.html template.
+    """
     return templates.TemplateResponse("eol-searches.html", {"request": request})
 
 
 @app.get("/chat", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="chat_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def chat_ui(request: Request):
-    """Chat interface page"""
+    """
+    Chat interface page.
+    
+    Serves the AutoGen multi-agent chat interface for natural language
+    queries about inventory and EOL information.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered chat.html template.
+    """
     return templates.TemplateResponse("chat.html", {"request": request})
 
 
 @app.get("/cache", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cache_page",
+    timeout_seconds=15,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def cache_ui(request: Request):
-    """Cache management interface page with enhanced agent statistics"""
+    """
+    Cache management interface page with enhanced agent statistics.
+    
+    Serves the cache management dashboard showing agent-level cache statistics,
+    inventory cache status, Cosmos DB cache info, and performance metrics.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered cache.html template and comprehensive cache stats.
+    """
     try:
         # Get comprehensive cache statistics
         all_stats = cache_stats_manager.get_all_statistics()
@@ -2855,8 +3004,26 @@ async def cache_ui(request: Request):
 
 
 @app.get("/agent-cache-details", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="agent_cache_details_page",
+    timeout_seconds=15,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def agent_cache_details(request: Request, agent_name: Optional[str] = None):
-    """Agent cache details page with granular URL performance monitoring"""
+    """
+    Agent cache details page with granular URL performance monitoring.
+    
+    Serves detailed cache statistics for individual agents including URL-level
+    performance metrics, hit rates, and response times.
+    
+    Args:
+        request: FastAPI Request object
+        agent_name: Optional agent name to filter statistics
+    
+    Returns:
+        HTMLResponse with rendered agent-cache-details.html template and agent stats.
+    """
     try:
         # Get detailed agent statistics
         all_stats = cache_stats_manager.get_all_statistics()
@@ -2892,8 +3059,25 @@ async def agent_cache_details(request: Request, agent_name: Optional[str] = None
 
 
 @app.get("/agents", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="agents_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
 async def agent_management_ui(request: Request):
-    """Agent management interface page"""
+    """
+    Agent management interface page.
+    
+    Serves the agent configuration UI for managing EOL agents, custom URLs,
+    and agent enable/disable settings.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered agents.html template.
+    """
     return templates.TemplateResponse("agents.html", {"request": request})
 
 
