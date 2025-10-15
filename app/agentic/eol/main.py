@@ -2336,7 +2336,7 @@ async def cache_eol_result(request: CacheEOLRequest):
 
 
 @app.post("/api/cache/cosmos/test", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_cache_test", timeout_seconds=20, require_cosmos=True)
+@readonly_endpoint(agent_name="cosmos_cache_test", timeout_seconds=20)
 async def test_cosmos_cache(req: CachedEOLRequest):
     """
     Test Cosmos DB cache retrieval for a specific request.

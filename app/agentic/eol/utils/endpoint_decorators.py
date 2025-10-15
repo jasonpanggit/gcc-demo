@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from utils import get_logger
 from utils.cache_stats_manager import cache_stats_manager
-from utils.response_models import StandardResponse, create_standard_response, create_error_response
+from utils.response_models import StandardResponse
 
 logger = get_logger(__name__)
 
@@ -85,9 +85,10 @@ def with_timeout_and_stats(
                         return result
                     else:
                         # Wrap in standard format
-                        return create_standard_response(
-                            data=result,
-                            message=f"{agent_name} operation completed successfully"
+                        data = result if isinstance(result, list) else [result] if result is not None else []
+                        return StandardResponse.success_response(
+                            data=data,
+                            metadata={"agent": agent_name}
                         )
                 else:
                     return result
@@ -126,10 +127,9 @@ def with_timeout_and_stats(
                 
                 if auto_wrap_response:
                     # Return error in StandardResponse format
-                    return create_error_response(
-                        error=e,
-                        context=agent_name,
-                        include_traceback=False
+                    return StandardResponse.error_response(
+                        error=f"{agent_name}: {str(e)}",
+                        metadata={"error_type": type(e).__name__}
                     )
                 else:
                     raise HTTPException(
