@@ -33,6 +33,7 @@ from utils.eol_cache import eol_cache
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
+CHAT_AVAILABLE = False  # Chat functionality is in separate chat interface
 
 # Create FastAPI app
 app = FastAPI(
@@ -131,14 +132,17 @@ def get_eol_orchestrator():
 
 
 def get_chat_orchestrator():
-    """Get or initialize the Chat orchestrator instance lazily"""
+    """Get or initialize the Chat orchestrator instance lazily
+    
+    Note: Chat functionality is in separate chat.html interface.
+    This EOL interface does not use chat orchestrator.
+    """
     global chat_orchestrator
     if chat_orchestrator is None and CHAT_AVAILABLE:
         try:
-            logger.info("🔍 Starting Chat orchestrator initialization")
-            chat_orchestrator = ChatOrchestratorAgent()
-            logger.info("🔍 Chat orchestrator initialized successfully")
-            return chat_orchestrator
+            logger.info("🔍 Chat orchestrator not available in EOL interface")
+            # Chat orchestrator would be initialized here if available
+            return None
         except Exception as e:
             import traceback
             error_msg = f"Failed to initialize Chat orchestrator: {e}"
@@ -702,20 +706,12 @@ async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_re
 async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh: bool = False):
     """
     Get raw operating system inventory data directly from Log Analytics Heartbeat table
-    Returns clean JSON response with validation and error handling with caching
+    Returns clean JSON response with validation and error handling
+    
+    Caching is handled automatically by the inventory agent using InventoryRawCache.
     """
     try:
         logger.info(f"📊 Raw OS inventory request: days={days}, limit={limit}, force_refresh={force_refresh}")
-        
-        # Create cache key for this specific request
-        cache_key = f"raw_os_inventory_{days}_{limit}"
-        
-        # Check cache first unless force refresh is requested
-        if not force_refresh:
-            cached_result = _get_cached_alert_data(cache_key)
-            if cached_result:
-                logger.info(f"✅ Returning cached raw OS inventory (days={days}, limit={limit})")
-                return cached_result
         
         # Get the inventory agent directly
         inventory_agent = get_eol_orchestrator().agents.get("os_inventory")
@@ -730,13 +726,12 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
             logger.info("🔄 Force refresh requested - clearing OS inventory cache")
             try:
                 await inventory_agent.clear_cache()
-                # Also clear our local alert cache
-                _clear_alert_cache()
                 logger.info("✅ OS inventory cache cleared successfully")
             except Exception as cache_error:
                 logger.warning(f"⚠️ Failed to clear OS inventory cache: {cache_error}")
         
         # Call the OS inventory method with appropriate cache setting
+        # Agent's built-in caching will handle cache hits/misses
         use_cache = not force_refresh
         result = await asyncio.wait_for(
             inventory_agent.get_os_inventory(days=days, limit=limit, use_cache=use_cache),
@@ -768,10 +763,6 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
             return error_result
         
         logger.info(f"✅ Raw OS inventory result: success={result.get('success')}, count={result.get('count', 0)}")
-        
-        # Cache successful results for 5 minutes to reduce load
-        if result.get('success'):
-            _cache_alert_data(cache_key, result)
         
         return result
         
@@ -996,35 +987,28 @@ async def test_cosmos_connection():
 
 @app.get("/api/alerts/preview")
 async def get_alert_preview(days: int = 90):
-    """Get preview of alerts based on current configuration with caching"""
+    """Get preview of alerts based on current configuration
+    
+    Caching is handled automatically by the OS inventory agent using InventoryRawCache.
+    """
     try:
         from utils.alert_manager import alert_manager
         
-        # Create cache key based on days parameter
-        cache_key = f"alert_preview_os_data_{days}"
+        # Get OS inventory data using agent's built-in caching
+        logger.debug(f"🔄 Fetching OS inventory for alert preview (days={days})")
+        os_data = await asyncio.wait_for(
+            get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days, use_cache=True),
+            timeout=30.0,
+        )
         
-        # Try to get cached OS inventory data first
-        cached_data = _get_cached_alert_data(cache_key)
-        if cached_data:
-            inventory_data = cached_data
+        # Extract inventory data from standardized response
+        if isinstance(os_data, dict) and os_data.get("success"):
+            inventory_data = os_data.get("data", [])
+        elif isinstance(os_data, list):
+            inventory_data = os_data
         else:
-            # Get OS inventory data if not cached
-            logger.debug(f"🔄 Fetching OS inventory for alert preview (days={days})")
-            os_data = await asyncio.wait_for(
-                get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days),
-                timeout=30.0,
-            )
-            
-            # Extract inventory data
-            if isinstance(os_data, dict) and os_data.get("success"):
-                inventory_data = os_data.get("data", [])
-            elif isinstance(os_data, list):
-                inventory_data = os_data
-            else:
-                inventory_data = []
-            
-            # Cache the inventory data
-            _cache_alert_data(cache_key, inventory_data)
+            logger.warning(f"Invalid OS data format: {type(os_data)}")
+            inventory_data = []
         
         # Load configuration and generate preview
         config = await alert_manager.load_configuration()
@@ -1385,21 +1369,44 @@ async def get_cache_status():
 
 @app.post("/api/cache/clear")
 async def clear_cache():
-    """Clear the inventory context cache and alert preview cache"""
-    global _inventory_context_cache
-    old_size = len(str(_inventory_context_cache["data"])) if _inventory_context_cache["data"] else 0
-    _inventory_context_cache = {"data": None, "timestamp": None, "ttl": 300}
+    """Clear all inventory caches (software and OS)
     
-    # Also clear alert preview cache
-    _clear_alert_cache()
-    
-    logger.info("🧹 Inventory context cache cleared (was %d bytes)", old_size)
-    return {
-        "status": "success", 
-        "message": "Inventory context cache and alert preview cache cleared",
-        "cleared_size_bytes": old_size,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    This clears both memory and Cosmos DB caches for inventory data.
+    EOL agent caches are managed separately via /api/cache/purge
+    """
+    try:
+        # Clear inventory caches via orchestrator agents
+        software_agent = get_eol_orchestrator().agents.get("software_inventory")
+        os_agent = get_eol_orchestrator().agents.get("os_inventory")
+        
+        cleared_items = []
+        
+        if software_agent and hasattr(software_agent, 'clear_cache'):
+            await software_agent.clear_cache()
+            cleared_items.append("software_inventory")
+        
+        if os_agent and hasattr(os_agent, 'clear_cache'):
+            await os_agent.clear_cache()
+            cleared_items.append("os_inventory")
+        
+        logger.info(f"🧹 Cleared inventory caches: {cleared_items}")
+        
+        return {
+            "success": True,
+            "status": "success",
+            "message": f"Inventory caches cleared: {', '.join(cleared_items)}",
+            "cleared_caches": cleared_items,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        return {
+            "success": False,
+            "status": "error",
+            "message": f"Error clearing cache: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 
 @app.post("/api/cache/purge")
@@ -1859,23 +1866,21 @@ async def get_cosmos_cache_stats():
         
         # Add inventory cache statistics to the Cosmos DB section
         try:
-            # Get statistics from the actual inventory cache systems
-            from utils.software_inventory_cache import software_inventory_cache
-            from utils.os_inventory_cache import os_inventory_cache
+            # Get statistics from the unified inventory cache system
+            from utils.inventory_cache import inventory_cache
             
-            # Get stats from both inventory cache systems
-            software_stats = await software_inventory_cache.get_cache_stats()
-            os_stats = await os_inventory_cache.get_cache_stats()
+            # Get stats from unified inventory cache
+            cache_stats = inventory_cache.get_cache_stats()
             
-            # Calculate memory cache entries from the actual cache systems
-            software_memory_count = len(software_inventory_cache.memory_cache) if hasattr(software_inventory_cache, 'memory_cache') else 0
-            os_memory_count = len(os_inventory_cache.memory_cache) if hasattr(os_inventory_cache, 'memory_cache') else 0
+            # Calculate memory cache entries from the unified cache system
+            software_memory_count = cache_stats.get('memory_cache_entries', {}).get('software', 0)
+            os_memory_count = cache_stats.get('memory_cache_entries', {}).get('os', 0)
             
             # Add inventory cache info to the stats
             if 'success' not in stats:
                 stats['success'] = True
             
-            # Add inventory container information with actual counts
+            # Add inventory container information with actual counts from unified cache
             stats['inventory_containers'] = {
                 'software_container': 'inventory_software',
                 'os_container': 'inventory_os',
@@ -1884,19 +1889,9 @@ async def get_cosmos_cache_stats():
                     'os': os_memory_count
                 },
                 'total_memory_entries': software_memory_count + os_memory_count,
-                'cache_duration_hours': 4,
-                'supported_cache_types': ['software', 'os'],
-                'software_cosmos_items': software_stats.get('total_items', 0) if software_stats.get('success') else 0,
-                'os_cosmos_items': os_stats.get('total_items', 0) if os_stats.get('success') else 0
+                'cache_duration_hours': cache_stats.get('cache_duration_hours', 4),
+                'supported_cache_types': cache_stats.get('supported_cache_types', ['software', 'os'])
             }
-            
-            # Enhance the total items count if available
-            total_inventory_items = (
-                (software_stats.get('total_items', 0) if software_stats.get('success') else 0) +
-                (os_stats.get('total_items', 0) if os_stats.get('success') else 0)
-            )
-            if 'total_items' in stats:
-                stats['total_items_with_inventory'] = stats['total_items'] + total_inventory_items
             
         except Exception as inv_err:
             logger.warning("Could not get inventory cache stats for Cosmos DB section: %s", inv_err)
@@ -2018,7 +2013,7 @@ async def get_cosmos_debug_info():
     try:
         from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
-        from utils.os_inventory_cache import os_inventory_cache
+        from utils.inventory_cache import inventory_cache
         
         debug_info = {
             "base_cosmos": {
@@ -2030,10 +2025,10 @@ async def get_cosmos_debug_info():
                 "container_available": eol_cache.container is not None,
                 "container_id": getattr(eol_cache, 'container_id', None)
             },
-            "os_inventory_cache": {
-                "initialized": getattr(os_inventory_cache, 'initialized', False),
-                "container_available": os_inventory_cache.container is not None,
-                "container_id": getattr(os_inventory_cache, 'container_id', None)
+            "inventory_cache": {
+                "cosmos_initialized": inventory_cache.cosmos_client.initialized,
+                "cache_stats": inventory_cache.get_cache_stats(),
+                "container_mapping": inventory_cache.container_mapping
             }
         }
         
