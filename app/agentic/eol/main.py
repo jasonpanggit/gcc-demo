@@ -45,6 +45,7 @@ from api.eol import router as eol_router
 from api.alerts import router as alerts_router
 from api.agents import router as agents_router
 from api.communications import router as communications_router
+from api.debug import router as debug_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -64,6 +65,7 @@ app.include_router(eol_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)
 app.include_router(communications_router)
+app.include_router(debug_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -293,9 +295,11 @@ class DebugRequest(BaseModel):
     query: str
 
 
-@app.post('/api/debug_tool_selection', response_model=StandardResponse)
-@readonly_endpoint(agent_name="debug_tool_selection", timeout_seconds=15)
-async def debug_tool_selection(request: DebugRequest):
+# DEBUG & DIAGNOSTICS API ENDPOINTS - Moved to api/debug.py
+
+# @app.post('/api/debug_tool_selection', response_model=StandardResponse)
+# @readonly_endpoint(agent_name="debug_tool_selection", timeout_seconds=15)
+async def debug_tool_selection_OLD(request: DebugRequest):
     """
     Debug endpoint to test tool selection logic for AutoGen chat.
     
@@ -388,9 +392,9 @@ async def debug_tool_selection(request: DebugRequest):
 # /health and /api/health/detailed endpoints are now handled by health_router
 
 
-@app.get("/api/test-logging", response_model=StandardResponse)
-@readonly_endpoint(agent_name="test_logging", timeout_seconds=15)
-async def test_logging():
+# @app.get("/api/test-logging", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="test_logging", timeout_seconds=15)
+async def test_logging_OLD():
     """
     Test logging functionality for Azure App Service debugging.
     
@@ -894,9 +898,9 @@ async def reload_alert_configuration_OLD():
     }
 
 
-@app.get("/api/cosmos/test", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_connection_test", timeout_seconds=30)
-async def test_cosmos_connection():
+# @app.get("/api/cosmos/test", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="cosmos_connection_test", timeout_seconds=30)
+async def test_cosmos_connection_OLD():
     """
     Test Cosmos DB connection for diagnostic purposes.
     
@@ -3289,9 +3293,9 @@ async def toggle_agent_OLD(request: AgentToggleRequest):
     }
 
 
-@app.get("/api/validate-cache", response_model=StandardResponse)
-@readonly_endpoint(agent_name="validate_cache", timeout_seconds=30)
-async def validate_cache_system():
+# @app.get("/api/validate-cache", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="validate_cache", timeout_seconds=30)
+async def validate_cache_system_OLD():
     """
     Comprehensive validation of cache system functionality.
     
@@ -3444,12 +3448,12 @@ async def validate_cache_system():
 
 
 # ============================================================================
-# NOTIFICATION HISTORY API ENDPOINTS
+# NOTIFICATION HISTORY API ENDPOINTS - Moved to api/debug.py
 # ============================================================================
 
-@app.get("/api/notifications/history", response_model=StandardResponse)
-@readonly_endpoint(agent_name="notification_history", timeout_seconds=20)
-async def get_notification_history(
+# @app.get("/api/notifications/history", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="notification_history", timeout_seconds=20)
+async def get_notification_history_OLD(
     alert_type: Optional[str] = None,
     limit: int = 100,
     offset: int = 0
@@ -3504,9 +3508,9 @@ async def get_notification_history(
         }
     }
 
-@app.get("/api/notifications/stats", response_model=StandardResponse)
-@readonly_endpoint(agent_name="notification_stats", timeout_seconds=20)
-async def get_notification_stats():
+# @app.get("/api/notifications/stats", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="notification_stats", timeout_seconds=20)
+async def get_notification_stats_OLD():
     """
     Get notification statistics summary.
     

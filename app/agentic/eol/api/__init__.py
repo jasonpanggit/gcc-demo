@@ -12,6 +12,7 @@ Modules:
     alerts: Alert configuration and email notification endpoints
     agents: Agent configuration and management endpoints
     communications: Communication logs and agent interaction tracking endpoints
+    debug: Debug, diagnostics, validation, and notification endpoints
 """
 
-__all__ = ["health", "cache", "inventory", "eol", "alerts", "agents", "communications"]
+__all__ = ["health", "cache", "inventory", "eol", "alerts", "agents", "communications", "debug"]
