@@ -36,27 +36,14 @@ from utils.endpoint_decorators import (
 
 logger = logging.getLogger(__name__)
 
-# Import main module dependencies
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 # Create router for agent endpoints
 router = APIRouter(tags=["Agent Management"])
 
 
-def _get_eol_orchestrator():
+def __get_eol_orchestrator():
     """Lazy import to avoid circular dependency"""
     from main import get_eol_orchestrator
     return _get_eol_orchestrator()
-
-
-
-def _get_eol_orchestrator():
-    """Lazy import to avoid circular dependency"""
-    from main import get_eol_orchestrator
-    return __get_eol_orchestrator()
-
 
 
 # ============================================================================
@@ -112,7 +99,7 @@ async def agents_status():
             "healthy_agents": 7
         }
     """
-    return await __get_eol_orchestrator().get_agents_status()
+    return await _get_eol_orchestrator().get_agents_status()
 
 
 @router.get("/api/agents/list", response_model=StandardResponse)
@@ -154,7 +141,7 @@ async def list_agents():
             }
         }
     """
-    orchestrator = __get_eol_orchestrator()
+    orchestrator = _get_eol_orchestrator()
     agents_data = {}
     
     # Get agent statistics and configuration
@@ -265,7 +252,7 @@ async def add_agent_url(request: AgentUrlRequest):
             "message": "URL added to microsoft_lifecycle"
         }
     """
-    orchestrator = __get_eol_orchestrator()
+    orchestrator = _get_eol_orchestrator()
     
     if request.agent_name not in orchestrator.agents:
         return {
@@ -327,7 +314,7 @@ async def remove_agent_url(request: AgentUrlRequest):
             "message": "URL removed from microsoft_lifecycle"
         }
     """
-    orchestrator = __get_eol_orchestrator()
+    orchestrator = _get_eol_orchestrator()
     
     if request.agent_name not in orchestrator.agents:
         return {
@@ -388,7 +375,7 @@ async def toggle_agent(request: AgentToggleRequest):
             "message": "Agent microsoft_lifecycle disabled"
         }
     """
-    orchestrator = __get_eol_orchestrator()
+    orchestrator = _get_eol_orchestrator()
     
     if request.agent_name not in orchestrator.agents:
         return {

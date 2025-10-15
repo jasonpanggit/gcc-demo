@@ -33,7 +33,7 @@ import re
 
 from pydantic import BaseModel
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
-from utils.standard_response import StandardResponse
+from utils.response_models import StandardResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
