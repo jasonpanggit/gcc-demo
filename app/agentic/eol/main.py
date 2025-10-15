@@ -1682,166 +1682,178 @@ async def get_inventory_cache_stats():
     }
 
 
-@app.get("/api/cache/inventory/details")
+@app.get("/api/cache/inventory/details", response_model=StandardResponse)
+@readonly_endpoint(agent_name="inventory_cache_details", timeout_seconds=20)
 async def get_inventory_cache_details():
-    """Get detailed inventory context cache content for viewing"""
-    try:
-        if not _inventory_context_cache["data"]:
-            return {
-                "success": False,
-                "error": "No inventory data cached"
-            }
-        
-        data = _inventory_context_cache["data"]
-        details = {
-            "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-            "ttl_seconds": _inventory_context_cache["ttl"],
-            "size_bytes": len(str(data)),
-            "type": type(data).__name__,
-            "sample_data": {},
-            "summary": {}
-        }
-        
-        if isinstance(data, list) and len(data) > 0:
-            # Analyze the list structure
-            computers = {}
-            software_by_computer = {}
-            all_software = {}
-            
-            for i, item in enumerate(data[:1000]):  # Limit to first 1000 items for performance
-                if isinstance(item, dict):
-                    computer_name = item.get("ComputerName", "Unknown")
-                    software_name = item.get("ProductName") or item.get("DisplayName", "Unknown Software")
-                    version = item.get("Version", "Unknown")
-                    
-                    # Track computers
-                    if computer_name not in computers:
-                        computers[computer_name] = 0
-                    computers[computer_name] += 1
-                    
-                    # Track software by computer
-                    if computer_name not in software_by_computer:
-                        software_by_computer[computer_name] = set()
-                    software_by_computer[computer_name].add(f"{software_name} {version}")
-                    
-                    # Track all software
-                    if software_name not in all_software:
-                        all_software[software_name] = set()
-                    all_software[software_name].add(version)
-            
-            # Create summary
-            details["summary"] = {
-                "total_entries": len(data),
-                "unique_computers": len(computers),
-                "unique_software": len(all_software),
-                "avg_software_per_computer": sum(len(sw) for sw in software_by_computer.values()) / len(software_by_computer) if software_by_computer else 0
-            }
-            
-            # Sample data (first few entries)
-            details["sample_data"] = {
-                "first_5_entries": data[:5] if len(data) >= 5 else data,
-                "top_computers": dict(sorted(computers.items(), key=lambda x: x[1], reverse=True)[:10]),
-                "top_software": {k: list(v)[:5] for k, v in sorted(all_software.items(), key=lambda x: len(x[1]), reverse=True)[:10]}
-            }
-            
-        elif isinstance(data, dict):
-            details["summary"] = {
-                "keys": list(data.keys()),
-                "structure": {k: type(v).__name__ for k, v in data.items()}
-            }
-            details["sample_data"] = {k: str(v)[:200] + "..." if len(str(v)) > 200 else v for k, v in list(data.items())[:10]}
-        
-        return {
-            "success": True,
-            "details": details
-        }
-        
-    except Exception as e:
-        logger.error("Error getting inventory cache details: %s", e)
+    """
+    Get detailed inventory context cache content for viewing.
+    
+    Provides in-depth analysis of cached inventory data including computer
+    counts, software distribution, and sample data entries.
+    
+    Returns:
+        StandardResponse with detailed cache analysis, summary stats, and samples.
+    """
+    if not _inventory_context_cache["data"]:
         return {
             "success": False,
-            "error": str(e)
+            "error": "No inventory data cached"
         }
+    
+    data = _inventory_context_cache["data"]
+    details = {
+        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
+        "ttl_seconds": _inventory_context_cache["ttl"],
+        "size_bytes": len(str(data)),
+        "type": type(data).__name__,
+        "sample_data": {},
+        "summary": {}
+    }
+    
+    if isinstance(data, list) and len(data) > 0:
+        # Analyze the list structure
+        computers = {}
+        software_by_computer = {}
+        all_software = {}
+        
+        for i, item in enumerate(data[:1000]):  # Limit to first 1000 items for performance
+            if isinstance(item, dict):
+                computer_name = item.get("ComputerName", "Unknown")
+                software_name = item.get("ProductName") or item.get("DisplayName", "Unknown Software")
+                version = item.get("Version", "Unknown")
+                
+                # Track computers
+                if computer_name not in computers:
+                    computers[computer_name] = 0
+                computers[computer_name] += 1
+                
+                # Track software by computer
+                if computer_name not in software_by_computer:
+                    software_by_computer[computer_name] = set()
+                software_by_computer[computer_name].add(f"{software_name} {version}")
+                
+                # Track all software
+                if software_name not in all_software:
+                    all_software[software_name] = set()
+                all_software[software_name].add(version)
+        
+        # Create summary
+        details["summary"] = {
+            "total_entries": len(data),
+            "unique_computers": len(computers),
+            "unique_software": len(all_software),
+            "avg_software_per_computer": sum(len(sw) for sw in software_by_computer.values()) / len(software_by_computer) if software_by_computer else 0
+        }
+        
+        # Sample data (first few entries)
+        details["sample_data"] = {
+            "first_5_entries": data[:5] if len(data) >= 5 else data,
+            "top_computers": dict(sorted(computers.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "top_software": {k: list(v)[:5] for k, v in sorted(all_software.items(), key=lambda x: len(x[1]), reverse=True)[:10]}
+        }
+        
+    elif isinstance(data, dict):
+        details["summary"] = {
+            "keys": list(data.keys()),
+            "structure": {k: type(v).__name__ for k, v in data.items()}
+        }
+        details["sample_data"] = {k: str(v)[:200] + "..." if len(str(v)) > 200 else v for k, v in list(data.items())[:10]}
+    
+    return {
+        "success": True,
+        "details": details
+    }
 
 
-@app.get("/api/cache/webscraping/details")
+@app.get("/api/cache/webscraping/details", response_model=StandardResponse)
+@readonly_endpoint(agent_name="webscraping_cache_details", timeout_seconds=20)
 async def get_webscraping_cache_details():
-    """Get detailed web scraping cache information"""
-    try:
-        orchestrator = get_eol_orchestrator()
-        cache_details = []
-        total_cached_items = 0
-        
-        # Get cache details from each web scraping agent
-        for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai", "websurfer"]:
-            agent = orchestrator.agents.get(agent_name)
-            if agent:
-                agent_cache_info = {
-                    "agent": agent_name,
-                    "type": type(agent).__name__,
-                    "available": True,
-                    "has_cache": hasattr(agent, '_cache') or hasattr(agent, 'cache'),
-                    "cache_size": 0,
-                    "last_used": getattr(agent, 'last_used', None),
-                    "cache_items": []
-                }
-                
-                # Try to get cache content
-                try:
-                    if hasattr(agent, '_cache') and agent._cache:
-                        if hasattr(agent._cache, 'items'):
-                            agent_cache_info["cache_size"] = len(agent._cache)
-                            # Get sample cache items (first 5)
-                            cache_items = list(agent._cache.items())[:5]
-                            agent_cache_info["cache_items"] = [
-                                {
-                                    "key": str(key)[:100] + "..." if len(str(key)) > 100 else str(key),
-                                    "value_type": type(value).__name__,
-                                    "value_size": len(str(value)) if value else 0,
-                                    "value_preview": str(value)[:200] + "..." if value and len(str(value)) > 200 else str(value)
-                                }
-                                for key, value in cache_items
-                            ]
-                            total_cached_items += len(agent._cache)
-                        elif hasattr(agent._cache, '__len__'):
-                            agent_cache_info["cache_size"] = len(agent._cache)
-                            total_cached_items += len(agent._cache)
-                    elif hasattr(agent, 'cache') and agent.cache:
-                        if hasattr(agent.cache, '__len__'):
-                            agent_cache_info["cache_size"] = len(agent.cache)
-                            total_cached_items += len(agent.cache)
-                        else:
-                            agent_cache_info["cache_size"] = 1
-                            total_cached_items += 1
-                            
-                except Exception as cache_error:
-                    logger.debug(f"Could not access cache for {agent_name}: {cache_error}")
-                    agent_cache_info["cache_error"] = str(cache_error)
-                
-                cache_details.append(agent_cache_info)
-        
-        return {
-            "success": True,
-            "cache_details": cache_details,
-            "summary": {
-                "total_agents": len(cache_details),
-                "agents_with_cache": sum(1 for a in cache_details if a["has_cache"]),
-                "total_cached_items": total_cached_items,
-                "largest_cache": max((a["cache_size"] for a in cache_details), default=0)
+    """
+    Get detailed web scraping cache information.
+    
+    Analyzes cache content for all web scraping agents including Microsoft,
+    RedHat, Ubuntu, Oracle, VMware, Apache, and others. Provides cache sizes,
+    sample items, and summary statistics.
+    
+    Returns:
+        StandardResponse with per-agent cache details and summary statistics.
+    """
+    orchestrator = get_eol_orchestrator()
+    cache_details = []
+    total_cached_items = 0
+    
+    # Get cache details from each web scraping agent
+    for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai", "websurfer"]:
+        agent = orchestrator.agents.get(agent_name)
+        if agent:
+            agent_cache_info = {
+                "agent": agent_name,
+                "type": type(agent).__name__,
+                "available": True,
+                "has_cache": hasattr(agent, '_cache') or hasattr(agent, 'cache'),
+                "cache_size": 0,
+                "last_used": getattr(agent, 'last_used', None),
+                "cache_items": []
             }
+            
+            # Try to get cache content
+            try:
+                if hasattr(agent, '_cache') and agent._cache:
+                    if hasattr(agent._cache, 'items'):
+                        agent_cache_info["cache_size"] = len(agent._cache)
+                        # Get sample cache items (first 5)
+                        cache_items = list(agent._cache.items())[:5]
+                        agent_cache_info["cache_items"] = [
+                            {
+                                "key": str(key)[:100] + "..." if len(str(key)) > 100 else str(key),
+                                "value_type": type(value).__name__,
+                                "value_size": len(str(value)) if value else 0,
+                                "value_preview": str(value)[:200] + "..." if value and len(str(value)) > 200 else str(value)
+                            }
+                            for key, value in cache_items
+                        ]
+                        total_cached_items += len(agent._cache)
+                    elif hasattr(agent._cache, '__len__'):
+                        agent_cache_info["cache_size"] = len(agent._cache)
+                        total_cached_items += len(agent._cache)
+                elif hasattr(agent, 'cache') and agent.cache:
+                    if hasattr(agent.cache, '__len__'):
+                        agent_cache_info["cache_size"] = len(agent.cache)
+                        total_cached_items += len(agent.cache)
+                    else:
+                        agent_cache_info["cache_size"] = 1
+                        total_cached_items += 1
+                        
+            except Exception as cache_error:
+                logger.debug(f"Could not access cache for {agent_name}: {cache_error}")
+                agent_cache_info["cache_error"] = str(cache_error)
+            
+            cache_details.append(agent_cache_info)
+    
+    return {
+        "success": True,
+        "cache_details": cache_details,
+        "summary": {
+            "total_agents": len(cache_details),
+            "agents_with_cache": sum(1 for a in cache_details if a["has_cache"]),
+            "total_cached_items": total_cached_items,
+            "largest_cache": max((a["cache_size"] for a in cache_details), default=0)
         }
-        
-    except Exception as e:
-        logger.error("Error getting web scraping cache details: %s", e)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+    }
 
 
-@app.get("/api/cache/cosmos/stats")
+@app.get("/api/cache/cosmos/stats", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cosmos_cache_stats", timeout_seconds=20)
 async def get_cosmos_cache_stats():
-    """Get Cosmos DB cache statistics with enhanced metrics"""
+    """
+    Get Cosmos DB cache statistics with enhanced metrics.
+    
+    Retrieves comprehensive statistics about Cosmos DB cache usage including
+    EOL cache stats, inventory cache stats, and performance metrics.
+    
+    Returns:
+        StandardResponse with Cosmos cache statistics and enhanced performance data.
+    """
     from utils.cosmos_cache import base_cosmos
     from utils.eol_cache import eol_cache
     
@@ -1914,125 +1926,140 @@ async def get_cosmos_cache_stats():
         raise HTTPException(status_code=500, detail=f"Error getting cache stats: {str(e)}")
 
 
-@app.post("/api/cache/cosmos/clear")
+@app.post("/api/cache/cosmos/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="clear_cosmos_cache", timeout_seconds=30)
 async def clear_cosmos_cache(agent_name: Optional[str] = None, software_name: Optional[str] = None):
-    """Clear Cosmos DB cache with optional filters"""
+    """
+    Clear Cosmos DB cache with optional filters.
+    
+    Clears EOL cache entries from Cosmos DB. Can filter by software name
+    and/or agent name, or clear all if no filters provided.
+    
+    Args:
+        agent_name: Optional filter to clear only specific agent's cache entries
+        software_name: Optional filter to clear only specific software's cache entries
+    
+    Returns:
+        StandardResponse with clear operation results and count of cleared items.
+    """
     from utils.cosmos_cache import base_cosmos
     from utils.eol_cache import eol_cache
     if not getattr(base_cosmos, 'initialized', False):
         raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-    try:
-        result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_name)
-        logger.info("Cosmos cache cleared: %s", result)
-        return result
-    except Exception as e:
-        logger.error("Error clearing Cosmos cache: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
+    
+    result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_name)
+    logger.info("Cosmos cache cleared: %s", result)
+    return result
 
 
-@app.post("/api/cache/cosmos/initialize")
+@app.post("/api/cache/cosmos/initialize", response_model=StandardResponse)
+@write_endpoint(agent_name="initialize_cosmos", timeout_seconds=45)
 async def initialize_cosmos_cache():
-    """Initialize Cosmos DB cache manually"""
+    """
+    Initialize Cosmos DB cache manually.
+    
+    Forces initialization of Cosmos DB base client and specialized caches
+    (EOL cache, inventory cache). Useful for troubleshooting or recovery
+    after connection failures.
+    
+    Returns:
+        StandardResponse with initialization status and message.
+    """
+    from utils.cosmos_cache import base_cosmos
+    from utils.eol_cache import eol_cache
+    if getattr(base_cosmos, 'initialized', False):
+        return {"success": True, "message": "Cosmos DB base client already initialized"}
+    await base_cosmos._initialize_async()
+    # initialize specialized caches
     try:
-        from utils.cosmos_cache import base_cosmos
-        from utils.eol_cache import eol_cache
-        if getattr(base_cosmos, 'initialized', False):
-            return {"success": True, "message": "Cosmos DB base client already initialized"}
-        await base_cosmos._initialize_async()
-        # initialize specialized caches
-        try:
-            await eol_cache.initialize()
-        except Exception:
-            pass
-        if getattr(base_cosmos, 'initialized', False):
-            return {"success": True, "message": "Cosmos DB base client initialized successfully"}
-        return {"success": False, "error": "Failed to initialize Cosmos DB base client"}
-            
-    except Exception as e:
-        logger.error("Error initializing Cosmos cache: %s", e)
-        return {"success": False, "error": f"Initialization error: {str(e)}"}
+        await eol_cache.initialize()
+    except Exception:
+        pass
+    if getattr(base_cosmos, 'initialized', False):
+        return {"success": True, "message": "Cosmos DB base client initialized successfully"}
+    return {"success": False, "error": "Failed to initialize Cosmos DB base client"}
 
 
-@app.get("/api/cache/cosmos/config")
+@app.get("/api/cache/cosmos/config", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cosmos_config", timeout_seconds=15)
 async def get_cosmos_config():
-    """Get Cosmos DB configuration and status"""
-    try:
-        from utils.config import config
-        from utils.cosmos_cache import base_cosmos
-        from utils.eol_cache import eol_cache
+    """
+    Get Cosmos DB configuration and status.
+    
+    Retrieves Cosmos DB connection configuration including endpoint, database,
+    container names, authentication method, and initialization status.
+    
+    Returns:
+        StandardResponse with Cosmos DB configuration and error details if applicable.
+    """
+    from utils.config import config
+    from utils.cosmos_cache import base_cosmos
+    from utils.eol_cache import eol_cache
 
-        cosmos_config = {
-            "endpoint": config.azure.cosmos_endpoint if hasattr(config.azure, 'cosmos_endpoint') else None,
-            "database": config.azure.cosmos_database if hasattr(config.azure, 'cosmos_database') else None,
-            "container": getattr(eol_cache, 'container_id', 'eol_cache'),
-            "auth_method": "DefaultAzureCredential (Managed Identity)",
-            "base_initialized": getattr(base_cosmos, 'initialized', False),
-            "eol_cache_initialized": getattr(eol_cache, 'initialized', False),
-            "cache_duration_days": getattr(eol_cache, 'cache_duration_days', 30),
-            "min_confidence_threshold": getattr(eol_cache, 'min_confidence_threshold', 80),
-            "error": None,
-            "error_details": None,
-            "debug": None
-        }
+    cosmos_config = {
+        "endpoint": config.azure.cosmos_endpoint if hasattr(config.azure, 'cosmos_endpoint') else None,
+        "database": config.azure.cosmos_database if hasattr(config.azure, 'cosmos_database') else None,
+        "container": getattr(eol_cache, 'container_id', 'eol_cache'),
+        "auth_method": "DefaultAzureCredential (Managed Identity)",
+        "base_initialized": getattr(base_cosmos, 'initialized', False),
+        "eol_cache_initialized": getattr(eol_cache, 'initialized', False),
+        "cache_duration_days": getattr(eol_cache, 'cache_duration_days', 30),
+        "min_confidence_threshold": getattr(eol_cache, 'min_confidence_threshold', 80),
+        "error": None,
+        "error_details": None,
+        "debug": None
+    }
 
-        # Add error details if base cosmos not initialized
-        if not getattr(base_cosmos, 'initialized', False):
-            cosmos_config["error"] = "Base Cosmos client failed to initialize"
-            if getattr(base_cosmos, 'last_error', None):
-                cosmos_config["error_details"] = base_cosmos.last_error
+    # Add error details if base cosmos not initialized
+    if not getattr(base_cosmos, 'initialized', False):
+        cosmos_config["error"] = "Base Cosmos client failed to initialize"
+        if getattr(base_cosmos, 'last_error', None):
+            cosmos_config["error_details"] = base_cosmos.last_error
+    
+    # Include any structured details present on base_cosmos (backwards compatible)
+    if getattr(base_cosmos, 'last_error_details', None):
+        try:
+            cosmos_config["debug"] = base_cosmos.last_error_details
+        except Exception:
+            cosmos_config["debug"] = {"note": "Failed to serialize last_error_details"}
         
-        # Include any structured details present on base_cosmos (backwards compatible)
-        if getattr(base_cosmos, 'last_error_details', None):
-            try:
-                cosmos_config["debug"] = base_cosmos.last_error_details
-            except Exception:
-                cosmos_config["debug"] = {"note": "Failed to serialize last_error_details"}
-            
-        return cosmos_config
-        
-    except Exception as e:
-        logger.error("Error getting Cosmos config: %s", e)
-        return {
-            "endpoint": None,
-            "database": None,
-            "container": None,
-            "auth_method": "Unknown",
-            "initialized": False,
-            "error": f"Configuration error: {str(e)}"
-        }
+    return cosmos_config
 
-@app.get("/api/cache/cosmos/debug")
+@app.get("/api/cache/cosmos/debug", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cosmos_debug", timeout_seconds=15)
 async def get_cosmos_debug_info():
-    """Get debug information about Cosmos DB container caching"""
-    try:
-        from utils.cosmos_cache import base_cosmos
-        from utils.eol_cache import eol_cache
-        from utils.inventory_cache import inventory_cache
-        
-        debug_info = {
-            "base_cosmos": {
-                "cache_info": base_cosmos.get_cache_info(),
-                "initialization_attempted": getattr(base_cosmos, '_initialization_attempted', False)
-            },
-            "eol_cache": {
-                "initialized": getattr(eol_cache, 'initialized', False),
-                "container_available": eol_cache.container is not None,
-                "container_id": getattr(eol_cache, 'container_id', None)
-            },
-            "inventory_cache": {
-                "cosmos_initialized": inventory_cache.cosmos_client.initialized,
-                "cache_stats": inventory_cache.get_cache_stats(),
-                "container_mapping": inventory_cache.container_mapping
-            }
+    """
+    Get debug information about Cosmos DB container caching.
+    
+    Provides detailed debugging information about Cosmos DB cache state
+    including base client, EOL cache, and inventory cache initialization
+    and container availability.
+    
+    Returns:
+        StandardResponse with comprehensive Cosmos DB debug information.
+    """
+    from utils.cosmos_cache import base_cosmos
+    from utils.eol_cache import eol_cache
+    from utils.inventory_cache import inventory_cache
+    
+    debug_info = {
+        "base_cosmos": {
+            "cache_info": base_cosmos.get_cache_info(),
+            "initialization_attempted": getattr(base_cosmos, '_initialization_attempted', False)
+        },
+        "eol_cache": {
+            "initialized": getattr(eol_cache, 'initialized', False),
+            "container_available": eol_cache.container is not None,
+            "container_id": getattr(eol_cache, 'container_id', None)
+        },
+        "inventory_cache": {
+            "cosmos_initialized": inventory_cache.cosmos_client.initialized,
+            "cache_stats": inventory_cache.get_cache_stats(),
+            "container_mapping": inventory_cache.container_mapping
         }
-        
-        return debug_info
-        
-    except Exception as e:
-        logger.error("Error getting Cosmos debug info: %s", e)
-        return {
-            "error": f"Debug info error: {str(e)}"
-        }
+    }
+    
+    return debug_info
 
 
 class CachedEOLRequest(BaseModel):
