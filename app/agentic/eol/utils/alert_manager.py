@@ -168,9 +168,9 @@ class AlertManager:
                     partition_path=self.partition_path,
                     offer_throughput=400
                 )
-                logger.debug(f"Alert manager container {self.config_container_name} obtained")
+                logger.debug(f"✅ Alert manager container {self.config_container_name} obtained")
             except Exception as e:
-                logger.error(f"Error getting alert configuration container: {e}")
+                logger.error(f"❌ Error getting alert configuration container: {e}")
                 self.container = None
         
         # Ensure notification tracking container

@@ -104,7 +104,7 @@ def is_cache_expired(timestamp: str, hours: int = 24) -> bool:
         return current_time > expiry_time
     except (ValueError, AttributeError) as e:
         # If we can't parse the timestamp, consider it expired
-        logger.warning(f"Failed to parse timestamp '{timestamp}': {e}. Considering cache expired.")
+        logger.warning(f"⚠️ Failed to parse timestamp '{timestamp}': {e}. Considering cache expired.")
         return True
 
 

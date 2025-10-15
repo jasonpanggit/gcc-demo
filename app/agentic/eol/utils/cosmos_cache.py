@@ -75,10 +75,10 @@ class BaseCosmosClient:
             self.cosmos_client = CosmosClient(config.azure.cosmos_endpoint, credential=credential)
             self.database = self.cosmos_client.create_database_if_not_exists(id=config.azure.cosmos_database)
             self.initialized = True
-            logger.info("Base Cosmos client initialized")
+            logger.info("✅ Base Cosmos client initialized")
         except Exception as e:
             tb = traceback.format_exc()
-            logger.error(f"Failed to initialize base Cosmos client: {e}\n{tb}")
+            logger.error(f"❌ Failed to initialize base Cosmos client: {e}\n{tb}")
             self.last_error = tb
             self.initialized = False
 
@@ -105,10 +105,10 @@ class BaseCosmosClient:
             self.cosmos_client = CosmosClient(url=config.azure.cosmos_endpoint, credential=credential)
             self.database = self.cosmos_client.create_database_if_not_exists(id=config.azure.cosmos_database)
             self.initialized = True
-            logger.info("Base Cosmos client initialized (async)")
+            logger.info("✅ Base Cosmos client initialized (async)")
         except Exception as e:
             tb = traceback.format_exc()
-            logger.error(f"Failed to initialize base Cosmos client (async): {e}\n{tb}")
+            logger.error(f"❌ Failed to initialize base Cosmos client (async): {e}\n{tb}")
             self.last_error = tb
             self.initialized = False
 

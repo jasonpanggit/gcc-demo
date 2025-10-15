@@ -244,11 +244,11 @@ class EolMemoryCache:
             
             # Ensure required fields for Cosmos DB
             if not doc_dict.get('id'):
-                logger.error("Document missing required 'id' field")
+                logger.error("❌ Document missing required 'id' field")
                 return False
                 
             if not doc_dict.get('cache_key'):
-                logger.error("Document missing required 'cache_key' partition key")
+                logger.error("❌ Document missing required 'cache_key' partition key")
                 return False
             
             # Clean any invalid characters that might cause BadRequest
@@ -265,10 +265,10 @@ class EolMemoryCache:
             
             try:
                 self.container.upsert_item(doc_dict)
-                logger.debug(f"Successfully upserted document {doc_dict['id']}")
+                logger.debug(f"✅ Successfully upserted document {doc_dict['id']}")
             except Exception as upsert_error:
-                logger.error(f"Cosmos DB upsert failed for document {doc_dict['id']}: {upsert_error}")
-                logger.error(f"Document structure: {doc_dict}")
+                logger.error(f"❌ Cosmos DB upsert failed for document {doc_dict['id']}: {upsert_error}")
+                logger.error(f"📄 Document structure: {doc_dict}")
                 # Continue with memory cache even if Cosmos fails
                 
             try:
@@ -419,11 +419,11 @@ class EolMemoryCache:
             async with self.memory_lock:
                 self.memory_cache[cache_key] = cached_entry
             
-            logger.info(f"EOL cache stats retrieved successfully: {stats_data}")
+            logger.info(f"✅ EOL cache stats retrieved successfully: {stats_data}")
             return {"success": True, **stats_data}
         except Exception as e:
-            logger.error(f"Failed to get EOL cache stats: {e}")
-            logger.debug(f"EolMemoryCache get_cache_stats error: {e}")
+            logger.error(f"❌ Failed to get EOL cache stats: {e}")
+            logger.debug(f"🐛 EolMemoryCache get_cache_stats error: {e}")
             return {"success": False, "error": str(e)}
 
     # Convenience helpers used by other parts of the app (backwards compatibility)

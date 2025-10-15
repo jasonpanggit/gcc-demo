@@ -103,7 +103,7 @@ def with_timeout_and_stats(
                         had_error=True
                     )
                 
-                logger.error(f"{agent_name} request timed out after {timeout_seconds}s")
+                logger.error(f"⏱️ {agent_name} request timed out after {timeout_seconds}s")
                 raise HTTPException(
                     status_code=504,
                     detail=f"{agent_name} request timed out after {timeout_seconds} seconds"
@@ -123,7 +123,7 @@ def with_timeout_and_stats(
                         had_error=True
                     )
                 
-                logger.error(f"Error in {agent_name}: {str(e)}", exc_info=True)
+                logger.error(f"❌ Error in {agent_name}: {str(e)}", exc_info=True)
                 
                 if auto_wrap_response:
                     # Return error in StandardResponse format
@@ -224,7 +224,7 @@ def require_service(
         async def wrapper(*args, **kwargs) -> Any:
             if not check_func():
                 message = error_message or f"{service_name} is not available"
-                logger.warning(f"Service check failed: {message}")
+                logger.warning(f"⚠️ Service check failed: {message}")
                 raise HTTPException(status_code=503, detail=message)
             
             return await func(*args, **kwargs)

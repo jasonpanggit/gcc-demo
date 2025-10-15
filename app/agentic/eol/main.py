@@ -225,20 +225,20 @@ class SoftwareSearchRequest(BaseModel):
 async def startup_event():
     """Initialize services on startup"""
     try:
-        logger.info("🚀 Starting %s v%s", config.app.title, config.app.version)
+        logger.info(f"🚀 Starting {config.app.title} v{config.app.version}")
         
         # Validate configuration
         validation = config.validate_config()
         if not validation["valid"]:
-            logger.warning("Configuration validation failed:")
+            logger.warning("⚠️ Configuration validation failed:")
             for error in validation["errors"]:
-                logger.error("  - %s", error)
+                logger.error(f"  - {error}")
         
         # Log environment summary
         env_summary = config.get_environment_summary()
         logger.info("📊 Environment check:")
         for service, status in env_summary.items():
-            logger.info("   - %s: %s", service, status)
+            logger.info(f"   - {service}: {status}")
         # Initialize base cosmos client and preload caches
         try:
             # import locally to ensure we always reference the shared singleton
@@ -267,7 +267,7 @@ async def startup_event():
         
         logger.info("✅ App startup completed")
     except Exception as e:
-        logger.warning("⚠️ Startup warning: %s", e)
+        logger.warning(f"⚠️ Startup warning: {e}")
         # Don't fail startup for non-critical issues
 
 
@@ -826,7 +826,7 @@ async def get_alerts_page(request: Request):
     try:
         return templates.TemplateResponse("alerts.html", {"request": request})
     except Exception as e:
-        logger.error(f"Error serving alerts page: {e}")
+        logger.error(f"❌ Error serving alerts page: {e}")
         return HTMLResponse("Alert Management - Page not found", status_code=404)
 
 
@@ -929,7 +929,7 @@ async def test_cosmos_connection():
     
     # Check if base client is initialized
     if not base_cosmos.initialized:
-        logger.info("Base Cosmos client not initialized, attempting initialization...")
+        logger.info("🔄 Base Cosmos client not initialized, attempting initialization...")
         await base_cosmos._initialize_async()
     
     if not base_cosmos.initialized:
@@ -1021,7 +1021,7 @@ async def get_alert_preview(days: int = 90):
     elif isinstance(os_data, list):
         inventory_data = os_data
     else:
-        logger.warning(f"Invalid OS data format: {type(os_data)}")
+        logger.warning(f"⚠️ Invalid OS data format: {type(os_data)}")
         inventory_data = []
     
     # Load configuration and generate preview
@@ -1054,20 +1054,20 @@ async def test_smtp_connection(smtp_data: dict):
     Returns:
         StandardResponse with success status, message, and debug information.
     """
-    logger.info("=== SMTP TEST ENDPOINT CALLED ===")
-    logger.info(f"SMTP test data received: {smtp_data}")
+    logger.info("📧 === SMTP TEST ENDPOINT CALLED ===")
+    logger.info(f"📧 SMTP test data received: {smtp_data}")
     
     from utils.alert_manager import alert_manager, SMTPSettings
     
     # Create settings and log them (masking password)
     smtp_settings = SMTPSettings(**smtp_data)
-    logger.info(f"SMTP settings created - server: {smtp_settings.server}:{smtp_settings.port}")
-    logger.info(f"SMTP settings - SSL: {smtp_settings.use_ssl}, TLS: {smtp_settings.use_tls}")
-    logger.info(f"SMTP settings - username: {smtp_settings.username}")
-    logger.info(f"SMTP settings - password provided: {'Yes' if smtp_settings.password else 'No'}")
+    logger.info(f"📧 SMTP settings created - server: {smtp_settings.server}:{smtp_settings.port}")
+    logger.info(f"📧 SMTP settings - SSL: {smtp_settings.use_ssl}, TLS: {smtp_settings.use_tls}")
+    logger.info(f"📧 SMTP settings - username: {smtp_settings.username}")
+    logger.info(f"📧 SMTP settings - password provided: {'Yes' if smtp_settings.password else 'No'}")
     
     # Execute the test
-    logger.info("Calling alert_manager.test_smtp_connection...")
+    logger.info("🔄 Calling alert_manager.test_smtp_connection...")
     success, message = await alert_manager.test_smtp_connection(smtp_settings)
     
     result = {
@@ -1085,7 +1085,7 @@ async def test_smtp_connection(smtp_data: dict):
         }
     }
     
-    logger.info(f"SMTP test result: {result}")
+    logger.info(f"✅ SMTP test result: {result}")
     return result
 
 
@@ -1105,22 +1105,22 @@ async def send_test_alert(request_data: dict):
     Returns:
         StandardResponse with send status, message, and debug information.
     """
-    logger.info("=== SEND TEST ALERT ENDPOINT CALLED ===")
-    logger.info(f"Request data: {request_data}")
+    logger.info("📨 === SEND TEST ALERT ENDPOINT CALLED ===")
+    logger.info(f"📨 Request data: {request_data}")
     
     from utils.alert_manager import alert_manager
     
-    logger.info("Loading alert configuration...")
+    logger.info("🔄 Loading alert configuration...")
     config = await alert_manager.load_configuration()
     recipients = request_data.get("recipients", config.email_recipients)
     alert_level = request_data.get("level", "info")
     
-    logger.info(f"Alert level: {alert_level}")
-    logger.info(f"Recipients: {recipients}")
-    logger.info(f"SMTP enabled: {config.smtp_settings.enabled}")
+    logger.info(f"📋 Alert level: {alert_level}")
+    logger.info(f"👥 Recipients: {recipients}")
+    logger.info(f"📧 SMTP enabled: {config.smtp_settings.enabled}")
     
     if not recipients:
-        logger.error("No email recipients specified")
+        logger.error("❌ No email recipients specified")
         raise HTTPException(status_code=400, detail="No email recipients specified")
     
     # Create test alert
