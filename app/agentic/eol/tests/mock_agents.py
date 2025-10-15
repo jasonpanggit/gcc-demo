@@ -3,16 +3,18 @@ Mock Agents for Local Testing
 These agents return mock data instead of querying Azure services
 """
 import asyncio
+import os
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+
+# Get configuration from environment
+MOCK_NUM_COMPUTERS = int(os.getenv("MOCK_NUM_COMPUTERS", "50"))
 
 # Import mock data generators
 try:
     from .mock_data import mock_generator, get_mock_software_inventory, get_mock_os_inventory
-    from .test_config import test_config
 except ImportError:
     from mock_data import mock_generator, get_mock_software_inventory, get_mock_os_inventory
-    from test_config import test_config
 
 
 class MockSoftwareInventoryAgent:
@@ -46,7 +48,7 @@ class MockSoftwareInventoryAgent:
         await asyncio.sleep(0.1)
         
         # Generate mock data
-        result = get_mock_software_inventory(num_computers=test_config.num_computers)
+        result = get_mock_software_inventory(num_computers=MOCK_NUM_COMPUTERS)
         
         # Apply software filter if specified
         if software_filter:
@@ -169,7 +171,7 @@ class MockOSInventoryAgent:
         await asyncio.sleep(0.1)
         
         # Generate mock data
-        result = get_mock_os_inventory(num_computers=test_config.num_computers)
+        result = get_mock_os_inventory(num_computers=MOCK_NUM_COMPUTERS)
         
         # Apply limit
         if len(result['data']) > limit:
@@ -265,7 +267,8 @@ class MockOSInventoryAgent:
 # Factory function to get appropriate agent based on config
 def get_software_inventory_agent():
     """Get software inventory agent (mock or real based on config)"""
-    if test_config.use_mock_data:
+    use_mock = os.getenv('USE_MOCK_DATA', 'true').lower() == 'true'
+    if use_mock:
         return MockSoftwareInventoryAgent()
     else:
         # Import real agent only when needed
@@ -275,7 +278,8 @@ def get_software_inventory_agent():
 
 def get_os_inventory_agent():
     """Get OS inventory agent (mock or real based on config)"""
-    if test_config.use_mock_data:
+    use_mock = os.getenv('USE_MOCK_DATA', 'true').lower() == 'true'
+    if use_mock:
         return MockOSInventoryAgent()
     else:
         # Import real agent only when needed
