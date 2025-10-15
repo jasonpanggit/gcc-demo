@@ -1334,70 +1334,77 @@ async def get_cache_status():
         raise HTTPException(status_code=500, detail=f"Error getting cache status: {str(e)}")
 
 
-@app.post("/api/cache/clear")
+@app.post("/api/cache/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="cache_clear", timeout_seconds=30)
 async def clear_cache():
-    """Clear all inventory caches (software and OS)
+    """
+    Clear all inventory caches (software and OS).
     
     This clears both memory and Cosmos DB caches for inventory data.
-    EOL agent caches are managed separately via /api/cache/purge
+    EOL agent caches are managed separately via /api/cache/purge.
+    
+    Returns:
+        StandardResponse with list of cleared cache types and timestamp.
     """
-    try:
-        # Clear inventory caches via orchestrator agents
-        software_agent = get_eol_orchestrator().agents.get("software_inventory")
-        os_agent = get_eol_orchestrator().agents.get("os_inventory")
-        
-        cleared_items = []
-        
-        if software_agent and hasattr(software_agent, 'clear_cache'):
-            await software_agent.clear_cache()
-            cleared_items.append("software_inventory")
-        
-        if os_agent and hasattr(os_agent, 'clear_cache'):
-            await os_agent.clear_cache()
-            cleared_items.append("os_inventory")
-        
-        logger.info(f"🧹 Cleared inventory caches: {cleared_items}")
-        
-        return {
-            "success": True,
-            "status": "success",
-            "message": f"Inventory caches cleared: {', '.join(cleared_items)}",
-            "cleared_caches": cleared_items,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
-        return {
-            "success": False,
-            "status": "error",
-            "message": f"Error clearing cache: {str(e)}",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+    # Clear inventory caches via orchestrator agents
+    software_agent = get_eol_orchestrator().agents.get("software_inventory")
+    os_agent = get_eol_orchestrator().agents.get("os_inventory")
+    
+    cleared_items = []
+    
+    if software_agent and hasattr(software_agent, 'clear_cache'):
+        await software_agent.clear_cache()
+        cleared_items.append("software_inventory")
+    
+    if os_agent and hasattr(os_agent, 'clear_cache'):
+        await os_agent.clear_cache()
+        cleared_items.append("os_inventory")
+    
+    logger.info(f"🧹 Cleared inventory caches: {cleared_items}")
+    
+    return {
+        "success": True,
+        "status": "success",
+        "message": f"Inventory caches cleared: {', '.join(cleared_items)}",
+        "cleared_caches": cleared_items,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
-@app.post("/api/cache/purge")
+@app.post("/api/cache/purge", response_model=StandardResponse)
+@write_endpoint(agent_name="cache_purge", timeout_seconds=30)
 async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[str] = None, version: Optional[str] = None):
-    """Purge web scraping cache for specific agent or all agents"""
-    try:
-        result = await get_eol_orchestrator().purge_web_scraping_cache(agent_type, software_name, version)
-        logger.info("Cache purged: %s", result)
-        return result
-    except Exception as e:
-        logger.error("Error purging cache: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error purging cache: {str(e)}")
+    """
+    Purge web scraping cache for specific agent or all agents.
+    
+    Args:
+        agent_type: Type of agent to purge cache for (e.g., "microsoft", "endoflife")
+        software_name: Specific software name to purge
+        version: Specific version to purge
+    
+    Returns:
+        StandardResponse with purge results including number of items removed.
+    """
+    result = await get_eol_orchestrator().purge_web_scraping_cache(agent_type, software_name, version)
+    logger.info("Cache purged: %s", result)
+    return result
 
 
-@app.post("/api/communications/clear")
+@app.post("/api/communications/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="communications_clear", timeout_seconds=10)
 async def clear_communications():
-    """Clear orchestrator communications log"""
-    try:
-        result = get_eol_orchestrator().clear_communications()
-        logger.info("Communications cleared: %s", result)
-        return result
-    except Exception as e:
-        logger.error("Error clearing communications: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error clearing communications: {str(e)}")
+    """
+    Clear orchestrator communications log.
+    
+    Removes all communications from the EOL orchestrator's internal log,
+    useful for debugging or starting fresh with a clean state.
+    
+    Returns:
+        StandardResponse with clear operation results.
+    """
+    result = get_eol_orchestrator().clear_communications()
+    logger.info("Communications cleared: %s", result)
+    return result
 
 
 @app.get("/api/communications/eol")
@@ -2032,60 +2039,74 @@ class VerifyEOLRequest(BaseModel):
 
 # Enhanced Cache Statistics Endpoints
 
-@app.get("/api/cache/stats/enhanced")
+@app.get("/api/cache/stats/enhanced", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cache_stats_enhanced", timeout_seconds=10)
 async def get_enhanced_cache_stats():
-    """Get comprehensive cache statistics with real performance data"""
-    try:
-        from utils.cache_stats_manager import cache_stats_manager
-        return cache_stats_manager.get_all_statistics()
-    except Exception as e:
-        logger.error("Error getting enhanced cache stats: %s", e)
-        return {
-            "success": False,
-            "error": str(e),
-            "agent_stats": {"agents": {}, "summary": {}},
-            "inventory_stats": {"error": str(e)},
-            "cosmos_stats": {"error": str(e)},
-            "performance_summary": {"error": str(e)}
-        }
+    """
+    Get comprehensive cache statistics with real performance data.
+    
+    Returns aggregated statistics including agent performance metrics,
+    inventory cache stats, Cosmos DB usage, and overall performance summary.
+    
+    Returns:
+        StandardResponse with comprehensive cache statistics.
+    """
+    from utils.cache_stats_manager import cache_stats_manager
+    return cache_stats_manager.get_all_statistics()
 
 
-@app.get("/api/cache/stats/agents")
+@app.get("/api/cache/stats/agents", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cache_stats_agents", timeout_seconds=10)
 async def get_agent_cache_stats():
-    """Get detailed agent cache statistics"""
-    try:
-        from utils.cache_stats_manager import cache_stats_manager
-        return cache_stats_manager.get_agent_statistics()
-    except Exception as e:
-        logger.error("Error getting agent cache stats: %s", e)
-        return {"success": False, "error": str(e)}
+    """
+    Get detailed agent cache statistics.
+    
+    Returns per-agent cache performance including request counts, hit rates,
+    average response times, and error rates.
+    
+    Returns:
+        StandardResponse with agent-level cache statistics.
+    """
+    from utils.cache_stats_manager import cache_stats_manager
+    return cache_stats_manager.get_agent_statistics()
 
 
-@app.get("/api/cache/stats/performance")
+@app.get("/api/cache/stats/performance", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cache_stats_performance", timeout_seconds=10)
 async def get_cache_performance_stats():
-    """Get cache performance summary"""
-    try:
-        from utils.cache_stats_manager import cache_stats_manager
-        return cache_stats_manager.get_performance_summary()
-    except Exception as e:
-        logger.error("Error getting cache performance stats: %s", e)
-        return {"success": False, "error": str(e)}
+    """
+    Get cache performance summary.
+    
+    Returns overall cache performance metrics including total requests,
+    cache hit rates, and average response times.
+    
+    Returns:
+        StandardResponse with cache performance summary.
+    """
+    from utils.cache_stats_manager import cache_stats_manager
+    return cache_stats_manager.get_performance_summary()
 
 
-@app.post("/api/cache/stats/reset")
+@app.post("/api/cache/stats/reset", response_model=StandardResponse)
+@write_endpoint(agent_name="cache_stats_reset", timeout_seconds=10)
 async def reset_cache_stats():
-    """Reset all cache statistics (for testing or fresh start)"""
-    try:
-        from utils.cache_stats_manager import cache_stats_manager
-        cache_stats_manager.reset_statistics()
-        return {
-            "success": True,
-            "message": "Cache statistics reset successfully",
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error("Error resetting cache stats: %s", e)
-        return {"success": False, "error": str(e)}
+    """
+    Reset all cache statistics (for testing or fresh start).
+    
+    Clears all recorded cache performance metrics including request counts,
+    hit rates, response times, and error counts. Useful for testing or
+    starting fresh with clean metrics.
+    
+    Returns:
+        StandardResponse with reset confirmation.
+    """
+    from utils.cache_stats_manager import cache_stats_manager
+    cache_stats_manager.reset_statistics()
+    return {
+        "success": True,
+        "message": "Cache statistics reset successfully",
+        "timestamp": datetime.utcnow().isoformat()
+    }
     verification_status: Optional[str] = "verified"  # "verified" or "failed"
 
 
