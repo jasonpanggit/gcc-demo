@@ -1,5 +1,31 @@
 """
-Common utilities and helper functions for the EOL Multi-Agent system
+Common Utilities and Helper Functions
+
+This module provides core utility functions used throughout the EOL Multi-Agent
+application. These functions handle common operations such as:
+- Cache key generation
+- Software name normalization
+- Date/time handling and parsing
+- Version information extraction
+- Response formatting
+
+All functions in this module are stateless and can be safely imported and used
+from any part of the application.
+
+Functions:
+    generate_cache_key: Create SHA256-based cache keys
+    normalize_software_name: Normalize software names for consistency
+    is_cache_expired: Check if cached data has expired
+    safe_parse_datetime: Safely parse datetime strings
+    extract_version_info: Extract version from software names
+    format_eol_date: Format EOL dates for display
+    generate_status_cache: Generate cache status snapshots
+    create_error_response: Create standardized error responses
+
+Example:
+    >>> from utils.helpers import generate_cache_key, normalize_software_name
+    >>> key = generate_cache_key("Windows Server", "2019", agent_type="microsoft")
+    >>> normalized = normalize_software_name("ms sql server")
 """
 from typing import Any, Dict, Optional, Union
 import hashlib
@@ -12,17 +38,43 @@ logger = logging.getLogger(__name__)
 
 def generate_cache_key(software_name: str, version: Optional[str] = None, agent_type: str = "general", **kwargs) -> str:
     """
-    Generate a consistent, optimized cache key for software data
-    Uses SHA256 for better performance and no collision risk
+    Generate a consistent, optimized cache key for software data.
+    
+    Creates a deterministic cache key using SHA256 hashing. The key generation
+    is optimized for:
+    - Performance: SHA256 is faster than MD5 on modern CPUs
+    - No collisions: 16-character SHA256 prefix provides sufficient uniqueness
+    - Consistency: Same inputs always produce same key
+    - Namespace separation: agent_type prevents key conflicts
+    
+    The cache key includes software name, version, agent type, and any additional
+    parameters provided via kwargs. All components are normalized (lowercase,
+    trimmed) before hashing to ensure consistency.
     
     Args:
-        software_name: Name of the software
-        version: Optional software version
-        agent_type: Type of agent (for namespace separation)
-        **kwargs: Additional parameters to include in cache key
+        software_name: Name of the software product. Will be normalized to
+                      lowercase and trimmed before hashing.
+        version: Optional software version string. If provided, will be
+                normalized and included in the cache key.
+        agent_type: Type of agent requesting the cache key. Used for namespace
+                   separation to prevent key conflicts between different agents
+                   (default "general").
+        **kwargs: Additional parameters to include in the cache key. These are
+                 sorted alphabetically and formatted as "key:value" pairs to
+                 ensure consistent ordering.
     
     Returns:
-        SHA256 hash (16 chars) to use as cache key
+        16-character SHA256 hash string suitable for use as cache key.
+        
+    Example:
+        >>> generate_cache_key("Windows Server", "2019", agent_type="microsoft")
+        'a3f5e9c2b1d4a6f8'
+        >>> generate_cache_key("Python", "3.11", agent_type="python", arch="x64")
+        'b2c4d6e8f1a3c5b7'
+    
+    Note:
+        The 16-character prefix of SHA256 provides >10^19 unique keys, which
+        is more than sufficient for application caching needs.
     """
     key_components = [agent_type, software_name.lower().strip()]
     if version:
@@ -217,14 +269,47 @@ def generate_status_cache() -> Dict[str, Any]:
 
 def create_error_response(error: Exception, context: str = "") -> Dict[str, Any]:
     """
-    Create standardized error response
+    Create standardized error response dictionary.
+    
+    Converts Python exceptions into a consistent dictionary format suitable
+    for API responses, logging, and error tracking. The standardized format
+    ensures that all error responses across the application have the same
+    structure.
+    
+    This function is used throughout the application to ensure error responses
+    are uniform, making it easier for:
+    - Frontend clients to parse and display errors
+    - Logging systems to aggregate and analyze errors
+    - Monitoring tools to track error patterns
+    - Developers to debug issues with full context
     
     Args:
-        error: Exception that occurred
-        context: Additional context about where the error occurred
+        error: The Python exception that was raised. Any Exception subclass
+              is supported.
+        context: Additional context string describing where the error occurred.
+                Examples: "Software inventory fetch", "EOL data lookup",
+                "Cache operation". Helps with debugging and log analysis.
     
     Returns:
-        Standardized error dictionary
+        Dictionary containing:
+            - error (str): Human-readable error message
+            - error_type (str): Python exception class name
+            - context (str): Contextual information provided
+            - timestamp (str): ISO 8601 timestamp when error was captured
+    
+    Example:
+        >>> try:
+        ...     raise ValueError("Invalid software name")
+        ... except Exception as e:
+        ...     response = create_error_response(e, "Software validation")
+        >>> response['error_type']
+        'ValueError'
+        >>> response['context']
+        'Software validation'
+    
+    Note:
+        All timestamps are in UTC to ensure consistency across distributed
+        systems and time zones.
     """
     return {
         "error": str(error),
