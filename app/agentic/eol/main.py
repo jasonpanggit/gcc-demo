@@ -1359,7 +1359,7 @@ async def search_software_eol(request: SoftwareSearchRequest):
 # ============================================================================
 
 @app.get("/api/cache/status", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cache_status", timeout_seconds=20)
+@with_timeout_and_stats(agent_name="cache_status", timeout_seconds=20, track_cache=False, auto_wrap_response=False)
 async def get_cache_status():
     """
     Get status of cached data across all agents with enhanced statistics.
@@ -1408,7 +1408,12 @@ async def get_cache_status():
         cache_status["enhanced_stats"] = {"error": str(e)}
     
     cache_status["inventory_context_cache"] = inventory_stats
-    return cache_status
+    
+    # Manually wrap complex dict structure in StandardResponse format
+    return StandardResponse.success_response(
+        data=[cache_status],
+        metadata={"agent": "cache_status", "complex_structure": True}
+    )
 
 
 @app.post("/api/cache/clear", response_model=StandardResponse)
