@@ -4,13 +4,22 @@ Tests EOL date lookups and analysis functionality
 """
 import pytest
 from datetime import datetime
+import os
+
+
+# Skip EOL search tests if running locally (may need Azure OpenAI)
+pytestmark = pytest.mark.skipif(
+    os.getenv('USE_MOCK_DATA', 'true').lower() == 'true',
+    reason="EOL search endpoints may require Azure OpenAI and external APIs"
+)
 
 
 @pytest.mark.api
 @pytest.mark.integration
 @pytest.mark.eol
+@pytest.mark.azure
 class TestEOLSearchEndpoints:
-    """Test EOL search and analysis endpoints"""
+    """Test EOL search and analysis endpoints (may require Azure services)"""
     
     @pytest.mark.asyncio
     async def test_search_eol_simple(self, client, test_software_name):

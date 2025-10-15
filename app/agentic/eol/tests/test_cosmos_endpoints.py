@@ -4,12 +4,21 @@ Tests Cosmos DB data storage and retrieval endpoints
 """
 import pytest
 from datetime import datetime
+import os
+
+
+# Skip all Cosmos tests if running locally without Azure services
+pytestmark = pytest.mark.skipif(
+    os.getenv('USE_MOCK_DATA', 'true').lower() == 'true',
+    reason="Cosmos DB endpoints require Azure services"
+)
 
 
 @pytest.mark.api
 @pytest.mark.integration
+@pytest.mark.azure
 class TestCosmosEndpoints:
-    """Test Cosmos DB endpoints"""
+    """Test Cosmos DB endpoints (requires Azure Cosmos DB)"""
     
     @pytest.mark.asyncio
     async def test_save_to_cosmos(self, client):
