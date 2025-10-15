@@ -275,118 +275,125 @@ class DebugRequest(BaseModel):
     query: str
 
 
-@app.post('/api/debug_tool_selection')
+@app.post('/api/debug_tool_selection', response_model=StandardResponse)
+@readonly_endpoint(agent_name="debug_tool_selection", timeout_seconds=15)
 async def debug_tool_selection(request: DebugRequest):
-    """Debug endpoint to test tool selection logic"""
-    try:
-        query = request.query
-        
-        # Test the tool selection logic
-        import re
-        
-        # Check if keywords are found
-        get_inventory_patterns = [
-            r'show\s+(?:me\s+)?(?:the\s+)?inventory',
-            r'(?:get|retrieve|fetch)\s+(?:the\s+)?inventory',
-            r'what\s+software',
-            r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?software',
-            r'inventory\s+(?:of|for)',
-            r'software\s+(?:inventory|list)',
-            r'show\s+(?:all\s+)?applications',
-            r'what\s+(?:is\s+)?installed'
-        ]
-        
-        eol_patterns = [
-            'end of life', 'end-of-life', 'eol', 'support status', 
-            'lifecycle', 'when does', 'reach end', 'support end',
-            'retire', 'deprecated', 'sunset', 'maintenance end'
-        ]
-        
-        approaching_eol_patterns = [
-            'approaching end', 'approaching eol', 'software approaching',
-            'expiring soon', 'ending support', 'near end of life',
-            'within a year', 'next year', 'soon to expire',
-            'what software is approaching', 'which software is ending'
-        ]
-        
-        found_inventory_keywords = []
-        found_eol_keywords = []
-        found_approaching_eol_keywords = []
-        
-        for pattern in get_inventory_patterns:
-            if re.search(pattern, query, re.IGNORECASE):
-                found_inventory_keywords.append(pattern)
-        
-        for pattern in eol_patterns:
-            if pattern.lower() in query.lower():
-                found_eol_keywords.append(pattern)
-                
-        for pattern in approaching_eol_patterns:
-            if pattern.lower() in query.lower():
-                found_approaching_eol_keywords.append(pattern)
-        
-        # Test filter detection logic
-        query_lower = query.lower()
-        detected_filter = None
-        detected_software = None
-        detected_version = None
-        
-        if 'windows' in query_lower and 'server' in query_lower:
-            detected_filter = "windows server"
-        elif 'windows' in query_lower:
-            detected_filter = "windows"
-        elif 'server' in query_lower:
-            detected_filter = "server"
-        elif 'linux' in query_lower:
-            detected_filter = "linux"
-        
-        # Test EOL software/version detection
-        import re
-        eol_patterns_regex = [
-            r'(ubuntu)\s+(\d+\.\d+)',
-            r'(windows)\s+(\d+)',
-            r'(centos)\s+(\d+)',
-            r'(java)\s+(\d+)',
-            r'(\w+)\s+(\d+\.\d+)'
-        ]
-        
-        for pattern in eol_patterns_regex:
-            match = re.search(pattern, query_lower)
-            if match:
-                detected_software = match.group(1)
-                detected_version = match.group(2)
-                break
-        
-        # Determine tool choice
-        tool_choice = "auto"
-        primary_tool = None
-        
-        if found_approaching_eol_keywords:
-            tool_choice = {"type": "function", "function": {"name": "find_approaching_eol"}}
-            primary_tool = "find_approaching_eol"
-        elif found_eol_keywords:
-            tool_choice = {"type": "function", "function": {"name": "check_software_eol"}}
-            primary_tool = "check_software_eol"
-        elif found_inventory_keywords:
-            tool_choice = {"type": "function", "function": {"name": "get_inventory"}}
-            primary_tool = "get_inventory"
-        
-        return {
-            'query': query,
-            'found_inventory_keywords': found_inventory_keywords,
-            'found_eol_keywords': found_eol_keywords,
-            'found_approaching_eol_keywords': found_approaching_eol_keywords,
-            'detected_filter': detected_filter,
-            'detected_software': detected_software,
-            'detected_version': detected_version,
-            'primary_tool': primary_tool,
-            'tool_choice': tool_choice,
-            'would_force_tool': primary_tool is not None
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in debug tool selection: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """
+    Debug endpoint to test tool selection logic for AutoGen chat.
+    
+    Tests the pattern matching and tool selection logic used by the chat orchestrator
+    to determine which functions to call based on user queries. Useful for debugging
+    and improving tool selection accuracy.
+    
+    Args:
+        request: DebugRequest containing the query to analyze
+    
+    Returns:
+        StandardResponse with detected patterns, keywords, and recommended tool selection.
+    """
+    query = request.query
+    
+    # Test the tool selection logic
+    import re
+    
+    # Check if keywords are found
+    get_inventory_patterns = [
+        r'show\s+(?:me\s+)?(?:the\s+)?inventory',
+        r'(?:get|retrieve|fetch)\s+(?:the\s+)?inventory',
+        r'what\s+software',
+        r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?software',
+        r'inventory\s+(?:of|for)',
+        r'software\s+(?:inventory|list)',
+        r'show\s+(?:all\s+)?applications',
+        r'what\s+(?:is\s+)?installed'
+    ]
+    
+    eol_patterns = [
+        'end of life', 'end-of-life', 'eol', 'support status', 
+        'lifecycle', 'when does', 'reach end', 'support end',
+        'retire', 'deprecated', 'sunset', 'maintenance end'
+    ]
+    
+    approaching_eol_patterns = [
+        'approaching end', 'approaching eol', 'software approaching',
+        'expiring soon', 'ending support', 'near end of life',
+        'within a year', 'next year', 'soon to expire',
+        'what software is approaching', 'which software is ending'
+    ]
+    
+    found_inventory_keywords = []
+    found_eol_keywords = []
+    found_approaching_eol_keywords = []
+    
+    for pattern in get_inventory_patterns:
+        if re.search(pattern, query, re.IGNORECASE):
+            found_inventory_keywords.append(pattern)
+    
+    for pattern in eol_patterns:
+        if pattern.lower() in query.lower():
+            found_eol_keywords.append(pattern)
+            
+    for pattern in approaching_eol_patterns:
+        if pattern.lower() in query.lower():
+            found_approaching_eol_keywords.append(pattern)
+    
+    # Test filter detection logic
+    query_lower = query.lower()
+    detected_filter = None
+    detected_software = None
+    detected_version = None
+    
+    if 'windows' in query_lower and 'server' in query_lower:
+        detected_filter = "windows server"
+    elif 'windows' in query_lower:
+        detected_filter = "windows"
+    elif 'server' in query_lower:
+        detected_filter = "server"
+    elif 'linux' in query_lower:
+        detected_filter = "linux"
+    
+    # Test EOL software/version detection
+    eol_patterns_regex = [
+        r'(ubuntu)\s+(\d+\.\d+)',
+        r'(windows)\s+(\d+)',
+        r'(centos)\s+(\d+)',
+        r'(java)\s+(\d+)',
+        r'(\w+)\s+(\d+\.\d+)'
+    ]
+    
+    for pattern in eol_patterns_regex:
+        match = re.search(pattern, query_lower)
+        if match:
+            detected_software = match.group(1)
+            detected_version = match.group(2)
+            break
+    
+    # Determine tool choice
+    tool_choice = "auto"
+    primary_tool = None
+    
+    if found_approaching_eol_keywords:
+        tool_choice = {"type": "function", "function": {"name": "find_approaching_eol"}}
+        primary_tool = "find_approaching_eol"
+    elif found_eol_keywords:
+        tool_choice = {"type": "function", "function": {"name": "check_software_eol"}}
+        primary_tool = "check_software_eol"
+    elif found_inventory_keywords:
+        tool_choice = {"type": "function", "function": {"name": "get_inventory"}}
+        primary_tool = "get_inventory"
+    
+    return {
+        'query': query,
+        'found_inventory_keywords': found_inventory_keywords,
+        'found_eol_keywords': found_eol_keywords,
+        'found_approaching_eol_keywords': found_approaching_eol_keywords,
+        'detected_filter': detected_filter,
+        'detected_software': detected_software,
+        'detected_version': detected_version,
+        'primary_tool': primary_tool,
+        'tool_choice': tool_choice,
+        'would_force_tool': primary_tool is not None
+    }
 
 
 @app.get('/health')
@@ -889,84 +896,82 @@ async def reload_alert_configuration():
     }
 
 
-@app.get("/api/cosmos/test")
+@app.get("/api/cosmos/test", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cosmos_connection_test", timeout_seconds=30)
 async def test_cosmos_connection():
-    """Test Cosmos DB connection for diagnostic purposes"""
-    try:
-        from utils.cosmos_cache import base_cosmos
-        
-        # Check if base client is initialized
-        if not base_cosmos.initialized:
-            logger.info("Base Cosmos client not initialized, attempting initialization...")
-            await base_cosmos._initialize_async()
-        
-        if not base_cosmos.initialized:
-            return {
-                "success": False,
-                "message": f"Cosmos DB initialization failed: {base_cosmos.last_error}",
-                "details": {
-                    "initialized": False,
-                    "last_error": base_cosmos.last_error,
-                    "cosmos_client": str(type(base_cosmos.cosmos_client)),
-                    "database": str(type(base_cosmos.database))
-                }
-            }
-        
-        # Try to create/get a test container
-        try:
-            test_container = base_cosmos.get_container(
-                container_id="test_connection",
-                partition_path="/test_key",
-                offer_throughput=400
-            )
-            
-            # Try a simple operation
-            test_result = test_container.read_item(
-                item="nonexistent",
-                partition_key="test"
-            )
-            
-        except Exception as container_error:
-            # This is expected for nonexistent item, but it proves connection works
-            if "NotFound" in str(container_error) or "404" in str(container_error):
-                return {
-                    "success": True,
-                    "message": "Cosmos DB connection successful",
-                    "details": {
-                        "initialized": True,
-                        "test_operation": "Container access successful",
-                        "note": "NotFound error for test item is expected"
-                    }
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Cosmos DB container operation failed: {str(container_error)}",
-                    "details": {
-                        "initialized": True,
-                        "container_error": str(container_error)
-                    }
-                }
-        
-        return {
-            "success": True,
-            "message": "Cosmos DB connection and operations successful",
-            "details": {
-                "initialized": True,
-                "test_operation": "Full test successful"
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error testing Cosmos DB connection: {e}")
+    """
+    Test Cosmos DB connection for diagnostic purposes.
+    
+    Performs a comprehensive test of Cosmos DB connectivity including initialization
+    check, container access, and basic read operations. Useful for troubleshooting
+    Cosmos DB connection issues.
+    
+    Returns:
+        StandardResponse with connection test results and detailed diagnostic information.
+    """
+    from utils.cosmos_cache import base_cosmos
+    
+    # Check if base client is initialized
+    if not base_cosmos.initialized:
+        logger.info("Base Cosmos client not initialized, attempting initialization...")
+        await base_cosmos._initialize_async()
+    
+    if not base_cosmos.initialized:
         return {
             "success": False,
-            "message": f"Cosmos DB test failed: {str(e)}",
+            "message": f"Cosmos DB initialization failed: {base_cosmos.last_error}",
             "details": {
-                "error_type": type(e).__name__,
-                "error_message": str(e)
+                "initialized": False,
+                "last_error": base_cosmos.last_error,
+                "cosmos_client": str(type(base_cosmos.cosmos_client)),
+                "database": str(type(base_cosmos.database))
             }
         }
+    
+    # Try to create/get a test container
+    try:
+        test_container = base_cosmos.get_container(
+            container_id="test_connection",
+            partition_path="/test_key",
+            offer_throughput=400
+        )
+        
+        # Try a simple operation
+        test_result = test_container.read_item(
+            item="nonexistent",
+            partition_key="test"
+        )
+        
+    except Exception as container_error:
+        # This is expected for nonexistent item, but it proves connection works
+        if "NotFound" in str(container_error) or "404" in str(container_error):
+            return {
+                "success": True,
+                "message": "Cosmos DB connection successful",
+                "details": {
+                    "initialized": True,
+                    "test_operation": "Container access successful",
+                    "note": "NotFound error for test item is expected"
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Cosmos DB container operation failed: {str(container_error)}",
+                "details": {
+                    "initialized": True,
+                    "container_error": str(container_error)
+                }
+            }
+    
+    return {
+        "success": True,
+        "message": "Cosmos DB connection and operations successful",
+        "details": {
+            "initialized": True,
+            "test_operation": "Full test successful"
+        }
+    }
 
 
 @app.get("/api/alerts/preview", response_model=StandardResponse)
@@ -2282,36 +2287,42 @@ async def cache_eol_result(request: CacheEOLRequest):
         }
 
 
-@app.post("/api/cache/cosmos/test")
+@app.post("/api/cache/cosmos/test", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cosmos_cache_test", timeout_seconds=20, require_cosmos=True)
 async def test_cosmos_cache(req: CachedEOLRequest):
-    """Test Cosmos DB cache retrieval for a specific request"""
-    from utils.cosmos_cache import base_cosmos
+    """
+    Test Cosmos DB cache retrieval for a specific request.
+    
+    Tests the EOL cache retrieval functionality by attempting to fetch cached
+    data for a specific software/version/agent combination. Useful for verifying
+    cache operations are working correctly.
+    
+    Args:
+        req: CachedEOLRequest containing software_name, version, and agent_name
+    
+    Returns:
+        StandardResponse with cache hit status and retrieved data if found.
+    """
     from utils.eol_cache import eol_cache
-    if not getattr(base_cosmos, 'initialized', False):
-        raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-
-    try:
-        cached_data = await eol_cache.get_cached_response(
-            req.software_name,
-            req.version,
-            req.agent_name
-        )
-        
-        if cached_data:
-            return {
-                "cache_hit": True,
-                "data": cached_data,
-                "message": "Data found in cache"
-            }
-        else:
-            return {
-                "cache_hit": False,
-                "data": None,
-                "message": "No cached data found"
-            }
-    except Exception as e:
-        logger.error("Error testing Cosmos cache: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error testing cache: {str(e)}")
+    
+    cached_data = await eol_cache.get_cached_response(
+        req.software_name,
+        req.version,
+        req.agent_name
+    )
+    
+    if cached_data:
+        return {
+            "cache_hit": True,
+            "data": cached_data,
+            "message": "Data found in cache"
+        }
+    else:
+        return {
+            "cache_hit": False,
+            "data": None,
+            "message": "No cached data found"
+        }
 
 
 @app.post("/api/inventory/reload", response_model=StandardResponse)
@@ -2454,173 +2465,174 @@ async def clear_inventory_cache():
 
 # New AutoGen multi-agent chat endpoint
 @app.post("/api/autogen-chat", response_model=AutoGenChatResponse)
+@with_timeout_and_stats(
+    agent_name="autogen_chat",
+    timeout_seconds=180,  # 3 minutes for complex multi-agent conversations
+    track_cache=False,  # Don't track cache stats for chat
+    auto_wrap_response=False  # Use custom AutoGenChatResponse model
+)
 async def autogen_chat(req: AutoGenChatRequest):
     """
-    AutoGen-powered multi-agent conversation endpoint
+    AutoGen-powered multi-agent conversation endpoint.
+    
     Enables transparent agent-to-agent communication for inventory and EOL analysis
+    using AutoGen's multi-agent orchestration. Supports confirmation workflows for
+    complex operations and provides full conversation transparency.
+    
+    Args:
+        req: AutoGenChatRequest with message, timeout, confirmation status
+    
+    Returns:
+        AutoGenChatResponse with full conversation history, agent communications,
+        and session information for transparency.
+    
+    Note:
+        This endpoint uses a custom response model (AutoGenChatResponse) rather than
+        StandardResponse to support detailed conversation tracking and agent transparency.
     """
-    try:
-        if not CHAT_AVAILABLE:
-            raise HTTPException(
-                status_code=503, 
-                detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
-            )
-        
-        # Get the chat orchestrator instance
-        chat_orch = get_chat_orchestrator()
-        if chat_orch is None:
-            raise HTTPException(
-                status_code=503, 
-                detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
-            )
-        
-        logger.info(f"🤖 AutoGen Chat Request: {req.message[:100]}... (timeout: {req.timeout_seconds}s)")
-        
-        # Start multi-agent conversation with confirmation support and timeout
-        # Use the minimum of the FastAPI timeout (3 minutes) and the requested timeout
-        effective_timeout = min(req.timeout_seconds, 170)  # Leave 10s buffer for FastAPI
-        
-        result = await asyncio.wait_for(
-            chat_orch.chat_with_confirmation(
-                req.message, 
-                confirmed=req.confirmed or False,
-                original_message=req.original_message,
-                timeout_seconds=req.timeout_seconds
-            ),
-            timeout=effective_timeout + 10  # Add buffer for FastAPI timeout
+    if not CHAT_AVAILABLE:
+        raise HTTPException(
+            status_code=503, 
+            detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
         )
+    
+    # Get the chat orchestrator instance
+    chat_orch = get_chat_orchestrator()
+    if chat_orch is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
+        )
+    
+    logger.info(f"🤖 AutoGen Chat Request: {req.message[:100]}... (timeout: {req.timeout_seconds}s)")
+    
+    # Start multi-agent conversation with confirmation support and timeout
+    # Use the minimum of the FastAPI timeout (3 minutes) and the requested timeout
+    effective_timeout = min(req.timeout_seconds, 170)  # Leave 10s buffer for FastAPI
+    
+    result = await asyncio.wait_for(
+        chat_orch.chat_with_confirmation(
+            req.message, 
+            confirmed=req.confirmed or False,
+            original_message=req.original_message,
+            timeout_seconds=req.timeout_seconds
+        ),
+        timeout=effective_timeout + 10  # Add buffer for FastAPI timeout
+    )
 
-        # Ensure all data is JSON serializable and limit size to prevent parsing issues
-        def clean_for_json(obj):
-            # logger.info("**************[Line 2496]Processing obj: %s", obj)
-        
-            """Clean data to ensure JSON serialization"""
-            if isinstance(obj, dict):
-                return {k: clean_for_json(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [clean_for_json(item) for item in obj]
-            elif isinstance(obj, str):
-                # Truncate very long strings to prevent JSON parsing issues
-                return obj[:10000] if len(obj) > 10000 else obj
-            else:
-                return str(obj) if obj is not None else None
-        
-        # Clean and limit the result data
-        cleaned_result = clean_for_json(result)
-        
-        # Return full conversation transparency with increased limits for inventory data
-        response = AutoGenChatResponse(
-            response=cleaned_result.get("response", "No response generated")[:100000],  # Increased limit for large inventories
-            conversation_messages=cleaned_result.get("conversation_messages", [])[:200],  # Increased message count
-            agent_communications=cleaned_result.get("agent_communications", [])[-100:],  # Last 100 communications
-            agents_involved=cleaned_result.get("agents_involved", [])[:20],  # Increased agent list
-            total_exchanges=cleaned_result.get("total_exchanges", 0),
-            session_id=cleaned_result.get("session_id", "unknown"),
-            error=cleaned_result.get("error"),
-            confirmation_required=cleaned_result.get("confirmation_required", False),
-            confirmation_declined=cleaned_result.get("confirmation_declined", False),
-            pending_message=cleaned_result.get("pending_message"),
-            fast_path=cleaned_result.get("fast_path", False)
-        )
-        
-        logger.info(f"✅ AutoGen Chat Complete - Agents: {response.agents_involved}, Exchanges: {response.total_exchanges}")
-        logger.info(f"[DEBUG] Agent communications count: {len(response.agent_communications)}")
-        logger.info(f"[DEBUG] Raw agents_involved from result: {cleaned_result.get('agents_involved', [])}")
-        if response.agent_communications:
-            logger.info(f"[DEBUG] First agent communication: {response.agent_communications[0]}")
-            # Debug: show agent_name field specifically
-            first_comm = response.agent_communications[0]
-            if isinstance(first_comm, dict) and 'agent_name' in first_comm:
-                logger.info(f"[DEBUG] First agent_name: {first_comm['agent_name']}")
-        return response
-        
-    except HTTPException:
-        raise
-    except asyncio.TimeoutError:
-        logger.error("AutoGen chat request timed out after 3 minutes")
-        return AutoGenChatResponse(
-            response="The request timed out after 3 minutes. For inventory-only requests, try using the direct inventory endpoints instead.",
-            conversation_messages=[],
-            agent_communications=[],
-            agents_involved=[],
-            total_exchanges=0,
-            session_id="timeout",
-            error="Request timed out after 180 seconds"
-        )
-    except Exception as e:
-        logger.error(f"AutoGen chat error: {str(e)}", exc_info=True)
-        
-        # Return error response with transparency
-        return AutoGenChatResponse(
-            response="I encountered an error processing your request. Please try again.",
-            conversation_messages=[],
-            agent_communications=[],
-            agents_involved=[],
-            total_exchanges=0,
-            session_id="error",
-            error=str(e)[:1000]  # Limit error message size
-        )
+    # Ensure all data is JSON serializable and limit size to prevent parsing issues
+    def clean_for_json(obj):
+        """Clean data to ensure JSON serialization"""
+        if isinstance(obj, dict):
+            return {k: clean_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [clean_for_json(item) for item in obj]
+        elif isinstance(obj, str):
+            # Truncate very long strings to prevent JSON parsing issues
+            return obj[:10000] if len(obj) > 10000 else obj
+        else:
+            return str(obj) if obj is not None else None
+    
+    # Clean and limit the result data
+    cleaned_result = clean_for_json(result)
+    
+    # Return full conversation transparency with increased limits for inventory data
+    response = AutoGenChatResponse(
+        response=cleaned_result.get("response", "No response generated")[:100000],  # Increased limit for large inventories
+        conversation_messages=cleaned_result.get("conversation_messages", [])[:200],  # Increased message count
+        agent_communications=cleaned_result.get("agent_communications", [])[-100:],  # Last 100 communications
+        agents_involved=cleaned_result.get("agents_involved", [])[:20],  # Increased agent list
+        total_exchanges=cleaned_result.get("total_exchanges", 0),
+        session_id=cleaned_result.get("session_id", "unknown"),
+        error=cleaned_result.get("error"),
+        confirmation_required=cleaned_result.get("confirmation_required", False),
+        confirmation_declined=cleaned_result.get("confirmation_declined", False),
+        pending_message=cleaned_result.get("pending_message"),
+        fast_path=cleaned_result.get("fast_path", False)
+    )
+    
+    logger.info(f"✅ AutoGen Chat Complete - Agents: {response.agents_involved}, Exchanges: {response.total_exchanges}")
+    logger.info(f"[DEBUG] Agent communications count: {len(response.agent_communications)}")
+    logger.info(f"[DEBUG] Raw agents_involved from result: {cleaned_result.get('agents_involved', [])}")
+    if response.agent_communications:
+        logger.info(f"[DEBUG] First agent communication: {response.agent_communications[0]}")
+        # Debug: show agent_name field specifically
+        first_comm = response.agent_communications[0]
+        if isinstance(first_comm, dict) and 'agent_name' in first_comm:
+            logger.info(f"[DEBUG] First agent_name: {first_comm['agent_name']}")
+    return response
 
 
 # Agent communications endpoint for UI
-@app.get("/api/agent-communications/{session_id}")
+@app.get("/api/agent-communications/{session_id}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="agent_communications", timeout_seconds=15)
 async def get_agent_communications(session_id: str):
-    """Get agent communication history for a specific session"""
-    try:
-        if not CHAT_AVAILABLE:
-            return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
-        
-        # Get the chat orchestrator instance
-        chat_orch = get_chat_orchestrator()
-        if chat_orch is None:
-            return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
-        
-        # Get ALL communications for debugging
-        all_communications = await chat_orch.get_agent_communications()
-        
-        # Filter communications by session_id
-        session_communications = [
-            comm for comm in all_communications 
-            if comm.get("session_id") == session_id
-        ]
-        
-        return {
-            "session_id": session_id,
-            "communications": session_communications,
-            "total_count": len(session_communications),
-            "all_communications_count": len(all_communications),
-            "debug_all_communications": all_communications[-5:] if all_communications else []  # Last 5 for debugging
-        }
-        
-    except Exception as e:
-        logger.error(f"Error retrieving agent communications: {str(e)}")
-        return {"error": str(e), "communications": []}
+    """
+    Get agent communication history for a specific session.
+    
+    Retrieves all agent-to-agent communications for a specific chat session,
+    useful for debugging AutoGen conversations and understanding agent interactions.
+    
+    Args:
+        session_id: Unique identifier for the chat session
+    
+    Returns:
+        StandardResponse with filtered communications for the session and debug info.
+    """
+    if not CHAT_AVAILABLE:
+        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    
+    # Get the chat orchestrator instance
+    chat_orch = get_chat_orchestrator()
+    if chat_orch is None:
+        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    
+    # Get ALL communications for debugging
+    all_communications = await chat_orch.get_agent_communications()
+    
+    # Filter communications by session_id
+    session_communications = [
+        comm for comm in all_communications 
+        if comm.get("session_id") == session_id
+    ]
+    
+    return {
+        "session_id": session_id,
+        "communications": session_communications,
+        "total_count": len(session_communications),
+        "all_communications_count": len(all_communications),
+        "debug_all_communications": all_communications[-5:] if all_communications else []  # Last 5 for debugging
+    }
 
 
 # Debug endpoint to check agent communications
-@app.get("/api/debug/agent-communications")
+@app.get("/api/debug/agent-communications", response_model=StandardResponse)
+@readonly_endpoint(agent_name="debug_agent_communications", timeout_seconds=15)
 async def debug_agent_communications():
-    """Debug endpoint to check all agent communications"""
-    try:
-        if not CHAT_AVAILABLE:
-            return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
-        
-        # Get the chat orchestrator instance
-        chat_orch = get_chat_orchestrator()
-        if chat_orch is None:
-            return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
-        
-        all_communications = await chat_orch.get_agent_communications()
-        
-        return {
-            "total_communications": len(all_communications),
-            "communications": all_communications,
-            "orchestrator_session_id": chat_orch.session_id if hasattr(chat_orch, 'session_id') else 'unknown'
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in debug agent communications: {str(e)}")
-        return {"error": str(e), "communications": []}
+    """
+    Debug endpoint to check all agent communications across all sessions.
+    
+    Returns complete history of agent-to-agent communications from AutoGen
+    chat orchestrator, useful for troubleshooting and monitoring agent interactions.
+    
+    Returns:
+        StandardResponse with all communications and orchestrator session info.
+    """
+    if not CHAT_AVAILABLE:
+        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    
+    # Get the chat orchestrator instance
+    chat_orch = get_chat_orchestrator()
+    if chat_orch is None:
+        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    
+    all_communications = await chat_orch.get_agent_communications()
+    
+    return {
+        "total_communications": len(all_communications),
+        "communications": all_communications,
+        "orchestrator_session_id": chat_orch.session_id if hasattr(chat_orch, 'session_id') else 'unknown'
+    }
 
 
 # Global cache for inventory context (5 minute TTL)
@@ -3130,9 +3142,22 @@ async def toggle_agent(request: AgentToggleRequest):
     }
 
 
-@app.get("/api/validate-cache")
+@app.get("/api/validate-cache", response_model=StandardResponse)
+@readonly_endpoint(agent_name="validate_cache", timeout_seconds=30)
 async def validate_cache_system():
-    """Remote validation endpoint for cache system functionality"""
+    """
+    Comprehensive validation of cache system functionality.
+    
+    Performs thorough validation including:
+    - Dependency availability (requests, aiohttp, azure.cosmos, etc.)
+    - Cache module status (base_cosmos, eol_cache, inventory_cache)
+    - Agent functionality and cache support
+    - Environment variable configuration
+    - Overall system health scoring
+    
+    Returns:
+        StandardResponse with detailed validation results and component health scores.
+    """
     import sys
     import os
     from datetime import datetime
