@@ -29,8 +29,8 @@ from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import logging
 
-from utils.logger import logger
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     standard_endpoint,
@@ -38,6 +38,8 @@ from utils.endpoint_decorators import (
     readonly_endpoint,
     with_timeout_and_stats
 )
+
+logger = logging.getLogger(__name__)
 
 # Import main module dependencies
 import sys

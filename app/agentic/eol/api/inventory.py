@@ -28,9 +28,9 @@ Date: October 2025
 
 from typing import Optional
 from fastapi import APIRouter, HTTPException
+import logging
 
 from utils.config import config
-from utils.logger import logger
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
@@ -38,6 +38,8 @@ from utils.endpoint_decorators import (
     write_endpoint,
     standard_endpoint
 )
+
+logger = logging.getLogger(__name__)
 
 # Import main module dependencies
 import sys
