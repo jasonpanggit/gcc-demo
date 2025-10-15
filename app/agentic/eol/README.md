@@ -616,7 +616,84 @@ The `cache_stats_manager` provides comprehensive tracking:
 - `GET /api/health/detailed` - Detailed health check with dependencies
 - `GET /api/agents/status` - Agent health and availability
 
-## 🤝 Contributing
+## � Testing
+
+The application includes a comprehensive pytest-based test suite with **63 tests** covering all 72 endpoints.
+
+### Quick Start
+
+```bash
+# Run all tests
+python3 tests/run_comprehensive_tests.py
+
+# Run specific category
+python3 tests/run_comprehensive_tests.py --category cache
+
+# Run with coverage
+python3 tests/run_comprehensive_tests.py --coverage
+
+# Quick smoke test
+python3 tests/run_comprehensive_tests.py --quick
+```
+
+### Test Suite Coverage
+
+| Category | Tests | Coverage |
+|----------|-------|----------|
+| Health & Status | 5 | All health and monitoring endpoints |
+| Inventory | 8 | Software & OS inventory operations |
+| EOL Search | 4 | EOL analysis and search functionality |
+| Cache Management | 15 | All cache operations and statistics |
+| Alerts | 6 | Alert configuration and SMTP testing |
+| Agent Management | 5 | Agent status and control |
+| Cosmos DB | 7 | Database operations and caching |
+| Communications | 6 | Email and notification systems |
+| UI Routes | 7 | HTML page rendering |
+
+**Total: 63 tests covering 72 endpoints (57 API + 15 UI)**
+
+### Test Features
+
+- ✅ **Mock Data**: 500+ software items, 50 OS entries - no Azure dependencies required
+- ✅ **Async Testing**: Full async/await support with pytest-asyncio
+- ✅ **StandardResponse Validation**: All API tests verify response format compliance
+- ✅ **Category Organization**: Tests grouped by functional area
+- ✅ **Selective Execution**: Run by category, marker, or individual test
+- ✅ **Coverage Reports**: HTML and terminal coverage analysis
+- ✅ **Detailed Reporting**: Pass/fail status with timing and error details
+
+### Using pytest directly
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_cache_endpoints.py -v
+
+# Run tests with specific marker
+pytest -m cache -v
+
+# Run with coverage
+pytest tests/ --cov=. --cov-report=html
+```
+
+### Available Test Markers
+
+- `@pytest.mark.api` - API endpoint tests
+- `@pytest.mark.ui` - UI/HTML route tests
+- `@pytest.mark.cache` - Cache functionality tests
+- `@pytest.mark.eol` - EOL analysis tests
+- `@pytest.mark.inventory` - Inventory tests
+- `@pytest.mark.alerts` - Alert management tests
+
+### Test Documentation
+
+For detailed test information, see:
+- **[tests/README.md](tests/README.md)** - Complete test suite documentation
+- **[tests/TEST_RESULTS_SUMMARY.md](tests/TEST_RESULTS_SUMMARY.md)** - Test results and analysis
+
+## �🤝 Contributing
 
 ### Development Setup
 

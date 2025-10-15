@@ -1,67 +1,162 @@
-# Local Testing with Mock Data
+# Comprehensive Test Suite
 
-This directory contains a complete mock testing environment that allows you to test the EOL application **without any Azure dependencies**. Perfect for local development, CI/CD, and validation of refactored code.
+This directory contains a comprehensive pytest-based test suite for the EOL Multi-Agent App with **63 tests** covering all API endpoints and UI routes. Tests use mock data to run **without any Azure dependencies**.
 
-## 📁 Files
+## 📁 Test Infrastructure
 
 | File | Purpose |
 |------|---------|
-| `mock_data.py` | Generates realistic mock data matching Azure Log Analytics formats |
-| `mock_agents.py` | Mock versions of inventory agents that return generated data |
-| `test_config.py` | Configuration for test mode and mock data parameters |
-| `run_tests.py` | Automated test runner for all API endpoints |
+| `conftest.py` | Pytest configuration, fixtures (AsyncClient, mock data) |
+| `run_comprehensive_tests.py` | Intelligent test runner with category execution |
+| `mock_data.py` | Generates realistic mock data (500+ software items, 50 OS) |
+| `mock_agents.py` | Mock inventory agents for testing |
+| `test_*.py` | 9 test modules covering all endpoint categories |
+| `TEST_RESULTS_SUMMARY.md` | Detailed test results and analysis |
+
+## 🧪 Test Modules (63 tests)
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| `test_health_endpoints.py` | 5 | Health & status endpoints |
+| `test_inventory_endpoints.py` | 8 | Software & OS inventory |
+| `test_eol_search_endpoints.py` | 4 | EOL date search & analysis |
+| `test_cache_endpoints.py` | 15 | Cache management operations |
+| `test_alert_endpoints.py` | 6 | Alert configuration |
+| `test_agent_endpoints.py` | 5 | Agent management |
+| `test_cosmos_endpoints.py` | 7 | Cosmos DB operations |
+| `test_communication_endpoints.py` | 6 | Email & notifications |
+| `test_ui_endpoints.py` | 7 | HTML page rendering |
 
 ## 🚀 Quick Start
 
-### Option 1: Run Automated Tests
+### Run All Tests
 
 ```bash
 # From the eol directory
 cd app/agentic/eol
 
-# Run all API tests with mock data
-python -m tests.run_tests
+# Test local server with mock data (default)
+python3 tests/run_comprehensive_tests.py
+
+# Test remote Azure server with live data
+python3 tests/run_comprehensive_tests.py --remote
+
+# Or using environment variable
+USE_MOCK_DATA=false python3 tests/run_comprehensive_tests.py
+
+# Test with custom URL
+python3 tests/run_comprehensive_tests.py --url http://localhost:5000
 ```
 
-Expected output:
+Expected output (Local/Mock):
 ```
-🧪 API TEST SUITE - Mock Data Mode
-====================================================================================================
-Test Config: 25 computers, Mock Mode: True
-Started: 2025-10-15T10:30:00.000000
-----------------------------------------------------------------------------------------------------
-Status | Test Name                                | Time     | Details
-----------------------------------------------------------------------------------------------------
-✅ PASS | GET /api/health                          |  0.103s | All agents healthy
-✅ PASS | GET /api/inventory (software)            |  0.156s | 312 items
-✅ PASS | GET /api/inventory?filter=Python         |  0.142s | 18 items
-✅ PASS | GET /api/inventory/summary               |  0.187s | 87 software, 25 computers
-✅ PASS | GET /api/inventory/raw/os                |  0.124s | 25 items
-✅ PASS | GET /api/inventory/os/summary            |  0.139s | 25 computers (Win: 15, Linux: 10)
-✅ PASS | POST /api/cache/clear                    |  0.098s | Software & OS caches cleared
-----------------------------------------------------------------------------------------------------
+================================================================================
+EOL MULTI-AGENT APP - COMPREHENSIVE TEST SUITE
+================================================================================
+Start Time: 2025-10-15T07:54:23.580165
+Test Mode: LOCAL (Mock Data)
+Base URL: http://localhost:8000
+Mock Data: ENABLED
+--------------------------------------------------------------------------------
 
-📊 TEST SUMMARY
-  Total Tests: 7
-  ✅ Passed: 7
-  ❌ Failed: 0
-  ⏱️  Total Duration: 0.949s
-  📅 Completed: 2025-10-15T10:30:00.949000
+📋 Testing: Health & Status Endpoints
+   Module: test_health_endpoints.py
+   ------------------------------------------------------------
+   ✅ test_root_endpoint
+   ✅ test_health_endpoint
+   ✅ test_api_health_endpoint
+   ✅ test_api_status_endpoint
+   ✅ test_api_info_endpoint
 
-🎉 All tests passed!
+📋 Testing: Cache Management Endpoints
+   Module: test_cache_endpoints.py
+   ------------------------------------------------------------
+   ✅ test_get_cache_status
+   ✅ test_clear_cache
+   ...
+
+================================================================================
+TEST SUMMARY
+================================================================================
+✅ Health & Status Endpoints: PASSED
+✅ Inventory Endpoints: PASSED
+✅ Cache Management Endpoints: PASSED
+...
+--------------------------------------------------------------------------------
+Total Categories: 9
+Passed: 9
+Failed: 0
+Success Rate: 100.0%
+End Time: 2025-10-15T07:54:31.924670
+================================================================================
 ```
 
-### Option 2: Interactive Testing
+### Run Specific Category
 
 ```bash
-# Test mock data generation
-python -m tests.mock_data
+# Test only cache endpoints (local)
+python3 tests/run_comprehensive_tests.py --category cache
 
-# Test mock agents
-python -m tests.mock_agents
+# Test only inventory endpoints (remote Azure server)
+python3 tests/run_comprehensive_tests.py --category inventory --remote
 
-# Check test configuration
-python -m tests.test_config
+# Quick smoke test (health endpoints only)
+python3 tests/run_comprehensive_tests.py --quick
+```
+
+### Test Modes
+
+The test suite supports two modes:
+
+**1. Local Mode (Mock Data)** - Default
+- Base URL: `http://localhost:8000`
+- Uses mock data (500+ software items, 50 OS entries)
+- No Azure dependencies required
+- Fast execution
+- Perfect for development and CI/CD
+
+**2. Remote Mode (Live Data)**
+- Base URL: `https://app-eol-agentic-gcc-demo.azurewebsites.net`
+- Tests against live Azure App Service
+- Uses real Azure data
+- Validates production deployment
+- Requires network access
+
+```bash
+# Enable remote mode
+python3 tests/run_comprehensive_tests.py --remote
+
+# Or via environment variable
+USE_MOCK_DATA=false python3 tests/run_comprehensive_tests.py
+
+# Custom URL (e.g., staging environment)
+BASE_URL=https://staging.example.com python3 tests/run_comprehensive_tests.py
+```
+
+### Run with Coverage
+
+```bash
+# Generate coverage report
+python3 tests/run_comprehensive_tests.py --coverage
+
+# View coverage report
+open htmlcov/index.html
+```
+
+### Using pytest directly
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_cache_endpoints.py -v
+
+# Run tests with specific marker
+pytest -m cache -v
+
+# Run with coverage
+pytest tests/ --cov=. --cov-report=html
 ```
 
 ## 🔧 Configuration
@@ -71,8 +166,9 @@ python -m tests.test_config
 Set these before running tests to customize behavior:
 
 ```bash
-# Enable/disable mock mode
+# Enable mock mode (required for tests)
 export USE_MOCK_DATA=true
+export TESTING=true
 
 # Number of mock computers to generate
 export MOCK_NUM_COMPUTERS=50
@@ -83,33 +179,38 @@ export MOCK_WINDOWS_RATIO=0.6
 # Software per computer range
 export MOCK_SOFTWARE_MIN=5
 export MOCK_SOFTWARE_MAX=20
-
-# Test cache settings
-export TEST_CACHE_ENABLED=false
-export TEST_CACHE_TTL=300
-
-# Logging level
-export TEST_LOG_LEVEL=INFO
-
-# Random seed for reproducible data
-export MOCK_DATA_SEED=42
 ```
 
-### Programmatic Configuration
+## 🔍 Test Markers
 
-```python
-from tests.test_config import enable_mock_mode, disable_mock_mode
+Tests are tagged with markers for selective execution:
 
-# Enable mock mode with custom settings
-enable_mock_mode(
-    num_computers=100,
-    windows_ratio=0.7,
-    cache_enabled=True
-)
+```bash
+# Run only API tests
+pytest -m api
 
-# Disable mock mode (use real Azure data)
-disable_mock_mode()
+# Run only UI tests
+pytest -m ui
+
+# Run only cache-related tests
+pytest -m cache
+
+# Run only fast tests (exclude slow)
+pytest -m "not slow"
+
+# Combine markers
+pytest -m "api and cache"
 ```
+
+Available markers:
+- `@pytest.mark.api` - API endpoint tests
+- `@pytest.mark.ui` - UI/HTML route tests
+- `@pytest.mark.integration` - Integration tests
+- `@pytest.mark.cache` - Cache functionality tests
+- `@pytest.mark.eol` - EOL analysis tests
+- `@pytest.mark.inventory` - Inventory tests
+- `@pytest.mark.alerts` - Alert management tests
+- `@pytest.mark.slow` - Tests taking >1 second
 
 ## 📊 Mock Data Details
 
