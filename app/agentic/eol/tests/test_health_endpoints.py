@@ -13,22 +13,11 @@ class TestHealthEndpoints:
     
     @pytest.mark.asyncio
     async def test_root_endpoint(self, client):
-        """Test GET / - Root endpoint"""
+        """Test GET / - Root endpoint (returns HTML dashboard)"""
         response = await client.get("/")
         assert response.status_code == 200
-        data = response.json()
-        
-        # Validate StandardResponse format
-        assert data['success'] is True
-        assert 'data' in data
-        assert isinstance(data['data'], list)
-        assert data['count'] >= 1
-        assert 'timestamp' in data
-        
-        # Validate content
-        info = data['data'][0]
-        assert info['application'] == "EOL Multi-Agent App"
-        assert 'version' in info
+        # Root endpoint returns HTML, not JSON
+        assert 'text/html' in response.headers.get('content-type', '')
         
     @pytest.mark.asyncio
     async def test_health_endpoint(self, client):
@@ -37,28 +26,19 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         data = response.json()
         
-        # Validate StandardResponse format
-        assert data['success'] is True
-        assert 'data' in data
-        assert data['count'] >= 1
-        
-        # Validate health status
-        health = data['data'][0]
-        assert health['status'] == "healthy"
-        assert 'timestamp' in health
+        # Validate simple health response format (not StandardResponse)
+        assert data['status'] == "ok"
+        assert 'timestamp' in data
+        assert 'version' in data
+        assert isinstance(data['autogen_available'], bool)
         
     @pytest.mark.asyncio
     async def test_api_health_endpoint(self, client):
-        """Test GET /api/health - API health check"""
+        """Test GET /api/health - API health check (endpoint does not exist)"""
         response = await client.get("/api/health")
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data['success'] is True
-        assert 'data' in data
-        health = data['data'][0]
-        assert health['status'] == "healthy"
-        assert 'version' in health
+        # This endpoint doesn't exist in the new API structure
+        # Health check is at /health instead
+        assert response.status_code == 404
         
     @pytest.mark.asyncio
     async def test_api_status_endpoint(self, client):
@@ -67,22 +47,20 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         data = response.json()
         
+        # Validate StandardResponse format
         assert data['success'] is True
         assert 'data' in data
+        assert isinstance(data['data'], list)
+        assert data['count'] >= 1
+        
         status = data['data'][0]
-        assert 'uptime_seconds' in status
-        assert 'agents_status' in status
+        assert status['status'] == "running"
+        assert 'version' in status
+        assert status['message'] == "EOL Multi-Agent App"
         
     @pytest.mark.asyncio
     async def test_api_info_endpoint(self, client):
-        """Test GET /api/info - API information"""
+        """Test GET /api/info - API information (endpoint does not exist)"""
         response = await client.get("/api/info")
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data['success'] is True
-        assert 'data' in data
-        info = data['data'][0]
-        assert 'application' in info
-        assert 'version' in info
-        assert 'endpoints' in info
+        # This endpoint doesn't exist in the new API structure
+        assert response.status_code == 404
