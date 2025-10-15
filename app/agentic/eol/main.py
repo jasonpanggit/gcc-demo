@@ -43,6 +43,7 @@ from api.cache import router as cache_router
 from api.inventory import router as inventory_router
 from api.eol import router as eol_router
 from api.alerts import router as alerts_router
+from api.agents import router as agents_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -60,6 +61,7 @@ app.include_router(cache_router)
 app.include_router(inventory_router)
 app.include_router(eol_router)
 app.include_router(alerts_router)
+app.include_router(agents_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -720,9 +722,9 @@ async def get_raw_os_inventory_OLD(days: int = 90, limit: int = 2000, force_refr
     return result
 
 
-@app.get("/api/agents/status", response_model=StandardResponse)
-@readonly_endpoint(agent_name="agents_status", timeout_seconds=20)
-async def agents_status():
+# @app.get("/api/agents/status", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="agents_status", timeout_seconds=20)
+async def agents_status_OLD():
     """
     Get readiness/health of all registered agents.
     
@@ -734,6 +736,12 @@ async def agents_status():
     """
     return await get_eol_orchestrator().get_agents_status()
 
+
+# AGENT MANAGEMENT ENDPOINTS - Moved to api/agents.py
+# 
+# /api/agents/* endpoints are now handled by agents_router
+
+# Note: /api/agents/status is kept above for now as it's already extracted
 
 # EOL SEARCH ENDPOINTS - Moved to api/eol.py
 # 
@@ -3048,9 +3056,9 @@ class AgentToggleRequest(BaseModel):
     active: bool
 
 
-@app.get("/api/agents/list", response_model=StandardResponse)
-@readonly_endpoint(agent_name="list_agents", timeout_seconds=20)
-async def list_agents():
+# @app.get("/api/agents/list", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="list_agents", timeout_seconds=20)
+async def list_agents_OLD():
     """
     Get list of all agents with their statistics and URLs.
     
@@ -3142,9 +3150,9 @@ async def list_agents():
     }
 
 
-@app.post("/api/agents/add-url", response_model=StandardResponse)
-@write_endpoint(agent_name="add_agent_url", timeout_seconds=30)
-async def add_agent_url(request: AgentUrlRequest):
+# @app.post("/api/agents/add-url", response_model=StandardResponse)
+# @write_endpoint(agent_name="add_agent_url", timeout_seconds=30)
+async def add_agent_url_OLD(request: AgentUrlRequest):
     """
     Add URL to an agent's configuration.
     
@@ -3192,9 +3200,9 @@ async def add_agent_url(request: AgentUrlRequest):
         }
 
 
-@app.post("/api/agents/remove-url", response_model=StandardResponse)
-@write_endpoint(agent_name="remove_agent_url", timeout_seconds=30)
-async def remove_agent_url(request: AgentUrlRequest):
+# @app.post("/api/agents/remove-url", response_model=StandardResponse)
+# @write_endpoint(agent_name="remove_agent_url", timeout_seconds=30)
+async def remove_agent_url_OLD(request: AgentUrlRequest):
     """
     Remove URL from an agent's configuration.
     
@@ -3240,9 +3248,9 @@ async def remove_agent_url(request: AgentUrlRequest):
         }
 
 
-@app.post("/api/agents/toggle", response_model=StandardResponse)
-@write_endpoint(agent_name="toggle_agent", timeout_seconds=30)
-async def toggle_agent(request: AgentToggleRequest):
+# @app.post("/api/agents/toggle", response_model=StandardResponse)
+# @write_endpoint(agent_name="toggle_agent", timeout_seconds=30)
+async def toggle_agent_OLD(request: AgentToggleRequest):
     """
     Toggle agent active/inactive status.
     

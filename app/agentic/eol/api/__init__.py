@@ -10,6 +10,7 @@ Modules:
     inventory: Software and OS inventory endpoints
     eol: End-of-Life search and management endpoints
     alerts: Alert configuration and email notification endpoints
+    agents: Agent configuration and management endpoints
 """
 
-__all__ = ["health", "cache", "inventory", "eol", "alerts"]
+__all__ = ["health", "cache", "inventory", "eol", "alerts", "agents"]
