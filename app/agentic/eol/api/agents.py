@@ -102,7 +102,7 @@ async def agents_status():
     return await _get_eol_orchestrator().get_agents_status()
 
 
-@router.get("/api/agents/list", response_model=StandardResponse)
+@router.get("/api/agents/list")
 @readonly_endpoint(agent_name="list_agents", timeout_seconds=20)
 async def list_agents():
     """
@@ -141,83 +141,113 @@ async def list_agents():
             }
         }
     """
-    orchestrator = _get_eol_orchestrator()
-    agents_data = {}
-    
-    # Get agent statistics and configuration
-    for agent_name, agent in orchestrator.agents.items():
-        # Get basic statistics
-        stats = {
-            "usage_count": getattr(agent, 'usage_count', 0),
-            "average_confidence": getattr(agent, 'average_confidence', 0.0),
-            "last_used": getattr(agent, 'last_used', None)
-        }
+    try:
+        orchestrator = _get_eol_orchestrator()
         
-        # Get agent URLs - try multiple methods
-        urls = []
+        # Handle case where orchestrator is not initialized
+        if orchestrator is None:
+            logger.warning("EOL orchestrator is not initialized")
+            return {
+                "success": True,
+                "data": {"agents": {}},
+                "count": 0
+            }
         
-        # Method 1: Use get_urls() method if available (for some EOL agents)
-        if hasattr(agent, 'get_urls') and callable(getattr(agent, 'get_urls')):
+        agents_data = {}
+        
+        # Get agent statistics and configuration
+        for agent_name, agent in orchestrator.agents.items():
             try:
-                urls = agent.get_urls()
-            except Exception as e:
-                logger.debug(f"Error calling get_urls() for {agent_name}: {e}")
-        
-        # Method 2: Use urls property if available (for most EOL agents)
-        elif hasattr(agent, 'urls') and agent.urls:
-            try:
-                urls_data = agent.urls
-                # If it's already a list of dictionaries, use it directly
-                if isinstance(urls_data, list):
-                    urls = urls_data
-                else:
-                    urls = [urls_data]  # Wrap single URL in list
-            except Exception as e:
-                logger.debug(f"Error accessing urls property for {agent_name}: {e}")
-        
-        # Method 3: Check for eol_urls dictionary (fallback)
-        elif hasattr(agent, 'eol_urls') and agent.eol_urls:
-            try:
-                # Convert eol_urls dictionary to URL list with metadata
+                # NOTE: Statistics are tracked separately in cache stats system
+                # This API only provides agent configuration (URLs, type, status)
+                # Frontend merges this with real-time stats from /api/cache/stats/enhanced
+                stats = {
+                    "usage_count": 0,  # Placeholder - real stats come from cache
+                    "average_confidence": 0.0,  # Placeholder - real stats come from cache
+                    "last_used": None  # Placeholder - real stats come from cache
+                }
+                
+                # Get agent URLs - try multiple methods
                 urls = []
-                for key, url_data in agent.eol_urls.items():
-                    if isinstance(url_data, dict) and 'url' in url_data:
-                        urls.append({
-                            'url': url_data['url'],
-                            'description': url_data.get('description', f'{key.title()} EOL Information'),
-                            'active': url_data.get('active', True),
-                            'priority': url_data.get('priority', 1)
-                        })
-                    elif isinstance(url_data, str):
-                        urls.append({
-                            'url': url_data,
-                            'description': f'{key.title()} EOL Information',
-                            'active': True,
-                            'priority': 1
-                        })
+                
+                # Method 1: Use get_urls() method if available (for some EOL agents)
+                if hasattr(agent, 'get_urls') and callable(getattr(agent, 'get_urls')):
+                    try:
+                        urls = agent.get_urls()
+                    except Exception as e:
+                        logger.debug(f"Error calling get_urls() for {agent_name}: {e}")
+                
+                # Method 2: Use urls property if available (for most EOL agents)
+                elif hasattr(agent, 'urls') and agent.urls:
+                    try:
+                        urls_data = agent.urls
+                        # If it's already a list of dictionaries, use it directly
+                        if isinstance(urls_data, list):
+                            urls = urls_data
+                        else:
+                            urls = [urls_data]  # Wrap single URL in list
+                    except Exception as e:
+                        logger.debug(f"Error accessing urls property for {agent_name}: {e}")
+                
+                # Method 3: Check for eol_urls dictionary (fallback)
+                elif hasattr(agent, 'eol_urls') and agent.eol_urls:
+                    try:
+                        # Convert eol_urls dictionary to URL list with metadata
+                        urls = []
+                        for key, url_data in agent.eol_urls.items():
+                            if isinstance(url_data, dict) and 'url' in url_data:
+                                urls.append({
+                                    'url': url_data['url'],
+                                    'description': url_data.get('description', f'{key.title()} EOL Information'),
+                                    'active': url_data.get('active', True),
+                                    'priority': url_data.get('priority', 1)
+                                })
+                            elif isinstance(url_data, str):
+                                urls.append({
+                                    'url': url_data,
+                                    'description': f'{key.title()} EOL Information',
+                                    'active': True,
+                                    'priority': 1
+                                })
+                    except Exception as e:
+                        logger.debug(f"Error extracting eol_urls for {agent_name}: {e}")
+                
+                # Method 4: Legacy fallbacks
+                elif hasattr(agent, 'base_url') and agent.base_url:
+                    urls = [{'url': agent.base_url, 'description': 'Base URL', 'active': True, 'priority': 1}]
+                elif hasattr(agent, 'api_url') and agent.api_url:
+                    urls = [{'url': agent.api_url, 'description': 'API URL', 'active': True, 'priority': 1}]
+                
+                # Get agent status
+                active = getattr(agent, 'active', True)
+                
+                agents_data[agent_name] = {
+                    "statistics": stats,
+                    "urls": urls,
+                    "active": active,
+                    "type": type(agent).__name__
+                }
             except Exception as e:
-                logger.debug(f"Error extracting eol_urls for {agent_name}: {e}")
+                logger.error(f"Error processing agent {agent_name}: {e}")
+                # Continue processing other agents
+                continue
         
-        # Method 4: Legacy fallbacks
-        elif hasattr(agent, 'base_url') and agent.base_url:
-            urls = [{'url': agent.base_url, 'description': 'Base URL', 'active': True, 'priority': 1}]
-        elif hasattr(agent, 'api_url') and agent.api_url:
-            urls = [{'url': agent.api_url, 'description': 'API URL', 'active': True, 'priority': 1}]
-        
-        # Get agent status
-        active = getattr(agent, 'active', True)
-        
-        agents_data[agent_name] = {
-            "statistics": stats,
-            "urls": urls,
-            "active": active,
-            "type": type(agent).__name__
+        return {
+            "success": True,
+            "data": {"agents": agents_data},
+            "count": len(agents_data)
         }
-    
-    return {
-        "success": True,
-        "agents": agents_data
-    }
+                
+    except Exception as e:
+        logger.error(f"Error in list_agents endpoint: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            "success": False,
+            "data": {"agents": {}},
+            "count": 0,
+            "error": str(e)
+        }
 
 
 # ============================================================================

@@ -665,19 +665,19 @@ Legacy format handling has been removed as all agents now use the standardized f
                                     <i class="fas fa-bolt me-2"></i>Quick Examples:
                                 </h6>
                                 <div class="d-flex flex-wrap gap-2">
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('Windows Server', '2016')">Windows Server 2016</button>
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('Ubuntu', '18.04')">Ubuntu 18.04</button>
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('.NET Framework', '4.7')">.NET Framework 4.7</button>
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('Red Hat Enterprise Linux', '7')">Red Hat Enterprise Linux
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software="Windows Server" data-version="2016">Windows Server 2016</button>
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software="Ubuntu" data-version="18.04">Ubuntu 18.04</button>
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software=".NET Framework" data-version="4.7">.NET Framework 4.7</button>
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software="Red Hat Enterprise Linux" data-version="7">Red Hat Enterprise Linux
                                         7</button>
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('CentOS', '7')">CentOS 7</button>
-                                    <button class="btn btn-sm btn-outline-primary"
-                                        onclick="quickSearch('Java', '8')">Java 8</button>
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software="CentOS" data-version="7">CentOS 7</button>
+                                    <button class="btn btn-sm btn-outline-primary quick-search-btn"
+                                        data-software="Java" data-version="8">Java 8</button>
                                 </div>
                             </div>
                         </div>
@@ -1223,7 +1223,7 @@ Legacy format handling has been removed as all agents now use the standardized f
         // ===================================================================
         // NOTE: cleanSoftwareName, parseVersionFromName, isCommonSoftwareWord,
         //       getSelectedAgents are now provided by eol-utils.js
-        //       Loaded via: <script src="/static/js/eol-utils.js"></script>
+        //       Loaded via: <script src="/static/js/eol-utils.js"><\/script>
         // ===================================================================
 
         // Software EOL Search Functions
@@ -1300,6 +1300,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             }
         }
 
+        // Quick search function - populates form and triggers search
         function quickSearch(software, version) {
             $('#softwareSearchName').val(software);
             $('#softwareSearchVersion').val(version);
@@ -1308,7 +1309,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
         // ===================================================================
         // NOTE: calculateSearchConfidence is now provided by eol-utils.js
-        //       Loaded via: <script src="/static/js/eol-utils.js"></script>
+        //       Loaded via: <script src="/static/js/eol-utils.js"><\/script>
         // ===================================================================
 
         function searchSoftwareEOL() {
@@ -1397,8 +1398,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                 searchData.software_version = softwareVersion;
             }
 
-            // Add search optimization hints
-            searchData.search_hints = {
+            // Store search optimization hints for display (not sent to API)
+            const clientSearchHints = {
                 original_name: rawName,
                 cleaned_name: softwareName,
                 extracted_version: parsedInfo.version,
@@ -1407,11 +1408,11 @@ Legacy format handling has been removed as all agents now use the standardized f
             };
 
             // Two-stage search strategy: try name only first, then name + version
-            performTwoStageSearch(softwareName, softwareVersion, searchData, rawName);
+            performTwoStageSearch(softwareName, softwareVersion, searchData, rawName, clientSearchHints);
         }
 
         // Two-stage search function: try name + version first (if available), then name only
-        async function performTwoStageSearch(softwareName, softwareVersion, baseSearchData, rawName) {
+        async function performTwoStageSearch(softwareName, softwareVersion, baseSearchData, rawName, clientSearchHints) {
             const button = $('#searchButton');
 
             try {
@@ -1503,7 +1504,11 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // const processedResult = processSearchResponse(data, stage, searchData);
 
                 // Check if we have valid EOL data
-                const hasValidData = hasValidEOLData(data.result)
+                // API returns: {result: {success: true, data: {...}}, session_id, communications, ...}
+                // We need to check data.result.data for the actual EOL information
+                const orchestratorResult = data.result || {};
+                const actualEOLData = orchestratorResult.data || orchestratorResult;
+                const hasValidData = hasValidEOLData(actualEOLData);
 
                 if (hasValidData) {
                     logSearchStageSuccess(stage, type);
@@ -1533,18 +1538,13 @@ Legacy format handling has been removed as all agents now use the standardized f
 
         // Create search data for a specific search type
         function createSearchData(softwareName, softwareVersion, baseSearchData, searchType) {
+            // Only include fields that the API expects
             const searchData = {
-                software_name: softwareName,
-                search_hints: {
-                    ...baseSearchData.search_hints,
-                    search_strategy: searchType
-                }
+                software_name: softwareName
             };
 
             if (searchType === 'name_and_version' && softwareVersion) {
                 searchData.software_version = softwareVersion;
-            } else if (searchType === 'name_only') {
-                searchData.search_hints.confidence_level = calculateSearchConfidence(softwareName, '');
             }
 
             // Add search_internet_only flag if checkbox is checked
@@ -1846,24 +1846,22 @@ Legacy format handling has been removed as all agents now use the standardized f
             }
 
             // Handle different response formats
+            // API response structure: {result: {success: true, data: {...actual EOL data...}, agent_used: "..."}, session_id, communications, ...}
             let result;
             if (raw.success && raw.data.result) {
-                // New standardized format: { success: true, data: {...}, source: "agent_name" }
-                result = raw.data.result;
-                console.log('Using standardized format - raw.data.result:', result);
-            }
-            // else if (data.result && data.result.software_name) {
-            //     // Current format: { result: {...}, session_id: "...", agent_communications: [...] }
-            //     result = data.result;
-            //     console.log('Using current format - data.result:', result);
-            // } else if (data.result) {
-            //     // Legacy format - try result field anyway
-            //     result = data.result;
-            //     console.log('Using legacy format - data.result:', result);
-            // } 
-            else {
+                const orchestratorResult = raw.data.result;
+                // Extract the actual EOL data from orchestrator's nested structure
+                if (orchestratorResult.success && orchestratorResult.data) {
+                    result = orchestratorResult.data;
+                    console.log('Using orchestrator format - raw.data.result.data:', result);
+                } else {
+                    // Fallback: use orchestratorResult directly in case of different structure
+                    result = orchestratorResult;
+                    console.log('Using orchestrator result directly:', result);
+                }
+            } else {
                 // No valid data found
-                //console.log('No valid data found - raw.success:', raw.success, 'raw.data:', raw.data, 'raw.data.result:', raw.data.result);
+                console.log('No valid data found - raw.success:', raw.success, 'raw.data:', raw.data, 'raw.data.result:', raw.data ? raw.data.result : 'no data');
                 $('#searchResult').html(`
                 <div class="alert alert-warning">
                     <h6><i class="fas fa-exclamation-triangle"></i> No Data Found</h6>
@@ -1875,27 +1873,27 @@ Legacy format handling has been removed as all agents now use the standardized f
             `);
                 return;
             }
-            // Extract agent source information based on BaseEOLAgent response structure
-            // BaseEOLAgent returns: { success: true, source: "agent_name", data: { agent_used: "agent_name", ... } }
+            // Extract agent source information based on orchestrator response structure
+            // Orchestrator returns: { success: true, data: {...}, agent_used: "agent_name", ... }
+            // The agent_used is at the orchestrator level, not inside data
             let agentSource = 'unknown';
 
-            // Priority order based on actual BaseEOLAgent implementation:
-            // 1. data.source (top-level source field from BaseEOLAgent - most reliable)
-            // 2. result.agent_used (standardized field within data object)
-            // 3. result.source (legacy compatibility within result)
-            // 4. data.agent_used (backup top-level field)
-
-            // if (data.source && data.source !== 'unknown' && data.source !== 'none' && data.source !== '') {
-            //     agentSource = data.source;
-            // } else 
-            if (result.agent_used && result.agent_used !== 'unknown' && result.agent_used !== 'none' && result.agent_used !== '') {
-                agentSource = result.agent_used;
+            // Priority order:
+            // 1. raw.data.result.agent_used (orchestrator level - most reliable)
+            // 2. result.agent_used (within the EOL data itself)
+            // 3. result.source (legacy compatibility)
+            
+            const orchestratorResult = raw.data.result || {};
+            if (orchestratorResult.agent_used && orchestratorResult.agent_used !== 'unknown' && orchestratorResult.agent_used !== 'none' && orchestratorResult.agent_used !== '') {
+                // Ensure it's a string, not an object
+                agentSource = typeof orchestratorResult.agent_used === 'string' ? orchestratorResult.agent_used : String(orchestratorResult.agent_used);
+            } else if (result.agent_used && result.agent_used !== 'unknown' && result.agent_used !== 'none' && result.agent_used !== '') {
+                // Ensure it's a string, not an object
+                agentSource = typeof result.agent_used === 'string' ? result.agent_used : String(result.agent_used);
+            } else if (result.source && result.source !== 'unknown' && result.source !== 'none' && result.source !== '') {
+                // Ensure it's a string, not an object
+                agentSource = typeof result.source === 'string' ? result.source : String(result.source);
             }
-            // else if (result.source && result.source !== 'unknown' && result.source !== 'none' && result.source !== '') {
-            //     agentSource = result.source;
-            // } else if (data.agent_used && data.agent_used !== 'unknown' && data.agent_used !== 'none' && data.agent_used !== '') {
-            //     agentSource = data.agent_used;
-            // }
 
             //console.log('BaseEOLAgent-optimized agent source detection:', {
                 //'data.source (top-level)': raw.data.result.source_url,
@@ -1932,12 +1930,22 @@ Legacy format handling has been removed as all agents now use the standardized f
                     confidence = 0.5; // Default to 50% if no confidence provided
                 }
                 console.log('Raw confidence from result:', result.confidence, 'Processed confidence:', confidence);
-                const sourceUrl = result.source_url;
+                // Ensure sourceUrl is a string, not an object
+                let sourceUrl = result.source_url;
+                if (sourceUrl && typeof sourceUrl !== 'string') {
+                    console.warn('⚠️ [CITATION Frontend] source_url is not a string:', typeof sourceUrl, sourceUrl);
+                    sourceUrl = String(sourceUrl);
+                }
+                // If sourceUrl became "[object Object]" after stringification, treat it as no URL
+                if (sourceUrl === '[object Object]') {
+                    console.warn('⚠️ [CITATION Frontend] source_url stringified to [object Object], ignoring');
+                    sourceUrl = null;
+                }
                 const extendedSupport = result.extendedSupport;
                 const daysUntilEol = result.days_until_eol;
 
                 // Enhanced citation debugging
-                console.log('🔗 [CITATION DEBUG Frontend] Source URL extracted:', sourceUrl);
+                console.log('🔗 [CITATION DEBUG Frontend] Source URL extracted:', sourceUrl, 'Type:', typeof sourceUrl);
                 console.log('🔗 [CITATION DEBUG Frontend] Full result object:', result);
                 if (!sourceUrl) {
                     console.warn('⚠️ [CITATION Frontend] No source URL found in result data');
@@ -1950,14 +1958,16 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // } else 
                 
                 if (result.agent_used && result.agent_used !== 'unknown' && result.agent_used !== 'none' && result.agent_used !== '') {
-                    agentSourceCard = result.agent_used;
+                    // Ensure we're using a string, not an object
+                    agentSourceCard = typeof result.agent_used === 'string' ? result.agent_used : String(result.agent_used);
                 } else if (result.source && result.source !== 'unknown' && result.source !== 'none' && result.source !== '') {
-                    agentSourceCard = result.source;
+                    // Ensure we're using a string, not an object
+                    agentSourceCard = typeof result.source === 'string' ? result.source : String(result.source);
                 } 
                 // else if (data.agent_used && data.agent_used !== 'unknown' && data.agent_used !== 'none' && data.agent_used !== '') {
                 //     agentSourceCard = data.agent_used;
                 // }
-                console.log('Agent source for card display:', agentSourceCard);
+                console.log('Agent source for card display:', agentSourceCard, 'Type:', typeof agentSourceCard);
 
                 html += `
             <div class="card mb-3">
@@ -2663,8 +2673,19 @@ Legacy format handling has been removed as all agents now use the standardized f
         //     `;
         // }
 
+        // Flag to prevent multiple initializations
+        let pageInitialized = false;
+
         // Initialize page - use both vanilla JS and jQuery approaches for maximum compatibility
         function initializePage() {
+            // Prevent multiple initializations
+            if (pageInitialized) {
+                console.log('Page already initialized, skipping duplicate initialization');
+                return;
+            }
+            pageInitialized = true;
+            console.log('Initializing page...');
+
             // Clear communications stream after a brief delay to ensure DOM is ready
             setTimeout(() => {
                 clearCommunicationsStream();
@@ -2680,6 +2701,17 @@ Legacy format handling has been removed as all agents now use the standardized f
             setTimeout(() => {
                 handleUrlParameters();
             }, 200);
+
+            // Setup quick search button event delegation
+            // Use off() first to prevent duplicate handlers
+            $(document).off('click', '.quick-search-btn').on('click', '.quick-search-btn', function(e) {
+                e.preventDefault();
+                const software = $(this).data('software');
+                const version = $(this).data('version');
+                if (software && version) {
+                    quickSearch(software, version);
+                }
+            });
 
             // Setup collapsible toggle functionality
             const orchestratorContent = document.getElementById('orchestratorLogicContent');
@@ -2751,7 +2783,9 @@ Legacy format handling has been removed as all agents now use the standardized f
         function getAgentSourceName(agentName) {
             if (!agentName) return 'Unknown Source';
 
-            const name = agentName.toLowerCase();
+            // Ensure agentName is a string
+            const agentStr = typeof agentName === 'string' ? agentName : String(agentName);
+            const name = agentStr.toLowerCase();
             const agentNames = {
                 // Actual agents from orchestrator
                 'endoflife': 'EndOfLife.date',
@@ -2779,7 +2813,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             };
 
             // Check exact match first
-            if (agentNames[agentName]) return agentNames[agentName];
+            if (agentNames[agentStr]) return agentNames[agentStr];
 
             // Check partial matches for actual agents only
             if (name.includes('endoflife')) return 'EndOfLife.date';
@@ -2795,17 +2829,23 @@ Legacy format handling has been removed as all agents now use the standardized f
             if (name.includes('python')) return 'Python Dev Guide';
 
             // Default formatting
-            return agentName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            return agentStr.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
 
         // Helper function to extract domain from URL
         function getUrlDomain(url) {
             try {
                 if (!url) return 'Unknown Source';
-                const urlObj = new URL(url);
+                
+                // Ensure url is a string
+                const urlStr = typeof url === 'string' ? url : String(url);
+                
+                const urlObj = new URL(urlStr);
                 return urlObj.hostname.replace('www.', '');
             } catch (e) {
-                return url.length > 40 ? url.substring(0, 40) + '...' : url;
+                // If URL parsing fails, return truncated string
+                const urlStr = typeof url === 'string' ? url : String(url);
+                return urlStr.length > 40 ? urlStr.substring(0, 40) + '...' : urlStr;
             }
         }
 

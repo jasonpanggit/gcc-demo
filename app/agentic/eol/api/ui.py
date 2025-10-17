@@ -24,9 +24,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 # Import decorators and utilities
-from utils.decorators import with_timeout_and_stats
+from utils.endpoint_decorators import with_timeout_and_stats
 from utils.cache_stats_manager import cache_stats_manager
-from config import config
+from utils.config import config
 
 # Initialize logger
 logger = logging.getLogger(__name__)

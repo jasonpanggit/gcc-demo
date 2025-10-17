@@ -495,14 +495,17 @@ async def get_eol_agent_responses():
     
     logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
     
+    # Return in StandardResponse format - data field contains the responses
     return {
         "success": True,
-        "responses": all_responses,
+        "data": all_responses,  # Changed from "responses" to "data" for StandardResponse compatibility
         "count": len(all_responses),
         "timestamp": datetime.utcnow().isoformat(),
-        "sources": {
-            "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
-            "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
+        "metadata": {
+            "sources": {
+                "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
+                "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
+            }
         }
     }
 

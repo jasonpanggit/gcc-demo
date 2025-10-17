@@ -436,17 +436,26 @@
 
     async function loadEOLResponses() {
         try {
+            console.log('🔍 [Frontend] Fetching EOL responses from /api/eol-agent-responses');
             const response = await fetch('/api/eol-agent-responses');
+            console.log('🔍 [Frontend] Response status:', response.status, response.statusText);
+            
             const data = await response.json();
+            console.log('🔍 [Frontend] Response data:', data);
+            console.log('🔍 [Frontend] data.success:', data.success);
+            console.log('🔍 [Frontend] data.data:', data.data);
+            console.log('🔍 [Frontend] data.data length:', data.data ? data.data.length : 0);
             
             if (data.success) {
-                allResponses = data.responses || [];
+                // StandardResponse format: data is in the 'data' field
+                allResponses = data.data || [];
+                console.log('🔍 [Frontend] allResponses set to:', allResponses.length, 'items');
                 updateStatistics();
                 populateAgentFilter();
                 applyFilters();
             } else {
                 console.error('Failed to load EOL responses:', data.error);
-                showError('Failed to load search history: ' + data.error);
+                showError('Failed to load search history: ' + (data.error || 'Unknown error'));
             }
         } catch (error) {
             console.error('Error loading EOL responses:', error);

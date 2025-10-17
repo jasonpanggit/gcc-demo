@@ -1595,7 +1595,11 @@
                 let realStats = null;
                 if (statsResponse.ok) {
                     try {
-                        realStats = await statsResponse.json();
+                        const statsData = await statsResponse.json();
+                        // StandardResponse format: actual data is in data array
+                        if (statsData.success && statsData.data && statsData.data.length > 0) {
+                            realStats = statsData.data[0];
+                        }
                     } catch (e) {
                         console.warn('Failed to parse statistics response:', e);
                     }
@@ -1635,10 +1639,13 @@
             // Define agents to exclude from the UI
             const excludedAgents = ['software_inventory', 'os_inventory', 'openai', 'inventory'];
 
-            if (data.success && data.agents && typeof data.agents === 'object') {
+            // StandardResponse format: agents data is in data.data.agents
+            const agentsData = data.success && data.data && data.data.agents ? data.data.agents : {};
+
+            if (Object.keys(agentsData).length > 0) {
                 
                 // Filter out excluded agents and process the rest
-                agents = Object.entries(data.agents)
+                agents = Object.entries(agentsData)
                     .filter(([name, agentData]) => {
                         const isExcluded = excludedAgents.includes(name);
                         return !isExcluded;

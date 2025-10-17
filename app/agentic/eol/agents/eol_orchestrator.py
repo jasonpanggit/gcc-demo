@@ -965,6 +965,46 @@ class EOLOrchestratorAgent:
         """Clear all tracked EOL agent responses"""
         self.eol_agent_responses.clear()
         logger.info("🧹 [EOL Orchestrator] Cleared EOL agent response tracking history")
+    
+    async def search_software_eol(self, software_name: str, software_version: str = None, search_hints: str = None):
+        """
+        Search for software EOL information using multi-agent orchestration.
+        This is a wrapper around get_autonomous_eol_data for API compatibility.
+        
+        Args:
+            software_name: Name of the software to search for
+            software_version: Version of the software (optional)
+            search_hints: Search optimization hints (optional, currently unused)
+        
+        Returns:
+            EOL information dictionary
+        """
+        return await self.get_autonomous_eol_data(
+            software_name=software_name,
+            version=software_version,
+            item_type="software",
+            search_internet_only=False
+        )
+    
+    async def search_software_eol_internet(self, software_name: str, software_version: str = None, search_hints: str = None):
+        """
+        Search for software EOL information using internet-only search (Playwright).
+        This is a wrapper around get_autonomous_eol_data with search_internet_only=True.
+        
+        Args:
+            software_name: Name of the software to search for
+            software_version: Version of the software (optional)
+            search_hints: Search optimization hints (optional, currently unused)
+        
+        Returns:
+            EOL information dictionary
+        """
+        return await self.get_autonomous_eol_data(
+            software_name=software_name,
+            version=software_version,
+            item_type="software",
+            search_internet_only=True
+        )
 
 # Backward compatibility alias
 OrchestratorAgent = EOLOrchestratorAgent
