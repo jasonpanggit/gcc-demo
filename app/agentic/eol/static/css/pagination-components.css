@@ -1,0 +1,533 @@
+/* ============================================================
+   PAGINATION COMPONENTS CSS
+   Modern pagination system used across multiple pages
+   ============================================================ */
+
+/* ============================================================
+   PAGINATION CONTAINER
+   ============================================================ */
+.pagination-container {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-top: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--gray-200);
+}
+
+.pagination-controls {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 2rem;
+    flex-wrap: nowrap;
+}
+
+/* ============================================================
+   PAGINATION INFO SECTION
+   ============================================================ */
+.pagination-info-section {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+}
+
+.pagination-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.pagination-summary-title {
+    font-weight: 600;
+    color: var(--dark-color);
+    font-size: var(--font-size-sm);
+    display: flex;
+    align-items: center;
+}
+
+.pagination-summary-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-lg);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+}
+
+.pagination-summary-stats span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.pagination-summary-stats strong {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+/* ============================================================
+   PAGINATION NAVIGATION
+   ============================================================ */
+.pagination-nav-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.pagination-navigation {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    justify-content: center;
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+}
+
+.pagination-page-grid {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0 0.5rem;
+}
+
+/* ============================================================
+   PAGINATION BUTTONS
+   ============================================================ */
+.pagination-nav-btn {
+    border: none;
+    background: white;
+    color: var(--primary-color);
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    height: 40px;
+    font-size: 0.875rem;
+    border: 2px solid var(--gray-200);
+    position: relative;
+    overflow: hidden;
+}
+
+.pagination-nav-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    transition: left 0.5s;
+}
+
+.pagination-nav-btn:hover::before {
+    left: 100%;
+}
+
+.pagination-nav-btn:hover:not(.disabled) {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    color: white;
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.pagination-nav-btn.active {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    color: white;
+    border-color: var(--primary-color);
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}
+
+.pagination-nav-btn.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--gray-100);
+    color: var(--gray-500);
+    border-color: var(--gray-100);
+}
+
+.pagination-nav-btn.disabled:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
+   PAGE INDICATOR (for mobile/compact view)
+   ============================================================ */
+.pagination-page-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: white;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--gray-200);
+    font-size: 0.9rem;
+    color: var(--gray-700);
+    min-width: 140px;
+    justify-content: center;
+}
+
+.page-current-display {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.page-divider {
+    opacity: 0.8;
+    font-size: 0.9em;
+    margin: 0 0.25rem;
+}
+
+.page-total-display {
+    opacity: 0.9;
+}
+
+/* ============================================================
+   QUICK JUMP (Jump to page)
+   ============================================================ */
+.pagination-quick-jump {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    background: white;
+    padding: 0.5rem;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--gray-200);
+    min-width: 140px;
+    justify-content: center;
+}
+
+.pagination-jump-label {
+    font-size: 0.8rem;
+    color: var(--gray-600);
+    font-weight: 500;
+}
+
+.pagination-jump-input {
+    width: 50px;
+    height: 32px;
+    padding: 0.25rem;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--dark-color);
+    background: white;
+    transition: all 0.2s ease;
+}
+
+.pagination-jump-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.pagination-jump-go {
+    padding: 0.5rem 0.75rem;
+    background: linear-gradient(135deg, var(--success-color) 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pagination-jump-go:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+}
+
+/* ============================================================
+   BOOTSTRAP PAGINATION OVERRIDES
+   (for pages using Bootstrap pagination component)
+   ============================================================ */
+.pagination {
+    margin-bottom: 0;
+}
+
+.pagination .page-link {
+    color: var(--primary-color);
+    background-color: white;
+    border: 1px solid var(--gray-300);
+    padding: 0.5rem 0.75rem;
+    margin: 0 0.125rem;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.pagination .page-link:hover {
+    color: white;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    border-color: var(--primary-color);
+    color: white;
+    font-weight: 600;
+}
+
+.pagination .page-link:disabled,
+.pagination .page-item.disabled .page-link {
+    color: var(--gray-400);
+    background-color: var(--gray-100);
+    border-color: var(--gray-200);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.pagination .page-link:disabled:hover,
+.pagination .page-item.disabled .page-link:hover {
+    color: var(--gray-400);
+    background-color: var(--gray-100);
+    border-color: var(--gray-200);
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
+   PAGINATION WRAPPER
+   ============================================================ */
+.pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--spacing-xl);
+}
+
+.pagination-wrapper nav {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* ============================================================
+   PAGINATED CONTENT STYLING
+   ============================================================ */
+.paginated-content {
+    margin-bottom: var(--spacing-lg);
+}
+
+.paginated-content-area {
+    background: white;
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--gray-200);
+    margin-bottom: var(--spacing-lg);
+    min-height: 200px;
+}
+
+/* Content preview/summary */
+.content-preview {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.content-summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.content-summary-title {
+    font-weight: 700;
+    color: #92400e;
+}
+
+.content-summary-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+    font-size: 0.9rem;
+    color: #b45309;
+}
+
+/* ============================================================
+   RESPONSIVE DESIGN
+   ============================================================ */
+
+/* Large tablets and small desktops */
+@media (max-width: 992px) {
+    .pagination-navigation {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .pagination-quick-jump {
+        width: 100%;
+        min-width: unset;
+    }
+}
+
+/* Tablets */
+@media (max-width: 768px) {
+    .pagination-container {
+        padding: var(--spacing-md);
+    }
+    
+    .pagination-controls {
+        gap: 1rem;
+        flex-direction: row;
+        flex-wrap: nowrap;
+    }
+    
+    .pagination-info-section {
+        gap: 0.5rem;
+    }
+    
+    .pagination-nav-row {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+    
+    .pagination-page-indicator {
+        width: 100%;
+        min-width: unset;
+        justify-content: center;
+    }
+    
+    .pagination-navigation {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .pagination-nav-btn {
+        min-width: 36px;
+        height: 36px;
+        padding: 0.5rem;
+        font-size: 0.8rem;
+    }
+    
+    .pagination-page-grid {
+        gap: 0.125rem;
+    }
+    
+    .pagination-quick-jump {
+        width: 100%;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .pagination-jump-input {
+        width: 100%;
+        max-width: 100px;
+    }
+    
+    .pagination .page-link {
+        padding: 0.375rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .content-summary {
+        flex-direction: column;
+        text-align: center;
+    }
+}
+
+/* Mobile devices */
+@media (max-width: 576px) {
+    .pagination-container {
+        padding: var(--spacing-sm);
+    }
+    
+    .pagination-controls {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: center;
+    }
+    
+    .pagination-info-section {
+        justify-content: center;
+    }
+    
+    .pagination-nav-row {
+        gap: var(--spacing-xs);
+    }
+    
+    .pagination-navigation,
+    .pagination-quick-jump {
+        width: 100%;
+    }
+    
+    .pagination-summary-stats {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+    
+    .pagination-page-indicator {
+        font-size: 0.85rem;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .pagination-nav-btn {
+        min-width: 32px;
+        height: 32px;
+        padding: 0.375rem;
+        font-size: 0.75rem;
+    }
+    
+    .pagination-jump-input {
+        width: 100%;
+        height: 36px;
+    }
+    
+    /* Simplify on very small screens */
+    .pagination-page-grid {
+        display: none;
+    }
+    
+    .pagination-summary-stats > span:not(:first-child) {
+        display: none;
+    }
+    
+    .pagination .page-link {
+        padding: 0.25rem 0.375rem;
+        font-size: 0.75rem;
+        margin: 0;
+    }
+    
+    .content-summary-stats {
+        flex-direction: column;
+        gap: var(--spacing-xs);
+    }
+}
+
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+@media print {
+    .pagination-container,
+    .pagination-wrapper,
+    .pagination-controls {
+        display: none !important;
+    }
+}

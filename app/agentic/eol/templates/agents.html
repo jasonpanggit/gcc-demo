@@ -1044,66 +1044,9 @@
         margin-bottom: 2rem;
     }
 
-    .stat-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-sm);
-        border: 1px solid var(--gray-200);
-        text-align: center;
-    }
+    /* stat-card, stat-value, stat-label now in common-components.css */
 
-    .stat-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--primary);
-        margin-bottom: 0.5rem;
-    }
-
-    .stat-label {
-        color: var(--secondary);
-        font-size: 0.875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* Loading States */
-    .loading {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-        color: var(--secondary);
-    }
-
-    .loading-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 3rem;
-        flex-direction: column;
-        color: var(--secondary);
-    }
-
-    .spinner {
-        width: 1.5rem;
-        height: 1.5rem;
-        border: 2px solid var(--gray-200);
-        border-top: 2px solid var(--primary);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-bottom: 1rem;
-    }
-
-    @keyframes spin {
-        0% {
-            transform: rotate(0deg);
-        }
-
-        100% {
-            transform: rotate(360deg);
-        }
-    }
+    /* Loading States - loading-spinner now in common-components.css */
 
     /* Alerts */
     .alert {
@@ -1181,16 +1124,8 @@
         justify-content: flex-end;
     }
 
-    /* Responsive */
+    /* Responsive - hero-section responsive styles now in common-components.css */
     @media (max-width: 768px) {
-        .hero-section {
-            padding: 2rem 0;
-        }
-
-        .hero-section h1 {
-            font-size: 2rem;
-        }
-
         .stats-grid {
             grid-template-columns: repeat(2, 1fr);
         }
@@ -1546,7 +1481,7 @@
         async init() {
             // Log available agent display mappings for debugging
             if (typeof AGENT_DISPLAY_MAPPING !== 'undefined') {
-                console.log('Agent display mappings loaded:', AGENT_DISPLAY_MAPPING);
+                // console.log('Agent display mappings loaded:', AGENT_DISPLAY_MAPPING);
             } else {
                 console.warn('agent-config.js not loaded or AGENT_DISPLAY_MAPPING not available');
             }
@@ -1579,7 +1514,7 @@
                     this.showLoading();
                 }
 
-                console.log('Fetching agents and real statistics...');
+                // console.log('Fetching agents and real statistics...');
                 const [agentsResponse, statsResponse] = await Promise.all([
                     fetch('/api/agents/list'),
                     fetch('/api/cache/stats/enhanced')
@@ -2200,7 +2135,7 @@
                 }
             });
 
-            console.log('After filtering and sorting:', this.filteredAgents.length, 'agents');
+            // console.log('After filtering and sorting:', this.filteredAgents.length, 'agents');
             this.renderAgents();
         }
 

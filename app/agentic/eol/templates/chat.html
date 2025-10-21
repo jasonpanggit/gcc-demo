@@ -1077,177 +1077,11 @@
         margin: 0.5rem 0;
     }
 
-    /* Modern Pagination Container - Updated from inventory.html design */
-    .pagination-container {
-        background: white;
-        border-radius: var(--radius-lg, 12px);
-        padding: var(--spacing-lg, 1.5rem);
-        margin: var(--spacing-lg, 1.5rem) 0;
-        border: 1px solid var(--gray-200, #e2e8f0);
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
-        width: 100%;
-    }
-
-    .pagination-controls {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: var(--spacing-lg, 1.5rem);
-        flex-wrap: wrap;
-        width: 100%;
-        max-width: 100%;
-    }
-
-    .pagination-info-section {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-md, 1rem);
-        flex-wrap: wrap;
-        min-width: 0;
-        flex: 1;
-    }
-
-    .pagination-summary {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm, 0.5rem);
-        white-space: nowrap;
-        flex-shrink: 0;
-        color: var(--gray-600, #64748b);
-        font-size: var(--font-size-sm, 0.875rem);
-        font-weight: 500;
-    }
-
-    .pagination-summary-title {
-        font-weight: 600;
-        color: var(--gray-900, #1e293b);
-        margin-right: var(--spacing-sm, 0.5rem);
-    }
-
-    .pagination-summary-stats {
-        display: flex;
-        gap: var(--spacing-md, 1rem);
-        font-size: var(--font-size-sm, 0.875rem);
-        color: var(--gray-600, #64748b);
-    }
-
-    .pagination-nav-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-    }
-
-    .pagination .page-link {
-        color: var(--primary-color, #3b82f6);
-        border: 1px solid var(--gray-200, #e2e8f0);
-        padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem);
-        border-radius: var(--radius-md, 8px);
-        margin: 0 2px;
-        transition: all 0.2s ease;
-        font-weight: 500;
-        min-width: 40px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .pagination .page-item.active .page-link {
-        background-color: var(--primary-color, #3b82f6);
-        border-color: var(--primary-color, #3b82f6);
-        color: white;
-        font-weight: 600;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
-    }
-
-    .pagination .page-link:hover {
-        background-color: var(--primary-light, #dbeafe);
-        border-color: var(--primary-color, #3b82f6);
-        color: var(--primary-color, #3b82f6);
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
-    }
-
-    .pagination .page-link:disabled,
-    .pagination .page-item.disabled .page-link {
-        background-color: var(--gray-100, #f1f5f9);
-        border-color: var(--gray-200, #e2e8f0);
-        color: var(--gray-400, #94a3b8);
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .pagination .page-link:disabled:hover,
-    .pagination .page-item.disabled .page-link:hover {
-        background-color: var(--gray-100, #f1f5f9);
-        border-color: var(--gray-200, #e2e8f0);
-        color: var(--gray-400, #94a3b8);
-        transform: none;
-        box-shadow: none;
-    }
-
-    /* Content preview styling */
-    .content-preview {
-        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-        border: 1px solid #f59e0b;
-        border-radius: var(--radius-lg, 8px);
-        padding: var(--spacing-lg, 1rem);
-        margin-bottom: var(--spacing-lg, 1rem);
-    }
-
-    .content-summary {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--spacing-lg, 0.75rem);
-        margin-bottom: var(--spacing-sm, 0.5rem);
-        flex-wrap: wrap;
-    }
-
-    /* Responsive design */
-    @media (max-width: 768px) {
-        .pagination-controls {
-            flex-direction: column;
-            align-items: stretch;
-            gap: var(--spacing-md, 1rem);
-        }
-
-        .pagination-info-section {
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            gap: var(--spacing-sm, 0.5rem);
-        }
-
-        .pagination {
-            justify-content: center;
-        }
-
-        .pagination .page-link {
-            padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
-            font-size: var(--font-size-sm, 0.875rem);
-        }
-
-        .content-summary {
-            flex-direction: column;
-            gap: var(--spacing-sm, 0.5rem);
-        }
-    }
-
-    @media (max-width: 576px) {
-        .pagination-summary-stats {
-            flex-direction: column;
-            gap: var(--spacing-xs, 0.25rem);
-            text-align: center;
-        }
-
-        .pagination .page-link {
-            min-width: 32px;
-            padding: var(--spacing-xs, 0.25rem);
-        }
-    }
+    /* ===================================================================
+       PAGINATION STYLES NOW IN pagination-components.css (~172 lines removed)
+       Includes: pagination-container, pagination-controls, pagination-info-section,
+       pagination-summary, page-link styling, content-preview, and responsive breakpoints
+       =================================================================== */
 
     /* Additional pagination styling removed - using inventory.html based design above */
 
@@ -2191,7 +2025,7 @@
 
     // Real-time communication polling functions
     async function startCommunicationPolling() {
-        console.log('🚀 Starting real-time communication polling for chat');
+        // console.log('🚀 Starting real-time communication polling for chat');
 
         // Update debug info
         const pollingStatus = document.getElementById('pollingStatus');
@@ -2203,7 +2037,7 @@
 
         communicationPollingInterval = setInterval(async () => {
             if (!searchInProgress) {
-                console.log('🛑 Search completed, stopping polling');
+                // console.log('🛑 Search completed, stopping polling');
                 clearInterval(communicationPollingInterval);
                 communicationPollingInterval = null;
 
@@ -2224,7 +2058,7 @@
                 if (lastUpdate) lastUpdate.textContent = new Date().toLocaleTimeString();
 
                 if (data.success && data.communications && data.count > lastCommunicationCount) {
-                    console.log(`📡 New communications detected: ${data.count} (was ${lastCommunicationCount})`);
+                    // console.log(`📡 New communications detected: ${data.count} (was ${lastCommunicationCount})`);
                     const newCommunications = data.communications.slice(lastCommunicationCount);
 
                     // Display new communications
@@ -2251,7 +2085,7 @@
     }
 
     function stopCommunicationPolling() {
-        console.log('🛑 Stopping real-time communication polling');
+        // console.log('🛑 Stopping real-time communication polling');
         if (communicationPollingInterval) {
             clearInterval(communicationPollingInterval);
             communicationPollingInterval = null;
@@ -3069,7 +2903,7 @@
     // Delegate to shared agent communication handler when available.
     // Keep a lightweight fallback to render basic communications if the shared script isn't loaded.
     function displayAgentCommunications(communications, options = {}) {
-        console.log('🎯 Chat displayAgentCommunications: Delegating to centralized handler');
+        // console.log('🎯 Chat displayAgentCommunications: Delegating to centralized handler');
 
         // Use the centralized handler from agent-communication.js
         if (window.AgentComm && typeof window.AgentComm.display === 'function') {
@@ -3081,7 +2915,7 @@
             };
             const finalOptions = Object.assign({}, defaultOptions, options);
 
-            console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
+            // console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
             window.AgentComm.display(communications, finalOptions);
         } else {
             console.error('❌ AgentComm.display not available, falling back to basic display');

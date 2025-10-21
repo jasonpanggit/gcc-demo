@@ -122,18 +122,10 @@
         font-weight: 500;
     }
 
-    .modern-card {
-        background: white;
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-sm);
-        border: 1px solid var(--gray-200);
-        transition: all 0.3s ease;
-    }
-
-    .modern-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-md);
-    }
+    /* ===================================================================
+       CARD STYLES NOW IN common-components.css
+       Removed: modern-card, modern-card:hover (~12 lines)
+       =================================================================== */
 
     /* White outline button styling for hero sections */
     .btn-outline-light {
@@ -398,25 +390,15 @@
         min-width: 180px;
     }
 
-    .loading-spinner {
-        vertical-align: middle;
-        margin-top: 0;
-    }
+    /* ===================================================================
+       LOADING SPINNER NOW IN common-components.css
+       Removed: loading-spinner, @keyframes spin (~22 lines)
+       =================================================================== */
 
     /* Small spacing tweak for the last-updated timestamp area */
     .card-body .last-updated {
         display: inline-block;
         vertical-align: middle;
-    }
-
-    @keyframes spin {
-        0% {
-            transform: rotate(0deg);
-        }
-
-        100% {
-            transform: rotate(360deg);
-        }
     }
 
     .status-indicator {
@@ -865,11 +847,11 @@
         //         console.warn('Auto-refresh failed, but continuing...', error);
         //     });
         // }, 30000);
-        console.log('Auto-refresh disabled - manual refresh only');
+        // console.log('Auto-refresh disabled - manual refresh only');
     });
 
     function initializeCacheManagement() {
-        console.log('Initializing cache management...');
+        // console.log('Initializing cache management...');
 
         // Set all health indicators to checking state initially
         updateHealthIndicator('cosmos-health', 'unavailable', 'Checking');
@@ -973,13 +955,13 @@
             const response = await fetch('/api/cache/stats/performance');
             if (response.ok) {
                 const data = await response.json();
-                console.log('Performance dashboard data:', data);
-                console.log('Data structure check:', {
-                    total_requests: data.total_requests,
-                    overall_hit_rate: data.overall_hit_rate,
-                    avg_response_time_ms: data.avg_response_time_ms,
-                    overall_error_rate: data.overall_error_rate
-                });
+                // console.log('Performance dashboard data:', data);
+                // console.log('Data structure check:', {
+                //     total_requests: data.total_requests,
+                //     overall_hit_rate: data.overall_hit_rate,
+                //     avg_response_time_ms: data.avg_response_time_ms,
+                //     overall_error_rate: data.overall_error_rate
+                // });
                 const nf = new Intl.NumberFormat();
                 
                 // Update each element with better error checking
@@ -987,7 +969,7 @@
                 if (hitRateEl) {
                     const hitRateValue = data.overall_hit_rate !== undefined ? `${data.overall_hit_rate.toFixed(1)}%` : '--';
                     hitRateEl.textContent = hitRateValue;
-                    console.log('Setting overall-hit-rate to:', hitRateValue);
+                    // console.log('Setting overall-hit-rate to:', hitRateValue);
                 } else {
                     console.warn('overall-hit-rate element not found');
                 }
@@ -996,7 +978,7 @@
                 if (responseTimeEl) {
                     const responseTimeValue = data.avg_response_time_ms !== undefined ? `${data.avg_response_time_ms.toFixed(0)}ms` : '--';
                     responseTimeEl.textContent = responseTimeValue;
-                    console.log('Setting overall-response-time to:', responseTimeValue);
+                    // console.log('Setting overall-response-time to:', responseTimeValue);
                 } else {
                     console.warn('overall-response-time element not found');
                 }
@@ -1005,7 +987,7 @@
                 if (totalRequestsEl) {
                     const totalRequestsValue = data.total_requests !== undefined ? nf.format(data.total_requests) : '--';
                     totalRequestsEl.textContent = totalRequestsValue;
-                    console.log('Setting total-requests to:', totalRequestsValue, '(original value:', data.total_requests, ')');
+                    // console.log('Setting total-requests to:', totalRequestsValue, '(original value:', data.total_requests, ')');
                 } else {
                     console.warn('total-requests element not found');
                 }
@@ -1014,7 +996,7 @@
                 if (errorRateEl) {
                     const errorRateValue = data.overall_error_rate !== undefined ? `${data.overall_error_rate.toFixed(1)}%` : '--';
                     errorRateEl.textContent = errorRateValue;
-                    console.log('Setting overall-error-rate to:', errorRateValue);
+                    // console.log('Setting overall-error-rate to:', errorRateValue);
                 } else {
                     console.warn('overall-error-rate element not found');
                 }
@@ -1052,7 +1034,7 @@
 
     // Main refresh function - simplified for server-side rendering
     async function refreshAllCaches() {
-        console.log('Refreshing all caches...');
+        // console.log('Refreshing all caches...');
 
         // Get all refresh buttons and show loading state
         const refreshButtons = document.querySelectorAll('button[onclick*="refresh"]');
@@ -1134,14 +1116,14 @@
 
     // Cosmos DB Cache Functions
     async function refreshCosmosCache() {
-        console.log('Refreshing Cosmos cache...');
+        // console.log('Refreshing Cosmos cache...');
         try {
             const response = await fetch('/api/cache/cosmos/stats');
-            console.log('Cosmos cache response status:', response.status);
+            // console.log('Cosmos cache response status:', response.status);
 
             if (response.status === 503) {
                 // Service unavailable - cache not initialized
-                console.log('Cosmos DB cache not available (503)');
+                // console.log('Cosmos DB cache not available (503)');
                 updateHealthIndicator('cosmos-health', 'unavailable');
                 document.getElementById('cosmos-cache-stats').innerHTML =
                     `<div class="alert alert-warning">
@@ -1166,7 +1148,7 @@
             if (response.status === 400) {
                 // Bad request - likely invalid input values (the specific error you're experiencing)
                 const errorData = await response.json().catch(() => ({ message: 'Unknown query error' }));
-                console.log('Cosmos DB BadRequest error:', errorData);
+                // console.log('Cosmos DB BadRequest error:', errorData);
                 updateHealthIndicator('cosmos-health', 'error');
                 
                 // Extract ActivityId from error message if available
@@ -1211,7 +1193,7 @@
             }
 
             const data = await response.json();
-            console.log('Cosmos cache data:', data);
+            // console.log('Cosmos cache data:', data);
 
             if (data.success) {
                 displayCosmosStats(data);
@@ -1603,7 +1585,7 @@
     // Agent Cache Functions
     async function refreshAgentCaches() {
         try {
-            console.log('Refreshing agent cache statistics...');
+            // console.log('Refreshing agent cache statistics...');
             updateHealthIndicator('agents-health', 'unavailable', 'Refreshing');
             
             // Fetch the latest agent statistics
@@ -1619,7 +1601,7 @@
             }
 
             const data = await response.json();
-            console.log('Updated agent stats:', data);
+            // console.log('Updated agent stats:', data);
             
             // Update the agent caches display with latest data
             updateAgentCachesDisplay(data?.agent_stats?.agents || {});
@@ -1887,7 +1869,7 @@
                 }
 
                 const result = await response.json();
-                console.log('Clear agent cache result:', result);
+                // console.log('Clear agent cache result:', result);
 
                 if (result.success) {
                     const agentResult = result.results[agentKey];
@@ -1923,7 +1905,7 @@
                 }
 
                 const result = await response.json();
-                console.log('Clear all agent caches result:', result);
+                // console.log('Clear all agent caches result:', result);
 
                 if (result.success) {
                     let clearedCount = 0;
@@ -1962,7 +1944,7 @@
         const inventoryStatsContainer = document.getElementById('inventory-cache-stats');
         
         try {
-            console.log('Refreshing inventory cache...');
+            // console.log('Refreshing inventory cache...');
             
             // Show loading indicator
             inventoryStatsContainer.innerHTML = `
@@ -1991,17 +1973,17 @@
             }
 
             const enhancedData = await enhancedResponse.json();
-            console.log('Enhanced cache stats:', enhancedData);
+            // console.log('Enhanced cache stats:', enhancedData);
 
             // Extract inventory agent statistics
             const agentStats = enhancedData?.agent_stats?.agents || {};
-            console.log('Agent stats:', agentStats);
-            console.log('Available agent names:', Object.keys(agentStats));
+            // console.log('Agent stats:', agentStats);
+            // console.log('Available agent names:', Object.keys(agentStats));
             
             const softwareInventoryStats = agentStats['software_inventory'];
             const osInventoryStats = agentStats['os_inventory'];
-            console.log('Software inventory stats:', softwareInventoryStats);
-            console.log('OS inventory stats:', osInventoryStats);
+            // console.log('Software inventory stats:', softwareInventoryStats);
+            // console.log('OS inventory stats:', osInventoryStats);
             
             // Always call the display function, even with null stats
             displayInventoryAgentStats(softwareInventoryStats, osInventoryStats);
@@ -2064,7 +2046,7 @@
     }
 
     function displayInventoryAgentStats(softwareStats, osStats) {
-        console.log('Displaying inventory agent stats:', { softwareStats, osStats });
+        // console.log('Displaying inventory agent stats:', { softwareStats, osStats });
         const nf = new Intl.NumberFormat();
         
         // Calculate combined statistics
@@ -2392,7 +2374,7 @@
                 }
 
                 const result = await response.json();
-                console.log('Reset inventory stats result:', result);
+                // console.log('Reset inventory stats result:', result);
 
                 showAlert('Inventory agent statistics reset successfully', 'success');
 
@@ -2508,22 +2490,22 @@
 
     async function updateOverviewWithRealData() {
         try {
-            console.log('Starting updateOverviewWithRealData...');
+            // console.log('Starting updateOverviewWithRealData...');
             
             // Get data from multiple sources including enhanced statistics
             const [cacheStatusResponse, inventoryStatsResponse, enhancedStatsResponse] = await Promise.allSettled([
                 fetch('/api/cache/status').then(r => {
-                    console.log('Cache status response:', r.status);
+                    // console.log('Cache status response:', r.status);
                     if (!r.ok) throw new Error(`Cache status failed: ${r.status}`);
                     return r.json();
                 }),
                 fetch('/api/cache/inventory/stats').then(r => {
-                    console.log('Inventory stats response:', r.status);
+                    // console.log('Inventory stats response:', r.status);
                     if (!r.ok) throw new Error(`Inventory stats failed: ${r.status}`);
                     return r.json();
                 }),
                 fetch('/api/cache/stats/enhanced').then(r => {
-                    console.log('Enhanced stats response:', r.status);
+                    // console.log('Enhanced stats response:', r.status);
                     if (!r.ok) throw new Error(`Enhanced stats failed: ${r.status}`);
                     return r.json();
                 })
@@ -2537,11 +2519,11 @@
             const enhancedStats = enhancedStatsResponse.status === 'fulfilled' ? 
                 enhancedStatsResponse.value : { success: false, error: enhancedStatsResponse.reason?.message };
 
-            console.log('Endpoint results:', {
-                cacheStatus: cacheStatus.success || cacheStatus.error,
-                inventoryStats: inventoryStats.success || inventoryStats.error,
-                enhancedStats: enhancedStats.success || enhancedStats.error
-            });
+            // console.log('Endpoint results:', {
+            //     cacheStatus: cacheStatus.success || cacheStatus.error,
+            //     inventoryStats: inventoryStats.success || inventoryStats.error,
+            //     enhancedStats: enhancedStats.success || enhancedStats.error
+            // });
 
             let totalCacheItems = 0;
             let activeAgents = 0;
@@ -2582,9 +2564,9 @@
                 }
             }
 
-            console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
+            // console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
 
-            console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
+            // console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
 
             // Calculate total requests from enhanced stats
             let totalRequests = 0;
@@ -2643,78 +2625,78 @@
             const totalCacheSizeEl = document.getElementById('total-cache-size');
             if (totalCacheSizeEl) {
                 const totalCacheSize = totalCacheItems > 0 ? `${totalCacheItems} items` : '--';
-                console.log('Updating total-cache-size:', totalCacheSize);
+                // console.log('Updating total-cache-size:', totalCacheSize);
                 totalCacheSizeEl.textContent = totalCacheSize;
             } else {
-                console.log('total-cache-size element not found');
+                // console.log('total-cache-size element not found');
             }
             
             const cacheHitRateEl = document.getElementById('cache-hit-rate');
             if (cacheHitRateEl) {
                 const hitRateText = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
-                console.log('Updating cache-hit-rate:', hitRateText);
+                // console.log('Updating cache-hit-rate:', hitRateText);
                 cacheHitRateEl.textContent = hitRateText;
             } else {
-                console.log('cache-hit-rate element not found');
+                // console.log('cache-hit-rate element not found');
             }
             
             const avgResponseTimeEl = document.getElementById('avg-response-time');
             if (avgResponseTimeEl) {
                 const responseTimeText = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
-                console.log('Updating avg-response-time:', responseTimeText);
+                // console.log('Updating avg-response-time:', responseTimeText);
                 avgResponseTimeEl.textContent = responseTimeText;
             } else {
-                console.log('avg-response-time element not found');
+                // console.log('avg-response-time element not found');
             }
             
             // Update overview elements with correct mappings
             // total-cache-items actually displays "Total Agent Requests"
             const totalCacheItemsEl = document.getElementById('total-cache-items');
             if (totalCacheItemsEl) {
-                console.log('Updating total-cache-items (Total Agent Requests):', totalRequests);
+                // console.log('Updating total-cache-items (Total Agent Requests):', totalRequests);
                 totalCacheItemsEl.textContent = totalRequests.toLocaleString();
             }
             
             // active-agents displays "Active Agents"
             const activeAgentsEl = document.getElementById('active-agents');
             if (activeAgentsEl) {
-                console.log('Updating active-agents:', activeAgents);
+                // console.log('Updating active-agents:', activeAgents);
                 activeAgentsEl.textContent = activeAgents;
             } else {
-                console.log('active-agents element not found');
+                // console.log('active-agents element not found');
             }
             
             // total-errors displays "Total Errors"
             const totalErrorsEl = document.getElementById('total-errors');
             if (totalErrorsEl) {
                 const totalErrors = enhancedStats?.performance_summary?.total_errors || 0;
-                console.log('Updating total-errors:', totalErrors);
+                // console.log('Updating total-errors:', totalErrors);
                 totalErrorsEl.textContent = totalErrors;
             }
 
             // Update performance dashboard elements
             const totalRequestsEl = document.getElementById('total-requests');
             if (totalRequestsEl) {
-                console.log('Updating total-requests (Performance Dashboard):', totalRequests);
+                // console.log('Updating total-requests (Performance Dashboard):', totalRequests);
                 totalRequestsEl.textContent = totalRequests.toLocaleString();
             }
 
             const overallErrorRateEl = document.getElementById('overall-error-rate');
             if (overallErrorRateEl) {
                 const errorRate = enhancedStats?.performance_summary?.overall_error_rate || 0;
-                console.log('Updating overall-error-rate:', errorRate);
+                // console.log('Updating overall-error-rate:', errorRate);
                 overallErrorRateEl.textContent = `${errorRate.toFixed(1)}%`;
             }
 
             const overallHitRateEl = document.getElementById('overall-hit-rate');
             if (overallHitRateEl) {
-                console.log('Updating overall-hit-rate:', hitRate);
+                // console.log('Updating overall-hit-rate:', hitRate);
                 overallHitRateEl.textContent = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
             }
 
             const overallResponseTimeEl = document.getElementById('overall-response-time');
             if (overallResponseTimeEl) {
-                console.log('Updating overall-response-time:', avgResponseTime);
+                // console.log('Updating overall-response-time:', avgResponseTime);
                 overallResponseTimeEl.textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
             }
 
@@ -2732,7 +2714,7 @@
                 updateHealthIndicator('inventory-health', 'error', 'Error');
             }
 
-            console.log('Overview updated with enhanced stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, enhancedStats: !!enhancedStats });
+            // console.log('Overview updated with enhanced stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, enhancedStats: !!enhancedStats });
         } catch (error) {
             console.error('Error updating overview:', error);
             console.error('Error stack:', error.stack);
@@ -2782,51 +2764,51 @@
 
     // Debug function to test endpoints - can be called from browser console
     window.debugCacheEndpoints = async function() {
-        console.log('=== Testing Cache Endpoints ===');
+        // console.log('=== Testing Cache Endpoints ===');
         
         try {
-            console.log('Testing /api/cache/status...');
+            // console.log('Testing /api/cache/status...');
             const cacheStatusResponse = await fetch('/api/cache/status');
             const cacheStatus = await cacheStatusResponse.json();
-            console.log('Cache status:', cacheStatusResponse.status, cacheStatus);
-            console.log('Agents available:', cacheStatus.data?.agents ? Object.keys(cacheStatus.data.agents) : 'None');
-            console.log('EOL cache items:', cacheStatus.data?.eol_cache?.total_items || 0);
+            // console.log('Cache status:', cacheStatusResponse.status, cacheStatus);
+            // console.log('Agents available:', cacheStatus.data?.agents ? Object.keys(cacheStatus.data.agents) : 'None');
+            // console.log('EOL cache items:', cacheStatus.data?.eol_cache?.total_items || 0);
         } catch (e) {
             console.error('Cache status failed:', e);
         }
         
         try {
-            console.log('Testing /api/cache/stats/enhanced...');
+            // console.log('Testing /api/cache/stats/enhanced...');
             const enhancedStatsResponse = await fetch('/api/cache/stats/enhanced');
             const enhancedStats = await enhancedStatsResponse.json();
-            console.log('Enhanced stats:', enhancedStatsResponse.status, enhancedStats);
-            console.log('Available agents:', Object.keys(enhancedStats?.agent_stats?.agents || {}));
-            console.log('Overall hit rate:', enhancedStats?.performance_summary?.overall_hit_rate || 0);
-            console.log('Avg response time:', enhancedStats?.performance_summary?.avg_response_time_ms || 0);
-            console.log('Cosmos stats:', enhancedStats?.cosmos_stats || 'None');
+            // console.log('Enhanced stats:', enhancedStatsResponse.status, enhancedStats);
+            // console.log('Available agents:', Object.keys(enhancedStats?.agent_stats?.agents || {}));
+            // console.log('Overall hit rate:', enhancedStats?.performance_summary?.overall_hit_rate || 0);
+            // console.log('Avg response time:', enhancedStats?.performance_summary?.avg_response_time_ms || 0);
+            // console.log('Cosmos stats:', enhancedStats?.cosmos_stats || 'None');
         } catch (e) {
             console.error('Enhanced stats failed:', e);
         }
         
         try {
-            console.log('Testing /api/cache/inventory/stats...');
+            // console.log('Testing /api/cache/inventory/stats...');
             const inventoryStatsResponse = await fetch('/api/cache/inventory/stats');
             const inventoryStats = await inventoryStatsResponse.json();
-            console.log('Inventory stats:', inventoryStatsResponse.status, inventoryStats);
-            console.log('Cache stats:', inventoryStats?.cache_stats || 'None');
+            // console.log('Inventory stats:', inventoryStatsResponse.status, inventoryStats);
+            // console.log('Cache stats:', inventoryStats?.cache_stats || 'None');
         } catch (e) {
             console.error('Inventory stats failed:', e);
         }
         
-        console.log('=== Test Complete ===');
+        // console.log('=== Test Complete ===');
     };
 
     // Debug function to trigger inventory requests and generate statistics
     window.triggerInventoryRequests = async function() {
-        console.log('=== Triggering Inventory Requests ===');
+        // console.log('=== Triggering Inventory Requests ===');
         
         try {
-            console.log('Making inventory requests...');
+            // console.log('Making inventory requests...');
             const requests = [
                 fetch('/api/inventory/status'),
                 fetch('/api/inventory?days=1&limit=5'),
@@ -2837,12 +2819,12 @@
             const results = await Promise.allSettled(requests);
             results.forEach((result, index) => {
                 const endpoints = ['/inventory/status', '/inventory', '/inventory/raw/software', '/inventory/raw/os'];
-                console.log(`${endpoints[index]}:`, result.status, result.status === 'fulfilled' ? 'success' : result.reason);
+                // console.log(`${endpoints[index]}:`, result.status, result.status === 'fulfilled' ? 'success' : result.reason);
             });
             
             // Wait a moment then refresh stats
             setTimeout(async () => {
-                console.log('Refreshing stats after requests...');
+                // console.log('Refreshing stats after requests...');
                 await refreshInventoryCache();
                 await updateOverviewWithRealData();
             }, 2000);
@@ -2851,7 +2833,7 @@
             console.error('Error triggering requests:', e);
         }
         
-        console.log('=== Requests Triggered ===');
+        // console.log('=== Requests Triggered ===');
     };
 
     function updatePerformanceMetrics(performanceData) {

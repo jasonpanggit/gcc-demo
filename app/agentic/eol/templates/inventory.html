@@ -3,7 +3,6 @@
 {% block title %}Inventory Management — EOL Agentic Platform{% endblock %}
 
 {% block extra_head %}
-<script src="/static/js/agent-config.js"></script>
 <style>
     /* Inventory Management Styles */
 
@@ -242,103 +241,104 @@
         box-shadow: var(--shadow-sm);
     }
 
-    .pagination-controls {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: var(--spacing-lg);
+    .pagination-modern .pagination-controls {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        gap: 2rem !important;
+        flex-wrap: nowrap !important;
+        width: 100% !important;
+    }
+
+    .pagination-modern .pagination-info-section {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        flex-wrap: nowrap !important;
+        padding: 0 !important;
+        background: transparent !important;
+    }
+
+    .pagination-modern .page-size-selector {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        white-space: nowrap !important;
+    }
+
+    .pagination-modern .page-size-selector .form-select {
+        min-width: 70px !important;
+        width: auto !important;
+        font-size: 0.875rem !important;
+    }
+
+    .pagination-modern .page-size-selector .form-label {
+        font-size: 0.875rem !important;
+        margin: 0 !important;
+    }
+
+    /* Pagination nav */
+    .pagination-modern nav[aria-label*="pagination"] {
+        flex-shrink: 0;
+    }
+
+    /* Ensure pagination list doesn't wrap */
+    .pagination {
+        margin-bottom: 0;
         flex-wrap: nowrap;
-        /* Prevent wrapping on desktop */
-        min-height: 40px;
-        position: relative;
-        width: 100%;
-        /* Ensure full width utilization */
     }
 
-    .pagination-info-section {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-        /* Reduce gap between elements */
-        flex-wrap: nowrap;
-        min-width: 0;
-        flex: 0 1 auto;
-        /* Don't grow, allow shrinking */
-        max-width: 50%;
-        /* Strict limit to prevent overlap */
-        overflow: hidden;
-        /* Hide overflow */
-    }
-
-    .page-size-selector {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-        white-space: nowrap;
-        flex-shrink: 0;
-        margin-right: var(--spacing-md);
-        min-width: 280px;
-        /* Increase minimum width significantly to prevent dropdown cutoff */
-        order: 1;
-    }
-
-    .page-size-selector .form-select {
-        min-width: 130px;
-        /* Increase select width to prevent cutoff */
-        flex-shrink: 0;
-        font-size: 0.875rem;
-    }
-
-    .page-size-selector .form-label {
-        flex-shrink: 0;
-        margin-right: var(--spacing-sm);
-        font-size: 0.875rem;
-    }
-
-    /* Ensure pagination nav has sufficient space and no overlap */
-    nav[aria-label*="pagination"] {
-        flex-shrink: 0;
-        /* Don't shrink pagination navigation */
-        min-width: 180px;
-        /* Ensure minimum space for pagination buttons */
-        order: 3;
-        /* Ensure pagination comes last */
-        margin-left: auto;
-        /* Push to the right */
-    }
-
-    /* Strict desktop layout to prevent any overlap */
+    /* Desktop - more spacing */
     @media (min-width: 993px) {
-        .pagination-controls {
-            gap: var(--spacing-lg);
-            /* Increase gap for better spacing */
-            flex-wrap: nowrap;
-            /* Never wrap on desktop */
-        }
-
-        .pagination-info-section {
-            max-width: 50%;
-            /* Allow more space */
-            flex: 0 1 auto;
-            /* Don't grow beyond content */
-        }
-
-        .page-size-selector {
-            min-width: 160px;
-            /* Ensure adequate space for dropdown */
-        }
-
-        nav[aria-label*="pagination"] {
-            min-width: 200px;
-            /* Ensure adequate space */
-            flex: 0 0 auto;
-            /* Don't grow or shrink */
+        .pagination-modern .pagination-controls {
+            gap: 2rem !important;
+            flex-direction: row !important;
         }
 
         .pagination .page-link {
             padding: 0.375rem 0.625rem;
             min-width: 35px;
             font-size: 0.875rem;
+        }
+    }
+
+    /* Tablet - compact spacing but still on same line */
+    @media (min-width: 577px) and (max-width: 992px) {
+        .pagination-modern .pagination-controls {
+            gap: 1.5rem !important;
+            flex-direction: row !important;
+        }
+
+        .pagination .page-link {
+            padding: 0.25rem 0.5rem;
+            min-width: 32px;
+            font-size: 0.813rem;
+        }
+    }
+
+    /* Small tablet - very compact but still horizontal */
+    @media (min-width: 577px) and (max-width: 768px) {
+        .pagination-modern .pagination-controls {
+            gap: 1rem !important;
+            flex-direction: row !important;
+        }
+
+        .pagination-modern .page-size-selector .form-label {
+            font-size: 0.75rem !important;
+        }
+
+        .pagination-modern .page-size-selector .form-select {
+            font-size: 0.75rem !important;
+            min-width: 60px !important;
+        }
+
+        .pagination .page-link {
+            padding: 0.25rem 0.375rem;
+            font-size: 0.75rem;
+            min-width: 28px;
         }
     }
 
@@ -455,46 +455,6 @@
             grid-template-columns: repeat(2, 1fr);
         }
 
-        .pagination-controls {
-            flex-direction: column;
-            align-items: stretch;
-            gap: var(--spacing-md);
-        }
-
-        .pagination-info-section {
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-between;
-            text-align: left;
-            gap: var(--spacing-sm);
-            max-width: 100%;
-            /* Allow full width on mobile */
-        }
-
-        .page-size-selector {
-            margin-right: 0;
-            /* Remove margin on mobile */
-            margin-bottom: 0;
-            /* Remove bottom margin */
-            min-width: 140px;
-            /* Ensure consistent width */
-        }
-
-        .pagination {
-            justify-content: center;
-            margin-top: var(--spacing-sm);
-            /* Add top margin for separation */
-            flex-wrap: nowrap;
-            /* Prevent pagination buttons from wrapping */
-            overflow-x: auto;
-            /* Allow horizontal scrolling on very small screens */
-        }
-
-        .pagination .page-item {
-            flex-shrink: 0;
-            /* Prevent pagination items from shrinking */
-        }
-
         .inventory-table th,
         .inventory-table td {
             padding: var(--spacing-sm);
@@ -502,25 +462,21 @@
         }
     }
 
+    /* Mobile only - stack vertically */
     @media (max-width: 576px) {
-        .pagination-info-section {
-            flex-direction: column;
+        .pagination-controls {
+            flex-direction: column !important;
             align-items: center;
-            text-align: center;
-            gap: var(--spacing-sm);
+            gap: 1rem;
         }
 
-        .page-size-selector {
-            flex-direction: column;
-            gap: var(--spacing-xs);
-            text-align: center;
-            min-width: auto;
-            /* Reset min-width on very small screens */
+        .pagination-info-section {
+            justify-content: center;
         }
 
-        .page-size-selector .form-label {
-            margin-right: 0;
-            margin-bottom: var(--spacing-xs);
+        .pagination {
+            justify-content: center;
+            overflow-x: auto;
         }
     }
 
@@ -1345,71 +1301,535 @@
 
 {% block extra_scripts %}
 <script src="/static/js/eol-utils.js"></script>
-<script>
-    let currentInventory = [];
-    let filteredInventory = [];
-    let currentSortColumn = null;
-    let currentSortDirection = 'none';
 
-    // Pagination variables
-    let currentPage = 1;
-    let pageSize = 50; // Match the HTML default selection
-    let totalPages = 1;
-    let totalEntries = 0;
+<!-- Import modular JavaScript -->
+<script type="module">
+    // Import state management
+    import { state, saveViewState, tryRestoreViewState, updateCurrentPage, setCurrentInventory, setFilteredInventory } from '/static/js/inventory-state.js';
+    
+    // Import display functions
+    import { displayInventory, displayInventoryWithPagination, goToPage, previousPage, nextPage } from '/static/js/inventory-display.js';
+    
+    // Import Azure helpers
+    import { getAzurePortalLink, getComputerTypeBadge, escapeHtml } from '/static/js/azure-helpers.js';
+    
+    // Import filter and sort functions
+    import { initializeSorting, filterInventory, applyFilters, clearAllFilters, changePageSize, sortTable, resetSort } from '/static/js/inventory-filters.js';
+
+    // Template variables (injected by Jinja2)
+    const SUBSCRIPTION_ID = '{{ subscription_id }}' || '';
+    const RESOURCE_GROUP = '{{ resource_group }}' || '';
 
     document.addEventListener('DOMContentLoaded', function () {
+        // Initialize page
         loadInventory();
         loadInventoryStatus();
         initializeSorting();
-
-        // Try to restore last view state if available
         tryRestoreViewState();
+        
+        // Expose functions globally for onclick handlers
+        window.inventoryFunctions = {
+            checkEOLInPlace,
+            handleManualEOLCheck,
+            filterInventory: () => filterInventory(displayInventory, updateSummary),
+            applyFilters: () => applyFilters(displayInventory, updateSummary),
+            clearAllFilters: () => clearAllFilters(() => applyFilters(displayInventory, updateSummary)),
+            changePageSize: (id) => changePageSize(id, displayInventory, updateSummary),
+            sortTable: (col) => sortTable(col, () => filterInventory(displayInventory, updateSummary)),
+            resetSort: () => resetSort(loadInventory),
+            refreshInventory,
+            clearInventoryCache,
+            getAzurePortalLink: (item) => getAzurePortalLink(item, SUBSCRIPTION_ID, RESOURCE_GROUP),
+            getComputerTypeBadge,
+            escapeHtml
+        };
+        
+        // Expose pagination globally
+        window.inventoryPagination = {
+            goToPage: (page) => goToPage(page, displayInventory),
+            previousPage: () => previousPage(displayInventory),
+            nextPage: () => nextPage(displayInventory)
+        };
     });
 
-    function tryRestoreViewState() {
+    // Core functions that remain in template (due to template variables and API calls)
+
+    async function checkEOLInPlace(name, version, itemId, softwareType = '') {
+        const statusElement = document.getElementById(`eol-status-${itemId}`);
+        if (!statusElement) return;
+
+        // Check if software type is eligible for EOL checking
+        const normalizedType = softwareType.toLowerCase();
+        if (normalizedType && normalizedType !== 'application' && normalizedType !== 'operating system') {
+            statusElement.innerHTML = `
+            <span class="badge bg-light text-dark">
+                <i class="fas fa-minus me-1"></i>
+                N/A
+            </span>
+        `;
+            return;
+        }
+
+        // Show loading state
+        statusElement.innerHTML = `
+        <span class="badge bg-secondary text-light">
+            <i class="fas fa-spinner fa-spin me-1"></i>
+            Checking...
+        </span>
+    `;
+
         try {
-            const savedState = localStorage.getItem('eol_inventory_state');
-            if (savedState) {
-                const state = JSON.parse(savedState);
-                if (state.timestamp && (Date.now() - state.timestamp < 300000)) { // 5 minutes
-                    // Restore filters and view settings
-                    if (state.daysSelect) {
-                        const daysSelect = document.getElementById('days-select');
-                        if (daysSelect) daysSelect.value = state.daysSelect;
-                    }
-                    if (state.limitInput) {
-                        const limitInput = document.getElementById('limit-input');
-                        if (limitInput) limitInput.value = state.limitInput;
-                    }
-                    if (state.pageSize) {
-                        const pageSizeSelect = document.getElementById('page-size-select');
-                        if (pageSizeSelect) pageSizeSelect.value = state.pageSize;
-                    }
-                    // console.log('Restored view state from localStorage');
+            // Apply enhanced parameter extraction like in eol.html
+            const rawName = name ? name.trim() : '';
+            const rawVersion = version ? version.trim() : '';
+
+            if (!rawName) {
+                statusElement.innerHTML = `
+                <span class="badge bg-warning text-dark">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    No name
+                </span>
+            `;
+                return;
+            }
+
+            // Clean and optimize the software name
+            const cleanedName = cleanSoftwareName(rawName);
+            const parsedInfo = parseVersionFromName(cleanedName);
+
+            // Use the best available name and version
+            const finalName = parsedInfo.name || cleanedName;
+            const finalVersion = rawVersion || parsedInfo.version || '';
+
+            // Build request payload for enhanced search endpoint
+            const searchData = {
+                software_name: finalName
+            };
+
+            if (finalVersion) {
+                searchData.software_version = finalVersion;
+            }
+
+            // Two-stage search strategy: try name only first, then name + version
+            let eolInfo = null;
+            let searchAttempt = 1;
+
+            // Stage 1: Search with software name only
+            // console.log('Stage 1: Searching with name only:', finalName);
+            const nameOnlySearchData = {
+                software_name: finalName
+            };
+
+            let response = await fetch('/api/search/eol', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(nameOnlySearchData)
+            });
+
+            let data = await response.json();
+
+            // Check if Stage 1 found valid EOL data
+            // API returns: { result: { success: true, data: { software_name, eol_date, ... } } }
+            if (response.ok && data.result && data.result.success && data.result.data) {
+                const resultData = data.result.data;
+                if (resultData.software_name && hasValidEOLData(resultData)) {
+                    eolInfo = resultData;
                 }
             }
+            
+            if (!eolInfo && finalVersion) {
+                // Stage 2: Search with software name and version
+                // console.log('Stage 2: Searching with name and version:', finalName, finalVersion);
+                searchAttempt = 2;
+
+                const nameVersionSearchData = {
+                    software_name: finalName,
+                    software_version: finalVersion
+                };
+
+                response = await fetch('/api/search/eol', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(nameVersionSearchData)
+                });
+
+                data = await response.json();
+
+                if (response.ok && data.result && data.result.success && data.result.data) {
+                    const resultData = data.result.data;
+                    if (resultData.software_name) {
+                        eolInfo = resultData;
+                    }
+                }
+            }
+
+            // Process the results
+            if (eolInfo) {
+                const eolStatus = getEnhancedEOLStatus(eolInfo);
+                statusElement.innerHTML = eolStatus.html;
+            } else {
+                // No EOL data found - but check if we have any helpful status info
+                let statusText = 'No data';
+                let statusClass = 'bg-light text-dark';
+
+                // Check if we have any indication this software is still supported
+                if (eolInfo && eolInfo.additional_info) {
+                    const info = eolInfo.additional_info;
+                    if (info.status === 'supported' || info.active === true ||
+                        info.current === true || info.lts === true) {
+                        statusText = 'Supported';
+                        statusClass = 'bg-success text-light';
+                    } else if (info.status === 'discontinued' || info.discontinued === true) {
+                        statusText = 'Discontinued';
+                        statusClass = 'bg-dark text-light';
+                    }
+                }
+
+                statusElement.innerHTML = `
+                <span class="badge ${statusClass}" title="No EOL data found for ${finalName}${finalVersion ? ` v${finalVersion}` : ''}">
+                    <i class="fas fa-question me-1"></i>
+                    ${statusText}
+                </span>
+            `;
+            }
         } catch (error) {
-            console.warn('Error restoring view state:', error);
+            console.error('Error checking EOL:', error);
+            statusElement.innerHTML = `
+            <span class="badge bg-warning text-dark" title="Error occurred while checking EOL data">
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                Error
+            </span>
+        `;
         }
     }
 
-    function saveViewState() {
-        try {
-            const daysSelect = document.getElementById('days-select');
-            const limitInput = document.getElementById('limit-input');
-            const pageSizeSelect = document.getElementById('page-size-select');
+    // calculateSearchConfidence function provided by eol-utils.js
 
-            const state = {
-                timestamp: Date.now(),
-                daysSelect: daysSelect ? daysSelect.value : '90',
-                limitInput: limitInput ? limitInput.value : '5000',
-                pageSize: pageSizeSelect ? pageSizeSelect.value : '50'
+    function getEnhancedEOLStatus(eolInfo) {
+        // console.log('getEnhancedEOLStatus called with:', eolInfo);
+
+        const now = new Date();
+        let status = 'unknown';
+        let badgeClass = 'bg-secondary text-light';
+        let icon = 'fas fa-question';
+        let text = 'Unknown';
+        let title = 'EOL status unknown';
+
+        // Add agent indicator if available - define early for use in special cases
+        const agentUsed = eolInfo ? eolInfo.agent_used : null;
+        let agentIcon = '';
+        if (agentUsed) {
+            const agentDisplayName = getAgentDisplayName(agentUsed);
+            const agentIcons = {
+                'microsoft': 'fab fa-microsoft',
+                'redhat': 'fab fa-redhat',
+                'ubuntu': 'fab fa-ubuntu',
+                'endoflife': 'fas fa-calendar-times',
+                'azure_ai': 'fas fa-brain',
+                'apache': 'fas fa-server',
+                'python': 'fab fa-python',
+                'nodejs': 'fab fa-node-js',
+                'oracle': 'fas fa-database',
+                'postgresql': 'fas fa-database',
+                'php': 'fab fa-php',
+                'vmware': 'fas fa-cloud'
             };
-
-            localStorage.setItem('eol_inventory_state', JSON.stringify(state));
-        } catch (error) {
-            console.warn('Error saving view state:', error);
+            if (agentIcons[agentUsed]) {
+                agentIcon = `<i class="${agentIcons[agentUsed]} ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
+            } else {
+                agentIcon = `<i class="fas fa-robot ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
+            }
         }
+
+        // Extract EOL date from multiple possible locations in enhanced response
+        let eolDate = null;
+        let supportDate = null;
+        let extendedSupportDate = null;
+
+        // Only proceed with EOL extraction if eolInfo exists
+        if (eolInfo) {
+            // Primary EOL date extraction
+            if (eolInfo.eol_date) {
+                eolDate = eolInfo.eol_date;
+                // console.log('Found eol_date:', eolDate);
+            } else if (eolInfo.additional_info) {
+                const info = eolInfo.additional_info;
+                // console.log('Checking additional_info:', info);
+                eolDate = info.eol || info.eol_date || info.end_of_life ||
+                    info.endOfLife || info.support_end || info.end_date ||
+                    info.discontinued;
+                // console.log('Extracted eolDate from additional_info:', eolDate);
+
+                // Support date extraction
+                supportDate = eolInfo.support_date || info.support || info.support_date ||
+                    info.mainstream_support || info.standard_support;
+
+                // Extended support extraction
+                extendedSupportDate = eolInfo.extended_support_date || info.extended_support ||
+                    info.extendedSupport || info.extended_support_date;
+            } else {
+                // console.log('No eol_date or additional_info found in eolInfo');
+
+                // Try direct fields in case the structure is different
+                eolDate = eolInfo.eol || eolInfo.end_of_life || eolInfo.endOfLife ||
+                    eolInfo.support_end || eolInfo.end_date || eolInfo.discontinued;
+                // console.log('Trying direct fields, found:', eolDate);
+            }
+        }
+
+        // Handle array format (some APIs return arrays)
+        if (Array.isArray(eolDate) && eolDate.length > 0) {
+            eolDate = eolDate[0];
+        }
+
+        // Handle object format with date field
+        if (typeof eolDate === 'object' && eolDate.date) {
+            eolDate = eolDate.date;
+        }
+
+        // console.log('Final extracted eolDate:', eolDate);
+
+        // Handle special EOL cases that are not actual dates
+        if (eolDate && typeof eolDate === 'string') {
+            const specialCases = [
+                'No EOL (Continuous updates)',
+                'No EOL',
+                'Continuous updates',
+                'Rolling release',
+                'LTS',
+                'Never',
+                'Not specified',
+                'Not available',
+                'N/A',
+                'TBD',
+                'TBA'
+            ];
+
+            const normalizedEolDate = eolDate.trim();
+            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
+                // console.log('Found special EOL case:', normalizedEolDate);
+                if (normalizedEolDate.toLowerCase().includes('continuous') ||
+                    normalizedEolDate.toLowerCase().includes('rolling') ||
+                    normalizedEolDate.toLowerCase().includes('never')) {
+                    status = 'continuous';
+                    badgeClass = 'bg-primary text-light';
+                    icon = 'fas fa-infinity';
+                    text = 'Continuous Updates';
+                    title = 'No end-of-life date (continuous updates)';
+                } else {
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'EOL date not specified';
+                }
+                // console.log('Set special case status:', { status, text, title, badgeClass });
+                return {
+                    status,
+                    html: `
+                    <span class="badge ${badgeClass}" title="${title}">
+                        <i class="${icon} me-1"></i>
+                        ${text}${agentIcon || ''}
+                    </span>
+                `
+                };
+            }
+        }
+
+        if (eolDate && eolDate !== 'Not specified' && eolDate !== 'Not available') {
+            // console.log('Processing valid eolDate:', eolDate);
+            try {
+                const eolDateObj = new Date(eolDate);
+                // console.log('Parsed eolDateObj:', eolDateObj);
+
+                // Check if the date is valid
+                if (isNaN(eolDateObj.getTime())) {
+                    throw new Error(`Invalid date: ${eolDate}`);
+                }
+
+                const daysDiff = Math.ceil((eolDateObj - now) / (1000 * 60 * 60 * 24));
+                // console.log('Days difference:', daysDiff);
+                const formattedDate = eolDate.includes('-') ? eolDate : eolDateObj.toISOString().split('T')[0];
+
+                if (daysDiff < 0) {
+                    // Already EOL
+                    status = 'eol';
+                    badgeClass = 'bg-danger text-light';
+                    icon = 'fas fa-times-circle';
+                    text = `EOL (${formattedDate})`;
+                    title = `End-of-life: ${eolDate}`;
+                } else if (daysDiff <= 90) {
+                    // EOL within 90 days
+                    status = 'warning';
+                    badgeClass = 'bg-warning text-dark';
+                    icon = 'fas fa-exclamation-triangle';
+                    text = `${daysDiff}d (${formattedDate})`;
+                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
+                } else if (daysDiff <= 365) {
+                    // EOL within 1 year
+                    status = 'caution';
+                    badgeClass = 'bg-info text-dark';
+                    icon = 'fas fa-clock';
+                    text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
+                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
+                } else {
+                    // EOL more than 1 year away
+                    status = 'good';
+                    badgeClass = 'bg-success text-light';
+                    icon = 'fas fa-check-circle';
+                    text = `OK (${formattedDate})`;
+                    title = `End-of-life: ${eolDate}`;
+                }
+            } catch (error) {
+                console.warn('Error parsing EOL date:', eolDate, error);
+                status = 'unknown';
+                badgeClass = 'bg-secondary text-light';
+                icon = 'fas fa-question';
+                text = 'Unknown';
+                title = 'Could not parse EOL date';
+            }
+        } else if (eolInfo.additional_info && eolInfo.additional_info.discontinued) {
+            status = 'discontinued';
+            badgeClass = 'bg-dark text-light';
+            icon = 'fas fa-ban';
+            text = 'Discontinued';
+            title = 'Product discontinued';
+        } else {
+            // Check for extended support if no EOL date
+            if (extendedSupportDate === true || extendedSupportDate === 'Available') {
+                status = 'extended';
+                badgeClass = 'bg-info text-dark';
+                icon = 'fas fa-shield-alt';
+                text = 'Extended Support';
+                title = 'Extended support available';
+            }
+        }
+
+        // console.log('Final EOL status:', { status, text, title, badgeClass });
+
+        return {
+            status,
+            html: `
+            <span class="badge ${badgeClass}" title="${title}">
+                <i class="${icon} me-1"></i>
+                ${text}${agentIcon}
+            </span>
+        `
+        };
+    }
+
+    function getEOLStatus(eolInfo) {
+        const now = new Date();
+        let status = 'unknown';
+        let badgeClass = 'bg-secondary text-light';
+        let icon = 'fas fa-question';
+        let text = 'Unknown';
+        let title = 'EOL status unknown';
+
+        if (eolInfo.eol_date) {
+            // Handle special EOL cases that are not actual dates
+            const specialCases = [
+                'No EOL (Continuous updates)',
+                'No EOL',
+                'Continuous updates',
+                'Rolling release',
+                'LTS',
+                'Never',
+                'Not specified',
+                'Not available',
+                'N/A',
+                'TBD',
+                'TBA'
+            ];
+
+            const normalizedEolDate = eolInfo.eol_date.trim();
+            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
+                if (normalizedEolDate.toLowerCase().includes('continuous') ||
+                    normalizedEolDate.toLowerCase().includes('rolling') ||
+                    normalizedEolDate.toLowerCase().includes('never')) {
+                    status = 'continuous';
+                    badgeClass = 'bg-primary text-light';
+                    icon = 'fas fa-infinity';
+                    text = 'Continuous Updates';
+                    title = 'No end-of-life date (continuous updates)';
+                } else {
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'EOL date not specified';
+                }
+            } else {
+                try {
+                    const eolDate = new Date(eolInfo.eol_date);
+
+                    // Check if the date is valid
+                    if (isNaN(eolDate.getTime())) {
+                        throw new Error(`Invalid date: ${eolInfo.eol_date}`);
+                    }
+
+                    const daysDiff = Math.ceil((eolDate - now) / (1000 * 60 * 60 * 24));
+                    const formattedDate = eolInfo.eol_date.includes('-') ? eolInfo.eol_date : eolDate.toISOString().split('T')[0];
+
+                    if (daysDiff < 0) {
+                        // Already EOL
+                        status = 'eol';
+                        badgeClass = 'bg-danger text-light';
+                        icon = 'fas fa-times-circle';
+                        text = `EOL (${formattedDate})`;
+                        title = `End-of-life: ${eolInfo.eol_date}`;
+                    } else if (daysDiff <= 90) {
+                        // EOL within 90 days
+                        status = 'warning';
+                        badgeClass = 'bg-warning text-dark';
+                        icon = 'fas fa-exclamation-triangle';
+                        text = `${daysDiff}d (${formattedDate})`;
+                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
+                    } else if (daysDiff <= 365) {
+                        // EOL within 1 year
+                        status = 'caution';
+                        badgeClass = 'bg-info text-dark';
+                        icon = 'fas fa-clock';
+                        text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
+                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
+                    } else {
+                        // EOL more than 1 year away
+                        status = 'good';
+                        badgeClass = 'bg-success text-light';
+                        icon = 'fas fa-check-circle';
+                        text = `OK (${formattedDate})`;
+                        title = `End-of-life: ${eolInfo.eol_date}`;
+                    }
+                } catch (error) {
+                    console.warn('Error parsing EOL date in getEOLStatus:', eolInfo.eol_date, error);
+                    status = 'unknown';
+                    badgeClass = 'bg-secondary text-light';
+                    icon = 'fas fa-question';
+                    text = 'Unknown';
+                    title = 'Could not parse EOL date';
+                }
+            }
+        } else if (eolInfo.discontinued) {
+            status = 'discontinued';
+            badgeClass = 'bg-dark text-light';
+            icon = 'fas fa-ban';
+            text = 'Discontinued';
+            title = 'Product discontinued';
+        }
+
+        return {
+            status,
+            html: `
+            <span class="badge ${badgeClass}" title="${title}">
+                <i class="${icon} me-1"></i>
+                ${text}
+            </span>
+        `
+        };
     }
 
     async function loadInventoryStatus() {
@@ -1745,15 +2165,21 @@
                     // Fallback to safe combination
                     combinedInventory = (softwareInventory || []).concat(osInventory || []);
                 }
-                currentInventory = combinedInventory;
+                setCurrentInventory(combinedInventory); // Use state module
 
                 // console.log(`Loaded combined inventory: ${softwareInventory.length} software + ${osInventory.length} OS = ${combinedInventory.length} total`);
                 // console.log('First 3 combined items:', combinedInventory.slice(0, 3));
                 // console.log('Sample software item:', softwareInventory[0]);
                 // console.log('Sample OS item:', osInventory[0]);
 
-                currentPage = 1; // Reset to first page
+                updateCurrentPage(1); // Reset to first page using state module
                 displayInventoryWithPagination(combinedInventory); // Pass combined data
+
+                // Update summary text to show results
+                const summaryTextEl = document.getElementById('summary-text');
+                if (summaryTextEl) {
+                    summaryTextEl.textContent = `Showing ${Math.min(combinedInventory.length, 50)} of ${combinedInventory.length} items (${softwareInventory.length} software + ${osInventory.length} OS)`;
+                }
 
                 // Update cache status display with combined data
                 const combinedData = {
@@ -1856,702 +2282,11 @@
         }
     }
 
-    function displayInventoryWithPagination(inventoryData) {
-        // console.log('displayInventoryWithPagination called with:', inventoryData);
-        // console.log('Is array?', Array.isArray(inventoryData));
-        // console.log('Has success property?', inventoryData && inventoryData.success);
-
-        // Handle both old array format and new dict format
-        let inventory;
-        if (Array.isArray(inventoryData)) {
-            // Legacy format - just an array
-            inventory = inventoryData;
-            // console.log('Using array format, length:', inventory.length);
-        } else if (inventoryData && inventoryData.success) {
-            // New Dict format with metadata
-            inventory = inventoryData.data || [];
-            // console.log('Using dict format, data length:', inventory.length);
-        } else {
-            // Fallback
-            inventory = [];
-            // console.log('Using fallback empty array');
-        }
-
-        // console.log('Final inventory to display:', inventory);
-        // console.log('Final inventory length:', inventory.length);
-
-        // Get the current page size from the dropdown (try top first, then bottom)
-        const pageSizeSelectTop = document.getElementById('page-size-select-top');
-        const pageSizeSelect = document.getElementById('page-size-select');
-
-        if (pageSizeSelectTop) {
-            pageSize = parseInt(pageSizeSelectTop.value) || 50;
-        } else if (pageSizeSelect) {
-            pageSize = parseInt(pageSizeSelect.value) || 50;
-        }
-
-        // Use the existing display function
-        displayInventory(inventory);
-        updateSummary(filteredInventory.length, totalEntries, null);
-    }
-
-    function changePageSize() {
-        const pageSizeSelect = document.getElementById('page-size');
-        if (pageSizeSelect) {
-            pageSize = parseInt(pageSizeSelect.value) || 25;
-        }
-
-        // Sync the top page size selector
-        const pageSizeSelectTop = document.getElementById('page-size-select-top');
-        if (pageSizeSelectTop) {
-            pageSizeSelectTop.value = pageSize;
-        }
-
-        currentPage = 1; // Reset to first page when changing page size
-
-        // Re-display with current data
-        displayInventory(filteredInventory);
-        updateSummary(filteredInventory.length, totalEntries, null);
-    }
-
-    function changePageSizeFromTop() {
-        const pageSizeSelectTop = document.getElementById('page-size-select-top');
-        if (pageSizeSelectTop) {
-            pageSize = parseInt(pageSizeSelectTop.value) || 25;
-        }
-
-        // Sync the bottom page size selector
-        const pageSizeSelect = document.getElementById('page-size');
-        if (pageSizeSelect) {
-            pageSizeSelect.value = pageSize;
-        }
-
-        currentPage = 1; // Reset to first page when changing page size
-
-        // Re-display with current data
-        displayInventory(filteredInventory);
-        updateSummary(filteredInventory.length, totalEntries, null);
-    }
-
-    function displayInventory(inventory) {
-        // console.log('displayInventory called with data:', inventory);
-        // console.log('Inventory length:', inventory ? inventory.length : 'null/undefined');
-
-        // Store the filtered inventory for pagination
-        filteredInventory = inventory;
-        totalEntries = inventory.length;
-
-        // Calculate pagination
-        totalPages = Math.ceil(totalEntries / pageSize);
-
-        // Ensure current page is valid
-        if (currentPage > totalPages) {
-            currentPage = Math.max(1, totalPages);
-        }
-
-        // Get items for current page
-        const startIndex = (currentPage - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const pageItems = inventory.slice(startIndex, endIndex);
-
-        // console.log(`Page ${currentPage} of ${totalPages}, showing items ${startIndex}-${endIndex}, pageItems length:`, pageItems.length);
-
-        const tbody = document.getElementById('inventory-table-body');
-        // console.log('Table body element:', tbody);
-
-        if (!tbody) {
-            console.error('ERROR: Table body element not found!');
-            return;
-        }
-
-        if (inventory.length === 0) {
-            // console.log('No inventory data - showing empty state');
-            tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="text-center py-4">
-                    <i class="fas fa-inbox text-muted fa-2x mb-2"></i>
-                    <p class="text-muted mb-0">No inventory data available</p>
-                </td>
-            </tr>
-        `;
-            // Hide both pagination containers
-            const paginationContainer = document.getElementById('pagination-container');
-            const paginationContainerTop = document.getElementById('pagination-container-top');
-            if (paginationContainer) {
-                paginationContainer.style.display = 'none';
-            }
-            if (paginationContainerTop) {
-                paginationContainerTop.style.display = 'none';
-            }
-            return;
-        }
-
-        // console.log('Displaying inventory data - showing pagination');
-        // console.log('Sample item structure:', inventory[0]);
-        // console.log('Required fields check for first item:');
-        // console.log('- computer:', inventory[0]?.computer);
-        // console.log('- computer_type:', inventory[0]?.computer_type);  
-        // console.log('- name:', inventory[0]?.name);
-        // console.log('- version:', inventory[0]?.version);
-        // console.log('- publisher:', inventory[0]?.publisher);
-        // console.log('- software_type:', inventory[0]?.software_type);
-
-        // Show both pagination containers
-        const paginationContainer = document.getElementById('pagination-container');
-        const paginationContainerTop = document.getElementById('pagination-container-top');
-        if (paginationContainer) {
-            paginationContainer.style.display = 'block';
-        }
-        if (paginationContainerTop) {
-            paginationContainerTop.style.display = 'block';
-        }
-        // updatePaginationInfo();
-        updatePaginationNav();
-
-        tbody.innerHTML = pageItems.map(item => {
-            const itemId = item.id || Math.random().toString(36).substr(2, 9);
-            item.id = itemId; // Store the ID for later use
-            return `
-        <tr>
-            <td>
-                <i class="fas fa-desktop text-primary me-2"></i>
-                <a href="${getAzurePortalLink(item)}" 
-                   target="_blank" 
-                   class="text-decoration-none"
-                   title="View in Azure Portal">
-                    ${escapeHtml(item.computer || 'N/A')}
-                    <i class="fas fa-external-link-alt ms-1 text-muted icon-sm"></i>
-                </a>
-            </td>
-            <td>
-                ${getComputerTypeBadge(item)}
-            </td>
-            <td>
-                ${(item.software_type || '').toLowerCase() === 'application' || (item.software_type || '').toLowerCase() === 'operating system' ?
-                    `<div class="software-name-clickable" 
-                          onclick="handleManualEOLCheck('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}')"
-                          title="Click to search EOL information for ${escapeHtml(item.name)}${item.version ? ' v' + escapeHtml(item.version) : ''}"
-                          style="cursor: pointer; color: #0d6efd;">
-                        <strong>${escapeHtml(item.name || 'Unknown')}</strong>
-                        <small class="text-muted d-block mt-1">
-                            <i class="fas fa-search me-1 icon-sm"></i>
-                            Click to search EOL info
-                        </small>
-                    </div>` :
-                    `<strong>${escapeHtml(item.name || 'Unknown')}</strong>`
-                }
-                ${item.name && item.name.includes('(Arc-enabled)') ? '<i class="fas fa-cloud ms-1 text-success" title="Arc-enabled OS"></i>' : ''}
-            </td>
-            <td>
-                <span class="badge bg-secondary text-light">${escapeHtml(item.version || 'N/A')}</span>
-            </td>
-            <td>${escapeHtml(item.publisher || 'Unknown')}</td>
-            <td>
-                <span class="badge bg-info text-dark">${escapeHtml(item.software_type || 'Application')}</span>
-            </td>
-            <td id="eol-status-${itemId}">
-                <span class="badge bg-secondary text-light">
-                    <i class="fas fa-clock me-1"></i>
-                    Checking...
-                </span>
-            </td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
-                    <i class="fas fa-sync me-1"></i>
-                    Refresh EOL
-                </button>
-            </td>
-        </tr>
-        `;
-        }).join('');
-
-        // Clear any previous automatic EOL check timeout
-        if (autoEOLCheckTimeout) {
-            clearTimeout(autoEOLCheckTimeout);
-        }
-
-        // Start EOL checks for all items after a brief delay
-        autoEOLCheckTimeout = setTimeout(() => {
-            inventory.forEach(item => {
-                if (item.name && !item.name.includes('(Arc-enabled)')) {
-                    const softwareType = (item.software_type || '').toLowerCase();
-                    // Only check EOL for applications and operating systems
-                    if (softwareType === 'application' || softwareType === 'operating system') {
-                        // Skip automatic checking if item was manually checked
-                        if (!manuallyCheckedItems.has(item.id)) {
-                            checkEOLInPlace(item.name, item.version || '', item.id, item.software_type || '');
-                        }
-                    } else {
-                        // Set N/A status for other types
-                        const statusElement = document.getElementById(`eol-status-${item.id}`);
-                        if (statusElement) {
-                            statusElement.innerHTML = `
-                            <span class="badge bg-light text-dark">
-                                <i class="fas fa-minus me-1"></i>
-                                N/A
-                            </span>
-                        `;
-                        }
-                    }
-                }
-            });
-        }, 1000);
-
-        // Initialize multi-select dropdowns after data is displayed
-        initializeDropdownsAfterDisplay();
-    }
-
-    function filterInventory() {
-        const searchInput = document.getElementById('search-input');
-        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-        let filtered = [...currentInventory];
-
-        if (searchTerm) {
-            filtered = filtered.filter(item =>
-                (item.name || '').toLowerCase().includes(searchTerm) ||
-                (item.publisher || '').toLowerCase().includes(searchTerm) ||
-                (item.version || '').toLowerCase().includes(searchTerm) ||
-                (item.software_type || '').toLowerCase().includes(searchTerm) ||
-                (item.computer_type || '').toLowerCase().includes(searchTerm) ||
-                (item.computer || '').toLowerCase().includes(searchTerm)
-            );
-        }
-
-        // Reset to first page
-        currentPage = 1;
-
-        // Display filtered results
-        displayInventory(filtered);
-        updateSummary(filtered.length, currentInventory.length, searchTerm, []);
-    }
-
-    function applyFilters() {
-        const searchInput = document.getElementById('search-input');
-        const typeFilterEl = document.getElementById('type-filter');
-        const statusFilterEl = document.getElementById('status-filter');
-
-        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-        const typeFilter = typeFilterEl ? typeFilterEl.value : '';
-        const statusFilter = statusFilterEl ? statusFilterEl.value : '';
-
-        filteredInventory = currentInventory.filter(item => {
-            // Search filter
-            const searchMatch = !searchTerm ||
-                (item.name && item.name.toLowerCase().includes(searchTerm)) ||
-                (item.computer && item.computer.toLowerCase().includes(searchTerm)) ||
-                (item.publisher && item.publisher.toLowerCase().includes(searchTerm)) ||
-                (item.version && item.version.toLowerCase().includes(searchTerm));
-
-            // Type filter
-            const typeMatch = !typeFilter ||
-                (typeFilter === 'Software' && item.software_type !== 'Operating System') ||
-                (typeFilter === 'OS' && item.software_type === 'Operating System');
-
-            // Status filter
-            const statusMatch = !statusFilter ||
-                (item.eol_status && item.eol_status === statusFilter);
-
-            return searchMatch && typeMatch && statusMatch;
-        });
-
-        // Reset to first page when filters change
-        currentPage = 1;
-        displayInventory(filteredInventory);
-        updateSummary(filteredInventory.length, currentInventory.length, searchTerm);
-    }
-
-    function clearAllFilters() {
-        // Clear all filter inputs
-        const searchInput = document.getElementById('search-input');
-        const typeFilter = document.getElementById('type-filter');
-        const statusFilter = document.getElementById('status-filter');
-
-        if (searchInput) searchInput.value = '';
-        if (typeFilter) typeFilter.value = '';
-        if (statusFilter) statusFilter.value = '';
-
-        // Reapply filters (which will show all data since inputs are cleared)
-        applyFilters();
-    }
-
-    // Pagination Functions
-    // function updatePaginationInfo() {
-    //     const showingStart = totalEntries === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-    //     const showingEnd = Math.min(currentPage * pageSize, totalEntries);
-
-    //     // Update bottom pagination info
-    //     const paginationInfo = document.getElementById('pagination-info');
-    //     if (paginationInfo) {
-    //         paginationInfo.innerHTML = `
-    //             Showing <span class="fw-bold">${showingStart}</span> to <span class="fw-bold">${showingEnd}</span> 
-    //             of <span class="fw-bold">${totalEntries}</span> entries
-    //             ${currentInventory.length !== totalEntries && currentInventory.length > 0 ? 
-    //                 `<span class="text-muted">(filtered from ${currentInventory.length} total)</span>` : ''}
-    //         `;
-    //     }
-
-    //     // Update both top and bottom pagination info safely (legacy code for other elements)
-    //     const elements = [
-    //         { id: 'showing-start', value: showingStart },
-    //         { id: 'showing-end', value: showingEnd },
-    //         { id: 'total-entries', value: totalEntries },
-    //         { id: 'showing-start-top', value: showingStart },
-    //         { id: 'showing-end-top', value: showingEnd },
-    //         { id: 'total-entries-top', value: totalEntries }
-    //     ];
-
-    //     elements.forEach(({ id, value }) => {
-    //         const element = document.getElementById(id);
-    //         if (element) {
-    //             element.textContent = value;
-    //         }
-    //     });
-
-    //     // Show filtered info if different from total inventory
-    //     const filteredInfo = document.getElementById('filtered-info');
-    //     const totalUnfiltered = document.getElementById('total-unfiltered');
-    //     const filteredInfoTop = document.getElementById('filtered-info-top');
-    //     const totalUnfilteredTop = document.getElementById('total-unfiltered-top');
-
-    //     if (currentInventory.length !== totalEntries && currentInventory.length > 0) {
-    //         if (filteredInfo) {
-    //             filteredInfo.style.display = 'inline';
-    //         }
-    //         if (totalUnfiltered) {
-    //             totalUnfiltered.textContent = currentInventory.length;
-    //         }
-    //         if (filteredInfoTop) {
-    //             filteredInfoTop.style.display = 'inline';
-    //         }
-    //         if (totalUnfilteredTop) {
-    //             totalUnfilteredTop.textContent = currentInventory.length;
-    //         }
-    //     } else {
-    //         if (filteredInfo) {
-    //             filteredInfo.style.display = 'none';
-    //         }
-    //         if (filteredInfoTop) {
-    //             filteredInfoTop.style.display = 'none';
-    //         }
-    //     }
-    // }
-
-    function updatePaginationNav() {
-        // Update main pagination controls (uses dynamically generated content)
-        updatePaginationControls('pagination-controls');
-        updatePaginationControls('pagination-controls-top');
-
-        // Update pagination info
-        // updatePaginationInfo();
-    }
-
-    function updatePaginationControls(controlsId) {
-        const paginationControls = document.getElementById(controlsId);
-        if (!paginationControls) return;
-
-        // Generate pagination HTML
-        let paginationHTML = '';
-
-        // Previous button
-        paginationHTML += `
-            <li class="page-item ${currentPage <= 1 ? 'disabled' : ''}">
-                <a class="page-link" href="#" onclick="previousPage()" aria-label="Previous">
-                    <span aria-hidden="true">&laquo;</span>
-                </a>
-            </li>
-        `;
-
-        // Page numbers
-        const pageNumbers = generatePageNumbers();
-        pageNumbers.forEach(pageInfo => {
-            if (pageInfo.disabled) {
-                paginationHTML += `
-                    <li class="page-item disabled">
-                        <span class="page-link">${pageInfo.text}</span>
-                    </li>
-                `;
-            } else {
-                paginationHTML += `
-                    <li class="page-item ${pageInfo.active ? 'active' : ''}">
-                        <a class="page-link" href="#" onclick="goToPage(${pageInfo.page})">${pageInfo.text}</a>
-                    </li>
-                `;
-            }
-        });
-
-        // Next button
-        paginationHTML += `
-            <li class="page-item ${currentPage >= totalPages ? 'disabled' : ''}">
-                <a class="page-link" href="#" onclick="nextPage()" aria-label="Next">
-                    <span aria-hidden="true">&raquo;</span>
-                </a>
-            </li>
-        `;
-
-        paginationControls.innerHTML = paginationHTML;
-    }
-
-    // function updatePaginationInfo() {
-    //     // Update top pagination info
-    //     const topPaginationInfo = document.getElementById('top-pagination-info');
-    //     if (topPaginationInfo) {
-    //         topPaginationInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-    //     }
-
-    //     // Update bottom pagination info
-    //     const paginationInfo = document.getElementById('pagination-info');
-    //     if (paginationInfo) {
-    //         paginationInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-    //     }
-    // }
-
-    function generatePageNumbers() {
-        const pages = [];
-        const maxVisiblePages = 5;
-        const halfVisible = Math.floor(maxVisiblePages / 2);
-
-        let startPage = Math.max(1, currentPage - halfVisible);
-        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-        // Adjust start page if we're near the end
-        if (endPage - startPage < maxVisiblePages - 1) {
-            startPage = Math.max(1, endPage - maxVisiblePages + 1);
-        }
-
-        // Add first page and ellipsis if needed
-        if (startPage > 1) {
-            pages.push({ page: 1, text: '1', active: false, disabled: false });
-            if (startPage > 2) {
-                pages.push({ page: null, text: '...', active: false, disabled: true });
-            }
-        }
-
-        // Add visible page numbers
-        for (let i = startPage; i <= endPage; i++) {
-            pages.push({
-                page: i,
-                text: i.toString(),
-                active: i === currentPage,
-                disabled: false
-            });
-        }
-
-        // Add last page and ellipsis if needed
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                pages.push({ page: null, text: '...', active: false, disabled: true });
-            }
-            pages.push({ page: totalPages, text: totalPages.toString(), active: false, disabled: false });
-        }
-
-        return pages;
-    }
-
-    function goToPage(page) {
-        if (page < 1 || page > totalPages || page === currentPage) {
-            return;
-        }
-
-        currentPage = page;
-        displayInventory(filteredInventory);
-    }
-
-    function showError(message) {
-        const errorMessageEl = document.getElementById('error-message');
-        const errorStateEl = document.getElementById('error-state');
-
-        if (errorMessageEl) {
-            errorMessageEl.textContent = message;
-        }
-        if (errorStateEl) {
-            errorStateEl.classList.remove('d-none');
-        }
-    }
-
-    function updateSummary(displayCount, totalCount, searchTerm = null, selectedComputers = []) {
-        const summaryText = document.getElementById('summary-text');
-        if (!summaryText) {
-            console.warn('Summary text element not found');
-            return;
-        }
-
-        let text = '';
-
-        const filters = [];
-        if (searchTerm) {
-            filters.push(`search: "${searchTerm}"`);
-        }
-        if (selectedComputers.length > 0) {
-            filters.push(`computers: ${selectedComputers.length} selected`);
-        }
-        if (currentSortColumn && currentSortDirection !== 'none') {
-            filters.push(`sorted by ${currentSortColumn} (${currentSortDirection})`);
-        }
-
-        if (filters.length > 0) {
-            text = `Showing ${displayCount} of ${totalCount} items (${filters.join(', ')})`;
-        } else {
-            text = `Showing ${displayCount} software items`;
-            const daysSelect = document.getElementById('days-select');
-            const days = daysSelect ? daysSelect.value : null;
-            const limitInput = document.getElementById('limit-input');
-            const limit = limitInput ? limitInput.value : '5000';
-
-            if (days) {
-                text += ` from last ${days} days`;
-            }
-            if (limit === '0') {
-                text += ` (query limit: unlimited)`;
-            } else if (limit && limit !== '5000') {
-                text += ` (query limit: ${limit})`;
-            }
-        }
-
-        summaryText.textContent = text;
-    }
-
-    // Table Sorting Functions
-    function initializeSorting() {
-        document.querySelectorAll('.sortable').forEach(header => {
-            header.addEventListener('click', function () {
-                const sortColumn = this.getAttribute('data-sort');
-                sortTable(sortColumn);
-            });
-        });
-    }
-
-    function sortTable(column) {
-        // Determine sort direction
-        let direction = 'asc';
-        if (currentSortColumn === column) {
-            if (currentSortDirection === 'asc') {
-                direction = 'desc';
-            } else if (currentSortDirection === 'desc') {
-                direction = 'none';
-            } else {
-                direction = 'asc';
-            }
-        }
-
-        // Update sort state
-        currentSortColumn = column;
-        currentSortDirection = direction;
-
-        // Update UI indicators
-        updateSortIndicators(column, direction);
-
-        // Sort the data if not "none"
-        if (direction !== 'none') {
-            currentInventory.sort((a, b) => {
-                let valueA = getSortValue(a, column);
-                let valueB = getSortValue(b, column);
-
-                // Handle special cases
-                if (column === 'eol_status') {
-                    return compareEOLStatus(valueA, valueB, direction);
-                }
-
-                // Convert to strings for comparison if not numbers
-                if (typeof valueA !== 'number' && typeof valueB !== 'number') {
-                    valueA = String(valueA).toLowerCase();
-                    valueB = String(valueB).toLowerCase();
-                }
-
-                if (valueA < valueB) {
-                    return direction === 'asc' ? -1 : 1;
-                }
-                if (valueA > valueB) {
-                    return direction === 'asc' ? 1 : -1;
-                }
-                return 0;
-            });
-        }
-
-        // Re-render the filtered results
-        filterInventory();
-    }
-
-    function getSortValue(item, column) {
-        switch (column) {
-            case 'computer':
-                return item.computer || 'Unknown';
-            case 'computer_type':
-                return item.computer_type || 'Unknown';
-            case 'name':
-                return item.name || 'Unknown';
-            case 'version':
-                return item.version || '';
-            case 'publisher':
-                return item.publisher || 'Unknown';
-            case 'software_type':
-                return item.software_type || 'Application';
-            case 'eol_status':
-                // Get EOL status from the DOM element if available
-                const statusElement = document.getElementById(`eol-status-${item.id}`);
-                if (statusElement) {
-                    const statusText = statusElement.textContent.trim();
-                    return getEOLSortPriority(statusText);
-                }
-                return 999; // Default for unknown status
-            default:
-                return '';
-        }
-    }
-
-    function getEOLSortPriority(statusText) {
-        // Define priority order for EOL statuses
-        if (statusText.includes('End of Life') || statusText.includes('EOL')) return 1;
-        if (statusText.includes('Soon') || statusText.includes('Warning')) return 2;
-        if (statusText.includes('Supported') || statusText.includes('Active')) return 3;
-        if (statusText.includes('Checking') || statusText.includes('Loading')) return 4;
-        if (statusText.includes('N/A')) return 5;
-        if (statusText.includes('Unknown')) return 6;
-        return 7; // Default
-    }
-
-    function compareEOLStatus(valueA, valueB, direction) {
-        if (direction === 'asc') {
-            return valueA - valueB;
-        } else {
-            return valueB - valueA;
-        }
-    }
-
-    function updateSortIndicators(activeColumn, direction) {
-        // Reset all sort indicators
-        document.querySelectorAll('.sort-icon').forEach(icon => {
-            icon.setAttribute('data-sort-direction', 'none');
-            icon.className = 'fas fa-sort sort-icon ms-1';
-        });
-
-        // Update active column indicator
-        if (direction !== 'none') {
-            const activeHeader = document.querySelector(`[data-sort="${activeColumn}"] .sort-icon`);
-            if (activeHeader) {
-                activeHeader.setAttribute('data-sort-direction', direction);
-                activeHeader.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} sort-icon ms-1`;
-            }
-        }
-
-        // Show/hide reset sort button
-        const resetBtn = document.getElementById('reset-sort-btn');
-        if (resetBtn) {
-            if (direction !== 'none') {
-                resetBtn.style.display = 'inline-block';
-            } else {
-                resetBtn.style.display = 'none';
-            }
-        }
-    }
-
-    function resetSort() {
-        currentSortColumn = null;
-        currentSortDirection = 'none';
-        updateSortIndicators('', 'none');
-
-        // Reload inventory to restore original order
-        loadInventory();
-    }
+    // Note: Display, pagination, filter, and sort functions now imported from modules above
+    // - inventory-display.js: displayInventoryWithPagination, displayInventory
+    // - inventory-filters.js: filterInventory, applyFilters, sortTable
+    // - inventory-state.js: state management
+    // Duplicate function definitions removed to prevent redeclaration errors
 
     function refreshInventory() {
         // Directly call loadInventory with force refresh to bypass cache
@@ -3151,7 +2886,7 @@
             params.set('version', finalVersion);
         }
 
-        const url = `/eol?${params.toString()}`;
+        const url = `/eol-search?${params.toString()}`;
 
         // Show brief feedback that search is being initiated
         const toast = document.createElement('div');
@@ -3185,7 +2920,7 @@
     // ========================================================================
     // NOTE: cleanSoftwareName, parseVersionFromName, isCommonSoftwareWord
     //       are now provided by eol-utils.js
-    //       Loaded via: <script src="/static/js/eol-utils.js"></script>
+    //       Loaded via: <script src="/static/js/eol-utils.js"><\/script>
     // ========================================================================
 
     // Helper function to check if EOL data contains valid information
@@ -3225,497 +2960,6 @@
         return false;
     }
 
-    async function checkEOLInPlace(name, version, itemId, softwareType = '') {
-        const statusElement = document.getElementById(`eol-status-${itemId}`);
-        if (!statusElement) return;
-
-        // Check if software type is eligible for EOL checking
-        const normalizedType = softwareType.toLowerCase();
-        if (normalizedType && normalizedType !== 'application' && normalizedType !== 'operating system') {
-            statusElement.innerHTML = `
-            <span class="badge bg-light text-dark">
-                <i class="fas fa-minus me-1"></i>
-                N/A
-            </span>
-        `;
-            return;
-        }
-
-        // Show loading state
-        statusElement.innerHTML = `
-        <span class="badge bg-secondary text-light">
-            <i class="fas fa-spinner fa-spin me-1"></i>
-            Checking...
-        </span>
-    `;
-
-        try {
-            // Apply enhanced parameter extraction like in eol.html
-            const rawName = name ? name.trim() : '';
-            const rawVersion = version ? version.trim() : '';
-
-            if (!rawName) {
-                statusElement.innerHTML = `
-                <span class="badge bg-warning text-dark">
-                    <i class="fas fa-exclamation-triangle me-1"></i>
-                    No name
-                </span>
-            `;
-                return;
-            }
-
-            // Clean and optimize the software name
-            const cleanedName = cleanSoftwareName(rawName);
-            const parsedInfo = parseVersionFromName(cleanedName);
-
-            // Use the best available name and version
-            const finalName = parsedInfo.name || cleanedName;
-            const finalVersion = rawVersion || parsedInfo.version || '';
-
-            // Build request payload for enhanced search endpoint
-            const searchData = {
-                software_name: finalName
-            };
-
-            if (finalVersion) {
-                searchData.software_version = finalVersion;
-            }
-
-            // Two-stage search strategy: try name only first, then name + version
-            let eolInfo = null;
-            let searchAttempt = 1;
-
-            // Stage 1: Search with software name only
-            // console.log('Stage 1: Searching with name only:', finalName);
-            const nameOnlySearchData = {
-                software_name: finalName,
-                search_hints: {
-                    original_name: rawName,
-                    cleaned_name: finalName,
-                    extracted_version: parsedInfo.version,
-                    provided_version: rawVersion,
-                    confidence_level: calculateSearchConfidence(finalName, ''),
-                    search_strategy: 'name_only'
-                }
-            };
-
-            let response = await fetch('/api/search/eol', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(nameOnlySearchData)
-            });
-
-            let data = await response.json();
-            // console.log('Stage 1 response:', data);
-
-            // Check if Stage 1 found valid EOL data
-            if (response.ok && data.result && data.result.software_name && hasValidEOLData(data.result)) {
-                eolInfo = data.result;
-                // console.log('Stage 1 successful - found EOL data');
-            } else if (finalVersion) {
-                // Stage 2: Search with software name and version
-                // console.log('Stage 2: Searching with name and version:', finalName, finalVersion);
-                searchAttempt = 2;
-
-                const nameVersionSearchData = {
-                    software_name: finalName,
-                    software_version: finalVersion,
-                    search_hints: {
-                        original_name: rawName,
-                        cleaned_name: finalName,
-                        extracted_version: parsedInfo.version,
-                        provided_version: rawVersion,
-                        confidence_level: calculateSearchConfidence(finalName, finalVersion),
-                        search_strategy: 'name_and_version'
-                    }
-                };
-
-                response = await fetch('/api/search/eol', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(nameVersionSearchData)
-                });
-
-                data = await response.json();
-                // console.log('Stage 2 response:', data);
-
-                if (response.ok && data.result && data.result.software_name) {
-                    eolInfo = data.result;
-                    // console.log('Stage 2 successful - found EOL data');
-                }
-            }
-
-            // Process the results
-            if (eolInfo) {
-                // console.log(`Processing EOL info from stage ${searchAttempt}:`, eolInfo);
-                const eolStatus = getEnhancedEOLStatus(eolInfo);
-                // console.log('Generated EOL status:', eolStatus);
-                statusElement.innerHTML = eolStatus.html;
-            } else {
-                // No EOL data found - but check if we have any helpful status info
-                let statusText = 'No data';
-                let statusClass = 'bg-light text-dark';
-
-                // Check if we have any indication this software is still supported
-                if (eolInfo && eolInfo.additional_info) {
-                    const info = eolInfo.additional_info;
-                    if (info.status === 'supported' || info.active === true ||
-                        info.current === true || info.lts === true) {
-                        statusText = 'Supported';
-                        statusClass = 'bg-success text-light';
-                    } else if (info.status === 'discontinued' || info.discontinued === true) {
-                        statusText = 'Discontinued';
-                        statusClass = 'bg-dark text-light';
-                    }
-                }
-
-                statusElement.innerHTML = `
-                <span class="badge ${statusClass}" title="No EOL data found for ${finalName}${finalVersion ? ` v${finalVersion}` : ''}">
-                    <i class="fas fa-question me-1"></i>
-                    ${statusText}
-                </span>
-            `;
-            }
-        } catch (error) {
-            console.error('Error checking EOL:', error);
-            statusElement.innerHTML = `
-            <span class="badge bg-warning text-dark" title="Error occurred while checking EOL data">
-                <i class="fas fa-exclamation-triangle me-1"></i>
-                Error
-            </span>
-        `;
-        }
-    }
-
-    // calculateSearchConfidence function provided by eol-utils.js
-
-    function getEnhancedEOLStatus(eolInfo) {
-        // console.log('getEnhancedEOLStatus called with:', eolInfo);
-
-        const now = new Date();
-        let status = 'unknown';
-        let badgeClass = 'bg-secondary text-light';
-        let icon = 'fas fa-question';
-        let text = 'Unknown';
-        let title = 'EOL status unknown';
-
-        // Add agent indicator if available - define early for use in special cases
-        const agentUsed = eolInfo ? eolInfo.agent_used : null;
-        let agentIcon = '';
-        if (agentUsed) {
-            const agentDisplayName = getAgentDisplayName(agentUsed);
-            const agentIcons = {
-                'microsoft': 'fab fa-microsoft',
-                'redhat': 'fab fa-redhat',
-                'ubuntu': 'fab fa-ubuntu',
-                'endoflife': 'fas fa-calendar-times',
-                'azure_ai': 'fas fa-brain',
-                'apache': 'fas fa-server',
-                'python': 'fab fa-python',
-                'nodejs': 'fab fa-node-js',
-                'oracle': 'fas fa-database',
-                'postgresql': 'fas fa-database',
-                'php': 'fab fa-php',
-                'vmware': 'fas fa-cloud'
-            };
-            if (agentIcons[agentUsed]) {
-                agentIcon = `<i class="${agentIcons[agentUsed]} ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
-            } else {
-                agentIcon = `<i class="fas fa-robot ms-1 icon-sm" title="Data from ${agentDisplayName}"></i>`;
-            }
-        }
-
-        // Extract EOL date from multiple possible locations in enhanced response
-        let eolDate = null;
-        let supportDate = null;
-        let extendedSupportDate = null;
-
-        // Only proceed with EOL extraction if eolInfo exists
-        if (eolInfo) {
-            // Primary EOL date extraction
-            if (eolInfo.eol_date) {
-                eolDate = eolInfo.eol_date;
-                // console.log('Found eol_date:', eolDate);
-            } else if (eolInfo.additional_info) {
-                const info = eolInfo.additional_info;
-                // console.log('Checking additional_info:', info);
-                eolDate = info.eol || info.eol_date || info.end_of_life ||
-                    info.endOfLife || info.support_end || info.end_date ||
-                    info.discontinued;
-                // console.log('Extracted eolDate from additional_info:', eolDate);
-
-                // Support date extraction
-                supportDate = eolInfo.support_date || info.support || info.support_date ||
-                    info.mainstream_support || info.standard_support;
-
-                // Extended support extraction
-                extendedSupportDate = eolInfo.extended_support_date || info.extended_support ||
-                    info.extendedSupport || info.extended_support_date;
-            } else {
-                // console.log('No eol_date or additional_info found in eolInfo');
-
-                // Try direct fields in case the structure is different
-                eolDate = eolInfo.eol || eolInfo.end_of_life || eolInfo.endOfLife ||
-                    eolInfo.support_end || eolInfo.end_date || eolInfo.discontinued;
-                // console.log('Trying direct fields, found:', eolDate);
-            }
-        }
-
-        // Handle array format (some APIs return arrays)
-        if (Array.isArray(eolDate) && eolDate.length > 0) {
-            eolDate = eolDate[0];
-        }
-
-        // Handle object format with date field
-        if (typeof eolDate === 'object' && eolDate.date) {
-            eolDate = eolDate.date;
-        }
-
-        // console.log('Final extracted eolDate:', eolDate);
-
-        // Handle special EOL cases that are not actual dates
-        if (eolDate && typeof eolDate === 'string') {
-            const specialCases = [
-                'No EOL (Continuous updates)',
-                'No EOL',
-                'Continuous updates',
-                'Rolling release',
-                'LTS',
-                'Never',
-                'Not specified',
-                'Not available',
-                'N/A',
-                'TBD',
-                'TBA'
-            ];
-
-            const normalizedEolDate = eolDate.trim();
-            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
-                // console.log('Found special EOL case:', normalizedEolDate);
-                if (normalizedEolDate.toLowerCase().includes('continuous') ||
-                    normalizedEolDate.toLowerCase().includes('rolling') ||
-                    normalizedEolDate.toLowerCase().includes('never')) {
-                    status = 'continuous';
-                    badgeClass = 'bg-primary text-light';
-                    icon = 'fas fa-infinity';
-                    text = 'Continuous Updates';
-                    title = 'No end-of-life date (continuous updates)';
-                } else {
-                    status = 'unknown';
-                    badgeClass = 'bg-secondary text-light';
-                    icon = 'fas fa-question';
-                    text = 'Unknown';
-                    title = 'EOL date not specified';
-                }
-                // console.log('Set special case status:', { status, text, title, badgeClass });
-                return {
-                    status,
-                    html: `
-                    <span class="badge ${badgeClass}" title="${title}">
-                        <i class="${icon} me-1"></i>
-                        ${text}${agentIcon || ''}
-                    </span>
-                `
-                };
-            }
-        }
-
-        if (eolDate && eolDate !== 'Not specified' && eolDate !== 'Not available') {
-            // console.log('Processing valid eolDate:', eolDate);
-            try {
-                const eolDateObj = new Date(eolDate);
-                // console.log('Parsed eolDateObj:', eolDateObj);
-
-                // Check if the date is valid
-                if (isNaN(eolDateObj.getTime())) {
-                    throw new Error(`Invalid date: ${eolDate}`);
-                }
-
-                const daysDiff = Math.ceil((eolDateObj - now) / (1000 * 60 * 60 * 24));
-                // console.log('Days difference:', daysDiff);
-                const formattedDate = eolDate.includes('-') ? eolDate : eolDateObj.toISOString().split('T')[0];
-
-                if (daysDiff < 0) {
-                    // Already EOL
-                    status = 'eol';
-                    badgeClass = 'bg-danger text-light';
-                    icon = 'fas fa-times-circle';
-                    text = `EOL (${formattedDate})`;
-                    title = `End-of-life: ${eolDate}`;
-                } else if (daysDiff <= 90) {
-                    // EOL within 90 days
-                    status = 'warning';
-                    badgeClass = 'bg-warning text-dark';
-                    icon = 'fas fa-exclamation-triangle';
-                    text = `${daysDiff}d (${formattedDate})`;
-                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
-                } else if (daysDiff <= 365) {
-                    // EOL within 1 year
-                    status = 'caution';
-                    badgeClass = 'bg-info text-dark';
-                    icon = 'fas fa-clock';
-                    text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
-                    title = `End-of-life in ${daysDiff} days: ${eolDate}`;
-                } else {
-                    // EOL more than 1 year away
-                    status = 'good';
-                    badgeClass = 'bg-success text-light';
-                    icon = 'fas fa-check-circle';
-                    text = `OK (${formattedDate})`;
-                    title = `End-of-life: ${eolDate}`;
-                }
-            } catch (error) {
-                console.warn('Error parsing EOL date:', eolDate, error);
-                status = 'unknown';
-                badgeClass = 'bg-secondary text-light';
-                icon = 'fas fa-question';
-                text = 'Unknown';
-                title = 'Could not parse EOL date';
-            }
-        } else if (eolInfo.additional_info && eolInfo.additional_info.discontinued) {
-            status = 'discontinued';
-            badgeClass = 'bg-dark text-light';
-            icon = 'fas fa-ban';
-            text = 'Discontinued';
-            title = 'Product discontinued';
-        } else {
-            // Check for extended support if no EOL date
-            if (extendedSupportDate === true || extendedSupportDate === 'Available') {
-                status = 'extended';
-                badgeClass = 'bg-info text-dark';
-                icon = 'fas fa-shield-alt';
-                text = 'Extended Support';
-                title = 'Extended support available';
-            }
-        }
-
-        // console.log('Final EOL status:', { status, text, title, badgeClass });
-
-        return {
-            status,
-            html: `
-            <span class="badge ${badgeClass}" title="${title}">
-                <i class="${icon} me-1"></i>
-                ${text}${agentIcon}
-            </span>
-        `
-        };
-    }
-
-    function getEOLStatus(eolInfo) {
-        const now = new Date();
-        let status = 'unknown';
-        let badgeClass = 'bg-secondary text-light';
-        let icon = 'fas fa-question';
-        let text = 'Unknown';
-        let title = 'EOL status unknown';
-
-        if (eolInfo.eol_date) {
-            // Handle special EOL cases that are not actual dates
-            const specialCases = [
-                'No EOL (Continuous updates)',
-                'No EOL',
-                'Continuous updates',
-                'Rolling release',
-                'LTS',
-                'Never',
-                'Not specified',
-                'Not available',
-                'N/A',
-                'TBD',
-                'TBA'
-            ];
-
-            const normalizedEolDate = eolInfo.eol_date.trim();
-            if (specialCases.some(special => normalizedEolDate.toLowerCase().includes(special.toLowerCase()))) {
-                if (normalizedEolDate.toLowerCase().includes('continuous') ||
-                    normalizedEolDate.toLowerCase().includes('rolling') ||
-                    normalizedEolDate.toLowerCase().includes('never')) {
-                    status = 'continuous';
-                    badgeClass = 'bg-primary text-light';
-                    icon = 'fas fa-infinity';
-                    text = 'Continuous Updates';
-                    title = 'No end-of-life date (continuous updates)';
-                } else {
-                    status = 'unknown';
-                    badgeClass = 'bg-secondary text-light';
-                    icon = 'fas fa-question';
-                    text = 'Unknown';
-                    title = 'EOL date not specified';
-                }
-            } else {
-                try {
-                    const eolDate = new Date(eolInfo.eol_date);
-
-                    // Check if the date is valid
-                    if (isNaN(eolDate.getTime())) {
-                        throw new Error(`Invalid date: ${eolInfo.eol_date}`);
-                    }
-
-                    const daysDiff = Math.ceil((eolDate - now) / (1000 * 60 * 60 * 24));
-                    const formattedDate = eolInfo.eol_date.includes('-') ? eolInfo.eol_date : eolDate.toISOString().split('T')[0];
-
-                    if (daysDiff < 0) {
-                        // Already EOL
-                        status = 'eol';
-                        badgeClass = 'bg-danger text-light';
-                        icon = 'fas fa-times-circle';
-                        text = `EOL (${formattedDate})`;
-                        title = `End-of-life: ${eolInfo.eol_date}`;
-                    } else if (daysDiff <= 90) {
-                        // EOL within 90 days
-                        status = 'warning';
-                        badgeClass = 'bg-warning text-dark';
-                        icon = 'fas fa-exclamation-triangle';
-                        text = `${daysDiff}d (${formattedDate})`;
-                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
-                    } else if (daysDiff <= 365) {
-                        // EOL within 1 year
-                        status = 'caution';
-                        badgeClass = 'bg-info text-dark';
-                        icon = 'fas fa-clock';
-                        text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
-                        title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
-                    } else {
-                        // EOL more than 1 year away
-                        status = 'good';
-                        badgeClass = 'bg-success text-light';
-                        icon = 'fas fa-check-circle';
-                        text = `OK (${formattedDate})`;
-                        title = `End-of-life: ${eolInfo.eol_date}`;
-                    }
-                } catch (error) {
-                    console.warn('Error parsing EOL date in getEOLStatus:', eolInfo.eol_date, error);
-                    status = 'unknown';
-                    badgeClass = 'bg-secondary text-light';
-                    icon = 'fas fa-question';
-                    text = 'Unknown';
-                    title = 'Could not parse EOL date';
-                }
-            }
-        } else if (eolInfo.discontinued) {
-            status = 'discontinued';
-            badgeClass = 'bg-dark text-light';
-            icon = 'fas fa-ban';
-            text = 'Discontinued';
-            title = 'Product discontinued';
-        }
-
-        return {
-            status,
-            html: `
-            <span class="badge ${badgeClass}" title="${title}">
-                <i class="${icon} me-1"></i>
-                ${text}
-            </span>
-        `
-        };
-    }
-
     function exportInventory() {
         if (currentInventory.length === 0) {
             alert('No inventory data to export');
@@ -3747,106 +2991,6 @@
         a.download = `software-inventory-${new Date().toISOString().split('T')[0]}.csv`;
         a.click();
         window.URL.revokeObjectURL(url);
-    }
-
-    function getComputerTypeBadge(item) {
-        const computerType = item.computer_type || 'Unknown';
-        const resourceId = item.resource_id || '';
-        const computerEnvironment = item.computer_environment || 'Unknown';
-
-        // Use ResourceId for more accurate classification
-        // let actualComputerType = computerType;
-
-        // If we have a ResourceId, use it for accurate classification
-        // if (resourceId) {
-        //     if (resourceId.includes('/virtualMachines/')) {
-        //         actualComputerType = 'Azure VM';
-        //     } else if (resourceId.includes('/machines/')) {
-        //         actualComputerType = 'Arc-enabled Server';
-        //     }
-        // }
-
-        switch (computerEnvironment) {
-            case 'Azure':
-                return `<span class="badge bg-primary text-light" title="Azure Virtual Machine">
-                        <i class="fas fa-cloud me-1"></i>Azure VM
-                    </span>`;
-            case 'Non-Azure':
-                return `<span class="badge bg-success text-light" title="Arc-enabled Server">
-                        <i class="fas fa-server me-1"></i>Non-Azure VM
-                    </span>`;
-            default:
-                // Fallback for unknown types
-                return `<span class="badge bg-secondary text-light" title="Unknown Computer Type">
-                        <i class="fas fa-question me-1"></i>Unknown
-                    </span>`;
-        }
-    }
-
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    function hasArcOS(item) {
-        // Check if this computer has any Arc-enabled OS
-        return currentInventory.some(inv =>
-            inv.computer === item.computer &&
-            inv.name &&
-            inv.name.includes('(Arc-enabled)') &&
-            inv.software_type === 'operating system'
-        );
-    }
-
-    function getAzurePortalLink(item) {
-        // Get computer type and resource information
-        const computerType = item.computer_type || 'Unknown';
-        const resourceId = item.resource_id || '';
-        const computerName = item.computer || 'Unknown';
-
-        // Use subscription and resource group from template variables or inventory item
-        const subscriptionId = item.subscription_id || '{{ subscription_id }}' || 'SUBSCRIPTION_ID';
-        const resourceGroup = item.resource_group || '{{ resource_group }}' || 'RESOURCE_GROUP';
-
-        // If we have a resource ID, use it to construct the correct portal link
-        if (resourceId) {
-            // Extract subscription ID and resource group from resource ID if available
-            const resourceIdParts = resourceId.split('/');
-            let extractedSubscriptionId = subscriptionId;
-            let extractedResourceGroup = resourceGroup;
-
-            if (resourceIdParts.length > 4) {
-                // Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/{type}/{name}
-                if (resourceIdParts[1] === 'subscriptions' && resourceIdParts[2]) {
-                    extractedSubscriptionId = resourceIdParts[2];
-                }
-                if (resourceIdParts[3] === 'resourceGroups' && resourceIdParts[4]) {
-                    extractedResourceGroup = resourceIdParts[4];
-                }
-            }
-
-            // Direct link using the resource ID
-            return `https://portal.azure.com/#@/resource${resourceId}`;
-        }
-
-        // Fallback to computer type-based logic
-        if (computerType === 'Arc-enabled Server') {
-            // Link to Arc-enabled servers (Connected Machines)
-            return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.HybridCompute/machines/${encodeURIComponent(computerName)}/overview`;
-        } else if (computerType === 'Azure VM') {
-            // Link to regular VMs
-            return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(computerName)}/overview`;
-        } else {
-            // Fallback to legacy logic for backward compatibility
-            const isArcEnabled = hasArcOS(item);
-
-            if (isArcEnabled) {
-                return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.HybridCompute/machines/${encodeURIComponent(computerName)}/overview`;
-            } else {
-                return `https://portal.azure.com/#@/resource/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(computerName)}/overview`;
-            }
-        }
     }
 
     // Column filter functionality
@@ -4115,63 +3259,6 @@
         // Update filter
         updateMultiSelectFilter(column);
     }
-
-    // Update the main filter function
-    function filterInventory() {
-        const searchInput = document.getElementById('search-input');
-        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-        let filtered = [...currentInventory];
-
-        if (searchTerm) {
-            filtered = filtered.filter(item =>
-                (item.name || '').toLowerCase().includes(searchTerm) ||
-                (item.publisher || '').toLowerCase().includes(searchTerm) ||
-                (item.version || '').toLowerCase().includes(searchTerm) ||
-                (item.software_type || '').toLowerCase().includes(searchTerm) ||
-                (item.computer_type || '').toLowerCase().includes(searchTerm) ||
-                (item.computer || '').toLowerCase().includes(searchTerm)
-            );
-        }
-
-        // Reset to first page
-        currentPage = 1;
-
-        // Display filtered results
-        displayInventory(filtered);
-        updateSummary(filtered.length, currentInventory.length, searchTerm, []);
-    }
-
-    // Update clear filters function
-    function clearAllFilters() {
-        // Clear main search
-        const searchInput = document.getElementById('search-input');
-        if (searchInput) {
-            searchInput.value = '';
-        }
-
-        // Apply filters to show all data
-        filterInventory();
-    }
-
-    // Initialize page and set up dropdown behavior
-    document.addEventListener('DOMContentLoaded', function () {
-        // Initialize column filters after inventory is loaded and displayed
-        // Note: Main initialization is handled by the first DOMContentLoaded handler
-        console.log('Secondary DOMContentLoaded handler - skipping duplicate loadInventory call');
-    });
-
-    // Initialize column filters after inventory is loaded and displayed
-    function initializeDropdownsAfterDisplay() {
-        setTimeout(() => {
-            try {
-                // Column filters have been removed - using main search only
-                // console.log('Inventory display initialized');
-            } catch (error) {
-                console.warn('Initialization warning:', error);
-            }
-        }, 100);
-    }
-
 
 </script>
 {% endblock %}

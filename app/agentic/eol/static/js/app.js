@@ -13,132 +13,31 @@ window.eolApp = {
 };
 
 // Utility functions
+// NOTE: Common utilities (formatDate, showToast, etc.) are now in eol-utils.js
+// This file contains only app-specific utilities
 const utils = {
-    // Debounce function for search inputs
-    debounce: function (func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    },
+    // Reference to eolUtils for convenience (loaded from eol-utils.js)
+    formatDate: (dateString) => window.eolUtils?.formatDate(dateString) || dateString,
+    formatRelativeTime: (dateString) => window.eolUtils?.formatRelativeTime(dateString) || dateString,
+    escapeHtml: (text) => window.eolUtils?.escapeHtml(text) || text,
+    debounce: (func, wait) => window.eolUtils?.debounce(func, wait) || func,
+    showToast: (message, type, duration) => window.eolUtils?.showToast(message, type, duration),
+    copyToClipboard: (text) => window.eolUtils?.copyToClipboard(text),
 
-    // Format dates consistently
-    formatDate: function (dateString) {
-        if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    },
-
-    // Format relative time
-    formatRelativeTime: function (dateString) {
-        if (!dateString) return 'Unknown';
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInSeconds = Math.floor((now - date) / 1000);
-
-        if (diffInSeconds < 60) return 'Just now';
-        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
-        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-        if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-
-        return utils.formatDate(dateString);
-    },
-
-    // Escape HTML to prevent XSS
-    escapeHtml: function (text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    },
-
-    // Show toast notifications
-    showToast: function (message, type = 'info', duration = 3000) {
-        // Create toast container if it doesn't exist
-        let container = document.getElementById('toast-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.id = 'toast-container';
-            container.className = 'position-fixed top-0 end-0 p-3';
-            container.style.zIndex = '9999';
-            document.body.appendChild(container);
-        }
-
-        // Create toast element
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-white bg-${type} border-0`;
-        toast.setAttribute('role', 'alert');
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">
-                    ${utils.escapeHtml(message)}
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>
-        `;
-
-        container.appendChild(toast);
-
-        // Show toast
-        const bsToast = new bootstrap.Toast(toast, { autohide: true, delay: duration });
-        bsToast.show();
-
-        // Remove from DOM after hiding
-        toast.addEventListener('hidden.bs.toast', () => {
-            toast.remove();
-        });
-    },
-
-    // Copy text to clipboard
-    copyToClipboard: async function (text) {
-        try {
-            await navigator.clipboard.writeText(text);
-            utils.showToast('Copied to clipboard!', 'success');
-            return true;
-        } catch (err) {
-            // Fallback for older browsers
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            document.body.appendChild(textArea);
-            textArea.select();
-            try {
-                document.execCommand('copy');
-                utils.showToast('Copied to clipboard!', 'success');
-                return true;
-            } catch (fallbackErr) {
-                utils.showToast('Failed to copy to clipboard', 'danger');
-                return false;
-            } finally {
-                document.body.removeChild(textArea);
-            }
-        }
-    },
-
-    // Generate unique ID
+    // App-specific utility functions
     generateId: function () {
         return 'id_' + Math.random().toString(36).substr(2, 9);
     },
 
-    // Validate email
     isValidEmail: function (email) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
     },
 
-    // Get URL parameters
     getUrlParams: function () {
         return new URLSearchParams(window.location.search);
     },
 
-    // Update URL without page reload
     updateUrl: function (params) {
         const url = new URL(window.location);
         Object.keys(params).forEach(key => {

@@ -271,12 +271,7 @@
         color: var(--gray-600);
     }
 
-    .loading-spinner {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: var(--spacing-2xl);
-    }
+    /* loading-spinner now in common-components.css */
 
     .switch {
         position: relative;
@@ -1138,7 +1133,7 @@
 
     async function loadAlertConfiguration() {
         try {
-            console.log('Loading alert configuration from backend...');
+            // console.log('Loading alert configuration from backend...');
             const response = await fetch('/api/alerts/config');
 
             if (response.ok) {
@@ -1174,7 +1169,7 @@
                 }
             }
 
-            console.log('Backend load failed, falling back to localStorage...');
+            // console.log('Backend load failed, falling back to localStorage...');
         } catch (error) {
             console.warn('Error loading alert configuration from backend:', error);
         }
@@ -1206,10 +1201,10 @@
                     last_sent: savedConfig.last_sent || {}
                 };
 
-                console.log('Loaded from localStorage:', alertConfig);
+                // console.log('Loaded from localStorage:', alertConfig);
                 populateConfigForm();
             } else {
-                console.log('No saved configuration found, using defaults');
+                // console.log('No saved configuration found, using defaults');
                 // Use default configuration
                 populateConfigForm();
             }
@@ -1276,7 +1271,7 @@
 
             // SMTP settings - handle nested structure properly
             const smtp = alertConfig.smtp_settings || {};
-            console.log('SMTP settings from config:', smtp);
+            // console.log('SMTP settings from config:', smtp);
 
             const smtpElements = {
                 enabled: document.getElementById('smtp-enabled'),
@@ -1300,7 +1295,7 @@
             if (smtpElements.useTls) smtpElements.useTls.checked = smtp.use_tls !== false; // default to true
             if (smtpElements.useSsl) smtpElements.useSsl.checked = smtp.use_ssl || false;
 
-            console.log('All form fields populated successfully');
+            // console.log('All form fields populated successfully');
 
             // Show/hide SMTP config based on enabled state
             toggleSMTP();
@@ -1688,7 +1683,7 @@
     }
 
     function saveAlertConfiguration() {
-        console.log('Saving alert configuration...');
+        // console.log('Saving alert configuration...');
 
         // First update the alertConfig object from the form
         updatePreview();
@@ -1723,7 +1718,7 @@
                     showSaveSuccess();
                     // Also save to localStorage as backup
                     localStorage.setItem('eol_alert_config', JSON.stringify(alertConfig));
-                    console.log('Configuration saved successfully to Cosmos DB');
+                    // console.log('Configuration saved successfully to Cosmos DB');
                 } else {
                     throw new Error(data.message || 'Failed to save configuration to Cosmos DB');
                 }
@@ -1781,7 +1776,7 @@
     }
 
     async function reloadAlertConfiguration() {
-        console.log('Reloading alert configuration from Cosmos DB...');
+        // console.log('Reloading alert configuration from Cosmos DB...');
 
         const btn = document.querySelector('.btn-secondary');
         const originalText = btn.innerHTML;
@@ -1791,7 +1786,7 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Reloading...';
             btn.disabled = true;
 
-            console.log('Sending reload request to /api/alerts/config/reload...');
+            // console.log('Sending reload request to /api/alerts/config/reload...');
 
             const response = await fetch('/api/alerts/config/reload', {
                 method: 'POST',
@@ -1812,8 +1807,8 @@
 
             const data = await response.json();
             // Reload response data received
-            console.log('Data success:', data.success);
-            console.log('Data data:', data.data);
+            // console.log('Data success:', data.success);
+            // console.log('Data data:', data.data);
 
             if (data.success && data.data) {
                 // Reset alertConfig to fresh data from Cosmos DB
@@ -1838,7 +1833,7 @@
                     last_sent: data.data.last_sent || {}
                 };
 
-                console.log('Configuration reloaded from Cosmos DB:', alertConfig);
+                // console.log('Configuration reloaded from Cosmos DB:', alertConfig);
 
                 // Repopulate the form with fresh data
                 populateConfigForm();

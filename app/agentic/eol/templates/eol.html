@@ -105,31 +105,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             transform: translateY(-2px);
         }
 
-        /* Modern Cards */
-        .modern-card {
-            background: white;
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--gray-200);
-            transition: var(--transition);
-            margin-bottom: var(--spacing-xl);
-        }
-
-        .modern-card:hover {
-            box-shadow: var(--shadow-lg);
-            transform: translateY(-2px);
-        }
-
-        .modern-card .card-header {
-            background: linear-gradient(45deg, var(--gray-50) 0%, var(--gray-100) 100%);
-            border-bottom: 1px solid var(--gray-200);
-            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-            padding: var(--spacing-lg);
-        }
-
-        .modern-card .card-body {
-            padding: var(--spacing-lg);
-        }
+        /* modern-card styles now in common-components.css */
 
         /* Stats Cards */
         .stats-cards {
@@ -828,7 +804,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                     if (data.success && data.communications && data.communications.length > lastCommunicationCount) {
                         // New communications available
-                        console.log(`New communications: ${data.communications.length} (was ${lastCommunicationCount})`);
+                        // console.log(`New communications: ${data.communications.length} (was ${lastCommunicationCount})`);
                         displayAgentCommunications(data.communications);
                         lastCommunicationCount = data.communications.length;
                     }
@@ -1428,7 +1404,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                 // Try each search stage until we find valid data
                 for (const searchStage of searchStages) {
-                    console.log(`🔍 Starting search stage ${searchStage.stage} (${searchStage.type})`);
+                    // console.log(`🔍 Starting search stage ${searchStage.stage} (${searchStage.type})`);
                     const data = await performSingleSearch(
                         softwareName,
                         softwareVersion,
@@ -1436,11 +1412,11 @@ Legacy format handling has been removed as all agents now use the standardized f
                         searchStage
                     );
 
-                    console.log(`Stage ${searchStage.stage} result:`, data);
+                    // console.log(`Stage ${searchStage.stage} result:`, data);
 
                     // If we found valid data, display and return
                     if (data.success) {
-                        console.log(`🎯 Valid EOL data found in stage ${searchStage.stage} (${searchStage.type})`);
+                        // console.log(`🎯 Valid EOL data found in stage ${searchStage.stage} (${searchStage.type})`);
                         await finalizeSuccessfulSearch(data, softwareName, softwareVersion, button);
                         return;
                     }
@@ -1454,7 +1430,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                     // If no valid data but no error, continue to next stage (if any)
                     if (!data.success && searchStage !== searchStages[searchStages.length - 1]) {
-                        console.log(`ℹ️ No valid data in stage ${searchStage.stage} (${searchStage.type}), trying next stage...`);
+                        // console.log(`ℹ️ No valid data in stage ${searchStage.stage} (${searchStage.type}), trying next stage...`);
                         logStageTransition(searchStage.stage);
                     }
                 }
@@ -1590,7 +1566,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
         // Finalize successful search
         async function finalizeSuccessfulSearch(raw, softwareName, softwareVersion, button) {
-            console.log('🎯 Search successful - displaying results');
+            // console.log('🎯 Search successful - displaying results');
 
             // Display search results
             displayEnhancedSearchResult(raw);
@@ -1602,7 +1578,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             finishSearch(button, true);
             addToSearchHistory(softwareName, softwareVersion, raw.data);
 
-            console.log('✅ Search process completed successfully');
+            // console.log('✅ Search process completed successfully');
         }
 
         // Finalize failed search
@@ -1625,16 +1601,16 @@ Legacy format handling has been removed as all agents now use the standardized f
             const agentComms = extractCommunications(data);
 
             if (agentComms.length > 0) {
-                console.log(`🎯 Displaying ${agentComms.length} agent communications`);
+                // console.log(`🎯 Displaying ${agentComms.length} agent communications`);
                 try {
                     displayAgentCommunications(agentComms);
-                    console.log('✅ Agent communications displayed successfully');
+                    // console.log('✅ Agent communications displayed successfully');
                 } catch (commError) {
                     console.error('❌ Error displaying agent communications:', commError);
                     displayErrorCommunications('Could not display agent communications');
                 }
             } else {
-                console.log('🎯 No agent communications found - showing simple completion message');
+                // console.log('🎯 No agent communications found - showing simple completion message');
                 displaySimpleCompletionMessage();
             }
         }
@@ -1656,7 +1632,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                     // Check if this looks like communications data
                     const firstItem = value[0];
                     if (firstItem && (firstItem.agent_name || firstItem.agentName || firstItem.timestamp)) {
-                        console.log(`🔍 Found communications in field: ${key}`);
+                        // console.log(`🔍 Found communications in field: ${key}`);
                         return value;
                     }
                 }
@@ -1765,7 +1741,7 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Helper function to check if EOL data contains valid information
         function hasValidEOLData(eolInfo) {
             if (!eolInfo) {
-                console.log('hasValidEOLData - no eolInfo provided');
+                // console.log('hasValidEOLData - no eolInfo provided');
                 return false;
             }
 
@@ -1777,55 +1753,55 @@ Legacy format handling has been removed as all agents now use the standardized f
             // 'latest': '10.0.14393', 'extendedSupport': True, 'source': 'microsoft_official', 'confidence': 95}, 'agent_used': 'microsoft'}
 
             // Debug logging to understand the data structure
-            console.log('hasValidEOLData - checking:', eolInfo);
+            // console.log('hasValidEOLData - checking:', eolInfo);
 
             // Check for standardized format fields
             if (eolInfo.eol_date && eolInfo.eol_date !== 'Not specified' && eolInfo.eol_date !== 'Not available' && eolInfo.eol_date !== null) {
-                console.log('hasValidEOLData - found standardized eol_date:', eolInfo.eol_date);
+                // console.log('hasValidEOLData - found standardized eol_date:', eolInfo.eol_date);
                 return true;
             }
 
             // Check for software name (required field in standardized format)
             if (eolInfo.software_name) {
-                console.log('hasValidEOLData - found software_name:', eolInfo.software_name);
+                // console.log('hasValidEOLData - found software_name:', eolInfo.software_name);
                 return true;
             }
 
             // Check for support_end_date (standardized format)
             if (eolInfo.support_end_date && eolInfo.support_end_date !== 'Not specified' && eolInfo.support_end_date !== 'Not available' && eolInfo.support_end_date !== null) {
-                console.log('hasValidEOLData - found standardized support_end_date:', eolInfo.support_end_date);
+                // console.log('hasValidEOLData - found standardized support_end_date:', eolInfo.support_end_date);
                 return true;
             }
 
             // Check for status field (standardized format)
             if (eolInfo.status && ['active', 'deprecated', 'end_of_life'].includes(eolInfo.status)) {
-                console.log('hasValidEOLData - found standardized status:', eolInfo.status);
+                // console.log('hasValidEOLData - found standardized status:', eolInfo.status);
                 return true;
             }
 
             // Check for risk_level field (standardized format)
             if (eolInfo.risk_level && ['low', 'medium', 'high', 'critical'].includes(eolInfo.risk_level)) {
-                console.log('hasValidEOLData - found standardized risk_level:', eolInfo.risk_level);
+                // console.log('hasValidEOLData - found standardized risk_level:', eolInfo.risk_level);
                 return true;
             }
 
             // Check for version field (standardized format)
             if (eolInfo.version && eolInfo.version !== 'unknown') {
-                console.log('hasValidEOLData - found standardized version:', eolInfo.version);
+                // console.log('hasValidEOLData - found standardized version:', eolInfo.version);
                 return true;
             }
 
-            console.log('hasValidEOLData - no valid EOL data found');
+            // console.log('hasValidEOLData - no valid EOL data found');
             return false;
         }
 
         function displayEnhancedSearchResult(raw) {
             let searchData = raw.searchData || {};
             // Debug: Log the actual data structure being passed
-            console.log('displayEnhancedSearchResult called with data:', raw);
-            console.log('displayEnhancedSearchResult data.success:', raw.success);
+            // console.log('displayEnhancedSearchResult called with data:', raw);
+            // console.log('displayEnhancedSearchResult data.success:', raw.success);
             // console.log('displayEnhancedSearchResult data.data:', data.data);
-            console.log('displayEnhancedSearchResult data.result:', raw.data.result);
+            // console.log('displayEnhancedSearchResult data.result:', raw.data.result);
 
             if (raw.error) {
                 $('#searchResult').html(`
@@ -1853,15 +1829,15 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // Extract the actual EOL data from orchestrator's nested structure
                 if (orchestratorResult.success && orchestratorResult.data) {
                     result = orchestratorResult.data;
-                    console.log('Using orchestrator format - raw.data.result.data:', result);
+                    // console.log('Using orchestrator format - raw.data.result.data:', result);
                 } else {
                     // Fallback: use orchestratorResult directly in case of different structure
                     result = orchestratorResult;
-                    console.log('Using orchestrator result directly:', result);
+                    // console.log('Using orchestrator result directly:', result);
                 }
             } else {
                 // No valid data found
-                console.log('No valid data found - raw.success:', raw.success, 'raw.data:', raw.data, 'raw.data.result:', raw.data ? raw.data.result : 'no data');
+                // console.log('No valid data found - raw.success:', raw.success, 'raw.data:', raw.data, 'raw.data.result:', raw.data ? raw.data.result : 'no data');
                 $('#searchResult').html(`
                 <div class="alert alert-warning">
                     <h6><i class="fas fa-exclamation-triangle"></i> No Data Found</h6>
@@ -1929,7 +1905,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                 if (!confidence || isNaN(confidence)) {
                     confidence = 0.5; // Default to 50% if no confidence provided
                 }
-                console.log('Raw confidence from result:', result.confidence, 'Processed confidence:', confidence);
+                // console.log('Raw confidence from result:', result.confidence, 'Processed confidence:', confidence);
                 // Ensure sourceUrl is a string, not an object
                 let sourceUrl = result.source_url;
                 if (sourceUrl && typeof sourceUrl !== 'string') {
@@ -1945,8 +1921,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                 const daysUntilEol = result.days_until_eol;
 
                 // Enhanced citation debugging
-                console.log('🔗 [CITATION DEBUG Frontend] Source URL extracted:', sourceUrl, 'Type:', typeof sourceUrl);
-                console.log('🔗 [CITATION DEBUG Frontend] Full result object:', result);
+                // console.log('🔗 [CITATION DEBUG Frontend] Source URL extracted:', sourceUrl, 'Type:', typeof sourceUrl);
+                // console.log('🔗 [CITATION DEBUG Frontend] Full result object:', result);
                 if (!sourceUrl) {
                     console.warn('⚠️ [CITATION Frontend] No source URL found in result data');
                 }
@@ -1967,7 +1943,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // else if (data.agent_used && data.agent_used !== 'unknown' && data.agent_used !== 'none' && data.agent_used !== '') {
                 //     agentSourceCard = data.agent_used;
                 // }
-                console.log('Agent source for card display:', agentSourceCard, 'Type:', typeof agentSourceCard);
+                // console.log('Agent source for card display:', agentSourceCard, 'Type:', typeof agentSourceCard);
 
                 html += `
             <div class="card mb-3">
@@ -2364,7 +2340,7 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Note: This function is now centralized in agent-communication.js
         // Keeping a lightweight wrapper for any EOL-specific logic if needed in the future
         function displayAgentCommunications(communications, options = {}) {
-            console.log('🎯 EOL displayAgentCommunications: Delegating to centralized handler');
+            // console.log('🎯 EOL displayAgentCommunications: Delegating to centralized handler');
 
             // Use the centralized handler from agent-communication.js
             if (window.AgentComm && typeof window.AgentComm.display === 'function') {
@@ -2376,7 +2352,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                 };
                 const finalOptions = Object.assign({}, defaultOptions, options);
 
-                console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
+                // console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
                 window.AgentComm.display(communications, finalOptions);
             } else {
                 console.error('❌ AgentComm.display not available, falling back to basic display');
@@ -2680,11 +2656,11 @@ Legacy format handling has been removed as all agents now use the standardized f
         function initializePage() {
             // Prevent multiple initializations
             if (pageInitialized) {
-                console.log('Page already initialized, skipping duplicate initialization');
+                // console.log('Page already initialized, skipping duplicate initialization');
                 return;
             }
             pageInitialized = true;
-            console.log('Initializing page...');
+            // console.log('Initializing page...');
 
             // Clear communications stream after a brief delay to ensure DOM is ready
             setTimeout(() => {
