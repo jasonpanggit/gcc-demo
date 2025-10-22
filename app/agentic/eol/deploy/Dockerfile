@@ -66,6 +66,7 @@ ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Copy application code from parent directory
+COPY ../api ./api
 COPY ../agents ./agents
 COPY ../utils ./utils
 COPY ../static ./static

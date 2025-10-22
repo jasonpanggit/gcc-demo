@@ -2025,7 +2025,7 @@
 
     // Real-time communication polling functions
     async function startCommunicationPolling() {
-        // console.log('🚀 Starting real-time communication polling for chat');
+        console.log('🚀 Starting real-time communication polling for chat');
 
         // Update debug info
         const pollingStatus = document.getElementById('pollingStatus');
@@ -2037,7 +2037,7 @@
 
         communicationPollingInterval = setInterval(async () => {
             if (!searchInProgress) {
-                // console.log('🛑 Search completed, stopping polling');
+                console.log('🛑 Search completed, stopping polling');
                 clearInterval(communicationPollingInterval);
                 communicationPollingInterval = null;
 
@@ -2050,16 +2050,25 @@
             try {
                 const response = await fetch('/api/communications/chat');
                 const data = await response.json();
+                console.log('📡 Polling response:', data);
 
                 // Update debug info
                 const communicationCount = document.getElementById('communicationCount');
                 const lastUpdate = document.getElementById('lastUpdate');
-                if (communicationCount) communicationCount.textContent = data.count || 0;
+                
+                // StandardResponse format: communications are in data array
+                const communications = data.data || [];
+                const currentCount = communications.length;
+                
+                console.log(`📊 Communications count: ${currentCount}, last count: ${lastCommunicationCount}`);
+                
+                if (communicationCount) communicationCount.textContent = currentCount;
                 if (lastUpdate) lastUpdate.textContent = new Date().toLocaleTimeString();
 
-                if (data.success && data.communications && data.count > lastCommunicationCount) {
-                    // console.log(`📡 New communications detected: ${data.count} (was ${lastCommunicationCount})`);
-                    const newCommunications = data.communications.slice(lastCommunicationCount);
+                if (data.success && currentCount > lastCommunicationCount) {
+                    console.log(`📡 New communications detected: ${currentCount} (was ${lastCommunicationCount})`);
+                    const newCommunications = communications.slice(lastCommunicationCount);
+                    console.log('📨 New communications:', newCommunications);
 
                     // Display new communications
                     if (typeof displayAgentCommunications === 'function') {
@@ -2070,9 +2079,11 @@
                             autoScroll: false,
                             append: true  // Append instead of replace
                         });
+                    } else {
+                        console.error('❌ displayAgentCommunications function not available');
                     }
 
-                    lastCommunicationCount = data.count;
+                    lastCommunicationCount = currentCount;
                 }
             } catch (error) {
                 console.error('💥 Error polling communications:', error);
@@ -2903,7 +2914,9 @@
     // Delegate to shared agent communication handler when available.
     // Keep a lightweight fallback to render basic communications if the shared script isn't loaded.
     function displayAgentCommunications(communications, options = {}) {
-        // console.log('🎯 Chat displayAgentCommunications: Delegating to centralized handler');
+        console.log('🎯 Chat displayAgentCommunications called with:', communications, 'options:', options);
+        console.log('🔍 AgentComm available:', !!window.AgentComm);
+        console.log('🔍 AgentComm.display available:', !!(window.AgentComm && window.AgentComm.display));
 
         // Use the centralized handler from agent-communication.js
         if (window.AgentComm && typeof window.AgentComm.display === 'function') {
@@ -2915,7 +2928,7 @@
             };
             const finalOptions = Object.assign({}, defaultOptions, options);
 
-            // console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
+            console.log('✅ Using centralized AgentComm.display with options:', finalOptions);
             window.AgentComm.display(communications, finalOptions);
         } else {
             console.error('❌ AgentComm.display not available, falling back to basic display');
@@ -2966,5 +2979,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/agent-communication.js"></script>
+<script src="/static/js/agent-communication.js?v=20251021-10"></script>
 {% endblock %}

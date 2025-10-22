@@ -115,11 +115,11 @@
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <!-- Custom JS - Load utilities first, then app-specific code -->
-    <script src="/static/js/eol-utils.js" defer></script>
-    <script src="/static/js/agent-config.js" defer></script>
-    <script src="/static/js/app.js" defer></script>
-
-    {% block extra_scripts %}{% endblock %}
+    <!-- Cache-busting version parameter forces browser to reload after fixes -->
+    <!-- Shared Scripts (EOL Utils, Agent Config, Main App) -->
+    <script src="/static/js/eol-utils.js?v=20251021-10" defer></script>
+    <script src="/static/js/agent-config.js?v=20251021-10" defer></script>
+    <script src="/static/js/app.js?v=20251021-10" defer></script>    {% block extra_scripts %}{% endblock %}
 </body>
 
 </html>

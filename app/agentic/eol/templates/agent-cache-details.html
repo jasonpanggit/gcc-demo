@@ -123,10 +123,8 @@
         color: #721c24;
     }
 </style>
-<script src="/static/js/agent-config.js"></script>
+<!-- Note: agent-config.js is already included in base.html -->
 {% endblock %}
-
-{% block content %}
 
 {% block content %}
 <style>
@@ -487,7 +485,9 @@
         {% endif %}
     {% endif %}
 </div>
+{% endblock %}
 
+{% block extra_scripts %}
 <script>
     function refreshPage() {
         window.location.reload();

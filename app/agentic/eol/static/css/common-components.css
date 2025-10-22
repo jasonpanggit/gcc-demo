@@ -233,17 +233,22 @@
 }
 
 /* Orchestrator badges */
-.agent-badge.eol-orchestrator { 
-    background: linear-gradient(135deg, #495057, #343a40); 
+.agent-badge.eol-orchestrator,
+.agent-badge.eol_orchestrator { 
+    background: linear-gradient(135deg, #495057, #343a40);
+    color: white !important;
 }
 
-.agent-badge.chat-orchestrator { 
-    background: linear-gradient(135deg, #198754, #146c43); 
+.agent-badge.chat-orchestrator,
+.agent-badge.chat_orchestrator { 
+    background: linear-gradient(135deg, #198754, #146c43);
+    color: white !important;
 }
 
 .agent-badge.magentic-one,
 .agent-badge.magentic_one { 
-    background: linear-gradient(135deg, #6f42c1, #5a32a3); 
+    background: linear-gradient(135deg, #6f42c1, #5a32a3);
+    color: white !important;
 }
 
 /* EOL Agent badges */

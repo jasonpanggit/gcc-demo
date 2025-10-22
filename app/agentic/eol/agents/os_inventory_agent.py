@@ -210,11 +210,17 @@ class OSInventoryAgent:
                 "Unknown"
             ),
             ComputerType = case(
-                ComputerEnvironment == "Azure", "Azure VM",
-                ComputerEnvironment == "Non-Azure", "Arc-enabled Server",
+                // Primary detection: ComputerEnvironment field
+                ComputerEnvironment =~ "Azure", "Azure VM",
+                ComputerEnvironment =~ "Non-Azure", "Arc-enabled Server",
+                ComputerEnvironment =~ "NonAzure", "Arc-enabled Server",
+                // Secondary detection: ResourceId patterns
                 isnotempty(ResourceId) and ResourceId contains "/virtualMachines/", "Azure VM",
-                isnotempty(ResourceId) and ResourceId contains "/machines/", "Arc-enabled Server", 
-                "Unknown"
+                isnotempty(ResourceId) and ResourceId contains "/machines/", "Arc-enabled Server",
+                // Tertiary: Any Azure resource (starts with / indicates Azure ARM resource)
+                isnotempty(ResourceId) and ResourceId startswith "/", "Azure Resource",
+                // Default for unknown
+                "On-Premises"
             )
         | project Computer, OSName, VersionString, OSType, Vendor, ComputerEnvironment, ComputerType, ResourceId, LastHeartbeat
         | take {limit}
@@ -245,6 +251,14 @@ class OSInventoryAgent:
                     computer_type = str(row[6]) if row[6] else "Unknown"
                     resource_id = str(row[7]) if row[7] else ""
                     last_hb = row[8].isoformat() if row[8] else None
+                    
+                    # Debug logging to diagnose computer_type detection
+                    if computer_type == "?":
+                        logger.warning(
+                            f"❓ Computer type detection failed for {computer}: "
+                            f"ComputerEnvironment='{computer_environment}', "
+                            f"ResourceId='{resource_id}'"
+                        )
 
                     results.append({
                         "computer_name": computer,

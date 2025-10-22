@@ -123,21 +123,44 @@ async def get_chat_communications():
         }
     """
     orchestrator = _get_chat_orchestrator()
+    logger.info(f"🔍 [COMMS API] Orchestrator instance: {orchestrator}")
+    logger.info(f"🔍 [COMMS API] Has get_agent_communications: {hasattr(orchestrator, 'get_agent_communications')}")
+    
     if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
+        # Check internal state before calling
+        if hasattr(orchestrator, 'orchestrator_logs'):
+            logger.info(f"🔍 [COMMS API] orchestrator_logs length: {len(orchestrator.orchestrator_logs)}")
+        if hasattr(orchestrator, 'agent_interaction_logs'):
+            logger.info(f"🔍 [COMMS API] agent_interaction_logs length: {len(orchestrator.agent_interaction_logs)}")
+        if hasattr(orchestrator, 'task_planning_logs'):
+            logger.info(f"🔍 [COMMS API] task_planning_logs length: {len(orchestrator.task_planning_logs)}")
+            
         communications = await orchestrator.get_agent_communications()
-        return {
-            "success": True,
-            "communications": communications,
-            "count": len(communications),
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        logger.info(f"🔍 [COMMS API] get_agent_communications returned {len(communications)} items")
+        
+        if communications:
+            logger.info(f"🔍 [COMMS API] First communication: {communications[0]}")
+        
+        # Wrap in StandardResponse format with data as list
+        return StandardResponse.success_response(
+            data=communications if isinstance(communications, list) else [communications],
+            metadata={
+                "count": len(communications) if isinstance(communications, list) else 1,
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "chat_orchestrator",
+                "orchestrator_state": {
+                    "has_logs": hasattr(orchestrator, 'orchestrator_logs'),
+                    "logs_count": len(orchestrator.orchestrator_logs) if hasattr(orchestrator, 'orchestrator_logs') else 0
+                }
+            },
+            message=f"Retrieved {len(communications) if isinstance(communications, list) else 1} communications"
+        )
     else:
-        return {
-            "success": False,
-            "error": "Chat orchestrator not available or communications not supported",
-            "communications": [],
-            "count": 0
-        }
+        logger.warning("🔍 [COMMS API] Chat orchestrator not available or method missing")
+        return StandardResponse.error_response(
+            error_message="Chat orchestrator not available or communications not supported",
+            details={"communications_count": 0}
+        )
 
 
 @router.post("/api/communications/clear", response_model=StandardResponse)

@@ -163,7 +163,7 @@
         margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
     }
 </style>
-<script src="/static/js/agent-config.js"></script>
+<!-- Note: agent-config.js is already included in base.html -->
 {% endblock %}
 
 {% block content %}
@@ -814,6 +814,47 @@
     let refreshInterval;
     let lastRefreshTime = null;
 
+    // Local showAlert function for cache.html (different signature than eolUtils.showAlert)
+    // IMPORTANT: Defined at top to be available to all functions below
+    // This takes (message, type) instead of eolUtils.showAlert(message, container, dismissible)
+    function showAlert(message, type = 'info') {
+        const alertClass = type === 'error' ? 'alert-danger' :
+            type === 'warning' ? 'alert-warning' :
+                type === 'success' ? 'alert-success' : 'alert-info';
+
+        const iconClass = type === 'error' ? 'exclamation-triangle' :
+            type === 'warning' ? 'exclamation-triangle' :
+                type === 'success' ? 'check-circle' : 'info-circle';
+
+        const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas fa-${iconClass} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+
+        // Insert at the top of the main container with proper validation
+        const container = document.querySelector('.container-fluid');
+        if (container && typeof container.insertAdjacentHTML === 'function') {
+            container.insertAdjacentHTML('afterbegin', alertHtml);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                const alert = container.querySelector('.alert');
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        } else {
+            console.error('Container not found for alert or insertAdjacentHTML not available:', message);
+        }
+    }
+
+    // Override global showAlert to ensure cache.html version takes precedence
+    // This prevents eolUtils.showAlert from being called if it exists
+    window.showAlert = showAlert;
+
     // Function to get display name for an agent is now in agent-config.js
 
     // Helper function to safely set textContent with better error reporting
@@ -954,14 +995,19 @@
 
             const response = await fetch('/api/cache/stats/performance');
             if (response.ok) {
-                const data = await response.json();
-                // console.log('Performance dashboard data:', data);
-                // console.log('Data structure check:', {
-                //     total_requests: data.total_requests,
-                //     overall_hit_rate: data.overall_hit_rate,
-                //     avg_response_time_ms: data.avg_response_time_ms,
-                //     overall_error_rate: data.overall_error_rate
-                // });
+                const rawData = await response.json();
+                console.log('Performance dashboard raw response:', rawData);
+                
+                // API returns StandardResponse format: { success: true, data: [{...}] }
+                // Extract the actual stats from data[0]
+                const data = rawData.data && rawData.data.length > 0 ? rawData.data[0] : rawData;
+                console.log('Extracted performance data:', data);
+                console.log('Data structure check:', {
+                    total_requests: data.total_requests,
+                    overall_hit_rate: data.overall_hit_rate,
+                    avg_response_time_ms: data.avg_response_time_ms,
+                    overall_error_rate: data.overall_error_rate
+                });
                 const nf = new Intl.NumberFormat();
                 
                 // Update each element with better error checking
@@ -1192,22 +1238,52 @@
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const data = await response.json();
-            // console.log('Cosmos cache data:', data);
+            const rawData = await response.json();
+            // console.log('Cosmos cache data:', rawData);
+            
+            // Extract from StandardResponse format (data[0])
+            const data = rawData.data && rawData.data.length > 0 ? rawData.data[0] : null;
 
-            if (data.success) {
+            if (rawData.success && data) {
                 displayCosmosStats(data);
                 updateHealthIndicator('cosmos-health', 'healthy');
                 
                 // Update performance dashboard with latest data
                 await updatePerformanceDashboard();
+            } else if (rawData.success && !data) {
+                // Empty data array - Cosmos DB is configured but has no data yet
+                updateHealthIndicator('cosmos-health', 'healthy');
+                document.getElementById('cosmos-cache-stats').innerHTML =
+                    `<div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>Cosmos DB is Ready - Waiting for Cache Data</strong>
+                    <p class="mb-2">✅ Cosmos DB is properly configured and connected. No cached EOL data yet.</p>
+                    <p class="mb-2">Cache entries will be created automatically when:</p>
+                    <ul class="mb-3">
+                        <li><strong>EOL Search queries</strong> are executed from the EOL Search page</li>
+                        <li><strong>AI Assistant (Chat)</strong> performs EOL lookups</li>
+                        <li><strong>Agent orchestrators</strong> cache responses for reuse</li>
+                    </ul>
+                    <p class="text-muted mb-2">
+                        <small><i class="fas fa-lightbulb me-1"></i><strong>Tip:</strong> Try running a few EOL searches, then refresh this page to see cache statistics.</small>
+                    </p>
+                    <button class="btn btn-primary btn-sm" onclick="window.location.href='/eol-search'">
+                        <i class="fas fa-search me-1"></i>Run EOL Search
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm ms-2" onclick="refreshCosmosCache()">
+                        <i class="fas fa-sync-alt me-1"></i>Refresh Stats
+                    </button>
+                    <button class="btn btn-outline-info btn-sm ms-2" onclick="checkCosmosConfig()">
+                        <i class="fas fa-cog me-1"></i>View Config
+                    </button>
+                </div>`;
             } else {
                 updateHealthIndicator('cosmos-health', 'error');
                 document.getElementById('cosmos-cache-stats').innerHTML =
                     `<div class="alert alert-warning">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     <strong>Cache Statistics Unavailable</strong>
-                    <p class="mb-2">${data.error || 'Unknown error retrieving cache statistics'}</p>
+                    <p class="mb-2">${rawData.error || 'Unknown error retrieving cache statistics'}</p>
                     <button class="btn btn-info btn-sm" onclick="checkCosmosConfig()">
                         <i class="fas fa-cog me-1"></i>Check Configuration
                     </button>
@@ -1601,10 +1677,15 @@
             }
 
             const data = await response.json();
-            // console.log('Updated agent stats:', data);
+            console.log('Raw API response:', data);
+            
+            // API returns StandardResponse format: { success: true, data: [{...}] }
+            // Extract the actual stats from data[0]
+            const statsData = data.data && data.data.length > 0 ? data.data[0] : data;
+            console.log('Extracted stats data:', statsData);
             
             // Update the agent caches display with latest data
-            updateAgentCachesDisplay(data?.agent_stats?.agents || {});
+            updateAgentCachesDisplay(statsData?.agent_stats?.agents || {});
             
             // Update the health indicator
             updateHealthIndicator('agents-health', 'healthy');
@@ -1972,8 +2053,13 @@
                 throw new Error(`HTTP ${enhancedResponse.status}: ${enhancedResponse.statusText}`);
             }
 
-            const enhancedData = await enhancedResponse.json();
-            // console.log('Enhanced cache stats:', enhancedData);
+            const enhancedDataRaw = await enhancedResponse.json();
+            // console.log('Enhanced cache stats raw:', enhancedDataRaw);
+            
+            // Extract from StandardResponse format (data[0])
+            const enhancedData = enhancedDataRaw.data && enhancedDataRaw.data.length > 0 ? 
+                enhancedDataRaw.data[0] : enhancedDataRaw;
+            // console.log('Enhanced cache stats extracted:', enhancedData);
 
             // Extract inventory agent statistics
             const agentStats = enhancedData?.agent_stats?.agents || {};
@@ -2516,8 +2602,12 @@
                 cacheStatusResponse.value : { success: false, error: cacheStatusResponse.reason?.message };
             const inventoryStats = inventoryStatsResponse.status === 'fulfilled' ? 
                 inventoryStatsResponse.value : { success: false, error: inventoryStatsResponse.reason?.message };
-            const enhancedStats = enhancedStatsResponse.status === 'fulfilled' ? 
+            const enhancedStatsRaw = enhancedStatsResponse.status === 'fulfilled' ? 
                 enhancedStatsResponse.value : { success: false, error: enhancedStatsResponse.reason?.message };
+            
+            // Extract enhanced stats from StandardResponse format (data[0])
+            const enhancedStats = enhancedStatsRaw.data && enhancedStatsRaw.data.length > 0 ? 
+                enhancedStatsRaw.data[0] : enhancedStatsRaw;
 
             // console.log('Endpoint results:', {
             //     cacheStatus: cacheStatus.success || cacheStatus.error,
@@ -2531,25 +2621,29 @@
             let cosmosItems = 0;
             let hitRate = 0;
 
-            // Count from cache status (fixed data structure)
-            if (cacheStatus.success && cacheStatus.data) {
+            // Extract cache status from StandardResponse format (data[0])
+            const cacheData = cacheStatus.success && cacheStatus.data && cacheStatus.data.length > 0 ? 
+                cacheStatus.data[0] : (cacheStatus.data || {});
+
+            // Count from cache status
+            if (cacheStatus.success) {
                 // Count EOL cache items
-                if (cacheStatus.data.eol_cache) {
-                    totalCacheItems += cacheStatus.data.eol_cache.total_items || 0;
-                    expiredItems += cacheStatus.data.eol_cache.expired_items || 0;
+                if (cacheData.eol_cache) {
+                    totalCacheItems += cacheData.eol_cache.total_items || 0;
+                    expiredItems += cacheData.eol_cache.expired_items || 0;
                 }
                 
                 // Count active agents
-                if (cacheStatus.data.agents) {
-                    activeAgents = Object.keys(cacheStatus.data.agents).length;
+                if (cacheData.agents) {
+                    activeAgents = Object.keys(cacheData.agents).length;
                 }
             }
 
             // Count from inventory stats
             if (inventoryStats.success && inventoryStats.cache_stats) {
-                totalCacheItems += inventoryStats.cache_stats.items_count || 0;
+                totalCacheItems += inventoryStats?.cache_stats?.items_count || 0;
                 if (inventoryStats.cache_stats.expired) {
-                    expiredItems += inventoryStats.cache_stats.items_count || 0;
+                    expiredItems += inventoryStats?.cache_stats?.items_count || 0;
                 }
             }
 
@@ -2591,7 +2685,7 @@
             const agentsBadge = document.getElementById('agents-health');
             if (agentsBadge) {
                 // Agents are available if we got cache status with agents
-                const agentsAvailable = cacheStatus.success && cacheStatus.data && cacheStatus.data.agents;
+                const agentsAvailable = cacheStatus.success && cacheData && cacheData.agents;
                 if (agentsAvailable) {
                     agentsBadge.className = 'cache-health healthy';
                     agentsBadge.textContent = activeAgents > 0 ? `${activeAgents} agents` : 'Available';
@@ -2607,7 +2701,7 @@
                 const inventoryAvailable = inventoryStats && inventoryStats.success;
                 if (inventoryAvailable) {
                     inventoryBadge.className = 'cache-health healthy';
-                    const itemCount = inventoryStats.cache_stats.items_count || 0;
+                    const itemCount = inventoryStats?.cache_stats?.items_count || 0;
                     inventoryBadge.textContent = itemCount > 0 ? `${itemCount} items` : 'Available';
                 } else {
                     inventoryBadge.className = 'cache-health unavailable';
@@ -2624,7 +2718,7 @@
             // Update top-level statistics display with real data (with null checks)
             const totalCacheSizeEl = document.getElementById('total-cache-size');
             if (totalCacheSizeEl) {
-                const totalCacheSize = totalCacheItems > 0 ? `${totalCacheItems} items` : '--';
+                const totalCacheSize = totalCacheItems !== undefined ? `${totalCacheItems} items` : '--';
                 // console.log('Updating total-cache-size:', totalCacheSize);
                 totalCacheSizeEl.textContent = totalCacheSize;
             } else {
@@ -2633,7 +2727,7 @@
             
             const cacheHitRateEl = document.getElementById('cache-hit-rate');
             if (cacheHitRateEl) {
-                const hitRateText = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+                const hitRateText = hitRate !== undefined ? `${hitRate.toFixed(1)}%` : '--';
                 // console.log('Updating cache-hit-rate:', hitRateText);
                 cacheHitRateEl.textContent = hitRateText;
             } else {
@@ -2642,7 +2736,7 @@
             
             const avgResponseTimeEl = document.getElementById('avg-response-time');
             if (avgResponseTimeEl) {
-                const responseTimeText = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
+                const responseTimeText = avgResponseTime !== undefined ? `${avgResponseTime.toFixed(0)}ms` : '--';
                 // console.log('Updating avg-response-time:', responseTimeText);
                 avgResponseTimeEl.textContent = responseTimeText;
             } else {
@@ -2691,13 +2785,13 @@
             const overallHitRateEl = document.getElementById('overall-hit-rate');
             if (overallHitRateEl) {
                 // console.log('Updating overall-hit-rate:', hitRate);
-                overallHitRateEl.textContent = hitRate > 0 ? `${hitRate.toFixed(1)}%` : '--';
+                overallHitRateEl.textContent = hitRate !== undefined ? `${hitRate.toFixed(1)}%` : '--';
             }
 
             const overallResponseTimeEl = document.getElementById('overall-response-time');
             if (overallResponseTimeEl) {
                 // console.log('Updating overall-response-time:', avgResponseTime);
-                overallResponseTimeEl.textContent = avgResponseTime > 0 ? `${avgResponseTime.toFixed(0)}ms` : '--';
+                overallResponseTimeEl.textContent = avgResponseTime !== undefined ? `${avgResponseTime.toFixed(0)}ms` : '--';
             }
 
             // Add performance metrics display if enhanced stats are available
@@ -2951,33 +3045,7 @@
         }
     }
 
-    function showAlert(message, type = 'info') {
-        const alertClass = type === 'error' ? 'alert-danger' :
-            type === 'warning' ? 'alert-warning' :
-                type === 'success' ? 'alert-success' : 'alert-info';
-
-        const alertHtml = `
-        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
-            <i class="fas fa-${type === 'error' ? 'exclamation-triangle' :
-                type === 'warning' ? 'exclamation-triangle' :
-                    type === 'success' ? 'check-circle' : 'info-circle'} me-2"></i>
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    `;
-
-        // Insert at the top of the main container
-        const container = document.querySelector('.container-fluid');
-        container.insertAdjacentHTML('afterbegin', alertHtml);
-
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            const alert = container.querySelector('.alert');
-            if (alert) {
-                alert.remove();
-            }
-        }, 5000);
-    }
+    // Note: showAlert function is defined at the top of this script for availability to all functions
 
     function showConfirmation(title, message) {
         return new Promise((resolve) => {

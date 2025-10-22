@@ -51,7 +51,7 @@ from api.debug import router as debug_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
-CHAT_AVAILABLE = False  # Chat functionality is in separate chat interface
+CHAT_AVAILABLE = True  # Enable chat functionality with MagenticOne orchestrator
 
 # Create FastAPI app
 app = FastAPI(
@@ -164,15 +164,15 @@ def get_eol_orchestrator() -> EOLOrchestratorAgent:
 def get_chat_orchestrator() -> Optional[Any]:
     """Get or initialize the Chat orchestrator instance lazily
     
-    Note: Chat functionality is in separate chat.html interface.
-    This EOL interface does not use chat orchestrator.
+    Returns the MagenticOneChatOrchestrator for multi-agent chat functionality.
     """
     global chat_orchestrator
     if chat_orchestrator is None and CHAT_AVAILABLE:
         try:
-            logger.info("🔍 Chat orchestrator not available in EOL interface")
-            # Chat orchestrator would be initialized here if available
-            return None
+            from agents.chat_orchestrator import MagenticOneChatOrchestrator
+            logger.info("🤖 Initializing MagenticOne Chat orchestrator...")
+            chat_orchestrator = MagenticOneChatOrchestrator()
+            logger.info("✅ Chat orchestrator initialized successfully")
         except Exception as e:
             import traceback
             error_msg = f"Failed to initialize Chat orchestrator: {e}"
@@ -1486,163 +1486,9 @@ async def clear_chat_communications_OLD():
         }
 
 
-@app.get("/api/cache/inventory/stats", response_model=StandardResponse)
-@readonly_endpoint(agent_name="inventory_cache_stats", timeout_seconds=15)
-async def get_inventory_cache_stats():
-    """
-    Get detailed inventory context cache statistics with enhanced metrics.
-    
-    Provides comprehensive cache statistics including cache hit/miss info,
-    data size, expiration status, and content analysis (computers, software counts).
-    
-    Returns:
-        StandardResponse with cache stats and enhanced performance metrics.
-    """
-    start_time = time.time()
-    
-    stats = {
-        "cached": _inventory_context_cache["data"] is not None,
-        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-        "ttl_seconds": _inventory_context_cache["ttl"],
-        "age_seconds": (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds() if _inventory_context_cache["timestamp"] else None,
-        "expired": False,
-        "items_count": 0,
-        "size_bytes": 0,
-        "computers_count": 0,
-        "software_count": 0
-    }
-    
-    was_cache_hit = False
-    
-    if _inventory_context_cache["data"]:
-        was_cache_hit = True
-        data = _inventory_context_cache["data"]
-        stats["size_bytes"] = len(str(data))
-        stats["items_count"] = len(data) if isinstance(data, list) else 1
-        
-        # Check if expired
-        if _inventory_context_cache["timestamp"]:
-            age = (datetime.utcnow() - _inventory_context_cache["timestamp"]).total_seconds()
-            stats["expired"] = age > _inventory_context_cache["ttl"]
-        
-        # Try to analyze the inventory data structure
-        if isinstance(data, list):
-            computers = set()
-            software_items = 0
-            for item in data:
-                if isinstance(item, dict):
-                    if "ComputerName" in item:
-                        computers.add(item["ComputerName"])
-                    if "ProductName" in item or "DisplayName" in item:
-                        software_items += 1
-            
-            stats["computers_count"] = len(computers)
-            stats["software_count"] = software_items
-        elif isinstance(data, dict):
-            if "computers" in data:
-                stats["computers_count"] = len(data.get("computers", []))
-            if "software" in data:
-                stats["software_count"] = len(data.get("software", []))
-    
-    # Record performance metrics
-    response_time_ms = (time.time() - start_time) * 1000
-    cache_stats_manager.record_inventory_request(
-        response_time_ms=response_time_ms,
-        was_cache_hit=was_cache_hit,
-        items_count=stats["items_count"]
-    )
-    
-    # Add enhanced statistics
-    enhanced_inventory_stats = cache_stats_manager.get_inventory_statistics()
-    
-    return {
-        "success": True,
-        "cache_stats": stats,
-        "enhanced_stats": enhanced_inventory_stats
-    }
-
-
-@app.get("/api/cache/inventory/details", response_model=StandardResponse)
-@readonly_endpoint(agent_name="inventory_cache_details", timeout_seconds=20)
-async def get_inventory_cache_details():
-    """
-    Get detailed inventory context cache content for viewing.
-    
-    Provides in-depth analysis of cached inventory data including computer
-    counts, software distribution, and sample data entries.
-    
-    Returns:
-        StandardResponse with detailed cache analysis, summary stats, and samples.
-    """
-    if not _inventory_context_cache["data"]:
-        return {
-            "success": False,
-            "error": "No inventory data cached"
-        }
-    
-    data = _inventory_context_cache["data"]
-    details = {
-        "timestamp": _inventory_context_cache["timestamp"].isoformat() if _inventory_context_cache["timestamp"] else None,
-        "ttl_seconds": _inventory_context_cache["ttl"],
-        "size_bytes": len(str(data)),
-        "type": type(data).__name__,
-        "sample_data": {},
-        "summary": {}
-    }
-    
-    if isinstance(data, list) and len(data) > 0:
-        # Analyze the list structure
-        computers = {}
-        software_by_computer = {}
-        all_software = {}
-        
-        for i, item in enumerate(data[:1000]):  # Limit to first 1000 items for performance
-            if isinstance(item, dict):
-                computer_name = item.get("ComputerName", "Unknown")
-                software_name = item.get("ProductName") or item.get("DisplayName", "Unknown Software")
-                version = item.get("Version", "Unknown")
-                
-                # Track computers
-                if computer_name not in computers:
-                    computers[computer_name] = 0
-                computers[computer_name] += 1
-                
-                # Track software by computer
-                if computer_name not in software_by_computer:
-                    software_by_computer[computer_name] = set()
-                software_by_computer[computer_name].add(f"{software_name} {version}")
-                
-                # Track all software
-                if software_name not in all_software:
-                    all_software[software_name] = set()
-                all_software[software_name].add(version)
-        
-        # Create summary
-        details["summary"] = {
-            "total_entries": len(data),
-            "unique_computers": len(computers),
-            "unique_software": len(all_software),
-            "avg_software_per_computer": sum(len(sw) for sw in software_by_computer.values()) / len(software_by_computer) if software_by_computer else 0
-        }
-        
-        # Sample data (first few entries)
-        details["sample_data"] = {
-            "first_5_entries": data[:5] if len(data) >= 5 else data,
-            "top_computers": dict(sorted(computers.items(), key=lambda x: x[1], reverse=True)[:10]),
-            "top_software": {k: list(v)[:5] for k, v in sorted(all_software.items(), key=lambda x: len(x[1]), reverse=True)[:10]}
-        }
-        
-    elif isinstance(data, dict):
-        details["summary"] = {
-            "keys": list(data.keys()),
-            "structure": {k: type(v).__name__ for k, v in data.items()}
-        }
-        details["sample_data"] = {k: str(v)[:200] + "..." if len(str(v)) > 200 else v for k, v in list(data.items())[:10]}
-    
-    return {
-        "success": True,
-        "details": details
-    }
+# Note: Inventory cache endpoints have been moved to api/cache.py
+# The old _inventory_context_cache global variable has been replaced with
+# the unified inventory_cache from utils.inventory_cache
 
 
 @app.get("/api/cache/webscraping/details", response_model=StandardResponse)
@@ -1795,7 +1641,11 @@ async def get_cosmos_cache_stats():
         enhanced_cosmos_stats = cache_stats_manager.get_cosmos_statistics()
         stats["enhanced_stats"] = enhanced_cosmos_stats
         
-        return stats
+        # Return in proper format for StandardResponse wrapper
+        # Remove 'success' key as it will be added by the wrapper
+        stats_data = {k: v for k, v in stats.items() if k != 'success'}
+        
+        return stats_data
         
     except Exception as e:
         # Record error

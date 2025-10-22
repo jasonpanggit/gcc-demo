@@ -548,11 +548,39 @@ window.eolUtils = window.eolUtils || {};
 
     /**
      * Show an error alert
+     * NOTE: This function should NOT be called directly from page scripts.
+     * Each page should define its own showAlert with appropriate signature.
      * @param {string} message - Error message
-     * @param {HTMLElement} container - Container to prepend alert to
+     * @param {HTMLElement} container - Container to prepend alert to (NOT a string!)
      * @param {boolean} dismissible - Whether alert is dismissible
      */
     eolUtils.showAlert = function(message, container, dismissible = true) {
+        // Debug logging to catch misuse
+        console.warn('⚠️ eolUtils.showAlert called - pages should use their own showAlert');
+        console.warn('Parameters:', { 
+            message: typeof message, 
+            container: typeof container, 
+            containerTag: container?.tagName,
+            dismissible 
+        });
+        
+        // Strict validation with detailed error messages
+        if (!container) {
+            console.error('❌ showAlert: container is null/undefined');
+            return;
+        }
+        
+        if (typeof container === 'string') {
+            console.error('❌ showAlert: container is a STRING ("' + container + '"). Expected HTMLElement.');
+            console.error('💡 Hint: You probably called showAlert(message, type) but eolUtils.showAlert expects (message, element, dismissible)');
+            return;
+        }
+        
+        if (!container.insertBefore || typeof container.insertBefore !== 'function') {
+            console.error('❌ showAlert: container missing insertBefore method. Got:', container);
+            return;
+        }
+        
         const alert = document.createElement('div');
         alert.className = `alert alert-danger ${dismissible ? 'alert-dismissible fade show' : ''}`;
         alert.setAttribute('role', 'alert');
@@ -566,11 +594,20 @@ window.eolUtils = window.eolUtils || {};
             alert.appendChild(closeBtn);
         }
         
-        container.prepend(alert);
+        // Always use insertBefore for compatibility (avoid prepend issues)
+        try {
+            container.insertBefore(alert, container.firstChild);
+        } catch (err) {
+            console.error('❌ showAlert: Failed to insert alert:', err);
+        }
         
         // Auto-dismiss after 5 seconds
         setTimeout(() => {
-            alert.remove();
+            try {
+                alert.remove();
+            } catch (err) {
+                // Silent fail on removal
+            }
         }, 5000);
     };
 
@@ -675,7 +712,8 @@ window.eolUtils = window.eolUtils || {};
     window.createSpinner = eolUtils.createSpinner;
     window.createLoadingOverlay = eolUtils.createLoadingOverlay;
     window.createModal = eolUtils.createModal;
-    window.showAlert = eolUtils.showAlert;
+    // Note: showAlert is NOT exposed globally because different pages use different signatures
+    // Use eolUtils.showAlert directly if you need the utility function
     window.lazyLoad = eolUtils.lazyLoad;
     window.deferUntilIdle = eolUtils.deferUntilIdle;
     window.preload = eolUtils.preload;

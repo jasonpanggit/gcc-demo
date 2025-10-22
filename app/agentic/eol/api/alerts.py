@@ -54,7 +54,7 @@ def _get_eol_orchestrator():
 # ALERT CONFIGURATION ENDPOINTS
 # ============================================================================
 
-@router.get("/api/alerts/config", response_model=StandardResponse)
+@router.get("/api/alerts/config")
 @readonly_endpoint(agent_name="get_alert_config", timeout_seconds=20)
 async def get_alert_configuration():
     """
@@ -64,7 +64,7 @@ async def get_alert_configuration():
     recipient lists, and notification preferences.
     
     Returns:
-        StandardResponse with alert configuration dictionary.
+        Dict with alert configuration (not wrapped in list).
     
     Example Response:
         {
@@ -94,7 +94,7 @@ async def get_alert_configuration():
     }
 
 
-@router.post("/api/alerts/config", response_model=StandardResponse)
+@router.post("/api/alerts/config")
 @write_endpoint(agent_name="save_alert_config", timeout_seconds=30)
 async def save_alert_configuration(config_data: dict):
     """
@@ -147,7 +147,7 @@ async def save_alert_configuration(config_data: dict):
         raise HTTPException(status_code=500, detail="Failed to save configuration")
 
 
-@router.post("/api/alerts/config/reload", response_model=StandardResponse)
+@router.post("/api/alerts/config/reload")
 @write_endpoint(agent_name="reload_alert_config", timeout_seconds=30)
 async def reload_alert_configuration():
     """
@@ -191,7 +191,7 @@ async def reload_alert_configuration():
 # ALERT PREVIEW & TESTING ENDPOINTS
 # ============================================================================
 
-@router.get("/api/alerts/preview", response_model=StandardResponse)
+@router.get("/api/alerts/preview")
 @standard_endpoint(agent_name="alert_preview", timeout_seconds=35)
 async def get_alert_preview(days: int = 90):
     """
@@ -266,7 +266,7 @@ async def get_alert_preview(days: int = 90):
     }
 
 
-@router.post("/api/alerts/smtp/test", response_model=StandardResponse)
+@router.post("/api/alerts/smtp/test")
 @write_endpoint(agent_name="test_smtp", timeout_seconds=30)
 async def test_smtp_connection(smtp_data: dict):
     """
@@ -342,7 +342,7 @@ async def test_smtp_connection(smtp_data: dict):
     return result
 
 
-@router.post("/api/alerts/send", response_model=StandardResponse)
+@router.post("/api/alerts/send")
 @write_endpoint(agent_name="send_alert", timeout_seconds=45)
 async def send_test_alert(request_data: dict):
     """

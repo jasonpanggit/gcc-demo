@@ -1762,7 +1762,7 @@ class MagenticOneChatOrchestrator:
                                                      user_message, conversation_id, start_time, cache_key, timeout_seconds)
         
         # Convert tracking format to chat response format for direct calls
-        return self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
+        return await self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
         
     def _determine_inventory_type(self, user_message: str) -> str:
         """Determine what type of inventory the user wants (os, software, or both)"""
@@ -1808,7 +1808,7 @@ class MagenticOneChatOrchestrator:
         )
         
         # Convert tracking format to chat response format for direct calls
-        return self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
+        return await self._convert_tracking_to_chat_response(result, user_message, conversation_id, start_time)
     
     async def _call_software_inventory_specialist_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
         """Direct call to software inventory specialist for inventory-only tasks"""
@@ -1942,6 +1942,29 @@ class MagenticOneChatOrchestrator:
                 
             # Log the tracking for debugging
             logger.info(f"📊 Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
+            
+            # CRITICAL FIX: Also log to agent_interaction_logs so communications appear in UI
+            logger.info(f"🔧 [TRACKING] About to log agent interaction - Current agent_interaction_logs length: {len(self.agent_interaction_logs)}")
+            
+            self._log_agent_interaction(
+                agent_name=agent_name,
+                action=f"eol_query_{query_type}",
+                data={
+                    "software_name": software_name,
+                    "software_version": software_version,
+                    "query_type": query_type,
+                    "response_time": response_time,
+                    "success": response_entry['success'],
+                    "eol_data": response_entry['eol_data'],
+                    "error": response_entry.get('error'),
+                    "confidence": response_entry.get('confidence', 0),
+                    "source_url": response_entry.get('source_url', ''),
+                    "timestamp": response_entry['timestamp']
+                }
+            )
+            
+            logger.info(f"✅ Logged EOL interaction to agent_interaction_logs - New length: {len(self.agent_interaction_logs)}")
+            logger.info(f"🔍 [TRACKING] Last interaction logged: {self.agent_interaction_logs[-1] if self.agent_interaction_logs else 'None'}")
             
         except Exception as e:
             logger.error(f"❌ Error tracking EOL agent response: {e}")
@@ -2526,7 +2549,7 @@ class MagenticOneChatOrchestrator:
                 "status": "error"
             }
     
-    def _convert_tracking_to_chat_response(self, tracking_result: Dict[str, Any], user_message: str, conversation_id: int, start_time: float) -> Dict[str, Any]:
+    async def _convert_tracking_to_chat_response(self, tracking_result: Dict[str, Any], user_message: str, conversation_id: int, start_time: float) -> Dict[str, Any]:
         """Convert tracking format response to chat response format for direct calls"""
         if not tracking_result:
             return {
@@ -2535,7 +2558,9 @@ class MagenticOneChatOrchestrator:
                 "response_time": time.time() - start_time,
                 "agent_used": "Unknown",
                 "query_type": "unknown",
-                "error": "Empty result"
+                "error": "Empty result",
+                "agent_communications": [],
+                "agents_involved": []
             }
         
         # Extract response content and metadata
@@ -2544,6 +2569,18 @@ class MagenticOneChatOrchestrator:
         status = tracking_result.get("status", "unknown")
         eol_data = tracking_result.get("eol_data", {})
         
+        # Get agent communications from orchestrator logs - CRITICAL FIX
+        agent_communications = await self.get_agent_communications()
+        
+        # Extract unique agents involved
+        agents_involved = list(set([
+            comm.get("agent", "Unknown") 
+            for comm in agent_communications 
+            if comm.get("agent")
+        ]))
+        
+        logger.info(f"🔍 [CONVERT] Building chat response with {len(agent_communications)} communications from {len(agents_involved)} agents")
+        
         # Build chat response format
         chat_response = {
             "response": response_content,
@@ -2551,7 +2588,12 @@ class MagenticOneChatOrchestrator:
             "response_time": time.time() - start_time,
             "agent_used": specialist,
             "query_type": f"{specialist.lower()}_eol_unified",
-            "eol_data": eol_data
+            "eol_data": eol_data,
+            "agent_communications": agent_communications,  # CRITICAL: Include communications
+            "agents_involved": agents_involved,  # CRITICAL: Include agents list
+            "total_exchanges": len(agent_communications),  # Add exchange count
+            "session_id": self.session_id,  # Add session ID
+            "conversation_messages": []  # Add empty conversation messages for compatibility
         }
         
         # Add error field if status indicates error

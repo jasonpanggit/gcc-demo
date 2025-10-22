@@ -3,7 +3,7 @@
 {% block title %}Software EOL Search - EOL Agentic Platform{% endblock %}
 
 {% block extra_head %}
-<script src="/static/js/agent-config.js"></script>
+<!-- Note: agent-config.js is already included in base.html -->
 {% endblock %}
 
 <!-- 
@@ -786,6 +786,14 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Real-time communication polling
         let communicationPollingInterval = null;
         let lastCommunicationCount = 0;
+
+        // Helper to robustly extract a URL from a string or object
+        function extractSourceUrl(sourceUrl) {
+            if (!sourceUrl) return null;
+            if (typeof sourceUrl === 'string') return sourceUrl;
+            if (typeof sourceUrl === 'object' && sourceUrl.url && typeof sourceUrl.url === 'string') return sourceUrl.url;
+            return null;
+        }
 
         function startCommunicationPolling() {
             // Clear any existing polling
@@ -1906,16 +1914,10 @@ Legacy format handling has been removed as all agents now use the standardized f
                     confidence = 0.5; // Default to 50% if no confidence provided
                 }
                 // console.log('Raw confidence from result:', result.confidence, 'Processed confidence:', confidence);
-                // Ensure sourceUrl is a string, not an object
-                let sourceUrl = result.source_url;
-                if (sourceUrl && typeof sourceUrl !== 'string') {
-                    console.warn('⚠️ [CITATION Frontend] source_url is not a string:', typeof sourceUrl, sourceUrl);
-                    sourceUrl = String(sourceUrl);
-                }
-                // If sourceUrl became "[object Object]" after stringification, treat it as no URL
-                if (sourceUrl === '[object Object]') {
-                    console.warn('⚠️ [CITATION Frontend] source_url stringified to [object Object], ignoring');
-                    sourceUrl = null;
+                // Use helper to robustly extract the source URL
+                let sourceUrl = extractSourceUrl(result.source_url);
+                if (!sourceUrl && result.source_url) {
+                    console.warn('⚠️ [CITATION Frontend] Could not extract valid source_url:', result.source_url);
                 }
                 const extendedSupport = result.extendedSupport;
                 const daysUntilEol = result.days_until_eol;
@@ -2034,12 +2036,13 @@ Legacy format handling has been removed as all agents now use the standardized f
                             <small class="text-muted">
                                 <strong>Citations:</strong>
                                 <ul class="mb-0 mt-1" style="font-size: 0.8em;">
-                                    ${result.citations.map(citation => `
-                                        <li>
-                                            ${citation.url ? `<a href="${citation.url}" target="_blank" class="text-decoration-none">${citation.title || citation.url}</a>` : citation.search_query || 'Search Context'}
+                                    ${result.citations.map(citation => {
+                                        const url = extractSourceUrl(citation.url);
+                                        return `<li>
+                                            ${url ? `<a href="${url}" target="_blank" class="text-decoration-none">${citation.title || url}</a>` : (citation.search_query || 'Search Context')}
                                             ${citation.type ? ` <span class="badge badge-secondary">${citation.type}</span>` : ''}
-                                        </li>
-                                    `).join('')}
+                                        </li>`;
+                                    }).join('')}
                                 </ul>
                             </small>
                         </div>
@@ -2853,6 +2856,6 @@ Legacy format handling has been removed as all agents now use the standardized f
     {% endblock %}
 
     {% block extra_scripts %}
-    <script src="/static/js/eol-utils.js"></script>
-    <script src="/static/js/agent-communication.js"></script>
+    <!-- eol-utils.js already loaded in base.html -->
+    <script src="/static/js/agent-communication.js?v=20251021-10"></script>
     {% endblock %}

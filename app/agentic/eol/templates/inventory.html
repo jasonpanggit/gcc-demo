@@ -1300,7 +1300,17 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/eol-utils.js"></script>
+<!-- eol-utils.js already loaded in base.html with cache-busting -->
+
+<!-- Global function stubs for inline event handlers -->
+<!-- These will be replaced with actual implementations from the module below -->
+<script>
+    // Declare functions that can be called from inline event handlers (onclick, onchange)
+    // The actual implementations are in the module below, but we need global references
+    window.loadInventory = function() { console.warn('loadInventory not yet initialized'); };
+    window.refreshInventory = function() { console.warn('refreshInventory not yet initialized'); };
+    window.applyFilters = function() { console.warn('applyFilters not yet initialized'); };
+</script>
 
 <!-- Import modular JavaScript -->
 <script type="module">
@@ -1337,6 +1347,7 @@
             changePageSize: (id) => changePageSize(id, displayInventory, updateSummary),
             sortTable: (col) => sortTable(col, () => filterInventory(displayInventory, updateSummary)),
             resetSort: () => resetSort(loadInventory),
+            loadInventory,
             refreshInventory,
             clearInventoryCache,
             getAzurePortalLink: (item) => getAzurePortalLink(item, SUBSCRIPTION_ID, RESOURCE_GROUP),
@@ -2292,6 +2303,11 @@
         // Directly call loadInventory with force refresh to bypass cache
         loadInventory(true); // Pass true to force refresh from LAW
     }
+
+    // Expose functions to global scope for inline event handlers
+    window.loadInventory = loadInventory;
+    window.refreshInventory = refreshInventory;
+    window.applyFilters = () => applyFilters(displayInventory, updateSummary);
 
     async function clearInventoryCache(forceRefresh = false) {
         try {

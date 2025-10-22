@@ -328,12 +328,18 @@
             const eolDate = response.eol_data.eol_date || response.eol_data.end_of_life;
             const supportDate = response.eol_data.support_end || response.eol_data.extended_support_end;
             
+            // Extract source URL if it's an object
+            let sourceUrl = response.eol_data.source_url;
+            if (sourceUrl && typeof sourceUrl === 'object' && sourceUrl.url) {
+                sourceUrl = sourceUrl.url;
+            }
+            
             eolContent = `
                 <div class="mt-2">
                     <strong>EOL Information:</strong>
                     ${eolDate ? `<span class="eol-badge ${isDateExpired(eolDate) ? 'expired' : 'active'} ms-2">EOL: ${eolDate}</span>` : ''}
                     ${supportDate ? `<span class="eol-badge ${isDateExpired(supportDate) ? 'expired' : 'active'} ms-2">Support: ${supportDate}</span>` : ''}
-                    ${response.eol_data.source_url ? `<br><small><a href="${response.eol_data.source_url}" target="_blank">Source</a></small>` : ''}
+                    ${sourceUrl ? `<br><small><a href="${sourceUrl}" target="_blank">Source</a></small>` : ''}
                 </div>
             `;
         }
