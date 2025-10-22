@@ -311,3 +311,26 @@ async def agent_management_ui(request: Request):
         HTMLResponse with rendered agents.html template.
     """
     return templates.TemplateResponse("agents.html", {"request": request})
+
+
+@router.get("/azure-mcp", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="azure_mcp_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def azure_mcp_ui(request: Request):
+    """
+    Azure MCP Server integration page.
+    
+    Serves the Azure MCP Server management interface for interacting with
+    Azure resources through the Model Context Protocol.
+    
+    Args:
+        request: FastAPI Request object
+    
+    Returns:
+        HTMLResponse with rendered azure-mcp.html template.
+    """
+    return templates.TemplateResponse("azure-mcp.html", {"request": request})

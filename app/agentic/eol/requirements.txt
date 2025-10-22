@@ -26,3 +26,6 @@ azure-ai-projects>=1.0.0
 azure-ai-agents>=1.0.0
 azure-search-documents==11.5.3
 html2text==2025.4.15
+# Azure MCP Server integration
+mcp>=1.0.0
+python-dotenv==1.0.0

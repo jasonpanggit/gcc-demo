@@ -48,6 +48,7 @@ from api.communications import router as communications_router
 from api.chat import router as chat_router
 from api.ui import router as ui_router
 from api.debug import router as debug_router
+from api.azure_mcp import router as azure_mcp_router
 
 # Note: Chat orchestrator is available in separate chat.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -70,6 +71,7 @@ app.include_router(communications_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
 app.include_router(debug_router)
+app.include_router(azure_mcp_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -289,10 +291,38 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Alert manager initialization warning: {e}")
         
+        # Initialize Azure MCP client (optional - don't fail if not available)
+        try:
+            from utils.azure_mcp_client import get_azure_mcp_client
+            await get_azure_mcp_client()
+            logger.info("✅ Azure MCP Server client initialized")
+        except Exception as e:
+            logger.info(f"ℹ️ Azure MCP Server not available: {e}")
+            logger.info("   Azure MCP features will be disabled. Install 'mcp' package and ensure Node.js is available.")
+        
         logger.info("✅ App startup completed")
     except Exception as e:
         logger.warning(f"⚠️ Startup warning: {e}")
         # Don't fail startup for non-critical issues
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup services on shutdown"""
+    try:
+        logger.info("🛑 Shutting down application...")
+        
+        # Cleanup Azure MCP client
+        try:
+            from utils.azure_mcp_client import cleanup_azure_mcp_client
+            await cleanup_azure_mcp_client()
+            logger.info("✅ Azure MCP client cleaned up")
+        except Exception as e:
+            logger.debug(f"Azure MCP cleanup: {e}")
+        
+        logger.info("✅ Shutdown completed")
+    except Exception as e:
+        logger.warning(f"⚠️ Shutdown warning: {e}")
 
 
 class DebugRequest(BaseModel):

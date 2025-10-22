@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+
+{% block title %}Azure MCP Server - EOL Agentic Platform{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section">
+    <div class="hero-section::before"></div>
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-12">
+                <h1 class="hero-title">
+                    <i class="fab fa-microsoft me-3"></i>Azure MCP Server Integration
+                </h1>
+                <p class="hero-subtitle">
+                    Manage and query Azure resources using the Model Context Protocol
+                </p>
+                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                    <button class="btn action-btn action-btn-primary" onclick="refreshStatus()">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh Status
+                    </button>
+                    <button class="btn action-btn action-btn-secondary" onclick="listTools()">
+                        <i class="fas fa-tools me-2"></i>List Tools
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content -->
+<div class="container-fluid mt-4">
+    <div class="row">
+        <!-- Status Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Connection Status</h5>
+                </div>
+                <div class="card-body" id="status-container">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Checking Azure MCP Server status...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Tools -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-tools me-2"></i>Available Tools</h5>
+                </div>
+                <div class="card-body" id="tools-container">
+                    <p class="text-muted">Click "List Tools" to view available Azure MCP tools</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resource Groups Section -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-folder me-2"></i>Azure Resource Groups</h5>
+                    <button class="btn btn-sm btn-primary" onclick="loadResourceGroups()">
+                        <i class="fas fa-sync-alt me-1"></i>Load Resource Groups
+                    </button>
+                </div>
+                <div class="card-body" id="resource-groups-container">
+                    <p class="text-muted">Click "Load Resource Groups" to view your Azure resource groups</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Query Section -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-code me-2"></i>Azure Resource Graph Query</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="resource-query" class="form-label">KQL Query</label>
+                        <textarea class="form-control font-monospace" id="resource-query" rows="4" 
+                                  placeholder="Resources | project name, type, location | limit 10"></textarea>
+                        <small class="form-text text-muted">
+                            Enter a KQL query to search Azure resources. 
+                            <a href="https://learn.microsoft.com/en-us/azure/governance/resource-graph/concepts/query-language" target="_blank">Learn more about KQL</a>
+                        </small>
+                    </div>
+                    <button class="btn btn-primary" onclick="executeQuery()">
+                        <i class="fas fa-play me-1"></i>Execute Query
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="loadExampleQuery()">
+                        <i class="fas fa-lightbulb me-1"></i>Load Example
+                    </button>
+                </div>
+                <div class="card-footer" id="query-results-container" style="display: none;">
+                    <h6>Query Results:</h6>
+                    <pre id="query-results" class="mb-0"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Check status on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        refreshStatus();
+    });
+
+    async function refreshStatus() {
+        const container = document.getElementById('status-container');
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Checking status...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch('/api/azure-mcp/status');
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.length > 0) {
+                const status = data.data[0];
+                const isConnected = status.connection_status === 'connected';
+                
+                container.innerHTML = `
+                    <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'}">
+                        <h6><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>
+                            ${isConnected ? 'Connected' : 'Disconnected'}
+                        </h6>
+                        <p class="mb-0">Available Tools: <strong>${status.available_tools_count}</strong></p>
+                    </div>
+                    ${!isConnected ? `
+                        <div class="alert alert-info">
+                            <strong>Setup Required:</strong>
+                            <ol class="mb-0 mt-2">
+                                <li>Install Node.js (LTS version)</li>
+                                <li>Install Python MCP package: <code>pip install mcp</code></li>
+                                <li>Authenticate with Azure: <code>az login</code></li>
+                                <li>Restart the application</li>
+                            </ol>
+                        </div>
+                    ` : ''}
+                `;
+            } else {
+                throw new Error('Invalid response format');
+            }
+        } catch (error) {
+            console.error('Error loading status:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-times-circle me-2"></i>Error</h6>
+                    <p class="mb-0">Failed to load Azure MCP status: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    async function listTools() {
+        const container = document.getElementById('tools-container');
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading tools...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch('/api/azure-mcp/tools');
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.length > 0) {
+                let html = '<div class="list-group">';
+                data.data.forEach(tool => {
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1"><code>${tool.name}</code></h6>
+                            </div>
+                            <p class="mb-1 text-muted small">${tool.description}</p>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No tools available</div>';
+            }
+        } catch (error) {
+            console.error('Error loading tools:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <p class="mb-0">Failed to load tools: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    async function loadResourceGroups() {
+        const container = document.getElementById('resource-groups-container');
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading resource groups...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch('/api/azure-mcp/resource-groups');
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.length > 0) {
+                const result = data.data[0];
+                container.innerHTML = `
+                    <pre class="mb-0">${JSON.stringify(result.content, null, 2)}</pre>
+                `;
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No resource groups found</div>';
+            }
+        } catch (error) {
+            console.error('Error loading resource groups:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <p class="mb-0">Failed to load resource groups: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    function loadExampleQuery() {
+        document.getElementById('resource-query').value = 'Resources | project name, type, location | limit 10';
+    }
+
+    async function executeQuery() {
+        const query = document.getElementById('resource-query').value.trim();
+        if (!query) {
+            alert('Please enter a query');
+            return;
+        }
+
+        const resultsContainer = document.getElementById('query-results-container');
+        const resultsElement = document.getElementById('query-results');
+        
+        resultsContainer.style.display = 'block';
+        resultsElement.textContent = 'Executing query...';
+
+        try {
+            const response = await fetch('/api/azure-mcp/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query: query })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.length > 0) {
+                const result = data.data[0];
+                resultsElement.textContent = JSON.stringify(result.content, null, 2);
+            } else {
+                resultsElement.textContent = 'No results returned';
+            }
+        } catch (error) {
+            console.error('Error executing query:', error);
+            resultsElement.textContent = `Error: ${error.message}`;
+        }
+    }
+</script>
+
+<style>
+    .action-btn {
+        padding: var(--spacing-md) var(--spacing-xl);
+        font-weight: 600;
+        border-radius: var(--radius-lg);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 160px;
+        justify-content: center;
+        border: none;
+    }
+
+    .action-btn-primary {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+    }
+
+    .action-btn-primary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .action-btn-secondary {
+        background: transparent;
+        color: white;
+        border: 2px solid white !important;
+    }
+
+    .action-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 2px solid white !important;
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    pre {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        overflow-x: auto;
+        max-height: 400px;
+    }
+
+    .font-monospace {
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
