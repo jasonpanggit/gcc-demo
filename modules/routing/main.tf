@@ -190,3 +190,33 @@ resource "azurerm_subnet_route_table_association" "srta_nongen_appsvc" {
   subnet_id      = var.nongen_appsvc_integration_subnet_id
   route_table_id = azurerm_route_table.rt_nongen_appsvc[0].id
 }
+
+# ============================================================================
+# NONGEN CONTAINER APPS SUBNET ROUTE TABLE
+# ============================================================================
+
+resource "azurerm_route_table" "rt_nongen_container_apps" {
+  count               = var.deploy_nongen_vnet && var.deploy_nongen_firewall && length(var.nongen_container_apps_subnet_id) > 0 ? 1 : 0
+  name                = "rt-nongen-containerapps-${var.project_name}-${var.environment}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+
+  route {
+    name                   = "default-to-nongen-firewall"
+    address_prefix         = "0.0.0.0/0"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = var.nongen_firewall_private_ip
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project_name
+    Purpose     = "Non-Gen Container Apps Egress"
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "srta_nongen_container_apps" {
+  count          = var.deploy_nongen_vnet && var.deploy_nongen_firewall && length(var.nongen_container_apps_subnet_id) > 0 ? 1 : 0
+  subnet_id      = var.nongen_container_apps_subnet_id
+  route_table_id = azurerm_route_table.rt_nongen_container_apps[0].id
+}

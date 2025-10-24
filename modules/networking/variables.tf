@@ -225,6 +225,18 @@ variable "nongen_apim_subnet_prefix" {
   default     = null
 }
 
+variable "nongen_container_apps_subnet_prefix" {
+  description = "Address prefix for Non-Gen Container Apps subnet (requires /23 or larger)"
+  type        = string
+  default     = null
+}
+
+variable "deploy_container_apps" {
+  description = "Whether to deploy Container Apps (determines Container Apps subnet creation)"
+  type        = bool
+  default     = false
+}
+
 variable "gen_workload_subnet_prefix" {
   description = "Address prefix for Gen workload subnet"
   type        = string

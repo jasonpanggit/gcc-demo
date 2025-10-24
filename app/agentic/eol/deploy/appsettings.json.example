@@ -1,26 +1,60 @@
 {
-  "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
-  "ENABLE_ORYX_BUILD": "true",
-  "WEBSITE_RUN_FROM_PACKAGE": "0",
-  "WEBSITES_PORT": "8000",
-  "PYTHONUNBUFFERED": "1",
-  "PYTHON_ENABLE_GUNICORN_MULTIWORKERS": "true",
-  "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false",
-  "DEBUG_MODE": "true",
-  "ENVIRONMENT": "production",
-  "SUBSCRIPTION_ID": "enter-subscription-id",
-  "RESOURCE_GROUP_NAME": "enter-resource-group-name",
-  "APP_NAME": "enter-app-service-name",
-  "AZURE_OPENAI_ENDPOINT": "enter-azure-openai-endpoint",
-  "AZURE_OPENAI_DEPLOYMENT": "enter-azure-openai-deployment-name",
-  "LOG_ANALYTICS_WORKSPACE_ID": "enter-log-analytics-workspace-id",
-  "AZURE_COSMOS_DB_ENDPOINT": "enter-cosmos-db-endpoint-url",
-  "AZURE_COSMOS_DB_DATABASE": "enter-cosmos-db-database-name",
-  "AZURE_COSMOS_DB_CONTAINER": "enter-cosmos-db-container-name"
-  "AZURE_CONTAINER_REGISTRY": "enter-container-registry-name",
-  "IMAGE_NAME": "eol-app",
-  "IMAGE_TAG": "latest",
-  "AZURE_AI_PROJECT_NAME": "enter-azure-ai-project-name",
-  "AZURE_AI_RESOURCE_GROUP": "enter-azure-ai-resource-group",
-  "AZURE_AI_ENDPOINT": "enter-azure-ai-endpoint"
+  "Azure": {
+    "SubscriptionId": "your-subscription-id",
+    "TenantId": "your-tenant-id",
+    "ResourceGroup": "your-resource-group",
+    "Location": "australiaeast"
+  },
+  "Deployment": {
+    "ContainerApp": {
+      "Name": "your-container-app-name",
+      "Environment": "your-container-app-environment",
+      "Url": "https://your-app.region.azurecontainerapps.io"
+    },
+    "AppService": {
+      "Name": "your-app-service-name",
+      "Url": "https://your-app.azurewebsites.net"
+    },
+    "ContainerRegistry": {
+      "Name": "your-acr-name",
+      "ImageName": "your-image-name",
+      "DefaultTag": "latest"
+    }
+  },
+  "ServicePrincipal": {
+    "ClientId": "your-service-principal-client-id",
+    "ClientSecret": "your-service-principal-secret",
+    "UseServicePrincipal": true,
+    "Comment": "Set UseServicePrincipal to false to use Managed Identity instead"
+  },
+  "ManagedIdentity": {
+    "ClientId": "your-managed-identity-client-id",
+    "Comment": "Used when UseServicePrincipal is false"
+  },
+  "AzureServices": {
+    "OpenAI": {
+      "Endpoint": "https://your-openai.openai.azure.com/",
+      "Deployment": "gpt-4o-mini",
+      "ApiVersion": "2024-08-01-preview"
+    },
+    "CosmosDB": {
+      "Endpoint": "https://your-cosmos.documents.azure.com:443/",
+      "Database": "your-database",
+      "Container": "your-container"
+    },
+    "LogAnalytics": {
+      "WorkspaceId": "your-log-analytics-workspace-id"
+    },
+    "AIFoundry": {
+      "ProjectName": "your-ai-project-name",
+      "Endpoint": "https://your-ai-foundry.cognitiveservices.azure.com/"
+    }
+  },
+  "AppSettings": {
+    "WEBSITES_PORT": "8000",
+    "PYTHONUNBUFFERED": "1",
+    "DEBUG_MODE": "true",
+    "ENVIRONMENT": "production",
+    "CONTAINER_MODE": "true"
+  }
 }

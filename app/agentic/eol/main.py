@@ -291,14 +291,16 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Alert manager initialization warning: {e}")
         
-        # Initialize Azure MCP client (optional - don't fail if not available)
+        # Initialize Azure MCP client (stdio mode via npx)
         try:
+            logger.info("🔧 Initializing Azure MCP Server via stdio...")
             from utils.azure_mcp_client import get_azure_mcp_client
+            
             await get_azure_mcp_client()
             logger.info("✅ Azure MCP Server client initialized")
         except Exception as e:
-            logger.info(f"ℹ️ Azure MCP Server not available: {e}")
-            logger.info("   Azure MCP features will be disabled. Install 'mcp' package and ensure Node.js is available.")
+            logger.warning(f"⚠️ Azure MCP Server not available: {e}")
+            logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
         
         logger.info("✅ App startup completed")
     except Exception as e:

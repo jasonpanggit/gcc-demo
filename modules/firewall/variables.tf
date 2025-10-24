@@ -134,6 +134,12 @@ variable "nongen_firewall_agentic_rules" {
   default     = false
 }
 
+variable "nongen_firewall_container_apps_rules" {
+  description = "Enable firewall policy rules required for Container Apps (ACR, MCR, Azure services)"
+  type        = bool
+  default     = false
+}
+
 variable "nongen_firewall_dns_proxy_enabled" {
   description = "Enable DNS proxy on Non-Gen Azure Firewall"
   type        = bool

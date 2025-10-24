@@ -28,8 +28,14 @@ from utils.endpoint_decorators import (
 # Create router for health endpoints
 router = APIRouter(tags=["Health & Status"])
 
-# Global flag for chat availability (EOL interface doesn't use chat)
-CHAT_AVAILABLE = False
+
+def _get_chat_available():
+    """Lazy import to get CHAT_AVAILABLE from main module"""
+    try:
+        from main import CHAT_AVAILABLE
+        return CHAT_AVAILABLE
+    except:
+        return False
 
 
 @router.get('/health')
@@ -59,7 +65,7 @@ async def health_check() -> Dict[str, Any]:
             "status": "ok",
             "timestamp": "2025-10-15T10:30:00.000Z",
             "version": "1.0.0",
-            "autogen_available": false
+            "autogen_available": true
         }
     
     Note:
@@ -70,7 +76,7 @@ async def health_check() -> Dict[str, Any]:
         "status": "ok", 
         "timestamp": datetime.utcnow().isoformat(),
         "version": config.app.version,
-        "autogen_available": CHAT_AVAILABLE
+        "autogen_available": _get_chat_available()
     }
 
 
@@ -134,7 +140,7 @@ async def detailed_health() -> Dict[str, Any]:
         "errors": validation["errors"],
         "warnings": validation["warnings"],
         "autogen": {
-            "available": CHAT_AVAILABLE,
+            "available": _get_chat_available(),
             "status": autogen_status,
             "agents_count": autogen_agents_count
         }

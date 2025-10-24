@@ -633,6 +633,156 @@ resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_smtp_network_r
 }
 
 # ============================================================================
+# CONTAINER APPS FIREWALL RULES
+# ============================================================================
+
+# Container Apps comprehensive firewall rules for multi-container deployment
+resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_container_apps_rules" {
+  count              = var.deploy_nongen_vnet && var.deploy_nongen_firewall && var.nongen_firewall_container_apps_rules ? 1 : 0
+  name               = "container-apps-egress"
+  firewall_policy_id = azurerm_firewall_policy.afwp_nongen[0].id
+  priority           = 1400
+
+  # Application rules for Container Apps environment and container images
+  application_rule_collection {
+    name     = "container-apps-core"
+    priority = 100
+    action   = "Allow"
+
+    # Azure Container Registry - pull container images
+    rule {
+      name = "acr-pull"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.azurecr.io",
+        "*.blob.core.windows.net"
+      ]
+    }
+
+    # Microsoft Container Registry - Azure MCP sidecar image
+    rule {
+      name = "mcr-pull"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "mcr.microsoft.com",
+        "*.mcr.microsoft.com",
+        "*.data.mcr.microsoft.com"
+      ]
+    }
+
+    # Azure Container Apps control plane
+    rule {
+      name = "container-apps-control"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.azurecontainerapps.io",
+        "*.containerapp.io"
+      ]
+    }
+
+    # Azure Resource Manager and Authentication
+    rule {
+      name = "azure-management"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "management.azure.com",
+        "login.microsoftonline.com",
+        "*.login.microsoft.com"
+      ]
+    }
+
+    # Azure OpenAI and Cognitive Services
+    rule {
+      name = "azure-openai"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.openai.azure.com",
+        "*.cognitiveservices.azure.com"
+      ]
+    }
+
+    # Azure Cosmos DB
+    rule {
+      name = "cosmos-db"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.documents.azure.com"
+      ]
+    }
+
+    # Azure Monitor and Application Insights
+    rule {
+      name = "azure-monitor"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "*.monitor.azure.com",
+        "*.applicationinsights.azure.com",
+        "*.ods.opinsights.azure.com",
+        "*.oms.opinsights.azure.com"
+      ]
+    }
+
+    # EndOfLife.date API - EOL data source
+    rule {
+      name = "endoflife-api"
+      protocols {
+        type = "Https"
+        port = 443
+      }
+      source_addresses = ["*"]
+      destination_fqdns = [
+        "endoflife.date",
+        "*.endoflife.date"
+      ]
+    }
+  }
+
+  # Network rules for Container Apps control plane
+  network_rule_collection {
+    name     = "container-apps-network"
+    priority = 200
+    action   = "Allow"
+
+    # Azure services network connectivity
+    rule {
+      name                  = "azure-services"
+      protocols             = ["TCP"]
+      source_addresses      = ["*"]
+      destination_addresses = ["AzureCloud"]
+      destination_ports     = ["443"]
+    }
+  }
+}
+
+# ============================================================================
 # AZURE FIREWALL NAT RULES FOR EXPLICIT PROXY
 # ============================================================================
 

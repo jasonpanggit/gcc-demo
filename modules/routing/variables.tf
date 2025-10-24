@@ -146,3 +146,9 @@ variable "nongen_appsvc_integration_subnet_id" {
   type        = string
   default     = ""
 }
+
+variable "nongen_container_apps_subnet_id" {
+  description = "The ID of the Non-Gen Container Apps subnet"
+  type        = string
+  default     = ""
+}

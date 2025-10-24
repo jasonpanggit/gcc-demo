@@ -359,6 +359,26 @@ resource "azurerm_subnet" "snet_nongen_appsvc" {
   }
 }
 
+# Non-Gen Container Apps Subnet
+resource "azurerm_subnet" "snet_nongen_container_apps" {
+  count                = (var.deploy_nongen_vnet && var.deploy_container_apps) ? 1 : 0
+  name                 = "snet-nongen-containerapps-${var.project_name}-${var.environment}"
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.vnet_nongen[0].name
+  address_prefixes     = [var.nongen_container_apps_subnet_prefix]
+  
+  # Delegation required for Container Apps Environment
+  delegation {
+    name = "containerapps-delegation"
+    service_delegation {
+      name = "Microsoft.App/environments"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
+}
+
 # Non-Gen API Management Subnet (reserved for future use)
 resource "azurerm_subnet" "snet_nongen_apim" {
   count                = (var.deploy_nongen_vnet && var.deploy_agentic_app && var.nongen_apim_subnet_prefix != null) ? 1 : 0

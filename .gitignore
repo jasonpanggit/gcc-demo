@@ -60,6 +60,9 @@ Thumbs.db
 # backup
 backup/
 
+# docs
+docs/
+
 # Zip files
 *.zip
 

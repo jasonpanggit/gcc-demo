@@ -255,11 +255,23 @@ class MagenticOneChatOrchestrator:
                     "deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", )
                 })
                 
+                # Import Azure credential here for token provider
+                from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+                
+                credential = DefaultAzureCredential()
+                
+                # Create token provider for automatic token refresh
+                token_provider = get_bearer_token_provider(
+                    credential,
+                    "https://cognitiveservices.azure.com/.default"
+                )
+                
                 self.model_client = AzureOpenAIChatCompletionClient(
                     azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
                     azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
                     model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
                     api_version="2024-08-01-preview",  # Updated for Magentic-One compatibility
+                    azure_ad_token_provider=token_provider,
                     temperature=0.1,
                     timeout=60,  # Reduced timeout for faster responses
                     max_retries=3,  # Reduced retries for faster failure recovery
@@ -364,16 +376,22 @@ class MagenticOneChatOrchestrator:
             # Initialize Azure OpenAI client
             try:
                 # Import Azure credential here to avoid import overhead during startup
-                from azure.identity import DefaultAzureCredential
+                from azure.identity import DefaultAzureCredential, get_bearer_token_provider
                 
                 credential = DefaultAzureCredential()
-                token = credential.get_token("https://cognitiveservices.azure.com/.default")
+                
+                # Create token provider for automatic token refresh
+                token_provider = get_bearer_token_provider(
+                    credential,
+                    "https://cognitiveservices.azure.com/.default"
+                )
                 
                 self.model_client = AzureOpenAIChatCompletionClient(
                     azure_deployment="gpt-4o-mini",
                     azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
                     model="gpt-4o-mini",
                     api_version="2024-08-01-preview",
+                    azure_ad_token_provider=token_provider,
                     temperature=0.1,
                     timeout=60,
                     max_retries=3,
@@ -1816,22 +1834,48 @@ class MagenticOneChatOrchestrator:
             # Call our Magentic-One software inventory tool for real data
             software_response = self._get_software_inventory_tool_sync()
             
+            # Get agent communications from orchestrator logs
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": software_response,
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "SoftwareInventoryAnalyst",
-                "query_type": "software_inventory_only"
+                "query_type": "software_inventory_only",
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
         except Exception as e:
             logger.error(f"❌ Error in software inventory specialist direct call: {e}")
+            # Get agent communications even on error
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": f"Error collecting software inventory: {str(e)}",
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "SoftwareInventoryAnalyst",
                 "query_type": "software_inventory_only",
-                "error": str(e)
+                "error": str(e),
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
     
     async def _call_os_inventory_specialist_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
@@ -1839,22 +1883,49 @@ class MagenticOneChatOrchestrator:
         try:
             # Call our Magentic-One OS inventory tool for real data
             os_response = self._get_os_inventory_tool_sync(direct=True)
+            
+            # Get agent communications from orchestrator logs
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": os_response,
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "OSInventoryAnalyst",
-                "query_type": "os_inventory_only"
+                "query_type": "os_inventory_only",
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
         except Exception as e:
             logger.error(f"❌ Error in OS inventory specialist direct call: {e}")
+            # Get agent communications even on error
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": f"Error collecting OS inventory: {str(e)}",
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "OSInventoryAnalyst",
                 "query_type": "os_inventory_only",
-                "error": str(e)
+                "error": str(e),
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
     
     async def _call_both_inventory_specialists_direct(self, user_message: str, conversation_id: int, start_time: float, cache_key: str) -> Dict[str, Any]:
@@ -1876,22 +1947,48 @@ class MagenticOneChatOrchestrator:
 ---
 **Analysis Complete**: Both OS and software inventory data collected and ready for further analysis."""
 
+            # Get agent communications from orchestrator logs
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": combined_response,
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "OSInventoryAnalyst + SoftwareInventoryAnalyst",
-                "query_type": "inventory_comprehensive"
+                "query_type": "inventory_comprehensive",
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
         except Exception as e:
             logger.error(f"❌ Error in combined inventory specialist call: {e}")
+            # Get agent communications even on error
+            agent_communications = await self.get_agent_communications()
+            agents_involved = list(set([
+                comm.get("agent", "Unknown") 
+                for comm in agent_communications 
+                if comm.get("agent")
+            ]))
+            
             return {
                 "response": f"Error collecting comprehensive inventory: {str(e)}",
                 "conversation_id": conversation_id,
                 "response_time": time.time() - start_time,
                 "agent_used": "OSInventoryAnalyst + SoftwareInventoryAnalyst",
                 "query_type": "inventory_comprehensive",
-                "error": str(e)
+                "error": str(e),
+                "agent_communications": agent_communications,
+                "agents_involved": agents_involved,
+                "total_exchanges": len(agent_communications),
+                "session_id": self.session_id,
+                "conversation_messages": []
             }
     
     def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:

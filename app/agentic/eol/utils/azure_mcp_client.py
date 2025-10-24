@@ -36,6 +36,7 @@ class AzureMCPClient:
     async def initialize(self) -> bool:
         """
         Initialize the Azure MCP Server connection.
+        Supports both Service Principal and Managed Identity authentication.
         
         Returns:
             bool: True if initialization successful, False otherwise
@@ -43,11 +44,41 @@ class AzureMCPClient:
         try:
             logger.info("🔧 Initializing Azure MCP Server client...")
             
+            # Prepare environment variables for MCP server
+            # The Azure MCP server will use these for authentication
+            mcp_env = os.environ.copy()
+            
+            # Check if Service Principal authentication is configured
+            use_sp = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
+            sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
+            sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
+            tenant_id = os.getenv("AZURE_TENANT_ID")
+            
+            if use_sp and sp_client_id and sp_client_secret and tenant_id:
+                logger.info("🔐 Using Service Principal authentication for Azure MCP Server")
+                # Set Azure SDK environment variables for service principal auth
+                mcp_env["AZURE_CLIENT_ID"] = sp_client_id
+                mcp_env["AZURE_CLIENT_SECRET"] = sp_client_secret
+                mcp_env["AZURE_TENANT_ID"] = tenant_id
+                logger.info(f"   Client ID: {sp_client_id[:8]}...")
+                logger.info(f"   Tenant ID: {tenant_id[:8]}...")
+            else:
+                logger.info("🔐 Using Managed Identity authentication for Azure MCP Server")
+                # For Managed Identity, ensure CLIENT_ID is set if available
+                managed_identity_client_id = os.getenv("MANAGED_IDENTITY_CLIENT_ID")
+                if managed_identity_client_id:
+                    mcp_env["AZURE_CLIENT_ID"] = managed_identity_client_id
+                    logger.info(f"   Managed Identity Client ID: {managed_identity_client_id[:8]}...")
+            
+            # Ensure subscription ID and tenant ID are available
+            if "SUBSCRIPTION_ID" in os.environ:
+                mcp_env["AZURE_SUBSCRIPTION_ID"] = os.environ["SUBSCRIPTION_ID"]
+            
             # MCP server configuration - uses npx to run the latest Azure MCP server
             server_params = StdioServerParameters(
                 command="npx",
                 args=["-y", "@azure/mcp@latest", "server", "start"],
-                env=None
+                env=mcp_env
             )
             
             # Connect to MCP server via stdio
@@ -136,10 +167,35 @@ class AzureMCPClient:
             logger.info(f"✅ Tool '{tool_name}' executed successfully")
             logger.debug(f"Result: {result.content}")
             
+            # Extract text content from MCP response
+            # result.content is a list of TextContent or other content types
+            content_list = []
+            if isinstance(result.content, list):
+                for item in result.content:
+                    # TextContent objects have a 'text' attribute
+                    if hasattr(item, 'text'):
+                        content_list.append(item.text)
+                    # ImageContent objects have 'data' and 'mimeType'
+                    elif hasattr(item, 'data'):
+                        content_list.append({
+                            "type": "image",
+                            "data": item.data,
+                            "mimeType": getattr(item, 'mimeType', 'application/octet-stream')
+                        })
+                    else:
+                        # Fallback: try to convert to string
+                        content_list.append(str(item))
+            else:
+                # Single content item
+                if hasattr(result.content, 'text'):
+                    content_list.append(result.content.text)
+                else:
+                    content_list.append(str(result.content))
+            
             return {
                 "success": True,
                 "tool_name": tool_name,
-                "content": result.content,
+                "content": content_list,
                 "is_error": getattr(result, 'isError', False)
             }
             

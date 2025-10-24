@@ -10,7 +10,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fab fa-microsoft me-3"></i>Azure MCP Server Integration
+                    <i class="fab fa-microsoft me-3"></i>Azure MCP Server
                 </h1>
                 <p class="hero-subtitle">
                     Manage and query Azure resources using the Model Context Protocol
@@ -31,38 +31,162 @@
 <!-- Main Content -->
 <div class="container-fluid mt-4">
     <div class="row">
-        <!-- Status Card -->
-        <div class="col-md-6 mb-4">
+        <!-- Status & Tools Card (Combined) -->
+        <div class="col-12 mb-4">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Connection Status</h5>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Connection Status & Available Tools</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="toggleStatusTools()" id="toggle-status-btn">
+                        <i class="fas fa-chevron-down me-1"></i>Collapse
+                    </button>
                 </div>
-                <div class="card-body" id="status-container">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                <div class="card-body" id="status-tools-section">
+                    <div class="row">
+                        <!-- Connection Status -->
+                        <div class="col-md-6 mb-3">
+                            <h6 class="mb-3"><i class="fas fa-plug me-2"></i>Connection Status</h6>
+                            <div id="status-container">
+                                <div class="text-center py-4">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <p class="mt-2">Checking Azure MCP Server status...</p>
+                                </div>
+                            </div>
                         </div>
-                        <p class="mt-2">Checking Azure MCP Server status...</p>
+
+                        <!-- Available Tools -->
+                        <div class="col-md-6 mb-3">
+                            <h6 class="mb-3"><i class="fas fa-tools me-2"></i>Available Tools</h6>
+                            <div id="tools-container" style="max-height: 400px; overflow-y: auto;">
+                                <p class="text-muted">Click "List Tools" to view available Azure MCP tools</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Available Tools -->
-        <div class="col-md-6 mb-4">
+    <!-- MCP Chat Interface -->
+    <div class="row">
+        <div class="col-12 mb-4">
             <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-tools me-2"></i>Available Tools</h5>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>MCP Chat Assistant</h5>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()">
+                        <i class="fas fa-trash me-1"></i>Clear Chat
+                    </button>
                 </div>
-                <div class="card-body" id="tools-container">
-                    <p class="text-muted">Click "List Tools" to view available Azure MCP tools</p>
+                <div class="card-body" style="background-color: #f8f9fa;">
+                    <!-- Chat History -->
+                    <div id="chat-history" class="chat-container mb-3" style="height: 400px; overflow-y: auto; background-color: white; border-radius: 8px; padding: 1rem;">
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-robot fa-3x mb-3"></i>
+                            <p>Ask me anything about your Azure resources!</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Examples -->
+                    <div class="mb-3">
+                        <label class="form-label mb-2"><i class="fas fa-lightbulb me-1"></i>Quick Examples:</label>
+                        <div class="row g-2">
+                            <div class="col-md-5">
+                                <select class="form-select" id="tool-selector" onchange="updateExamples()">
+                                    <option value="">Select a tool...</option>
+                                    <optgroup label="Core Resources">
+                                        <option value="resource-groups">Resource Groups</option>
+                                        <option value="subscription">Subscription</option>
+                                    </optgroup>
+                                    <optgroup label="Compute & Containers">
+                                        <option value="azure-functions">Azure Functions</option>
+                                        <option value="app-service">Azure App Service</option>
+                                        <option value="container-registry">Azure Container Registry</option>
+                                        <option value="kubernetes">Azure Kubernetes Service (AKS)</option>
+                                        <option value="virtual-desktop">Azure Virtual Desktop</option>
+                                    </optgroup>
+                                    <optgroup label="Storage & Databases">
+                                        <option value="azure-storage">Azure Storage</option>
+                                        <option value="cosmos-db">Azure Cosmos DB</option>
+                                        <option value="sql-database">Azure SQL Database</option>
+                                        <option value="mysql">Azure Database for MySQL</option>
+                                        <option value="postgresql">Azure Database for PostgreSQL</option>
+                                        <option value="data-explorer">Azure Data Explorer</option>
+                                        <option value="redis">Azure Redis</option>
+                                        <option value="managed-lustre">Azure Managed Lustre</option>
+                                    </optgroup>
+                                    <optgroup label="AI & Machine Learning">
+                                        <option value="ai-foundry">Azure AI Foundry</option>
+                                        <option value="ai-search">Azure AI Search</option>
+                                        <option value="ai-speech">Azure AI Speech</option>
+                                    </optgroup>
+                                    <optgroup label="Monitoring & Management">
+                                        <option value="azure-monitor">Azure Monitor</option>
+                                        <option value="app-insights">Azure Application Insights</option>
+                                        <option value="app-lens">Azure App Lens</option>
+                                        <option value="resource-health">Azure Resource Health</option>
+                                        <option value="managed-grafana">Azure Managed Grafana</option>
+                                    </optgroup>
+                                    <optgroup label="Security & Identity">
+                                        <option value="key-vault">Azure Key Vault</option>
+                                        <option value="rbac">Azure RBAC</option>
+                                        <option value="confidential-ledger">Azure Confidential Ledger</option>
+                                    </optgroup>
+                                    <optgroup label="Networking & Messaging">
+                                        <option value="event-grid">Azure Event Grid</option>
+                                        <option value="event-hubs">Azure Event Hubs</option>
+                                        <option value="service-bus">Azure Service Bus</option>
+                                        <option value="signalr">Azure SignalR</option>
+                                        <option value="communication-services">Azure Communication Services</option>
+                                    </optgroup>
+                                    <optgroup label="DevOps & Deployment">
+                                        <option value="azure-deploy">Azure Deploy</option>
+                                        <option value="azure-cli">Azure CLI</option>
+                                        <option value="developer-cli">Azure Developer CLI</option>
+                                        <option value="bicep-schema">Azure Bicep Schema</option>
+                                        <option value="terraform">Terraform Best Practices</option>
+                                    </optgroup>
+                                    <optgroup label="Configuration & Testing">
+                                        <option value="app-configuration">Azure App Configuration</option>
+                                        <option value="load-testing">Azure Load Testing</option>
+                                        <option value="quotas">Azure Quotas</option>
+                                    </optgroup>
+                                    <optgroup label="Guidance & Best Practices">
+                                        <option value="azure-best-practices">Azure Best Practices</option>
+                                        <option value="cloud-architect">Azure Cloud Architect</option>
+                                        <option value="quick-review">Azure Quick Review CLI</option>
+                                        <option value="mcp-tool">Azure MCP Tool</option>
+                                    </optgroup>
+                                    <optgroup label="Marketplace & ISV">
+                                        <option value="marketplace">Azure Marketplace</option>
+                                        <option value="native-isv">Azure Native ISV</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                <select class="form-select" id="example-selector" disabled>
+                                    <option value="">Select a tool first...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Chat Input -->
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="chat-input" 
+                               placeholder="Type your question about Azure resources..."
+                               onkeypress="if(event.key === 'Enter') sendMessage()">
+                        <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
+                            <i class="fas fa-paper-plane me-1"></i>Send
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Resource Groups Section -->
-    <div class="row">
+    <!-- <div class="row">
         <div class="col-12 mb-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -76,23 +200,87 @@
                 </div>
             </div>
         </div>
-    </div>
+    </div> -->
 
-    <!-- Custom Query Section -->
+    <!-- Agent Communication Section -->
     <div class="row">
         <div class="col-12 mb-4">
             <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-project-diagram me-2"></i>Agent Communication & Reasoning
+                    </h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary" onclick="toggleAgentComms()" id="toggle-comms-btn">
+                            <i class="fas fa-eye me-1"></i>Show
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearAgentComms()">
+                            <i class="fas fa-trash me-1"></i>Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body" id="agent-comms-section" style="display: none;">
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Real-time Agent Activity:</strong> This section shows the agentic orchestrator's reasoning process, 
+                        tool calls, and observations as they happen. Watch how the agent autonomously breaks down your questions 
+                        and executes multi-step workflows.
+                    </div>
+                    
+                    <!-- Reasoning Summary Stats -->
+                    <div class="row mb-3" id="reasoning-stats" style="display: none;">
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-iterations">0</div>
+                                <div class="stat-label">Reasoning Iterations</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-tools">0</div>
+                                <div class="stat-label">Tool Calls</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-strategy">-</div>
+                                <div class="stat-label">Strategy</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-duration">0s</div>
+                                <div class="stat-label">Duration</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Agent Communication Stream -->
+                    <div id="agent-comms-stream" class="agent-comms-container" style="height: 500px; overflow-y: auto; background-color: #1e1e1e; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.85rem;">
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-brain fa-3x mb-3" style="color: #6c757d;"></i>
+                            <p style="color: #6c757d;">Agent activity will appear here when processing requests...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Azure Monitor Query Section -->
+    <!-- <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-code me-2"></i>Azure Resource Graph Query</h5>
+                    <h5 class="mb-0"><i class="fas fa-code me-2"></i>Azure Monitor Query</h5>
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
                         <label for="resource-query" class="form-label">KQL Query</label>
-                        <textarea class="form-control font-monospace" id="resource-query" rows="4" 
-                                  placeholder="Resources | project name, type, location | limit 10"></textarea>
+                        <textarea class="form-control font-monospace" id="resource-query" rows="4" placeholder="Heartbeat | take 10"></textarea>
                         <small class="form-text text-muted">
-                            Enter a KQL query to search Azure resources. 
-                            <a href="https://learn.microsoft.com/en-us/azure/governance/resource-graph/concepts/query-language" target="_blank">Learn more about KQL</a>
+                            Enter a KQL query to search Azure Monitor / Log Analytics workspace. 
+                            <a href="https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-query-overview" target="_blank">Learn more about Azure Monitor KQL</a>
                         </small>
                     </div>
                     <button class="btn btn-primary" onclick="executeQuery()">
@@ -108,7 +296,7 @@
                 </div>
             </div>
         </div>
-    </div>
+    </div> -->
 </div>
 
 <script>
@@ -116,6 +304,19 @@
     document.addEventListener('DOMContentLoaded', function() {
         refreshStatus();
     });
+
+    function toggleStatusTools() {
+        const section = document.getElementById('status-tools-section');
+        const btn = document.getElementById('toggle-status-btn');
+        
+        if (section.style.display === 'none') {
+            section.style.display = 'block';
+            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Collapse';
+        } else {
+            section.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Expand';
+        }
+    }
 
     async function refreshStatus() {
         const container = document.getElementById('status-container');
@@ -137,23 +338,21 @@
                 const isConnected = status.connection_status === 'connected';
                 
                 container.innerHTML = `
-                    <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'}">
+                    <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'} mb-2">
                         <h6><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>
-                            ${isConnected ? 'Connected' : 'Disconnected'}
+                            ${isConnected ? 'Connected to Azure MCP Server' : 'Disconnected'}
                         </h6>
                         <p class="mb-0">Available Tools: <strong>${status.available_tools_count}</strong></p>
                     </div>
-                    ${!isConnected ? `
-                        <div class="alert alert-info">
-                            <strong>Setup Required:</strong>
-                            <ol class="mb-0 mt-2">
-                                <li>Install Node.js (LTS version)</li>
-                                <li>Install Python MCP package: <code>pip install mcp</code></li>
-                                <li>Authenticate with Azure: <code>az login</code></li>
-                                <li>Restart the application</li>
-                            </ol>
-                        </div>
-                    ` : ''}
+                    <div class="alert ${isConnected ? 'alert-info' : 'alert-warning'} mb-0">
+                        <strong><i class="fas fa-terminal me-2"></i>Connection Mode:</strong> Stdio (npx)
+                        <br>
+                        <small class="text-muted">
+                            ${isConnected ? 
+                                '<i class="fas fa-check-circle me-1"></i>Azure MCP server running via npx subprocess with managed identity authentication' : 
+                                '<i class="fas fa-exclamation-triangle me-1"></i>MCP server is not responding. Check container logs or restart the application.'}
+                        </small>
+                    </div>
                 `;
             } else {
                 throw new Error('Invalid response format');
@@ -245,7 +444,7 @@
     }
 
     function loadExampleQuery() {
-        document.getElementById('resource-query').value = 'Resources | project name, type, location | limit 10';
+        document.getElementById('resource-query').value = 'Heartbeat\n| where TimeGenerated > ago(1h)\n| summarize count() by Computer\n| top 10 by count_';
     }
 
     async function executeQuery() {
@@ -283,6 +482,625 @@
             resultsElement.textContent = `Error: ${error.message}`;
         }
     }
+
+    // ========================================================================
+    // MCP CHAT FUNCTIONS
+    // ========================================================================
+
+    // Tool examples data structure
+    const toolExamples = {
+        'resource-groups': [
+            { text: 'List all resource groups', query: 'Show me all my resource groups' },
+            { text: 'List resource groups in Southeast Asia', query: 'List resource groups in the Southeast Asia region' },
+            { text: 'Count resource groups', query: 'How many resource groups do I have?' }
+        ],
+        'subscription': [
+            { text: 'List all subscriptions', query: 'Show me all my Azure subscriptions' },
+            { text: 'Get current subscription', query: 'What is my current subscription?' },
+            { text: 'Show subscription details', query: 'Get details about my subscription' }
+        ],
+        'azure-monitor': [
+            { text: 'List Log Analytics workspaces', query: 'Show me all Log Analytics workspaces in my subscription' },
+            { text: 'List tables in workspace', query: 'Show tables in centralmonitoring workspace' },
+            { text: 'Query errors from last hour', query: 'Query errors from last hour' },
+            { text: 'Show CPU usage trend', query: 'Show CPU usage trend for web servers last 24 hours' },
+            { text: 'List workbooks', query: 'Show workbooks in monitoring group' }
+        ],
+        'azure-storage': [
+            { text: 'List storage accounts', query: 'Show me all my storage accounts' },
+            { text: 'Get storage account details', query: 'Show me details for the storage account mystorageaccount' },
+            { text: 'Create storage account', query: 'Create a storage account named mystorageaccount in southeastasia' },
+            { text: 'List containers', query: 'List all containers in storage account mystorageaccount' },
+            { text: 'Get blob details', query: 'Show me details for file.txt in container documents in storage account mystorageaccount' }
+        ],
+        'cosmos-db': [
+            { text: 'List Cosmos DB accounts', query: 'Show me all my Cosmos DB accounts' },
+            { text: 'List databases', query: 'List all databases in my Cosmos DB account' },
+            { text: 'List containers', query: 'Show containers in my Cosmos DB database' },
+            { text: 'Query documents', query: 'Query documents in my Cosmos DB container' }
+        ],
+        'key-vault': [
+            { text: 'List Key Vaults', query: 'Show me all my Key Vaults' },
+            { text: 'List secrets', query: 'List all secrets in my Key Vault' },
+            { text: 'Get secret value', query: 'Get the value of ConnectionString secret from my Key Vault' },
+            { text: 'List keys', query: 'Show me all keys in my Key Vault' },
+            { text: 'Create secret', query: 'Create a secret named DatabasePassword in my Key Vault' }
+        ],
+        'sql-database': [
+            { text: 'List SQL servers', query: 'Show me all my Azure SQL Database servers' },
+            { text: 'List databases', query: 'List all databases on my SQL server' },
+            { text: 'Show server details', query: 'Get details about my SQL server mysqlserver' },
+            { text: 'List firewall rules', query: 'Show firewall rules for my SQL server' }
+        ],
+        'azure-functions': [
+            { text: 'List Azure Functions', query: 'Show me all my Azure Functions' },
+            { text: 'List function apps', query: 'List all function apps in my subscription' },
+            { text: 'Get function details', query: 'Show details for my function app myfunctionapp' }
+        ],
+        'app-service': [
+            { text: 'List App Services', query: 'Show me all my App Services' },
+            { text: 'Get app service details', query: 'Get details about my web app mywebapp' },
+            { text: 'List database connections', query: 'Show database connections for my App Service' }
+        ],
+        'container-registry': [
+            { text: 'List container registries', query: 'Show me all my Azure Container Registry instances' },
+            { text: 'List repositories', query: 'List all repositories in my container registry' },
+            { text: 'List images', query: 'Show images in my container registry' }
+        ],
+        'kubernetes': [
+            { text: 'List AKS clusters', query: 'Show me all my Azure Kubernetes Service clusters' },
+            { text: 'Get cluster details', query: 'Get details about my AKS cluster mycluster' },
+            { text: 'List node pools', query: 'Show node pools in my AKS cluster' }
+        ],
+        'virtual-desktop': [
+            { text: 'List host pools', query: 'Show me all Azure Virtual Desktop host pools' },
+            { text: 'List session hosts', query: 'Show session hosts in my host pool' },
+            { text: 'Get user sessions', query: 'Show user sessions in my Azure Virtual Desktop' }
+        ],
+        'mysql': [
+            { text: 'List MySQL servers', query: 'Show me all my Azure Database for MySQL servers' },
+            { text: 'List databases', query: 'List all databases on my MySQL server' },
+            { text: 'Get server details', query: 'Get details about my MySQL server mymysqlserver' }
+        ],
+        'postgresql': [
+            { text: 'List PostgreSQL servers', query: 'Show me all my Azure Database for PostgreSQL servers' },
+            { text: 'List databases', query: 'List all databases on my PostgreSQL server' },
+            { text: 'Show server details', query: 'Show details for PostgreSQL server mypostgresserver' }
+        ],
+        'data-explorer': [
+            { text: 'List Data Explorer clusters', query: 'Show me all my Azure Data Explorer clusters' },
+            { text: 'List databases', query: 'List databases in my Data Explorer cluster' },
+            { text: 'Query tables', query: 'Show tables in my Data Explorer database' }
+        ],
+        'redis': [
+            { text: 'List Redis instances', query: 'Show me all my Azure Redis instances' },
+            { text: 'Get Redis details', query: 'Get details about my Redis cache myredis' },
+            { text: 'List access policies', query: 'Show access policies for my Redis instance' }
+        ],
+        'managed-lustre': [
+            { text: 'List Lustre file systems', query: 'Show me all my Azure Managed Lustre file systems' },
+            { text: 'Get file system details', query: 'Get details about my Lustre file system' }
+        ],
+        'ai-foundry': [
+            { text: 'List AI models', query: 'Show me all Azure AI Foundry models' },
+            { text: 'List deployments', query: 'List all AI model deployments' },
+            { text: 'Get endpoint details', query: 'Show details for my AI endpoint' }
+        ],
+        'ai-search': [
+            { text: 'List search services', query: 'Show me all my Azure AI Search services' },
+            { text: 'List indexes', query: 'List all indexes in my search service' },
+            { text: 'Query search index', query: 'Search for documents in my index' }
+        ],
+        'ai-speech': [
+            { text: 'List Speech resources', query: 'Show me all my Azure AI Speech resources' },
+            { text: 'Get Speech service details', query: 'Get details about my Speech service' }
+        ],
+        'app-insights': [
+            { text: 'List Application Insights', query: 'Show me all my Application Insights resources' },
+            { text: 'Get insights data', query: 'Show Application Insights data for my app' },
+            { text: 'Query telemetry', query: 'Query telemetry from my Application Insights' }
+        ],
+        'app-lens': [
+            { text: 'Diagnose app issues', query: 'Diagnose performance issues using Azure App Lens' },
+            { text: 'Analyze application', query: 'Analyze my application performance with App Lens' }
+        ],
+        'resource-health': [
+            { text: 'Check resource health', query: 'Check the health status of my Azure resources' },
+            { text: 'Get health events', query: 'Show health events for my resources' }
+        ],
+        'managed-grafana': [
+            { text: 'List Grafana workspaces', query: 'Show me all my Azure Managed Grafana workspaces' },
+            { text: 'Get workspace details', query: 'Get details about my Grafana workspace' }
+        ],
+        'rbac': [
+            { text: 'List role assignments', query: 'Show me all Azure role-based access control assignments' },
+            { text: 'Get my permissions', query: 'What are my RBAC permissions?' },
+            { text: 'List roles', query: 'Show all available Azure roles' }
+        ],
+        'confidential-ledger': [
+            { text: 'List ledgers', query: 'Show me all my Azure Confidential Ledger resources' },
+            { text: 'List transactions', query: 'Show transactions in my Confidential Ledger' }
+        ],
+        'event-grid': [
+            { text: 'List Event Grid topics', query: 'Show me all my Azure Event Grid topics' },
+            { text: 'List subscriptions', query: 'List Event Grid subscriptions' },
+            { text: 'Get topic details', query: 'Get details about my Event Grid topic' }
+        ],
+        'event-hubs': [
+            { text: 'List Event Hubs namespaces', query: 'Show me all my Azure Event Hubs namespaces' },
+            { text: 'List event hubs', query: 'List all event hubs in my namespace' },
+            { text: 'Get namespace details', query: 'Get details about my Event Hubs namespace' }
+        ],
+        'service-bus': [
+            { text: 'List Service Bus namespaces', query: 'Show me all my Azure Service Bus namespaces' },
+            { text: 'List queues', query: 'List all queues in my Service Bus namespace' },
+            { text: 'List topics', query: 'Show topics in my Service Bus' }
+        ],
+        'signalr': [
+            { text: 'List SignalR resources', query: 'Show me all my Azure SignalR resources' },
+            { text: 'Get SignalR details', query: 'Get details about my SignalR service' }
+        ],
+        'communication-services': [
+            { text: 'List Communication Services', query: 'Show me all my Azure Communication Services' },
+            { text: 'Send SMS', query: 'Send an SMS message using Azure Communication Services' },
+            { text: 'Send email', query: 'Send an email using Azure Communication Services' }
+        ],
+        'azure-deploy': [
+            { text: 'Deploy resources', query: 'Deploy Azure resources using a template' },
+            { text: 'List deployments', query: 'Show all my Azure deployments' },
+            { text: 'Get deployment status', query: 'Check status of my deployment' }
+        ],
+        'azure-cli': [
+            { text: 'Find CLI commands', query: 'Find Azure CLI commands for storage accounts' },
+            { text: 'Get CLI installation', query: 'How do I install Azure CLI?' },
+            { text: 'CLI command help', query: 'Show me Azure CLI commands for virtual machines' }
+        ],
+        'developer-cli': [
+            { text: 'Execute azd commands', query: 'Execute Azure Developer CLI commands' },
+            { text: 'Initialize project', query: 'Initialize a new project with Azure Developer CLI' }
+        ],
+        'bicep-schema': [
+            { text: 'Get Bicep schema', query: 'Retrieve Bicep schema for storage account' },
+            { text: 'Show Bicep template', query: 'Show me a Bicep template for Azure resources' }
+        ],
+        'terraform': [
+            { text: 'Terraform best practices', query: 'Get guidance on Terraform best practices for Azure' },
+            { text: 'Terraform examples', query: 'Show me Terraform examples for Azure resources' }
+        ],
+        'app-configuration': [
+            { text: 'List App Configuration stores', query: 'Show me all my Azure App Configuration stores' },
+            { text: 'Get configuration value', query: 'Get the value of ConnectionString key in my app configuration' },
+            { text: 'List feature flags', query: 'Show all feature flags in my App Configuration' }
+        ],
+        'load-testing': [
+            { text: 'List load tests', query: 'Show me all my Azure Load Testing resources' },
+            { text: 'Create load test', query: 'Create a new load test' },
+            { text: 'Run load test', query: 'Run my load test' }
+        ],
+        'quotas': [
+            { text: 'List resource quotas', query: 'Show me my Azure resource quotas and limits' },
+            { text: 'Check quota usage', query: 'Check my current quota usage' }
+        ],
+        'azure-best-practices': [
+            { text: 'Azure Functions best practices', query: 'Get guidance on Azure Functions development best practices' },
+            { text: 'Azure SDK guidance', query: 'Show me Azure SDK usage best practices' },
+            { text: 'Deployment best practices', query: 'Get Azure deployment best practices' }
+        ],
+        'cloud-architect': [
+            { text: 'Design cloud system', query: 'Help me design a cloud system architecture' },
+            { text: 'Architecture recommendations', query: 'Recommend optimal Azure solution for my requirements' }
+        ],
+        'quick-review': [
+            { text: 'Generate compliance report', query: 'Generate compliance report for my Azure resources' },
+            { text: 'Security review', query: 'Run a security review of my Azure environment' }
+        ],
+        'mcp-tool': [
+            { text: 'List available tools', query: 'Show me all available Azure MCP Server tools' },
+            { text: 'Get tool details', query: 'Get details about a specific MCP tool' }
+        ],
+        'marketplace': [
+            { text: 'Search Marketplace', query: 'Search Azure Marketplace for monitoring solutions' },
+            { text: 'List offers', query: 'Show me Azure Marketplace offers' }
+        ],
+        'native-isv': [
+            { text: 'List ISV services', query: 'Show me Azure Native ISV services' },
+            { text: 'Datadog integration', query: 'Show Datadog integration for Azure monitoring' }
+        ]
+    };
+
+    function updateExamples() {
+        const toolSelector = document.getElementById('tool-selector');
+        const exampleSelector = document.getElementById('example-selector');
+        const chatInput = document.getElementById('chat-input');
+        
+        const selectedTool = toolSelector.value;
+        
+        if (!selectedTool) {
+            exampleSelector.disabled = true;
+            exampleSelector.innerHTML = '<option value="">Select a tool first...</option>';
+            return;
+        }
+        
+        const examples = toolExamples[selectedTool] || [];
+        
+        exampleSelector.disabled = false;
+        exampleSelector.innerHTML = '<option value="">Select an example...</option>';
+        
+        examples.forEach((example, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = example.text;
+            exampleSelector.appendChild(option);
+        });
+        
+        // Automatically update chat input when example is selected
+        exampleSelector.onchange = function() {
+            const selectedExampleIndex = exampleSelector.value;
+            
+            if (selectedExampleIndex !== '') {
+                const example = toolExamples[selectedTool][selectedExampleIndex];
+                if (example) {
+                    chatInput.value = example.query;
+                    chatInput.focus();
+                }
+            } else {
+                chatInput.value = '';
+            }
+        };
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        
+        if (!message) {
+            return;
+        }
+
+        const sendBtn = document.getElementById('send-btn');
+        const chatHistory = document.getElementById('chat-history');
+        
+        // Disable input while processing
+        input.disabled = true;
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Thinking...';
+        
+        // Clear welcome message if it's the first message
+        if (chatHistory.querySelector('.text-muted.py-5')) {
+            chatHistory.innerHTML = '';
+        }
+        
+        // Add user message
+        appendMessage('user', message);
+        
+        // Clear input
+        input.value = '';
+        
+        try {
+            const response = await fetch('/api/azure-mcp/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message: message })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.length > 0) {
+                const result = data.data[0];
+                appendMessage('assistant', result.response);
+            } else {
+                appendMessage('error', data.error || 'Failed to get response');
+            }
+        } catch (error) {
+            console.error('Error sending message:', error);
+            appendMessage('error', `Error: ${error.message}`);
+        } finally {
+            // Re-enable input
+            input.disabled = false;
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+            input.focus();
+        }
+    }
+
+    function appendMessage(role, content) {
+        const chatHistory = document.getElementById('chat-history');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${role}-message mb-3`;
+        
+        let icon = '';
+        let bgColor = '';
+        let textColor = '';
+        
+        if (role === 'user') {
+            icon = '<i class="fas fa-user me-2"></i>';
+            bgColor = '#e3f2fd';
+            textColor = '#1976d2';
+        } else if (role === 'assistant') {
+            icon = '<i class="fas fa-robot me-2"></i>';
+            bgColor = '#f3e5f5';
+            textColor = '#7b1fa2';
+        } else if (role === 'error') {
+            icon = '<i class="fas fa-exclamation-triangle me-2"></i>';
+            bgColor = '#ffebee';
+            textColor = '#c62828';
+        }
+        
+        messageDiv.innerHTML = `
+            <div style="background-color: ${bgColor}; padding: 12px; border-radius: 8px; border-left: 4px solid ${textColor};">
+                <div style="color: ${textColor}; font-weight: 600; margin-bottom: 8px;">
+                    ${icon}${role.charAt(0).toUpperCase() + role.slice(1)}
+                </div>
+                <div style="color: #333; white-space: pre-line; word-wrap: break-word; line-height: 1.6;">
+                    ${formatContent(content)}
+                </div>
+            </div>
+        `;
+        
+        chatHistory.appendChild(messageDiv);
+        
+        // Scroll to bottom
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatContent(text) {
+        // Trim leading/trailing whitespace from the entire text
+        let content = text.trim();
+        
+        // Remove markdown code blocks if present (```text``` or ```\ntext\n```)
+        content = content.replace(/^```[\w]*\n?/g, '').replace(/\n?```$/g, '');
+        
+        // Remove leading quote marks that LLM sometimes adds
+        content = content.replace(/^["'`]/g, '');
+        
+        // Trim again after removing markdown
+        content = content.trim();
+        
+        // Split into lines
+        const lines = content.split('\n');
+        
+        // Remove ALL leading whitespace from each line for cleaner display
+        const cleanedLines = lines.map(line => {
+            // Preserve empty lines
+            if (line.trim().length === 0) return '';
+            // Remove all leading whitespace and quotes
+            return line.trimStart().replace(/^["'`]+/, '');
+        });
+        
+        content = cleanedLines.join('\n');
+        
+        return escapeHtml(content);
+    }
+
+    async function clearChat() {
+        if (!confirm('Are you sure you want to clear the chat history?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/azure-mcp/chat/clear', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const chatHistory = document.getElementById('chat-history');
+                chatHistory.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-robot fa-3x mb-3"></i>
+                        <p>Ask me anything about your Azure resources!</p>
+                        <p class="small">Examples: "List my resource groups", "What compute resources do I have?", "Show me all VMs in East US"</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error clearing chat:', error);
+            alert('Failed to clear chat: ' + error.message);
+        }
+    }
+
+    // Agent Communication Functions
+    let agentCommStartTime = null;
+    let agentCommStats = {
+        iterations: 0,
+        toolCalls: 0,
+        strategy: '-',
+        duration: 0
+    };
+
+    function toggleAgentComms() {
+        const section = document.getElementById('agent-comms-section');
+        const btn = document.getElementById('toggle-comms-btn');
+        
+        if (section.style.display === 'none') {
+            section.style.display = 'block';
+            btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Hide';
+        } else {
+            section.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-eye me-1"></i>Show';
+        }
+    }
+
+    function clearAgentComms() {
+        const stream = document.getElementById('agent-comms-stream');
+        stream.innerHTML = `
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-brain fa-3x mb-3" style="color: #6c757d;"></i>
+                <p style="color: #6c757d;">Agent activity will appear here when processing requests...</p>
+            </div>
+        `;
+        
+        // Reset stats
+        agentCommStats = {
+            iterations: 0,
+            toolCalls: 0,
+            strategy: '-',
+            duration: 0
+        };
+        updateAgentStats();
+        document.getElementById('reasoning-stats').style.display = 'none';
+    }
+
+    function updateAgentStats() {
+        document.getElementById('stat-iterations').textContent = agentCommStats.iterations;
+        document.getElementById('stat-tools').textContent = agentCommStats.toolCalls;
+        document.getElementById('stat-strategy').textContent = agentCommStats.strategy;
+        document.getElementById('stat-duration').textContent = agentCommStats.duration + 's';
+    }
+
+    function addAgentComm(phase, content, metadata = {}) {
+        const stream = document.getElementById('agent-comms-stream');
+        const statsDiv = document.getElementById('reasoning-stats');
+        
+        // Remove placeholder if present
+        if (stream.querySelector('.text-center.text-muted')) {
+            stream.innerHTML = '';
+            statsDiv.style.display = 'flex';
+            agentCommStartTime = Date.now();
+        }
+        
+        // Update stats
+        if (metadata.iteration) {
+            agentCommStats.iterations = metadata.iteration;
+        }
+        if (metadata.strategy) {
+            agentCommStats.strategy = metadata.strategy;
+        }
+        if (phase === 'action' && metadata.toolName) {
+            agentCommStats.toolCalls++;
+        }
+        if (agentCommStartTime) {
+            agentCommStats.duration = ((Date.now() - agentCommStartTime) / 1000).toFixed(1);
+        }
+        updateAgentStats();
+        
+        // Create comm entry
+        const entry = document.createElement('div');
+        entry.className = 'agent-comm-entry';
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const iteration = metadata.iteration ? `<span class="reasoning-iteration">Iteration ${metadata.iteration}</span>` : '';
+        
+        let html = `
+            <div class="agent-comm-header">
+                <div>
+                    <span class="agent-comm-phase phase-${phase}">${phase}</span>
+                    ${iteration}
+                </div>
+                <span class="agent-comm-timestamp">${timestamp}</span>
+            </div>
+            <div class="agent-comm-content">${escapeHtml(content)}</div>
+        `;
+        
+        // Add tool call details
+        if (phase === 'action' && metadata.toolName) {
+            html += `
+                <div class="tool-call">
+                    <div class="tool-name">🔧 ${escapeHtml(metadata.toolName)}</div>
+                    ${metadata.toolParams ? `<div class="tool-params">Parameters: ${escapeHtml(JSON.stringify(metadata.toolParams, null, 2))}</div>` : ''}
+                </div>
+            `;
+        }
+        
+        // Add tool result
+        if (phase === 'observation' && metadata.toolResult) {
+            const resultClass = metadata.isError ? 'tool-error' : 'tool-result';
+            const resultText = typeof metadata.toolResult === 'string' 
+                ? metadata.toolResult 
+                : JSON.stringify(metadata.toolResult, null, 2);
+            html += `
+                <div class="${resultClass}">
+                    ${metadata.isError ? '❌' : '✅'} Result: ${escapeHtml(resultText)}
+                </div>
+            `;
+        }
+        
+        entry.innerHTML = html;
+        stream.appendChild(entry);
+        
+        // Auto-scroll to bottom
+        stream.scrollTop = stream.scrollHeight;
+    }
+
+    // Connect to agent communication stream (SSE)
+    let agentEventSource = null;
+
+    function startAgentCommStream() {
+        // Close existing connection if any
+        if (agentEventSource) {
+            agentEventSource.close();
+        }
+
+        agentEventSource = new EventSource('/api/azure-mcp/agent-stream');
+        
+        agentEventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'reasoning') {
+                    addAgentComm('reasoning', data.content, {
+                        iteration: data.iteration,
+                        strategy: data.strategy
+                    });
+                } else if (data.type === 'action') {
+                    addAgentComm('action', data.content, {
+                        iteration: data.iteration,
+                        toolName: data.tool_name,
+                        toolParams: data.tool_params
+                    });
+                } else if (data.type === 'observation') {
+                    addAgentComm('observation', data.content, {
+                        iteration: data.iteration,
+                        toolResult: data.tool_result,
+                        isError: data.is_error
+                    });
+                } else if (data.type === 'reflection') {
+                    addAgentComm('reflection', data.content, {
+                        iteration: data.iteration
+                    });
+                } else if (data.type === 'synthesis') {
+                    addAgentComm('synthesis', data.content, {
+                        iteration: data.iteration
+                    });
+                } else if (data.type === 'planning') {
+                    addAgentComm('planning', data.content, {
+                        strategy: data.strategy
+                    });
+                }
+            } catch (error) {
+                console.error('Error parsing agent comm event:', error);
+            }
+        };
+        
+        agentEventSource.onerror = function(error) {
+            console.error('Agent comm stream error:', error);
+            // Will automatically reconnect
+        };
+    }
+
+    // Start stream on page load
+    window.addEventListener('load', function() {
+        startAgentCommStream();
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (agentEventSource) {
+            agentEventSource.close();
+        }
+    });
 </script>
 
 <style>
@@ -339,6 +1157,193 @@
     .font-monospace {
         font-family: 'Courier New', Courier, monospace;
         font-size: 0.9rem;
+    }
+
+    /* Chat Interface Styles */
+    .chat-container {
+        border: 1px solid #dee2e6;
+    }
+
+    .chat-message {
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    #chat-input:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(var(--primary-rgb), 0.25);
+    }
+
+    .user-message {
+        text-align: right;
+    }
+
+    .assistant-message {
+        text-align: left;
+    }
+
+    .error-message {
+        text-align: center;
+    }
+
+    /* Agent Communication Styles */
+    .agent-comms-container {
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+    }
+    
+    .agent-comm-entry {
+        margin-bottom: 0.75rem;
+        padding: 0.75rem;
+        border-left: 3px solid #0078d4;
+        background-color: #2d2d30;
+        border-radius: 4px;
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .agent-comm-header {
+        display: flex;
+        justify-content: between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    
+    .agent-comm-phase {
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 3px;
+    }
+    
+    .phase-reasoning {
+        background-color: #4ec9b0;
+        color: #000;
+    }
+    
+    .phase-action {
+        background-color: #569cd6;
+        color: #fff;
+    }
+    
+    .phase-observation {
+        background-color: #dcdcaa;
+        color: #000;
+    }
+    
+    .phase-reflection {
+        background-color: #c586c0;
+        color: #fff;
+    }
+    
+    .phase-synthesis {
+        background-color: #ce9178;
+        color: #fff;
+    }
+    
+    .phase-planning {
+        background-color: #9cdcfe;
+        color: #000;
+    }
+    
+    .agent-comm-timestamp {
+        font-size: 0.7rem;
+        color: #858585;
+    }
+    
+    .agent-comm-content {
+        color: #d4d4d4;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    
+    .tool-call {
+        background-color: #1e3a5f;
+        padding: 0.5rem;
+        border-radius: 3px;
+        margin-top: 0.5rem;
+        border-left: 3px solid #569cd6;
+    }
+    
+    .tool-name {
+        color: #4ec9b0;
+        font-weight: bold;
+    }
+    
+    .tool-params {
+        color: #9cdcfe;
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+    
+    .tool-result {
+        background-color: #1e401e;
+        padding: 0.5rem;
+        border-radius: 3px;
+        margin-top: 0.5rem;
+        border-left: 3px solid #4ec9b0;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .tool-error {
+        background-color: #3f1e1e;
+        padding: 0.5rem;
+        border-radius: 3px;
+        margin-top: 0.5rem;
+        border-left: 3px solid #f48771;
+        color: #f48771;
+    }
+    
+    .stat-card {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+        border: 1px solid #dee2e6;
+    }
+    
+    .stat-value {
+        font-size: 1.75rem;
+        font-weight: bold;
+        color: #0078d4;
+    }
+    
+    .stat-label {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+    
+    .reasoning-iteration {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        background-color: #0078d4;
+        color: white;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin-left: 0.5rem;
     }
 </style>
 {% endblock %}

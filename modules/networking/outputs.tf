@@ -91,6 +91,11 @@ output "nongen_apim_subnet_id" {
   value       = length(azurerm_subnet.snet_nongen_apim) > 0 ? azurerm_subnet.snet_nongen_apim[0].id : null
 }
 
+output "nongen_container_apps_subnet_id" {
+  description = "The ID of the Non-Gen Container Apps subnet"
+  value       = length(azurerm_subnet.snet_nongen_container_apps) > 0 ? azurerm_subnet.snet_nongen_container_apps[0].id : null
+}
+
 # Gen VNet outputs
 output "gen_vnet_id" {
   description = "The ID of the Gen virtual network"
