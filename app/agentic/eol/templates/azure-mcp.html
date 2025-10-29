@@ -13,7 +13,7 @@
                     <i class="fab fa-microsoft me-3"></i>Azure MCP Server
                 </h1>
                 <p class="hero-subtitle">
-                    Manage and query Azure resources using the Model Context Protocol
+                    Explore and manage Azure resources through the EOL Agentic Platform using Model Context Protocol tooling.
                 </p>
                 <div class="d-flex gap-3 justify-content-start flex-wrap">
                     <button class="btn action-btn action-btn-primary" onclick="refreshStatus()">
@@ -35,7 +35,7 @@
         <div class="col-12 mb-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Connection Status & Available Tools</h5>
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Status & Tools</h5>
                     <button class="btn btn-sm btn-outline-primary" onclick="toggleStatusTools()" id="toggle-status-btn">
                         <i class="fas fa-chevron-down me-1"></i>Collapse
                     </button>
@@ -44,13 +44,13 @@
                     <div class="row">
                         <!-- Connection Status -->
                         <div class="col-md-6 mb-3">
-                            <h6 class="mb-3"><i class="fas fa-plug me-2"></i>Connection Status</h6>
+                            <h6 class="mb-3"><i class="fas fa-signal me-2"></i>Connection Status</h6>
                             <div id="status-container">
                                 <div class="text-center py-4">
                                     <div class="spinner-border text-primary" role="status">
                                         <span class="visually-hidden">Loading...</span>
                                     </div>
-                                    <p class="mt-2">Checking Azure MCP Server status...</p>
+                                    <p class="mt-2">Checking status...</p>
                                 </div>
                             </div>
                         </div>
@@ -156,6 +156,7 @@
                                         <option value="cloud-architect">Azure Cloud Architect</option>
                                         <option value="quick-review">Azure Quick Review CLI</option>
                                         <option value="mcp-tool">Azure MCP Tool</option>
+                                        <option value="microsoft-learn">Microsoft Learn Catalog</option>
                                     </optgroup>
                                     <optgroup label="Marketplace & ISV">
                                         <option value="marketplace">Azure Marketplace</option>
@@ -337,12 +338,17 @@
                 const status = data.data[0];
                 const isConnected = status.connection_status === 'connected';
                 
+                const azureToolCount = Number(status.available_tools_count) || 0;
+                const totalToolCount = azureToolCount + microsoftLearnTools.length;
+
                 container.innerHTML = `
                     <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'} mb-2">
                         <h6><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>
                             ${isConnected ? 'Connected to Azure MCP Server' : 'Disconnected'}
                         </h6>
-                        <p class="mb-0">Available Tools: <strong>${status.available_tools_count}</strong></p>
+                        <p class="mb-1">Azure MCP Server Tools: <strong>${azureToolCount}</strong></p>
+                        <p class="mb-1">Microsoft Learn MCP Server Tools: <strong>${microsoftLearnTools.length}</strong></p>
+                        <p class="mb-0">Total Tools Available: <strong>${totalToolCount}</strong></p>
                     </div>
                     <div class="alert ${isConnected ? 'alert-info' : 'alert-warning'} mb-0">
                         <strong><i class="fas fa-terminal me-2"></i>Connection Mode:</strong> Stdio (npx)
@@ -383,8 +389,11 @@
             const response = await fetch('/api/azure-mcp/tools');
             const data = await response.json();
 
+            let html = '';
+
             if (data.success && data.data && data.data.length > 0) {
-                let html = '<div class="list-group">';
+                html += '<h6 class="text-primary fw-semibold">Azure MCP Server Tools</h6>';
+                html += '<div class="list-group mb-3">';
                 data.data.forEach(tool => {
                     html += `
                         <div class="list-group-item">
@@ -396,10 +405,27 @@
                     `;
                 });
                 html += '</div>';
-                container.innerHTML = html;
             } else {
-                container.innerHTML = '<div class="alert alert-warning">No tools available</div>';
+                html += '<div class="alert alert-warning">Azure MCP tools are currently unavailable.</div>';
             }
+
+            if (microsoftLearnTools.length > 0) {
+                html += '<h6 class="text-success fw-semibold">Microsoft Learn MCP Server Tools</h6>';
+                html += '<div class="list-group">';
+                microsoftLearnTools.forEach(tool => {
+                    html += `
+                        <div class="list-group-item list-group-item-light">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1"><code>${tool.name}</code></h6>
+                            </div>
+                            <p class="mb-1 text-muted small">${tool.description}</p>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            container.innerHTML = html || '<div class="alert alert-warning">No tools available</div>';
         } catch (error) {
             console.error('Error loading tools:', error);
             container.innerHTML = `
@@ -487,6 +513,14 @@
     // MCP CHAT FUNCTIONS
     // ========================================================================
 
+    // Microsoft Learn MCP server tool metadata for status/list rendering
+    const microsoftLearnTools = [
+        { name: 'microsoft_learn.searchLearningPaths', description: 'Search Microsoft Learn for learning paths aligned to certification exams or keywords.' },
+        { name: 'microsoft_learn.listModulesByTopic', description: 'List Microsoft Learn modules for a topic with duration and unit counts.' },
+        { name: 'microsoft_learn.getModuleOutline', description: 'Retrieve the unit-by-unit outline for a Microsoft Learn module.' },
+        { name: 'microsoft_learn.recommendContentForRole', description: 'Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.' }
+    ];
+
     // Tool examples data structure
     const toolExamples = {
         'resource-groups': [
@@ -501,95 +535,95 @@
         ],
         'azure-monitor': [
             { text: 'List Log Analytics workspaces', query: 'Show me all Log Analytics workspaces in my subscription' },
-            { text: 'List tables in workspace', query: 'Show tables in centralmonitoring workspace' },
+            { text: 'List tables in workspace', query: 'List the tables in a Log Analytics workspace. First show all available workspaces so I can choose which one to use.' },
             { text: 'Query errors from last hour', query: 'Query errors from last hour' },
             { text: 'Show CPU usage trend', query: 'Show CPU usage trend for web servers last 24 hours' },
-            { text: 'List workbooks', query: 'Show workbooks in monitoring group' }
+            { text: 'List workbooks', query: 'List all Log Analytics workbooks available to me' }
         ],
         'azure-storage': [
             { text: 'List storage accounts', query: 'Show me all my storage accounts' },
-            { text: 'Get storage account details', query: 'Show me details for the storage account mystorageaccount' },
-            { text: 'Create storage account', query: 'Create a storage account named mystorageaccount in southeastasia' },
-            { text: 'List containers', query: 'List all containers in storage account mystorageaccount' },
-            { text: 'Get blob details', query: 'Show me details for file.txt in container documents in storage account mystorageaccount' }
+            { text: 'Get storage account details', query: 'Show me details for the storage account named <storage-account-name>' },
+            { text: 'Create storage account', query: 'Create a storage account named <storage-account-name> in <azure-region>' },
+            { text: 'List containers', query: 'List all containers in the storage account named <storage-account-name>' },
+            { text: 'Get blob details', query: 'Show me details for <blob-name> in container <container-name> in the storage account named <storage-account-name>' }
         ],
         'cosmos-db': [
             { text: 'List Cosmos DB accounts', query: 'Show me all my Cosmos DB accounts' },
-            { text: 'List databases', query: 'List all databases in my Cosmos DB account' },
-            { text: 'List containers', query: 'Show containers in my Cosmos DB database' },
-            { text: 'Query documents', query: 'Query documents in my Cosmos DB container' }
+            { text: 'List databases', query: 'List all databases in the Cosmos DB account named <cosmos-account-name>' },
+            { text: 'List containers', query: 'Show containers in the Cosmos DB database named <database-name>' },
+            { text: 'Query documents', query: 'Query documents in the Cosmos DB container named <container-name>' }
         ],
         'key-vault': [
             { text: 'List Key Vaults', query: 'Show me all my Key Vaults' },
-            { text: 'List secrets', query: 'List all secrets in my Key Vault' },
-            { text: 'Get secret value', query: 'Get the value of ConnectionString secret from my Key Vault' },
-            { text: 'List keys', query: 'Show me all keys in my Key Vault' },
-            { text: 'Create secret', query: 'Create a secret named DatabasePassword in my Key Vault' }
+            { text: 'List secrets', query: 'List all secrets in the Key Vault named <key-vault-name>' },
+            { text: 'Get secret value', query: 'Get the value of the secret named <secret-name> from the Key Vault named <key-vault-name>' },
+            { text: 'List keys', query: 'Show me all keys in the Key Vault named <key-vault-name>' },
+            { text: 'Create secret', query: 'Create a secret named <secret-name> in the Key Vault named <key-vault-name>' }
         ],
         'sql-database': [
             { text: 'List SQL servers', query: 'Show me all my Azure SQL Database servers' },
-            { text: 'List databases', query: 'List all databases on my SQL server' },
-            { text: 'Show server details', query: 'Get details about my SQL server mysqlserver' },
-            { text: 'List firewall rules', query: 'Show firewall rules for my SQL server' }
+            { text: 'List databases', query: 'List all databases on the SQL server named <sql-server-name>' },
+            { text: 'Show server details', query: 'Get details about the SQL server named <sql-server-name>' },
+            { text: 'List firewall rules', query: 'Show firewall rules for the SQL server named <sql-server-name>' }
         ],
         'azure-functions': [
             { text: 'List Azure Functions', query: 'Show me all my Azure Functions' },
             { text: 'List function apps', query: 'List all function apps in my subscription' },
-            { text: 'Get function details', query: 'Show details for my function app myfunctionapp' }
+            { text: 'Get function details', query: 'Show details for the function app named <function-app-name>' }
         ],
         'app-service': [
             { text: 'List App Services', query: 'Show me all my App Services' },
-            { text: 'Get app service details', query: 'Get details about my web app mywebapp' },
-            { text: 'List database connections', query: 'Show database connections for my App Service' }
+            { text: 'Get app service details', query: 'Get details about the web app named <app-service-name>' },
+            { text: 'List database connections', query: 'Show database connections configured for the App Service named <app-service-name>' }
         ],
         'container-registry': [
             { text: 'List container registries', query: 'Show me all my Azure Container Registry instances' },
-            { text: 'List repositories', query: 'List all repositories in my container registry' },
-            { text: 'List images', query: 'Show images in my container registry' }
+            { text: 'List repositories', query: 'List all repositories in the container registry named <acr-name>' },
+            { text: 'List images', query: 'Show images in the container registry named <acr-name>' }
         ],
         'kubernetes': [
             { text: 'List AKS clusters', query: 'Show me all my Azure Kubernetes Service clusters' },
-            { text: 'Get cluster details', query: 'Get details about my AKS cluster mycluster' },
-            { text: 'List node pools', query: 'Show node pools in my AKS cluster' }
+            { text: 'Get cluster details', query: 'Get details about the AKS cluster named <aks-cluster-name>' },
+            { text: 'List node pools', query: 'Show node pools in the AKS cluster named <aks-cluster-name>' }
         ],
         'virtual-desktop': [
             { text: 'List host pools', query: 'Show me all Azure Virtual Desktop host pools' },
-            { text: 'List session hosts', query: 'Show session hosts in my host pool' },
-            { text: 'Get user sessions', query: 'Show user sessions in my Azure Virtual Desktop' }
+            { text: 'List session hosts', query: 'Show session hosts in the host pool named <host-pool-name>' },
+            { text: 'Get user sessions', query: 'Show user sessions for the host pool named <host-pool-name>' }
         ],
         'mysql': [
             { text: 'List MySQL servers', query: 'Show me all my Azure Database for MySQL servers' },
-            { text: 'List databases', query: 'List all databases on my MySQL server' },
-            { text: 'Get server details', query: 'Get details about my MySQL server mymysqlserver' }
+            { text: 'List databases', query: 'List all databases on the MySQL server named <mysql-server-name>' },
+            { text: 'Get server details', query: 'Get details about the MySQL server named <mysql-server-name>' }
         ],
         'postgresql': [
             { text: 'List PostgreSQL servers', query: 'Show me all my Azure Database for PostgreSQL servers' },
-            { text: 'List databases', query: 'List all databases on my PostgreSQL server' },
-            { text: 'Show server details', query: 'Show details for PostgreSQL server mypostgresserver' }
+            { text: 'List databases', query: 'List all databases on the PostgreSQL server named <postgres-server-name>' },
+            { text: 'Show server details', query: 'Show details for the PostgreSQL server named <postgres-server-name>' }
         ],
         'data-explorer': [
             { text: 'List Data Explorer clusters', query: 'Show me all my Azure Data Explorer clusters' },
-            { text: 'List databases', query: 'List databases in my Data Explorer cluster' },
-            { text: 'Query tables', query: 'Show tables in my Data Explorer database' }
+            { text: 'List databases', query: 'List databases in the Data Explorer cluster named <data-explorer-cluster-name>' },
+            { text: 'Query tables', query: 'Show tables in the Data Explorer database named <database-name>' }
         ],
         'redis': [
             { text: 'List Redis instances', query: 'Show me all my Azure Redis instances' },
-            { text: 'Get Redis details', query: 'Get details about my Redis cache myredis' },
-            { text: 'List access policies', query: 'Show access policies for my Redis instance' }
+            { text: 'Get Redis details', query: 'Get details about the Redis cache named <redis-cache-name>' },
+            { text: 'List access policies', query: 'Show access policies for the Redis cache named <redis-cache-name>' }
         ],
         'managed-lustre': [
             { text: 'List Lustre file systems', query: 'Show me all my Azure Managed Lustre file systems' },
-            { text: 'Get file system details', query: 'Get details about my Lustre file system' }
+            { text: 'Get file system details', query: 'Get details about the Lustre file system named <lustre-name>' }
         ],
         'ai-foundry': [
             { text: 'List AI models', query: 'Show me all Azure AI Foundry models' },
-            { text: 'List deployments', query: 'List all AI model deployments' },
-            { text: 'Get endpoint details', query: 'Show details for my AI endpoint' }
+            { text: 'List deployments', query: 'List all AI model deployments in the project named <ai-project-name>' },
+            { text: 'Get endpoint details', query: 'Show details for the AI endpoint named <ai-endpoint-name>' }
         ],
         'ai-search': [
             { text: 'List search services', query: 'Show me all my Azure AI Search services' },
-            { text: 'List indexes', query: 'List all indexes in my search service' },
-            { text: 'Query search index', query: 'Search for documents in my index' }
+            { text: 'List indexes', query: 'List all indexes in the search service named <search-service-name>' },
+            { text: 'Query search index', query: 'Search for documents in the index named <index-name>' }
         ],
         'ai-speech': [
             { text: 'List Speech resources', query: 'Show me all my Azure AI Speech resources' },
@@ -628,27 +662,27 @@
         ],
         'event-hubs': [
             { text: 'List Event Hubs namespaces', query: 'Show me all my Azure Event Hubs namespaces' },
-            { text: 'List event hubs', query: 'List all event hubs in my namespace' },
-            { text: 'Get namespace details', query: 'Get details about my Event Hubs namespace' }
+            { text: 'List event hubs', query: 'List all event hubs in the namespace named <event-hubs-namespace>' },
+            { text: 'Get namespace details', query: 'Get details about the Event Hubs namespace named <event-hubs-namespace>' }
         ],
         'service-bus': [
             { text: 'List Service Bus namespaces', query: 'Show me all my Azure Service Bus namespaces' },
-            { text: 'List queues', query: 'List all queues in my Service Bus namespace' },
-            { text: 'List topics', query: 'Show topics in my Service Bus' }
+            { text: 'List queues', query: 'List all queues in the Service Bus namespace named <service-bus-namespace>' },
+            { text: 'List topics', query: 'Show topics in the Service Bus namespace named <service-bus-namespace>' }
         ],
         'signalr': [
             { text: 'List SignalR resources', query: 'Show me all my Azure SignalR resources' },
-            { text: 'Get SignalR details', query: 'Get details about my SignalR service' }
+            { text: 'Get SignalR details', query: 'Get details about the SignalR resource named <signalr-name>' }
         ],
         'communication-services': [
-            { text: 'List Communication Services', query: 'Show me all my Azure Communication Services' },
-            { text: 'Send SMS', query: 'Send an SMS message using Azure Communication Services' },
-            { text: 'Send email', query: 'Send an email using Azure Communication Services' }
+            { text: 'List Communication Services', query: 'Show me all my Azure Communication Services resources' },
+            { text: 'Send SMS', query: 'Send an SMS message using the Communication Services resource named <communication-services-name>' },
+            { text: 'Send email', query: 'Send an email using the Communication Services resource named <communication-services-name>' }
         ],
         'azure-deploy': [
-            { text: 'Deploy resources', query: 'Deploy Azure resources using a template' },
-            { text: 'List deployments', query: 'Show all my Azure deployments' },
-            { text: 'Get deployment status', query: 'Check status of my deployment' }
+            { text: 'Deploy resources', query: 'Deploy Azure resources using the template file at <template-path> into resource group <resource-group-name>' },
+            { text: 'List deployments', query: 'Show all deployments in the resource group named <resource-group-name>' },
+            { text: 'Get deployment status', query: 'Check the status of the deployment named <deployment-name> in resource group <resource-group-name>' }
         ],
         'azure-cli': [
             { text: 'Find CLI commands', query: 'Find Azure CLI commands for storage accounts' },
@@ -660,26 +694,26 @@
             { text: 'Initialize project', query: 'Initialize a new project with Azure Developer CLI' }
         ],
         'bicep-schema': [
-            { text: 'Get Bicep schema', query: 'Retrieve Bicep schema for storage account' },
-            { text: 'Show Bicep template', query: 'Show me a Bicep template for Azure resources' }
+            { text: 'Get Bicep schema', query: 'Retrieve Bicep schema information for the resource type <resource-type>' },
+            { text: 'Show Bicep template', query: 'Show me a Bicep template snippet for provisioning <resource-type>' }
         ],
         'terraform': [
             { text: 'Terraform best practices', query: 'Get guidance on Terraform best practices for Azure' },
-            { text: 'Terraform examples', query: 'Show me Terraform examples for Azure resources' }
+            { text: 'Terraform examples', query: 'Show me Terraform configuration examples for <azure-service>' }
         ],
         'app-configuration': [
             { text: 'List App Configuration stores', query: 'Show me all my Azure App Configuration stores' },
-            { text: 'Get configuration value', query: 'Get the value of ConnectionString key in my app configuration' },
-            { text: 'List feature flags', query: 'Show all feature flags in my App Configuration' }
+            { text: 'Get configuration value', query: 'Get the value of the key named <key-name> in the App Configuration store named <app-config-name>' },
+            { text: 'List feature flags', query: 'Show all feature flags in the App Configuration store named <app-config-name>' }
         ],
         'load-testing': [
             { text: 'List load tests', query: 'Show me all my Azure Load Testing resources' },
-            { text: 'Create load test', query: 'Create a new load test' },
-            { text: 'Run load test', query: 'Run my load test' }
+            { text: 'Create load test', query: 'Create a new load test named <load-test-name>' },
+            { text: 'Run load test', query: 'Run the load test named <load-test-name>' }
         ],
         'quotas': [
             { text: 'List resource quotas', query: 'Show me my Azure resource quotas and limits' },
-            { text: 'Check quota usage', query: 'Check my current quota usage' }
+            { text: 'Check quota usage', query: 'Check my current quota usage for service <azure-service>' }
         ],
         'azure-best-practices': [
             { text: 'Azure Functions best practices', query: 'Get guidance on Azure Functions development best practices' },
@@ -688,23 +722,29 @@
         ],
         'cloud-architect': [
             { text: 'Design cloud system', query: 'Help me design a cloud system architecture' },
-            { text: 'Architecture recommendations', query: 'Recommend optimal Azure solution for my requirements' }
+            { text: 'Architecture recommendations', query: 'Recommend an optimal Azure solution for my requirements' }
         ],
         'quick-review': [
-            { text: 'Generate compliance report', query: 'Generate compliance report for my Azure resources' },
+            { text: 'Generate compliance report', query: 'Generate a compliance report for my Azure resources' },
             { text: 'Security review', query: 'Run a security review of my Azure environment' }
         ],
         'mcp-tool': [
             { text: 'List available tools', query: 'Show me all available Azure MCP Server tools' },
-            { text: 'Get tool details', query: 'Get details about a specific MCP tool' }
+            { text: 'Get tool details', query: 'Get details about the MCP tool named <tool-name>' }
+        ],
+        'microsoft-learn': [
+            { text: 'Find AZ-104 learning paths', query: 'Search Microsoft Learn for learning paths aligned to exam AZ-104 and summarize what each covers.' },
+            { text: 'List Azure OpenAI modules', query: 'List Microsoft Learn modules that focus on Azure OpenAI Service and include their unit counts and durations.' },
+            { text: 'Show module outline', query: 'Show the unit-by-unit outline for the Microsoft Learn module "Secure access to Azure resources by using Azure role-based access control".' },
+            { text: 'Recommend networking content', query: 'Recommend Microsoft Learn content for someone preparing for an Azure networking engineer role, including prerequisite modules.' }
         ],
         'marketplace': [
-            { text: 'Search Marketplace', query: 'Search Azure Marketplace for monitoring solutions' },
-            { text: 'List offers', query: 'Show me Azure Marketplace offers' }
+            { text: 'Search Marketplace', query: 'Search Azure Marketplace for solutions related to <solution-type>' },
+            { text: 'List offers', query: 'Show me Azure Marketplace offers for <solution-type>' }
         ],
         'native-isv': [
             { text: 'List ISV services', query: 'Show me Azure Native ISV services' },
-            { text: 'Datadog integration', query: 'Show Datadog integration for Azure monitoring' }
+            { text: 'Datadog integration', query: 'Show Datadog integration options for Azure monitoring' }
         ]
     };
 
@@ -764,7 +804,7 @@
         input.disabled = true;
         sendBtn.disabled = true;
         sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Thinking...';
-        
+
         // Clear welcome message if it's the first message
         if (chatHistory.querySelector('.text-muted.py-5')) {
             chatHistory.innerHTML = '';
@@ -809,11 +849,11 @@
         const chatHistory = document.getElementById('chat-history');
         const messageDiv = document.createElement('div');
         messageDiv.className = `chat-message ${role}-message mb-3`;
-        
+
         let icon = '';
         let bgColor = '';
         let textColor = '';
-        
+
         if (role === 'user') {
             icon = '<i class="fas fa-user me-2"></i>';
             bgColor = '#e3f2fd';
@@ -826,21 +866,41 @@
             icon = '<i class="fas fa-exclamation-triangle me-2"></i>';
             bgColor = '#ffebee';
             textColor = '#c62828';
+        } else {
+            bgColor = '#eceff1';
+            textColor = '#37474f';
         }
-        
-        messageDiv.innerHTML = `
-            <div style="background-color: ${bgColor}; padding: 12px; border-radius: 8px; border-left: 4px solid ${textColor};">
-                <div style="color: ${textColor}; font-weight: 600; margin-bottom: 8px;">
-                    ${icon}${role.charAt(0).toUpperCase() + role.slice(1)}
-                </div>
-                <div style="color: #333; white-space: pre-line; word-wrap: break-word; line-height: 1.6;">
-                    ${formatContent(content)}
-                </div>
-            </div>
-        `;
-        
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chat-message-wrapper';
+        wrapper.style.backgroundColor = bgColor;
+        wrapper.style.borderLeft = `4px solid ${textColor}`;
+
+        const header = document.createElement('div');
+        header.className = 'chat-message-header';
+        header.style.color = textColor;
+        header.innerHTML = `${icon}${role.charAt(0).toUpperCase() + role.slice(1)}`;
+
+        const body = document.createElement('div');
+        body.className = 'chat-message-body';
+        body.style.color = '#333';
+
+        const { html, hasRichContent } = formatContent(content);
+
+        if (hasRichContent) {
+            body.classList.add('chat-html-content');
+        } else {
+            body.classList.add('chat-text-content');
+        }
+
+        body.innerHTML = html;
+
+        wrapper.appendChild(header);
+        wrapper.appendChild(body);
+        messageDiv.appendChild(wrapper);
+
         chatHistory.appendChild(messageDiv);
-        
+
         // Scroll to bottom
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
@@ -851,33 +911,426 @@
         return div.innerHTML;
     }
 
-    function formatContent(text) {
-        // Trim leading/trailing whitespace from the entire text
-        let content = text.trim();
-        
-        // Remove markdown code blocks if present (```text``` or ```\ntext\n```)
-        content = content.replace(/^```[\w]*\n?/g, '').replace(/\n?```$/g, '');
-        
-        // Remove leading quote marks that LLM sometimes adds
-        content = content.replace(/^["'`]/g, '');
-        
-        // Trim again after removing markdown
-        content = content.trim();
-        
-        // Split into lines
-        const lines = content.split('\n');
-        
-        // Remove ALL leading whitespace from each line for cleaner display
-        const cleanedLines = lines.map(line => {
-            // Preserve empty lines
-            if (line.trim().length === 0) return '';
-            // Remove all leading whitespace and quotes
-            return line.trimStart().replace(/^["'`]+/, '');
+    function sanitizeHtml(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html;
+
+        const forbiddenTags = ['script', 'style', 'iframe', 'object', 'embed'];
+        forbiddenTags.forEach(tag => {
+            template.content.querySelectorAll(tag).forEach(node => node.remove());
         });
-        
-        content = cleanedLines.join('\n');
-        
-        return escapeHtml(content);
+
+        template.content.querySelectorAll('*').forEach(node => {
+            [...node.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                if (name.startsWith('on') || name === 'formaction' || name === 'srcdoc') {
+                    node.removeAttribute(attr.name);
+                }
+            });
+        });
+
+        return template.innerHTML;
+    }
+
+    function buildStructuredHtml(text) {
+        const container = document.createElement('div');
+        const lines = text.split('\n');
+        let index = 0;
+        let hasRichContent = false;
+
+        const isMetadataHeader = (line) => /^Auto-filled parameters:/i.test(line) || /^Suggested parameter values:/i.test(line);
+        const isListLine = (line) => {
+            const trimmed = line.trim();
+            return /^[-*+]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed);
+        };
+        const isTableStart = (position) => {
+            if (position + 2 >= lines.length) {
+                return false;
+            }
+            const header = lines[position];
+            const separator = lines[position + 1];
+            const firstRow = lines[position + 2];
+            if (!header || !separator || !firstRow) {
+                return false;
+            }
+            if (header.indexOf('|') === -1 || separator.indexOf('|') === -1 || firstRow.indexOf('|') === -1) {
+                return false;
+            }
+            const headers = header.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()).filter(Boolean);
+            if (!headers.length) {
+                return false;
+            }
+            const separatorValid = separator.replace(/^\||\|$/g, '').split('|').every(cell => /^[-:\s]*$/.test(cell.trim()));
+            if (!separatorValid) {
+                return false;
+            }
+            const rowCells = firstRow.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()).filter(Boolean);
+            return rowCells.length > 0;
+        };
+        const isSpecialBlockStart = (position) => {
+            if (position >= lines.length) {
+                return false;
+            }
+            const current = lines[position];
+            if (!current || !current.trim()) {
+                return false;
+            }
+            const trimmed = current.trim();
+            if (trimmed.startsWith('```')) {
+                return true;
+            }
+            if (isMetadataHeader(trimmed)) {
+                return true;
+            }
+            if (isTableStart(position)) {
+                return true;
+            }
+            return isListLine(trimmed);
+        };
+
+        const parseCodeBlock = (startIndex) => {
+            let idx = startIndex + 1;
+            const codeLines = [];
+            while (idx < lines.length && !lines[idx].trim().startsWith('```')) {
+                codeLines.push(lines[idx]);
+                idx++;
+            }
+            if (idx < lines.length && lines[idx].trim().startsWith('```')) {
+                idx++;
+            }
+            const pre = document.createElement('pre');
+            pre.className = 'mcp-pre';
+            const code = document.createElement('code');
+            code.textContent = codeLines.join('\n');
+            pre.appendChild(code);
+            return { node: pre, nextIndex: idx };
+        };
+
+        const parseMetadataBlock = (startIndex) => {
+            const headerLine = lines[startIndex].trim();
+            if (!isMetadataHeader(headerLine)) {
+                return null;
+            }
+            const isAutofill = /^Auto-filled parameters:/i.test(headerLine);
+            let idx = startIndex + 1;
+            const wrapper = document.createElement('div');
+            wrapper.className = `mcp-meta ${isAutofill ? 'mcp-meta-autofill' : 'mcp-meta-suggestions'}`;
+            const title = document.createElement('strong');
+            title.textContent = headerLine.replace(/:$/, '');
+            wrapper.appendChild(title);
+            const list = document.createElement('ul');
+            wrapper.appendChild(list);
+
+            let consumed = false;
+            let currentItem = null;
+
+            while (idx < lines.length) {
+                const rawLine = lines[idx];
+                if (!rawLine.trim()) {
+                    break;
+                }
+
+                if (isAutofill) {
+                    const trimmed = rawLine.trim();
+                    if (!trimmed.startsWith('-')) {
+                        break;
+                    }
+                    consumed = true;
+                    const entryText = trimmed.replace(/^-\s*/, '');
+                    const parts = entryText.split(':');
+                    const li = document.createElement('li');
+                    if (parts.length > 1) {
+                        const key = parts.shift();
+                        const value = parts.join(':').trim();
+                        const code = document.createElement('code');
+                        code.textContent = (key || '').trim();
+                        li.appendChild(code);
+                        if (value) {
+                            li.appendChild(document.createTextNode(`: ${value}`));
+                        }
+                    } else {
+                        li.textContent = entryText;
+                    }
+                    list.appendChild(li);
+                    idx++;
+                    continue;
+                }
+
+                const primaryMatch = rawLine.trim();
+                if (/^-\s+/.test(primaryMatch)) {
+                    consumed = true;
+                    const li = document.createElement('li');
+                    const strong = document.createElement('strong');
+                    strong.textContent = primaryMatch.replace(/^-\s*/, '').replace(/:$/, '');
+                    li.appendChild(strong);
+                    list.appendChild(li);
+                    currentItem = li;
+                    idx++;
+                    continue;
+                }
+
+                if (/^\s{2,}-\s+/.test(rawLine)) {
+                    if (!currentItem) {
+                        idx++;
+                        continue;
+                    }
+                    consumed = true;
+                    let nested = currentItem.querySelector('ul');
+                    if (!nested) {
+                        nested = document.createElement('ul');
+                        currentItem.appendChild(nested);
+                    }
+                    const nestedItem = document.createElement('li');
+                    nestedItem.textContent = rawLine.trim().replace(/^-+\s*/, '');
+                    nested.appendChild(nestedItem);
+                    idx++;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!consumed) {
+                return null;
+            }
+
+            return { node: wrapper, nextIndex: idx };
+        };
+
+        const parseMarkdownTableBlock = (startIndex) => {
+            if (!isTableStart(startIndex)) {
+                return null;
+            }
+
+            let idx = startIndex;
+            const tableLines = [];
+
+            while (idx < lines.length) {
+                const current = lines[idx];
+                if (!current.trim()) {
+                    break;
+                }
+                if (current.indexOf('|') === -1) {
+                    break;
+                }
+                tableLines.push(current);
+                idx++;
+            }
+
+            if (tableLines.length < 3) {
+                return null;
+            }
+
+            const headers = tableLines[0]
+                .replace(/^\||\|$/g, '')
+                .split('|')
+                .map(cell => cell.trim())
+                .filter(Boolean);
+            if (!headers.length) {
+                return null;
+            }
+
+            const rows = [];
+            for (let i = 2; i < tableLines.length; i++) {
+                const dataLine = tableLines[i].trim();
+                if (!dataLine) {
+                    continue;
+                }
+                const separatorTest = dataLine.replace(/\|/g, '').replace(/[-:\s]/g, '');
+                if (!separatorTest) {
+                    continue;
+                }
+                const cells = dataLine
+                    .replace(/^\||\|$/g, '')
+                    .split('|')
+                    .map(cell => cell.trim());
+                const normalizedRow = headers.map((_, columnIndex) => cells[columnIndex] ?? '');
+                rows.push(normalizedRow);
+            }
+
+            if (!rows.length) {
+                return null;
+            }
+
+            const table = document.createElement('table');
+            table.className = 'mcp-table';
+
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            rows.forEach(rowValues => {
+                const tr = document.createElement('tr');
+                rowValues.forEach(value => {
+                    const td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+
+            return { node: table, nextIndex: idx };
+        };
+
+        const parseListBlock = (startIndex) => {
+            const firstLine = lines[startIndex];
+            if (!firstLine || !isListLine(firstLine)) {
+                return null;
+            }
+
+            const isOrdered = /^\d+\.\s+/.test(firstLine.trim());
+            const list = document.createElement(isOrdered ? 'ol' : 'ul');
+            let idx = startIndex;
+
+            while (idx < lines.length) {
+                const line = lines[idx];
+                if (!line.trim()) {
+                    break;
+                }
+                if (!isListLine(line)) {
+                    break;
+                }
+                const trimmed = line.trim();
+                const itemText = isOrdered
+                    ? trimmed.replace(/^\d+\.\s+/, '')
+                    : trimmed.replace(/^[-*+]\s+/, '');
+                const li = document.createElement('li');
+                li.textContent = itemText;
+                list.appendChild(li);
+                idx++;
+            }
+
+            if (!list.children.length) {
+                return null;
+            }
+
+            return { node: list, nextIndex: idx };
+        };
+
+        const parseParagraphBlock = (startIndex) => {
+            let idx = startIndex;
+            const collectedLines = [];
+
+            while (idx < lines.length) {
+                const line = lines[idx];
+                if (!line.trim()) {
+                    break;
+                }
+                if (idx !== startIndex && isSpecialBlockStart(idx)) {
+                    break;
+                }
+                collectedLines.push(line);
+                idx++;
+            }
+
+            if (!collectedLines.length) {
+                return { node: document.createTextNode(''), nextIndex: idx, hasRichContent: false };
+            }
+
+            const joined = collectedLines.join('\n');
+            const multiLine = collectedLines.length > 1;
+            const hasIndentation = collectedLines.some(line => /^\s{2,}/.test(line));
+            const looksJsonLike = /^\s*[\[{]/.test(collectedLines[0]);
+
+            if (multiLine && (hasIndentation || looksJsonLike)) {
+                const pre = document.createElement('pre');
+                pre.className = 'mcp-pre';
+                pre.textContent = joined;
+                return { node: pre, nextIndex: idx, hasRichContent: true };
+            }
+
+            const paragraph = document.createElement('p');
+            collectedLines.forEach((line, lineIndex) => {
+                if (lineIndex > 0) {
+                    paragraph.appendChild(document.createElement('br'));
+                }
+                paragraph.appendChild(document.createTextNode(line.trim()));
+            });
+            return { node: paragraph, nextIndex: idx, hasRichContent: false };
+        };
+
+        while (index < lines.length) {
+            if (!lines[index].trim()) {
+                index++;
+                continue;
+            }
+
+            if (lines[index].trim().startsWith('```')) {
+                const block = parseCodeBlock(index);
+                container.appendChild(block.node);
+                index = block.nextIndex;
+                hasRichContent = true;
+                continue;
+            }
+
+            const metadataBlock = parseMetadataBlock(index);
+            if (metadataBlock) {
+                container.appendChild(metadataBlock.node);
+                index = metadataBlock.nextIndex;
+                hasRichContent = true;
+                continue;
+            }
+
+            const tableBlock = parseMarkdownTableBlock(index);
+            if (tableBlock) {
+                container.appendChild(tableBlock.node);
+                index = tableBlock.nextIndex;
+                hasRichContent = true;
+                continue;
+            }
+
+            const listBlock = parseListBlock(index);
+            if (listBlock) {
+                container.appendChild(listBlock.node);
+                index = listBlock.nextIndex;
+                hasRichContent = true;
+                continue;
+            }
+
+            const paragraphBlock = parseParagraphBlock(index);
+            container.appendChild(paragraphBlock.node);
+            index = paragraphBlock.nextIndex;
+            if (paragraphBlock.hasRichContent) {
+                hasRichContent = true;
+            }
+        }
+
+        return { html: container.innerHTML, hasRichContent };
+    }
+
+    function formatContent(text) {
+        if (!text) {
+            return { html: '', hasRichContent: false };
+        }
+
+        const trimmed = text.trim();
+        if (!trimmed) {
+            return { html: '', hasRichContent: false };
+        }
+
+        const containsHtml = /<\/?[a-z][\s\S]*>/i.test(trimmed);
+        const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol/.test(trimmed);
+
+        if (containsHtml && isTrustedHtml) {
+            return {
+                html: sanitizeHtml(trimmed),
+                hasRichContent: true
+            };
+        }
+
+        const { html, hasRichContent } = buildStructuredHtml(trimmed);
+        return {
+            html: sanitizeHtml(html || `<p>${escapeHtml(trimmed)}</p>`),
+            hasRichContent
+        };
     }
 
     async function clearChat() {
@@ -1168,6 +1621,47 @@
         animation: slideIn 0.3s ease-out;
     }
 
+    .chat-message-wrapper {
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02);
+    }
+
+    .chat-message-header {
+        font-weight: 600;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .chat-message-body {
+        line-height: 1.6;
+    }
+
+    .chat-text-content {
+        white-space: pre-line;
+        word-wrap: break-word;
+    }
+
+    .chat-html-content {
+        white-space: normal;
+    }
+
+    .chat-html-content .mcp-table {
+        background-color: #ffffff !important;
+        border: 2px solid #5b21b6 !important;
+        border-radius: var(--border-radius);
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 10px 24px rgba(37, 99, 235, 0.12);
+    }
+
+    .chat-html-content .mcp-table th,
+    .chat-html-content .mcp-table td {
+        padding: 1rem 1.4rem;
+        background-color: transparent;
+        border: 1px solid rgba(91, 33, 182, 0.35) !important;
+    }
+
     @keyframes slideIn {
         from {
             opacity: 0;
@@ -1194,6 +1688,10 @@
 
     .error-message {
         text-align: center;
+    }
+
+    .assistant-message .chat-message-wrapper {
+        border-left-width: 4px;
     }
 
     /* Agent Communication Styles */

@@ -359,6 +359,89 @@ body {
     background-color: rgba(13, 110, 253, 0.05);
 }
 
+/* MCP Tool Table Output */
+.mcp-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+    background-color: #ffffff;
+    border: 2px solid #5b21b6;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 10px 24px rgba(37, 99, 235, 0.12);
+}
+
+.mcp-table thead {
+    background: rgba(91, 33, 182, 0.12);
+}
+
+.mcp-table th,
+.mcp-table td {
+    padding: 0.85rem 0.85rem;
+    text-align: left;
+    border: 1px solid rgba(91, 33, 182, 0.35);
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.mcp-table thead th {
+    font-weight: 600;
+    color: var(--gray-800);
+    border-bottom: 2px solid rgba(91, 33, 182, 0.45);
+}
+
+.mcp-table tbody tr:nth-child(even) {
+    background: rgba(91, 33, 182, 0.08);
+}
+
+.mcp-table tbody tr:hover {
+    background: rgba(91, 33, 182, 0.16);
+}
+
+.mcp-pre {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--border-radius);
+    padding: 0.75rem;
+    margin: 0.75rem 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Courier New', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.mcp-meta {
+    border-left: 3px solid var(--primary-color);
+    background: rgba(37, 99, 235, 0.08);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.mcp-meta strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--primary-dark);
+}
+
+.mcp-meta ul {
+    margin: 0.25rem 0 0.5rem;
+    padding-left: 1.25rem;
+}
+
+.mcp-meta-autofill {
+    border-left-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.mcp-meta-suggestions {
+    border-left-color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.12);
+}
+
 /* Form Enhancements */
 .form-control,
 .form-select {

@@ -7,18 +7,22 @@
 set -e
 
 # Parse parameters
-VERSION=${1:-latest}
+REQUESTED_VERSION=${1:-}
 BUILD_ONLY=${2:-false}
-
-echo "=============================================="
-echo "Azure Container Apps Build & Deploy"
-echo "Version: $VERSION"
-echo "Build Only: $BUILD_ONLY"
-echo "=============================================="
 
 # Navigate to parent directory (app root) from deployment folder
 cd "$(dirname "$0")/.."
 APP_DIR=$(pwd)
+
+# Determine version/tag (use CLI argument, git commit, or timestamp)
+DEFAULT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)
+if [[ -z "$REQUESTED_VERSION" ]]; then
+    VERSION="$DEFAULT_VERSION"
+    VERSION_SOURCE="auto"
+else
+    VERSION="$REQUESTED_VERSION"
+    VERSION_SOURCE="manual"
+fi
 DEPLOYMENT_DIR="$APP_DIR/deploy"
 APPSETTINGS_FILE="$DEPLOYMENT_DIR/appsettings.json"
 
@@ -48,6 +52,13 @@ IMAGE_TAG="v${VERSION}"
 # Construct full image name
 FULL_IMAGE_NAME="${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
 
+echo "=============================================="
+echo "Azure Container Apps Build & Deploy"
+echo "Version: $VERSION"
+echo "Version Source: $VERSION_SOURCE"
+echo "Build Only: $BUILD_ONLY"
+echo "=============================================="
+
 echo "🚀 Starting deployment process..."
 echo "Application directory: $APP_DIR"
 echo "Resource Group: $RESOURCE_GROUP"
@@ -76,7 +87,6 @@ echo "Image: $FULL_IMAGE_NAME"
 cd "$DEPLOYMENT_DIR"
 
 docker buildx build \
-    --no-cache \
     --platform linux/amd64 \
     -t "$FULL_IMAGE_NAME" \
     -f Dockerfile \
@@ -157,11 +167,38 @@ ENV_VARS="$ENV_VARS ENVIRONMENT=production"
 # Deploy to Container Apps
 echo "🚀 Deploying to Azure Container Apps..."
 
+# Compute revision suffix by incrementing latest numeric revision
+echo "📈 Determining next revision suffix..."
+REVISION_LIST=$(az containerapp revision list \
+    --name "$CONTAINER_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "[].name" -o tsv 2>/dev/null || true)
+
+NEXT_REVISION_NUM=1
+if [[ -n "$REVISION_LIST" ]]; then
+    while IFS= read -r REVISION_NAME; do
+        [[ -z "$REVISION_NAME" ]] && continue
+        SUFFIX="${REVISION_NAME#${CONTAINER_APP_NAME}--}"
+        if [[ "$SUFFIX" =~ ^rev-([0-9]+)$ ]]; then
+            REV_NUM="${BASH_REMATCH[1]}"
+            # Treat the captured number as base-10 to avoid octal parsing when it has leading zeros
+            REV_NUM_DEC=$((10#$REV_NUM))
+            if (( REV_NUM_DEC + 1 > NEXT_REVISION_NUM )); then
+                NEXT_REVISION_NUM=$((REV_NUM_DEC + 1))
+            fi
+        fi
+    done <<< "$REVISION_LIST"
+fi
+
+REVISION_SUFFIX=$(printf "rev-%04d" "$NEXT_REVISION_NUM")
+echo "   Using revision suffix: $REVISION_SUFFIX"
+
 az containerapp update \
     --name "$CONTAINER_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --image "$FULL_IMAGE_NAME" \
     --container-name eol-app \
+    --revision-suffix "$REVISION_SUFFIX" \
     --cpu 1.5 \
     --memory 3.0Gi \
     --set-env-vars $ENV_VARS \
