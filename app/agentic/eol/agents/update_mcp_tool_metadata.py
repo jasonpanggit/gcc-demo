@@ -36,6 +36,7 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; AzureMcpMetadataBot/1.0; "
     "+https://github.com/microsoft/mcp)"
 )
+MICROSOFT_LEARN_DOC_URL = "https://learn.microsoft.com/en-us/training/browse/"
 
 CATEGORY_REWRITE = {
     "Best practices": "Guidance & Best Practices",
@@ -734,9 +735,210 @@ class MCPMetadataCrawler:
         return cleaned
 
 
+def _manual_microsoft_learn_tools() -> Dict[str, ToolMetadata]:
+    tools: List[ToolMetadata] = []
+
+    tools.append(
+        ToolMetadata(
+            slug="microsoft-learn-search-learning-paths",
+            display_name="Microsoft Learn · Search learning paths",
+            category="Microsoft Learn",
+            namespace="microsoft_learn.searchLearningPaths",
+            description="Search Microsoft Learn for learning paths aligned to certification exams or keywords.",
+            doc_url=MICROSOFT_LEARN_DOC_URL,
+            source_url=MICROSOFT_LEARN_DOC_URL,
+            operations=[
+                ToolOperation(
+                    title="Search learning paths",
+                    description="Find Microsoft Learn learning paths by certification exam, Azure role, or topic keyword.",
+                    parameters=[
+                        ToolParameter(
+                            name="Query",
+                            required=True,
+                            description="Keyword, certification exam number, or topic to match across Microsoft Learn learning paths.",
+                        ),
+                        ToolParameter(
+                            name="Role",
+                            required=False,
+                            description="Optional Azure job role focus, such as administrator, developer, or security-engineer.",
+                        ),
+                        ToolParameter(
+                            name="Language",
+                            required=False,
+                            description="Preferred content language code like en or fr for localized learning paths.",
+                        ),
+                    ],
+                    examples=[
+                        ExamplePrompt(
+                            label="Exam aligned learning paths",
+                            prompt="Find Microsoft Learn learning paths to prepare for the AZ-104 exam",
+                            parameter_names=["Query", "Language"],
+                        ),
+                        ExamplePrompt(
+                            label="Role focused learning paths",
+                            prompt="Show learning paths for Azure administrator responsibilities",
+                            parameter_names=["Query", "Role"],
+                        ),
+                        ExamplePrompt(
+                            label="Topic keyword search",
+                            prompt="Search for learning paths that cover Azure monitoring skills",
+                            parameter_names=["Query"],
+                        ),
+                    ],
+                )
+            ],
+        )
+    )
+
+    tools.append(
+        ToolMetadata(
+            slug="microsoft-learn-list-modules-by-topic",
+            display_name="Microsoft Learn · List modules by topic",
+            category="Microsoft Learn",
+            namespace="microsoft_learn.listModulesByTopic",
+            description="List Microsoft Learn modules for a topic with duration and unit counts.",
+            doc_url=MICROSOFT_LEARN_DOC_URL,
+            source_url=MICROSOFT_LEARN_DOC_URL,
+            operations=[
+                ToolOperation(
+                    title="List modules by topic",
+                    description="Discover Microsoft Learn modules grouped by topic, difficulty, and estimated duration.",
+                    parameters=[
+                        ToolParameter(
+                            name="Topic",
+                            required=True,
+                            description="Microsoft Learn topic or product focus, such as Azure networking or AI services.",
+                        ),
+                        ToolParameter(
+                            name="Level",
+                            required=False,
+                            description="Optional difficulty filter like beginner, intermediate, or advanced.",
+                        ),
+                        ToolParameter(
+                            name="Language",
+                            required=False,
+                            description="Preferred content language code like en or es for localized modules.",
+                        ),
+                    ],
+                    examples=[
+                        ExamplePrompt(
+                            label="Beginner modules for a topic",
+                            prompt="List beginner modules about Azure networking",
+                            parameter_names=["Topic", "Level"],
+                        ),
+                        ExamplePrompt(
+                            label="Localized topic modules",
+                            prompt="Show modules covering Azure OpenAI concepts in Japanese",
+                            parameter_names=["Topic", "Language"],
+                        ),
+                        ExamplePrompt(
+                            label="Topic catalog overview",
+                            prompt="List Microsoft Learn modules for Azure governance",
+                            parameter_names=["Topic"],
+                        ),
+                    ],
+                )
+            ],
+        )
+    )
+
+    tools.append(
+        ToolMetadata(
+            slug="microsoft-learn-get-module-outline",
+            display_name="Microsoft Learn · Get module outline",
+            category="Microsoft Learn",
+            namespace="microsoft_learn.getModuleOutline",
+            description="Retrieve the unit-by-unit outline for a Microsoft Learn module.",
+            doc_url=MICROSOFT_LEARN_DOC_URL,
+            source_url=MICROSOFT_LEARN_DOC_URL,
+            operations=[
+                ToolOperation(
+                    title="Get module outline",
+                    description="Retrieve the unit names, durations, and prerequisites for a Microsoft Learn module.",
+                    parameters=[
+                        ToolParameter(
+                            name="Module ID",
+                            required=True,
+                            description="The Microsoft Learn module ID or URL slug, such as learn.az-104.configure-virtual-networking.",
+                        ),
+                        ToolParameter(
+                            name="Language",
+                            required=False,
+                            description="Preferred content language code like en or de for localized module outlines.",
+                        ),
+                    ],
+                    examples=[
+                        ExamplePrompt(
+                            label="Module outline by slug",
+                            prompt="Show the outline for the learn.az-104.configure-virtual-networking module",
+                            parameter_names=["Module ID"],
+                        ),
+                        ExamplePrompt(
+                            label="Localized module outline",
+                            prompt="Get the learn.azure.well-architected module outline in Spanish",
+                            parameter_names=["Module ID", "Language"],
+                        ),
+                    ],
+                )
+            ],
+        )
+    )
+
+    tools.append(
+        ToolMetadata(
+            slug="microsoft-learn-recommend-content-for-role",
+            display_name="Microsoft Learn · Recommend content for role",
+            category="Microsoft Learn",
+            namespace="microsoft_learn.recommendContentForRole",
+            description="Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.",
+            doc_url=MICROSOFT_LEARN_DOC_URL,
+            source_url=MICROSOFT_LEARN_DOC_URL,
+            operations=[
+                ToolOperation(
+                    title="Recommend content for role",
+                    description="Get personalized module and learning path recommendations for an Azure job role.",
+                    parameters=[
+                        ToolParameter(
+                            name="Role",
+                            required=True,
+                            description="Target Azure or cloud job role such as administrator, solutions-architect, or developer.",
+                        ),
+                        ToolParameter(
+                            name="Experience level",
+                            required=False,
+                            description="Optional experience band like beginner, intermediate, or advanced to tune recommendations.",
+                        ),
+                        ToolParameter(
+                            name="Focus area",
+                            required=False,
+                            description="Optional specialization focus like security, networking, or data platform.",
+                        ),
+                    ],
+                    examples=[
+                        ExamplePrompt(
+                            label="Role based recommendations",
+                            prompt="Recommend Microsoft Learn content for Azure security engineer responsibilities",
+                            parameter_names=["Role"],
+                        ),
+                        ExamplePrompt(
+                            label="Experience tuned recommendations",
+                            prompt="Suggest intermediate learning for Azure developer focusing on AI integration",
+                            parameter_names=["Role", "Experience level", "Focus area"],
+                        ),
+                    ],
+                )
+            ],
+        )
+    )
+
+    return {tool.slug: tool for tool in tools}
 def main() -> None:
     crawler = MCPMetadataCrawler()
     metadata = crawler.crawl()
+
+    for slug, tool in _manual_microsoft_learn_tools().items():
+        if slug not in metadata:
+            metadata[slug] = tool
 
     payload = {
         "tools": [tool.to_dict() for tool in metadata.values()],

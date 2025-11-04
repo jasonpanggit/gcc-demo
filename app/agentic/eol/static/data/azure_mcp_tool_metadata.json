@@ -43679,6 +43679,378 @@
           ]
         }
       ]
+    },
+    {
+      "slug": "microsoft-learn-search-learning-paths",
+      "display_name": "Microsoft Learn · Search learning paths",
+      "category": "Microsoft Learn",
+      "namespace": "microsoft_learn.searchLearningPaths",
+      "description": "Search Microsoft Learn for learning paths aligned to certification exams or keywords.",
+      "doc_url": "https://learn.microsoft.com/en-us/training/browse/",
+      "examples": [
+        {
+          "label": "Exam aligned learning paths",
+          "prompt": "Find Microsoft Learn learning paths to prepare for the AZ-104 exam using <query> for Query and <language> for Language.",
+          "original_prompt": "Find Microsoft Learn learning paths to prepare for the AZ-104 exam",
+          "parameter_placeholders": [
+            "<query>",
+            "<language>"
+          ]
+        },
+        {
+          "label": "Role focused learning paths",
+          "prompt": "Show learning paths for Azure administrator responsibilities using <query> for Query and <role> for Role.",
+          "original_prompt": "Show learning paths for Azure administrator responsibilities",
+          "parameter_placeholders": [
+            "<query>",
+            "<role>"
+          ]
+        },
+        {
+          "label": "Topic keyword search",
+          "prompt": "Search for learning paths that cover Azure monitoring skills using <query> for Query.",
+          "original_prompt": "Search for learning paths that cover Azure monitoring skills",
+          "parameter_placeholders": [
+            "<query>"
+          ]
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Query",
+          "required": true,
+          "description": "Keyword, certification exam number, or topic to match across Microsoft Learn learning paths."
+        },
+        {
+          "name": "Role",
+          "required": false,
+          "description": "Optional Azure job role focus, such as administrator, developer, or security-engineer."
+        },
+        {
+          "name": "Language",
+          "required": false,
+          "description": "Preferred content language code like en or fr for localized learning paths."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Search learning paths",
+          "description": "Find Microsoft Learn learning paths by certification exam, Azure role, or topic keyword.",
+          "examples": [
+            {
+              "label": "Exam aligned learning paths",
+              "prompt": "Find Microsoft Learn learning paths to prepare for the AZ-104 exam using <query> for Query and <language> for Language.",
+              "original_prompt": "Find Microsoft Learn learning paths to prepare for the AZ-104 exam",
+              "parameter_placeholders": [
+                "<query>",
+                "<language>"
+              ]
+            },
+            {
+              "label": "Role focused learning paths",
+              "prompt": "Show learning paths for Azure administrator responsibilities using <query> for Query and <role> for Role.",
+              "original_prompt": "Show learning paths for Azure administrator responsibilities",
+              "parameter_placeholders": [
+                "<query>",
+                "<role>"
+              ]
+            },
+            {
+              "label": "Topic keyword search",
+              "prompt": "Search for learning paths that cover Azure monitoring skills using <query> for Query.",
+              "original_prompt": "Search for learning paths that cover Azure monitoring skills",
+              "parameter_placeholders": [
+                "<query>"
+              ]
+            }
+          ],
+          "parameters": [
+            {
+              "name": "Query",
+              "required": true,
+              "description": "Keyword, certification exam number, or topic to match across Microsoft Learn learning paths."
+            },
+            {
+              "name": "Role",
+              "required": false,
+              "description": "Optional Azure job role focus, such as administrator, developer, or security-engineer."
+            },
+            {
+              "name": "Language",
+              "required": false,
+              "description": "Preferred content language code like en or fr for localized learning paths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "microsoft-learn-list-modules-by-topic",
+      "display_name": "Microsoft Learn · List modules by topic",
+      "category": "Microsoft Learn",
+      "namespace": "microsoft_learn.listModulesByTopic",
+      "description": "List Microsoft Learn modules for a topic with duration and unit counts.",
+      "doc_url": "https://learn.microsoft.com/en-us/training/browse/",
+      "examples": [
+        {
+          "label": "Beginner modules for a topic",
+          "prompt": "List beginner modules about Azure networking using <topic> for Topic and <level> for Level.",
+          "original_prompt": "List beginner modules about Azure networking",
+          "parameter_placeholders": [
+            "<topic>",
+            "<level>"
+          ]
+        },
+        {
+          "label": "Localized topic modules",
+          "prompt": "Show modules covering Azure OpenAI concepts in Japanese using <topic> for Topic and <language> for Language.",
+          "original_prompt": "Show modules covering Azure OpenAI concepts in Japanese",
+          "parameter_placeholders": [
+            "<topic>",
+            "<language>"
+          ]
+        },
+        {
+          "label": "Topic catalog overview",
+          "prompt": "List Microsoft Learn modules for Azure governance using <topic> for Topic.",
+          "original_prompt": "List Microsoft Learn modules for Azure governance",
+          "parameter_placeholders": [
+            "<topic>"
+          ]
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Topic",
+          "required": true,
+          "description": "Microsoft Learn topic or product focus, such as Azure networking or AI services."
+        },
+        {
+          "name": "Level",
+          "required": false,
+          "description": "Optional difficulty filter like beginner, intermediate, or advanced."
+        },
+        {
+          "name": "Language",
+          "required": false,
+          "description": "Preferred content language code like en or es for localized modules."
+        }
+      ],
+      "operations": [
+        {
+          "title": "List modules by topic",
+          "description": "Discover Microsoft Learn modules grouped by topic, difficulty, and estimated duration.",
+          "examples": [
+            {
+              "label": "Beginner modules for a topic",
+              "prompt": "List beginner modules about Azure networking using <topic> for Topic and <level> for Level.",
+              "original_prompt": "List beginner modules about Azure networking",
+              "parameter_placeholders": [
+                "<topic>",
+                "<level>"
+              ]
+            },
+            {
+              "label": "Localized topic modules",
+              "prompt": "Show modules covering Azure OpenAI concepts in Japanese using <topic> for Topic and <language> for Language.",
+              "original_prompt": "Show modules covering Azure OpenAI concepts in Japanese",
+              "parameter_placeholders": [
+                "<topic>",
+                "<language>"
+              ]
+            },
+            {
+              "label": "Topic catalog overview",
+              "prompt": "List Microsoft Learn modules for Azure governance using <topic> for Topic.",
+              "original_prompt": "List Microsoft Learn modules for Azure governance",
+              "parameter_placeholders": [
+                "<topic>"
+              ]
+            }
+          ],
+          "parameters": [
+            {
+              "name": "Topic",
+              "required": true,
+              "description": "Microsoft Learn topic or product focus, such as Azure networking or AI services."
+            },
+            {
+              "name": "Level",
+              "required": false,
+              "description": "Optional difficulty filter like beginner, intermediate, or advanced."
+            },
+            {
+              "name": "Language",
+              "required": false,
+              "description": "Preferred content language code like en or es for localized modules."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "microsoft-learn-get-module-outline",
+      "display_name": "Microsoft Learn · Get module outline",
+      "category": "Microsoft Learn",
+      "namespace": "microsoft_learn.getModuleOutline",
+      "description": "Retrieve the unit-by-unit outline for a Microsoft Learn module.",
+      "doc_url": "https://learn.microsoft.com/en-us/training/browse/",
+      "examples": [
+        {
+          "label": "Module outline by slug",
+          "prompt": "Show the outline for the learn.az-104.configure-virtual-networking module using <module-id> for Module ID.",
+          "original_prompt": "Show the outline for the learn.az-104.configure-virtual-networking module",
+          "parameter_placeholders": [
+            "<module-id>"
+          ]
+        },
+        {
+          "label": "Localized module outline",
+          "prompt": "Get the learn.azure.well-architected module outline in Spanish using <module-id> for Module ID and <language> for Language.",
+          "original_prompt": "Get the learn.azure.well-architected module outline in Spanish",
+          "parameter_placeholders": [
+            "<module-id>",
+            "<language>"
+          ]
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Module ID",
+          "required": true,
+          "description": "The Microsoft Learn module ID or URL slug, such as learn.az-104.configure-virtual-networking."
+        },
+        {
+          "name": "Language",
+          "required": false,
+          "description": "Preferred content language code like en or de for localized module outlines."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Get module outline",
+          "description": "Retrieve the unit names, durations, and prerequisites for a Microsoft Learn module.",
+          "examples": [
+            {
+              "label": "Module outline by slug",
+              "prompt": "Show the outline for the learn.az-104.configure-virtual-networking module using <module-id> for Module ID.",
+              "original_prompt": "Show the outline for the learn.az-104.configure-virtual-networking module",
+              "parameter_placeholders": [
+                "<module-id>"
+              ]
+            },
+            {
+              "label": "Localized module outline",
+              "prompt": "Get the learn.azure.well-architected module outline in Spanish using <module-id> for Module ID and <language> for Language.",
+              "original_prompt": "Get the learn.azure.well-architected module outline in Spanish",
+              "parameter_placeholders": [
+                "<module-id>",
+                "<language>"
+              ]
+            }
+          ],
+          "parameters": [
+            {
+              "name": "Module ID",
+              "required": true,
+              "description": "The Microsoft Learn module ID or URL slug, such as learn.az-104.configure-virtual-networking."
+            },
+            {
+              "name": "Language",
+              "required": false,
+              "description": "Preferred content language code like en or de for localized module outlines."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "microsoft-learn-recommend-content-for-role",
+      "display_name": "Microsoft Learn · Recommend content for role",
+      "category": "Microsoft Learn",
+      "namespace": "microsoft_learn.recommendContentForRole",
+      "description": "Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.",
+      "doc_url": "https://learn.microsoft.com/en-us/training/browse/",
+      "examples": [
+        {
+          "label": "Role based recommendations",
+          "prompt": "Recommend Microsoft Learn content for Azure security engineer responsibilities using <role> for Role.",
+          "original_prompt": "Recommend Microsoft Learn content for Azure security engineer responsibilities",
+          "parameter_placeholders": [
+            "<role>"
+          ]
+        },
+        {
+          "label": "Experience tuned recommendations",
+          "prompt": "Suggest intermediate learning for Azure developer focusing on AI integration using <focus-area> for Focus area and <role> for Role and <experience-level> for Experience level.",
+          "original_prompt": "Suggest intermediate learning for Azure developer focusing on AI integration",
+          "parameter_placeholders": [
+            "<focus-area>",
+            "<role>",
+            "<experience-level>"
+          ]
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Role",
+          "required": true,
+          "description": "Target Azure or cloud job role such as administrator, solutions-architect, or developer."
+        },
+        {
+          "name": "Experience level",
+          "required": false,
+          "description": "Optional experience band like beginner, intermediate, or advanced to tune recommendations."
+        },
+        {
+          "name": "Focus area",
+          "required": false,
+          "description": "Optional specialization focus like security, networking, or data platform."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Recommend content for role",
+          "description": "Get personalized module and learning path recommendations for an Azure job role.",
+          "examples": [
+            {
+              "label": "Role based recommendations",
+              "prompt": "Recommend Microsoft Learn content for Azure security engineer responsibilities using <role> for Role.",
+              "original_prompt": "Recommend Microsoft Learn content for Azure security engineer responsibilities",
+              "parameter_placeholders": [
+                "<role>"
+              ]
+            },
+            {
+              "label": "Experience tuned recommendations",
+              "prompt": "Suggest intermediate learning for Azure developer focusing on AI integration using <focus-area> for Focus area and <role> for Role and <experience-level> for Experience level.",
+              "original_prompt": "Suggest intermediate learning for Azure developer focusing on AI integration",
+              "parameter_placeholders": [
+                "<focus-area>",
+                "<role>",
+                "<experience-level>"
+              ]
+            }
+          ],
+          "parameters": [
+            {
+              "name": "Role",
+              "required": true,
+              "description": "Target Azure or cloud job role such as administrator, solutions-architect, or developer."
+            },
+            {
+              "name": "Experience level",
+              "required": false,
+              "description": "Optional experience band like beginner, intermediate, or advanced to tune recommendations."
+            },
+            {
+              "name": "Focus area",
+              "required": false,
+              "description": "Optional specialization focus like security, networking, or data platform."
+            }
+          ]
+        }
+      ]
     }
   ],
   "source": "https://learn.microsoft.com/en-us/azure/developer/azure-mcp-server/tools/"
