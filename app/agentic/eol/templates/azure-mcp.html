@@ -92,76 +92,8 @@
                         <label class="form-label mb-2"><i class="fas fa-lightbulb me-1"></i>Quick Examples:</label>
                         <div class="row g-2">
                             <div class="col-md-5">
-                                <select class="form-select" id="tool-selector" onchange="updateExamples()">
-                                    <option value="">Select a tool...</option>
-                                    <optgroup label="Core Resources">
-                                        <option value="resource-groups">Resource Groups</option>
-                                        <option value="subscription">Subscription</option>
-                                    </optgroup>
-                                    <optgroup label="Compute & Containers">
-                                        <option value="azure-functions">Azure Functions</option>
-                                        <option value="app-service">Azure App Service</option>
-                                        <option value="container-registry">Azure Container Registry</option>
-                                        <option value="kubernetes">Azure Kubernetes Service (AKS)</option>
-                                        <option value="virtual-desktop">Azure Virtual Desktop</option>
-                                    </optgroup>
-                                    <optgroup label="Storage & Databases">
-                                        <option value="azure-storage">Azure Storage</option>
-                                        <option value="cosmos-db">Azure Cosmos DB</option>
-                                        <option value="sql-database">Azure SQL Database</option>
-                                        <option value="mysql">Azure Database for MySQL</option>
-                                        <option value="postgresql">Azure Database for PostgreSQL</option>
-                                        <option value="data-explorer">Azure Data Explorer</option>
-                                        <option value="redis">Azure Redis</option>
-                                        <option value="managed-lustre">Azure Managed Lustre</option>
-                                    </optgroup>
-                                    <optgroup label="AI & Machine Learning">
-                                        <option value="ai-foundry">Azure AI Foundry</option>
-                                        <option value="ai-search">Azure AI Search</option>
-                                        <option value="ai-speech">Azure AI Speech</option>
-                                    </optgroup>
-                                    <optgroup label="Monitoring & Management">
-                                        <option value="azure-monitor">Azure Monitor</option>
-                                        <option value="app-insights">Azure Application Insights</option>
-                                        <option value="app-lens">Azure App Lens</option>
-                                        <option value="resource-health">Azure Resource Health</option>
-                                        <option value="managed-grafana">Azure Managed Grafana</option>
-                                    </optgroup>
-                                    <optgroup label="Security & Identity">
-                                        <option value="key-vault">Azure Key Vault</option>
-                                        <option value="rbac">Azure RBAC</option>
-                                        <option value="confidential-ledger">Azure Confidential Ledger</option>
-                                    </optgroup>
-                                    <optgroup label="Networking & Messaging">
-                                        <option value="event-grid">Azure Event Grid</option>
-                                        <option value="event-hubs">Azure Event Hubs</option>
-                                        <option value="service-bus">Azure Service Bus</option>
-                                        <option value="signalr">Azure SignalR</option>
-                                        <option value="communication-services">Azure Communication Services</option>
-                                    </optgroup>
-                                    <optgroup label="DevOps & Deployment">
-                                        <option value="azure-deploy">Azure Deploy</option>
-                                        <option value="azure-cli">Azure CLI</option>
-                                        <option value="developer-cli">Azure Developer CLI</option>
-                                        <option value="bicep-schema">Azure Bicep Schema</option>
-                                        <option value="terraform">Terraform Best Practices</option>
-                                    </optgroup>
-                                    <optgroup label="Configuration & Testing">
-                                        <option value="app-configuration">Azure App Configuration</option>
-                                        <option value="load-testing">Azure Load Testing</option>
-                                        <option value="quotas">Azure Quotas</option>
-                                    </optgroup>
-                                    <optgroup label="Guidance & Best Practices">
-                                        <option value="azure-best-practices">Azure Best Practices</option>
-                                        <option value="cloud-architect">Azure Cloud Architect</option>
-                                        <option value="quick-review">Azure Quick Review CLI</option>
-                                        <option value="mcp-tool">Azure MCP Tool</option>
-                                        <option value="microsoft-learn">Microsoft Learn Catalog</option>
-                                    </optgroup>
-                                    <optgroup label="Marketplace & ISV">
-                                        <option value="marketplace">Azure Marketplace</option>
-                                        <option value="native-isv">Azure Native ISV</option>
-                                    </optgroup>
+                                <select class="form-select" id="tool-selector" onchange="updateExamples()" disabled>
+                                    <option value="">Loading tools...</option>
                                 </select>
                             </div>
                             <div class="col-md-7">
@@ -170,6 +102,8 @@
                                 </select>
                             </div>
                         </div>
+                        <div class="mt-2 small" id="tool-doc-link"></div>
+                        <div class="mt-2" id="tool-parameter-hints"></div>
                     </div>
                     
                     <!-- Chat Input -->
@@ -302,7 +236,8 @@
 
 <script>
     // Check status on page load
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadToolMetadata();
         refreshStatus();
     });
 
@@ -339,6 +274,7 @@
                 const isConnected = status.connection_status === 'connected';
                 
                 const azureToolCount = Number(status.available_tools_count) || 0;
+                const documentedToolCount = metadataTools.length || 0;
                 const totalToolCount = azureToolCount + microsoftLearnTools.length;
 
                 container.innerHTML = `
@@ -348,6 +284,7 @@
                         </h6>
                         <p class="mb-1">Azure MCP Server Tools: <strong>${azureToolCount}</strong></p>
                         <p class="mb-1">Microsoft Learn MCP Server Tools: <strong>${microsoftLearnTools.length}</strong></p>
+                        <p class="mb-1">Documented Tool Metadata: <strong>${documentedToolCount}</strong></p>
                         <p class="mb-0">Total Tools Available: <strong>${totalToolCount}</strong></p>
                     </div>
                     <div class="alert ${isConnected ? 'alert-info' : 'alert-warning'} mb-0">
@@ -521,270 +458,265 @@
         { name: 'microsoft_learn.recommendContentForRole', description: 'Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.' }
     ];
 
-    // Tool examples data structure
-    const toolExamples = {
-        'resource-groups': [
-            { text: 'List all resource groups', query: 'Show me all my resource groups' },
-            { text: 'List resource groups in Southeast Asia', query: 'List resource groups in the Southeast Asia region' },
-            { text: 'Count resource groups', query: 'How many resource groups do I have?' }
-        ],
-        'subscription': [
-            { text: 'List all subscriptions', query: 'Show me all my Azure subscriptions' },
-            { text: 'Get current subscription', query: 'What is my current subscription?' },
-            { text: 'Show subscription details', query: 'Get details about my subscription' }
-        ],
-        'azure-monitor': [
-            { text: 'List Log Analytics workspaces', query: 'Show me all Log Analytics workspaces in my subscription' },
-            { text: 'List tables in workspace', query: 'List the tables in a Log Analytics workspace. First show all available workspaces so I can choose which one to use.' },
-            { text: 'Query errors from last hour', query: 'Query errors from last hour' },
-            { text: 'Show CPU usage trend', query: 'Show CPU usage trend for web servers last 24 hours' },
-            { text: 'List workbooks', query: 'List all Log Analytics workbooks available to me' }
-        ],
-        'azure-storage': [
-            { text: 'List storage accounts', query: 'Show me all my storage accounts' },
-            { text: 'Get storage account details', query: 'Show me details for the storage account named <storage-account-name>' },
-            { text: 'Create storage account', query: 'Create a storage account named <storage-account-name> in <azure-region>' },
-            { text: 'List containers', query: 'List all containers in the storage account named <storage-account-name>' },
-            { text: 'Get blob details', query: 'Show me details for <blob-name> in container <container-name> in the storage account named <storage-account-name>' }
-        ],
-        'cosmos-db': [
-            { text: 'List Cosmos DB accounts', query: 'Show me all my Cosmos DB accounts' },
-            { text: 'List databases', query: 'List all databases in the Cosmos DB account named <cosmos-account-name>' },
-            { text: 'List containers', query: 'Show containers in the Cosmos DB database named <database-name>' },
-            { text: 'Query documents', query: 'Query documents in the Cosmos DB container named <container-name>' }
-        ],
-        'key-vault': [
-            { text: 'List Key Vaults', query: 'Show me all my Key Vaults' },
-            { text: 'List secrets', query: 'List all secrets in the Key Vault named <key-vault-name>' },
-            { text: 'Get secret value', query: 'Get the value of the secret named <secret-name> from the Key Vault named <key-vault-name>' },
-            { text: 'List keys', query: 'Show me all keys in the Key Vault named <key-vault-name>' },
-            { text: 'Create secret', query: 'Create a secret named <secret-name> in the Key Vault named <key-vault-name>' }
-        ],
-        'sql-database': [
-            { text: 'List SQL servers', query: 'Show me all my Azure SQL Database servers' },
-            { text: 'List databases', query: 'List all databases on the SQL server named <sql-server-name>' },
-            { text: 'Show server details', query: 'Get details about the SQL server named <sql-server-name>' },
-            { text: 'List firewall rules', query: 'Show firewall rules for the SQL server named <sql-server-name>' }
-        ],
-        'azure-functions': [
-            { text: 'List Azure Functions', query: 'Show me all my Azure Functions' },
-            { text: 'List function apps', query: 'List all function apps in my subscription' },
-            { text: 'Get function details', query: 'Show details for the function app named <function-app-name>' }
-        ],
-        'app-service': [
-            { text: 'List App Services', query: 'Show me all my App Services' },
-            { text: 'Get app service details', query: 'Get details about the web app named <app-service-name>' },
-            { text: 'List database connections', query: 'Show database connections configured for the App Service named <app-service-name>' }
-        ],
-        'container-registry': [
-            { text: 'List container registries', query: 'Show me all my Azure Container Registry instances' },
-            { text: 'List repositories', query: 'List all repositories in the container registry named <acr-name>' },
-            { text: 'List images', query: 'Show images in the container registry named <acr-name>' }
-        ],
-        'kubernetes': [
-            { text: 'List AKS clusters', query: 'Show me all my Azure Kubernetes Service clusters' },
-            { text: 'Get cluster details', query: 'Get details about the AKS cluster named <aks-cluster-name>' },
-            { text: 'List node pools', query: 'Show node pools in the AKS cluster named <aks-cluster-name>' }
-        ],
-        'virtual-desktop': [
-            { text: 'List host pools', query: 'Show me all Azure Virtual Desktop host pools' },
-            { text: 'List session hosts', query: 'Show session hosts in the host pool named <host-pool-name>' },
-            { text: 'Get user sessions', query: 'Show user sessions for the host pool named <host-pool-name>' }
-        ],
-        'mysql': [
-            { text: 'List MySQL servers', query: 'Show me all my Azure Database for MySQL servers' },
-            { text: 'List databases', query: 'List all databases on the MySQL server named <mysql-server-name>' },
-            { text: 'Get server details', query: 'Get details about the MySQL server named <mysql-server-name>' }
-        ],
-        'postgresql': [
-            { text: 'List PostgreSQL servers', query: 'Show me all my Azure Database for PostgreSQL servers' },
-            { text: 'List databases', query: 'List all databases on the PostgreSQL server named <postgres-server-name>' },
-            { text: 'Show server details', query: 'Show details for the PostgreSQL server named <postgres-server-name>' }
-        ],
-        'data-explorer': [
-            { text: 'List Data Explorer clusters', query: 'Show me all my Azure Data Explorer clusters' },
-            { text: 'List databases', query: 'List databases in the Data Explorer cluster named <data-explorer-cluster-name>' },
-            { text: 'Query tables', query: 'Show tables in the Data Explorer database named <database-name>' }
-        ],
-        'redis': [
-            { text: 'List Redis instances', query: 'Show me all my Azure Redis instances' },
-            { text: 'Get Redis details', query: 'Get details about the Redis cache named <redis-cache-name>' },
-            { text: 'List access policies', query: 'Show access policies for the Redis cache named <redis-cache-name>' }
-        ],
-        'managed-lustre': [
-            { text: 'List Lustre file systems', query: 'Show me all my Azure Managed Lustre file systems' },
-            { text: 'Get file system details', query: 'Get details about the Lustre file system named <lustre-name>' }
-        ],
-        'ai-foundry': [
-            { text: 'List AI models', query: 'Show me all Azure AI Foundry models' },
-            { text: 'List deployments', query: 'List all AI model deployments in the project named <ai-project-name>' },
-            { text: 'Get endpoint details', query: 'Show details for the AI endpoint named <ai-endpoint-name>' }
-        ],
-        'ai-search': [
-            { text: 'List search services', query: 'Show me all my Azure AI Search services' },
-            { text: 'List indexes', query: 'List all indexes in the search service named <search-service-name>' },
-            { text: 'Query search index', query: 'Search for documents in the index named <index-name>' }
-        ],
-        'ai-speech': [
-            { text: 'List Speech resources', query: 'Show me all my Azure AI Speech resources' },
-            { text: 'Get Speech service details', query: 'Get details about my Speech service' }
-        ],
-        'app-insights': [
-            { text: 'List Application Insights', query: 'Show me all my Application Insights resources' },
-            { text: 'Get insights data', query: 'Show Application Insights data for my app' },
-            { text: 'Query telemetry', query: 'Query telemetry from my Application Insights' }
-        ],
-        'app-lens': [
-            { text: 'Diagnose app issues', query: 'Diagnose performance issues using Azure App Lens' },
-            { text: 'Analyze application', query: 'Analyze my application performance with App Lens' }
-        ],
-        'resource-health': [
-            { text: 'Check resource health', query: 'Check the health status of my Azure resources' },
-            { text: 'Get health events', query: 'Show health events for my resources' }
-        ],
-        'managed-grafana': [
-            { text: 'List Grafana workspaces', query: 'Show me all my Azure Managed Grafana workspaces' },
-            { text: 'Get workspace details', query: 'Get details about my Grafana workspace' }
-        ],
-        'rbac': [
-            { text: 'List role assignments', query: 'Show me all Azure role-based access control assignments' },
-            { text: 'Get my permissions', query: 'What are my RBAC permissions?' },
-            { text: 'List roles', query: 'Show all available Azure roles' }
-        ],
-        'confidential-ledger': [
-            { text: 'List ledgers', query: 'Show me all my Azure Confidential Ledger resources' },
-            { text: 'List transactions', query: 'Show transactions in my Confidential Ledger' }
-        ],
-        'event-grid': [
-            { text: 'List Event Grid topics', query: 'Show me all my Azure Event Grid topics' },
-            { text: 'List subscriptions', query: 'List Event Grid subscriptions' },
-            { text: 'Get topic details', query: 'Get details about my Event Grid topic' }
-        ],
-        'event-hubs': [
-            { text: 'List Event Hubs namespaces', query: 'Show me all my Azure Event Hubs namespaces' },
-            { text: 'List event hubs', query: 'List all event hubs in the namespace named <event-hubs-namespace>' },
-            { text: 'Get namespace details', query: 'Get details about the Event Hubs namespace named <event-hubs-namespace>' }
-        ],
-        'service-bus': [
-            { text: 'List Service Bus namespaces', query: 'Show me all my Azure Service Bus namespaces' },
-            { text: 'List queues', query: 'List all queues in the Service Bus namespace named <service-bus-namespace>' },
-            { text: 'List topics', query: 'Show topics in the Service Bus namespace named <service-bus-namespace>' }
-        ],
-        'signalr': [
-            { text: 'List SignalR resources', query: 'Show me all my Azure SignalR resources' },
-            { text: 'Get SignalR details', query: 'Get details about the SignalR resource named <signalr-name>' }
-        ],
-        'communication-services': [
-            { text: 'List Communication Services', query: 'Show me all my Azure Communication Services resources' },
-            { text: 'Send SMS', query: 'Send an SMS message using the Communication Services resource named <communication-services-name>' },
-            { text: 'Send email', query: 'Send an email using the Communication Services resource named <communication-services-name>' }
-        ],
-        'azure-deploy': [
-            { text: 'Deploy resources', query: 'Deploy Azure resources using the template file at <template-path> into resource group <resource-group-name>' },
-            { text: 'List deployments', query: 'Show all deployments in the resource group named <resource-group-name>' },
-            { text: 'Get deployment status', query: 'Check the status of the deployment named <deployment-name> in resource group <resource-group-name>' }
-        ],
-        'azure-cli': [
-            { text: 'Find CLI commands', query: 'Find Azure CLI commands for storage accounts' },
-            { text: 'Get CLI installation', query: 'How do I install Azure CLI?' },
-            { text: 'CLI command help', query: 'Show me Azure CLI commands for virtual machines' }
-        ],
-        'developer-cli': [
-            { text: 'Execute azd commands', query: 'Execute Azure Developer CLI commands' },
-            { text: 'Initialize project', query: 'Initialize a new project with Azure Developer CLI' }
-        ],
-        'bicep-schema': [
-            { text: 'Get Bicep schema', query: 'Retrieve Bicep schema information for the resource type <resource-type>' },
-            { text: 'Show Bicep template', query: 'Show me a Bicep template snippet for provisioning <resource-type>' }
-        ],
-        'terraform': [
-            { text: 'Terraform best practices', query: 'Get guidance on Terraform best practices for Azure' },
-            { text: 'Terraform examples', query: 'Show me Terraform configuration examples for <azure-service>' }
-        ],
-        'app-configuration': [
-            { text: 'List App Configuration stores', query: 'Show me all my Azure App Configuration stores' },
-            { text: 'Get configuration value', query: 'Get the value of the key named <key-name> in the App Configuration store named <app-config-name>' },
-            { text: 'List feature flags', query: 'Show all feature flags in the App Configuration store named <app-config-name>' }
-        ],
-        'load-testing': [
-            { text: 'List load tests', query: 'Show me all my Azure Load Testing resources' },
-            { text: 'Create load test', query: 'Create a new load test named <load-test-name>' },
-            { text: 'Run load test', query: 'Run the load test named <load-test-name>' }
-        ],
-        'quotas': [
-            { text: 'List resource quotas', query: 'Show me my Azure resource quotas and limits' },
-            { text: 'Check quota usage', query: 'Check my current quota usage for service <azure-service>' }
-        ],
-        'azure-best-practices': [
-            { text: 'Azure Functions best practices', query: 'Get guidance on Azure Functions development best practices' },
-            { text: 'Azure SDK guidance', query: 'Show me Azure SDK usage best practices' },
-            { text: 'Deployment best practices', query: 'Get Azure deployment best practices' }
-        ],
-        'cloud-architect': [
-            { text: 'Design cloud system', query: 'Help me design a cloud system architecture' },
-            { text: 'Architecture recommendations', query: 'Recommend an optimal Azure solution for my requirements' }
-        ],
-        'quick-review': [
-            { text: 'Generate compliance report', query: 'Generate a compliance report for my Azure resources' },
-            { text: 'Security review', query: 'Run a security review of my Azure environment' }
-        ],
-        'mcp-tool': [
-            { text: 'List available tools', query: 'Show me all available Azure MCP Server tools' },
-            { text: 'Get tool details', query: 'Get details about the MCP tool named <tool-name>' }
-        ],
-        'microsoft-learn': [
-            { text: 'Find AZ-104 learning paths', query: 'Search Microsoft Learn for learning paths aligned to exam AZ-104 and summarize what each covers.' },
-            { text: 'List Azure OpenAI modules', query: 'List Microsoft Learn modules that focus on Azure OpenAI Service and include their unit counts and durations.' },
-            { text: 'Show module outline', query: 'Show the unit-by-unit outline for the Microsoft Learn module "Secure access to Azure resources by using Azure role-based access control".' },
-            { text: 'Recommend networking content', query: 'Recommend Microsoft Learn content for someone preparing for an Azure networking engineer role, including prerequisite modules.' }
-        ],
-        'marketplace': [
-            { text: 'Search Marketplace', query: 'Search Azure Marketplace for solutions related to <solution-type>' },
-            { text: 'List offers', query: 'Show me Azure Marketplace offers for <solution-type>' }
-        ],
-        'native-isv': [
-            { text: 'List ISV services', query: 'Show me Azure Native ISV services' },
-            { text: 'Datadog integration', query: 'Show Datadog integration options for Azure monitoring' }
-        ]
-    };
+    // Tool metadata catalog populated from documentation crawler
+    let metadataTools = [];
+    let metadataBySlug = {};
+
+    async function loadToolMetadata() {
+        const selector = document.getElementById('tool-selector');
+        const exampleSelector = document.getElementById('example-selector');
+        try {
+            const response = await fetch('/static/data/azure_mcp_tool_metadata.json', { cache: 'no-store' });
+            const payload = await response.json();
+            metadataTools = Array.isArray(payload.tools) ? payload.tools : [];
+            metadataBySlug = {};
+            metadataTools.forEach(tool => {
+                if (tool && tool.slug) {
+                    metadataBySlug[tool.slug] = tool;
+                }
+            });
+            populateToolSelector();
+            if (selector) {
+                selector.disabled = metadataTools.length === 0;
+                if (!metadataTools.length) {
+                    selector.innerHTML = '<option value="">No tools available</option>';
+                }
+            }
+            if (exampleSelector) {
+                exampleSelector.disabled = true;
+                exampleSelector.innerHTML = '<option value="">Select a tool first...</option>';
+            }
+        } catch (error) {
+            console.error('Failed to load tool metadata:', error);
+            if (selector) {
+                selector.disabled = true;
+                selector.innerHTML = '<option value="">Failed to load tools</option>';
+            }
+        }
+    }
+
+    function populateToolSelector() {
+        const selector = document.getElementById('tool-selector');
+        if (!selector) {
+            return;
+        }
+        selector.innerHTML = '<option value="">Select a tool...</option>';
+
+        if (!metadataTools.length) {
+            return;
+        }
+
+        const grouped = new Map();
+        metadataTools.forEach(tool => {
+            const category = (tool.category || 'Other').trim() || 'Other';
+            if (!grouped.has(category)) {
+                grouped.set(category, []);
+            }
+            grouped.get(category).push(tool);
+        });
+
+        const sortedCategories = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+        sortedCategories.forEach(category => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = category;
+            grouped.get(category)
+                .sort((a, b) => a.display_name.localeCompare(b.display_name))
+                .forEach(tool => {
+                    const option = document.createElement('option');
+                    option.value = tool.slug;
+                    option.textContent = tool.display_name;
+                    optgroup.appendChild(option);
+                });
+            selector.appendChild(optgroup);
+        });
+    }
+
+    function collectExamples(tool) {
+        if (!tool) {
+            return [];
+        }
+
+        const examples = [];
+
+        if (Array.isArray(tool.operations) && tool.operations.length) {
+            tool.operations.forEach(operation => {
+                if (!operation || !Array.isArray(operation.examples)) {
+                    return;
+                }
+                operation.examples.forEach(example => {
+                    if (!example || !example.prompt) {
+                        return;
+                    }
+                    examples.push({
+                        label: example.label || example.prompt,
+                        prompt: example.prompt,
+                        operationTitle: operation.title || null,
+                        parameters: Array.isArray(operation.parameters) ? operation.parameters : []
+                    });
+                });
+            });
+        }
+
+        if (!examples.length && Array.isArray(tool.examples)) {
+            const fallbackParams = Array.isArray(tool.parameters) ? tool.parameters : [];
+            tool.examples.forEach(example => {
+                if (!example || !example.prompt) {
+                    return;
+                }
+                examples.push({
+                    label: example.label || example.prompt,
+                    prompt: example.prompt,
+                    operationTitle: null,
+                    parameters: fallbackParams
+                });
+            });
+        }
+
+        return examples;
+    }
+
+    function collectParameters(tool, example) {
+        if (!example) {
+            return [];
+        }
+
+        const seen = new Set();
+        const unique = [];
+
+        const addParams = (params) => {
+            if (!Array.isArray(params)) {
+                return;
+            }
+            params.forEach(param => {
+                if (!param || !param.name) {
+                    return;
+                }
+                const key = String(param.name).toLowerCase();
+                if (seen.has(key)) {
+                    return;
+                }
+                seen.add(key);
+                unique.push(param);
+            });
+        };
+
+        addParams(example.parameters);
+
+        if (!unique.length && example.operationTitle && Array.isArray(tool.operations)) {
+            const operation = tool.operations.find(op => op && op.title === example.operationTitle);
+            if (operation) {
+                addParams(operation.parameters);
+            }
+        }
+
+        return unique;
+    }
+
+    function buildParameterHints(tool, example) {
+        const params = collectParameters(tool, example);
+        if (!params.length) {
+            return '';
+        }
+
+        const heading = example && example.operationTitle
+            ? `Parameters · ${escapeHtml(example.operationTitle)}`
+            : 'Parameters';
+
+        const items = params.map(param => {
+            const requiredBadge = param.required ? '<span class="text-danger fw-semibold ms-2">required</span>' : '';
+            const description = param.description ? ` - ${escapeHtml(param.description)}` : '';
+            const options = Array.isArray(param.options) && param.options.length
+                ? ` <span class="text-muted">(Options: ${param.options.map(option => escapeHtml(option)).join(', ')})</span>`
+                : '';
+            return `<li><code>${escapeHtml(param.name)}</code>${requiredBadge}${description}${options}</li>`;
+        });
+
+        return `<div class="alert alert-secondary mb-0"><strong>${heading}</strong><ul class="mb-0">${items.join('')}</ul></div>`;
+    }
 
     function updateExamples() {
         const toolSelector = document.getElementById('tool-selector');
         const exampleSelector = document.getElementById('example-selector');
         const chatInput = document.getElementById('chat-input');
-        
-        const selectedTool = toolSelector.value;
-        
-        if (!selectedTool) {
-            exampleSelector.disabled = true;
-            exampleSelector.innerHTML = '<option value="">Select a tool first...</option>';
+        const docLink = document.getElementById('tool-doc-link');
+        const parameterHints = document.getElementById('tool-parameter-hints');
+
+        if (!toolSelector || !exampleSelector) {
             return;
         }
-        
-        const examples = toolExamples[selectedTool] || [];
-        
+
+        const selectedSlug = toolSelector.value;
+        const metadata = selectedSlug ? metadataBySlug[selectedSlug] : null;
+
+        if (docLink) {
+            docLink.innerHTML = '';
+            docLink.className = 'mt-2 small text-muted';
+        }
+
+        if (parameterHints) {
+            parameterHints.innerHTML = '<div class="text-muted small">Select an example to see its documented parameters.</div>';
+        }
+
+        if (!metadata) {
+            exampleSelector.disabled = true;
+            exampleSelector.innerHTML = '<option value="">Select a tool first...</option>';
+            if (chatInput) {
+                chatInput.value = '';
+            }
+            return;
+        }
+
+        if (docLink && metadata.doc_url) {
+            const description = metadata.description ? `${escapeHtml(metadata.description)} · ` : '';
+            docLink.innerHTML = `${description}<a href="${metadata.doc_url}" target="_blank" rel="noopener">View documentation</a>`;
+        }
+
+        const examples = collectExamples(metadata);
+        if (!examples.length) {
+            exampleSelector.disabled = true;
+            exampleSelector.innerHTML = '<option value="">No examples available for this tool yet.</option>';
+            if (chatInput) {
+                chatInput.value = '';
+            }
+            return;
+        }
+
         exampleSelector.disabled = false;
         exampleSelector.innerHTML = '<option value="">Select an example...</option>';
-        
-        examples.forEach((example, index) => {
+        const exampleData = examples;
+
+        exampleData.forEach((example, index) => {
             const option = document.createElement('option');
             option.value = index;
-            option.textContent = example.text;
+            option.textContent = example.label;
+            option.dataset.prompt = example.prompt;
+            if (example.operationTitle) {
+                option.dataset.operationTitle = example.operationTitle;
+            }
             exampleSelector.appendChild(option);
         });
-        
-        // Automatically update chat input when example is selected
+
         exampleSelector.onchange = function() {
-            const selectedExampleIndex = exampleSelector.value;
-            
-            if (selectedExampleIndex !== '') {
-                const example = toolExamples[selectedTool][selectedExampleIndex];
-                if (example) {
-                    chatInput.value = example.query;
+            const selectedOption = exampleSelector.selectedOptions[0];
+            const rawValue = selectedOption ? selectedOption.value : '';
+            const selectedIndex = rawValue === '' ? NaN : Number(rawValue);
+            const selectedExample = Number.isInteger(selectedIndex) ? exampleData[selectedIndex] : null;
+
+            if (selectedOption && selectedOption.dataset.prompt) {
+                if (chatInput) {
+                    chatInput.value = selectedOption.dataset.prompt;
                     chatInput.focus();
                 }
-            } else {
+            } else if (chatInput) {
                 chatInput.value = '';
+            }
+
+            if (parameterHints) {
+                if (selectedExample) {
+                    parameterHints.innerHTML = buildParameterHints(metadata, selectedExample) || '<div class="text-muted small">No specific parameters documented for this example.</div>';
+                } else {
+                    parameterHints.innerHTML = '<div class="text-muted small">Select an example to see its documented parameters.</div>';
+                }
             }
         };
     }

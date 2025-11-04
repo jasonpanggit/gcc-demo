@@ -32,7 +32,9 @@ import uuid
 import traceback
 import re
 import copy
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
+PLACEHOLDER_PATTERN = re.compile(r"<([a-z0-9][a-z0-9_\-]*)>", re.IGNORECASE)
+
 from datetime import datetime
 
 # Initialize logger
@@ -61,6 +63,14 @@ try:
     from utils.azure_mcp_client import get_azure_mcp_client
 except ImportError as e:
     logger.error(f"Azure MCP client import failed: {e}")
+
+try:
+    from .tool_metadata import get_tool_metadata_manager
+except ImportError:
+    try:
+        from tool_metadata import get_tool_metadata_manager  # type: ignore
+    except Exception:
+        get_tool_metadata_manager = None  # type: ignore
 
 
 class MCPOrchestratorAgent:
@@ -133,6 +143,8 @@ class MCPOrchestratorAgent:
         # Buffer to store recent communications (for late-connecting SSE streams)
         self.communication_buffer = []
         self.max_buffer_size = 100
+
+        self._tool_metadata_manager = get_tool_metadata_manager() if callable(get_tool_metadata_manager) else None
         
         logger.info(f"🚀 MCP Orchestrator initialized (session: {self.session_id})")
     
@@ -359,10 +371,61 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
         """Retrieve JSON schema for a specific tool."""
         return self._tool_schema_index.get(tool_name, {})
 
+    def _get_operation_metadata(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        if not self._tool_metadata_manager:
+            return None
+        try:
+            return self._tool_metadata_manager.get_operation_by_tool_name(tool_name)
+        except Exception:
+            return None
+
+    def _get_metadata_parameters(self, tool_name: str) -> Dict[str, Dict[str, Any]]:
+        operation = self._get_operation_metadata(tool_name)
+        if not operation:
+            return {}
+        metadata_params: Dict[str, Dict[str, Any]] = {}
+        for param in operation.get("parameters", []) or []:
+            name = param.get("name")
+            if not name:
+                continue
+            metadata_params[name.lower()] = param
+        return metadata_params
+
     def _get_required_parameters(self, tool_name: str) -> List[str]:
         schema = self._get_tool_schema(tool_name)
         required = schema.get("required", [])
         return required if isinstance(required, list) else []
+
+    def _value_contains_placeholder(self, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(PLACEHOLDER_PATTERN.search(value))
+        if isinstance(value, list):
+            return any(self._value_contains_placeholder(item) for item in value)
+        if isinstance(value, dict):
+            return any(self._value_contains_placeholder(item) for item in value.values())
+        return False
+
+    def _extract_placeholders(self, value: Any) -> List[str]:
+        if value is None:
+            return []
+        tokens: List[str] = []
+        if isinstance(value, str):
+            tokens.extend(match.lower() for match in PLACEHOLDER_PATTERN.findall(value))
+        elif isinstance(value, list):
+            for item in value:
+                tokens.extend(self._extract_placeholders(item))
+        elif isinstance(value, dict):
+            for item in value.values():
+                tokens.extend(self._extract_placeholders(item))
+        seen = set()
+        ordered: List[str] = []
+        for token in tokens:
+            if token not in seen:
+                seen.add(token)
+                ordered.append(token)
+        return ordered
 
     def _argument_has_value(self, arguments: Dict[str, Any], parameter: str) -> bool:
         if parameter not in arguments:
@@ -396,6 +459,142 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                     if env_value:
                         return env_value
         return None
+
+    def _get_recent_user_message(self) -> str:
+        """Return the most recent user message for contextual parameter inference."""
+        for message in reversed(self._messages):
+            if message.get("role") == "user":
+                return str(message.get("content", ""))
+        return ""
+
+    def _is_azure_best_practices_tool(self, tool_name: str) -> bool:
+        if not tool_name:
+            return False
+        normalized = tool_name.replace("_", "-").lower()
+        return "azure-best-practices" in normalized and "get-best-practices" in normalized
+
+    def _normalize_azure_best_practices_resource(self, value: str) -> Optional[str]:
+        if not value:
+            return None
+        compact = re.sub(r"[\s_-]+", "", value.lower())
+        mapping = {
+            "general": "general",
+            "azurefunctions": "azurefunctions",
+            "azurefunction": "azurefunctions",
+            "functions": "azurefunctions",
+            "function": "azurefunctions",
+            "functionapp": "azurefunctions",
+            "functionapps": "azurefunctions",
+            "staticwebapp": "static-web-app",
+            "staticwebapps": "static-web-app",
+            "staticapp": "static-web-app",
+            "staticapps": "static-web-app",
+            "swa": "static-web-app"
+        }
+        return mapping.get(compact)
+
+    def _normalize_azure_best_practices_action(self, value: str) -> Optional[str]:
+        if not value:
+            return None
+        compact = re.sub(r"[\s_-]+", "", value.lower())
+        mapping = {
+            "codegeneration": "code-generation",
+            "codegen": "code-generation",
+            "code": "code-generation",
+            "deployment": "deployment",
+            "deploy": "deployment",
+            "release": "deployment",
+            "publish": "deployment",
+            "golive": "deployment",
+            "all": "all"
+        }
+        return mapping.get(compact)
+
+    def _infer_azure_best_practices_parameters(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Infer required parameters for the Azure best practices tool using doc guidance."""
+        if not isinstance(arguments, dict):
+            return {}
+
+        user_message = self._get_recent_user_message()
+        user_lower = user_message.lower()
+
+        wants_deployment = any(keyword in user_lower for keyword in ["deployment", "deploy", "deploying", "release", "publish", "go-live", "go live"])
+        lifecycle_phrases = [
+            "end-to-end",
+            "full lifecycle",
+            "full life cycle",
+            "code and deployment",
+            "both code and deployment",
+            "full guidance",
+            "complete guidance",
+            "all stages"
+        ]
+        wants_full_cycle = any(phrase in user_lower for phrase in lifecycle_phrases)
+
+        resource_candidate = None
+        if self._argument_has_value(arguments, "resource"):
+            candidate = str(arguments.get("resource", "")).strip()
+            normalized = self._normalize_azure_best_practices_resource(candidate)
+            if normalized:
+                resource_candidate = normalized
+            else:
+                resource_candidate = "general"
+        else:
+            static_keywords = ["static web app", "static-web app", "static web apps", "staticwebapp", "swa"]
+            function_keywords = ["azure function", "azure functions", "function app", "function apps", "function-app", "functionapp", "functionapps"]
+            if any(keyword in user_lower for keyword in static_keywords):
+                resource_candidate = "static-web-app"
+            elif any(keyword in user_lower for keyword in function_keywords):
+                resource_candidate = "azurefunctions"
+            else:
+                resource_candidate = "general"
+
+        action_candidate = None
+        if self._argument_has_value(arguments, "action"):
+            candidate = str(arguments.get("action", "")).strip()
+            normalized = self._normalize_azure_best_practices_action(candidate)
+            if normalized:
+                action_candidate = normalized
+            else:
+                action_candidate = "code-generation"
+        else:
+            if resource_candidate == "static-web-app" and wants_full_cycle:
+                action_candidate = "all"
+            elif wants_deployment:
+                action_candidate = "deployment"
+            else:
+                action_candidate = "code-generation"
+
+        if resource_candidate != "static-web-app" and action_candidate == "all":
+            action_candidate = "deployment" if wants_deployment else "code-generation"
+
+        if resource_candidate == "static-web-app" and action_candidate not in {"code-generation", "deployment", "all"}:
+            action_candidate = "code-generation"
+
+        metadata_params = self._get_metadata_parameters(tool_name)
+        if metadata_params:
+            resource_meta = metadata_params.get("resource")
+            if resource_meta:
+                options = resource_meta.get("options")
+                if isinstance(options, list) and options and resource_candidate not in options:
+                    resource_candidate = options[0]
+            action_meta = metadata_params.get("action")
+            if action_meta:
+                options = action_meta.get("options")
+                if isinstance(options, list) and options and action_candidate not in options:
+                    action_candidate = options[0]
+
+        updates: Dict[str, Any] = {}
+
+        current_resource = str(arguments.get("resource", "")).strip() if isinstance(arguments.get("resource"), str) else arguments.get("resource")
+        if resource_candidate and (not self._argument_has_value(arguments, "resource") or current_resource != resource_candidate):
+            updates["resource"] = resource_candidate
+
+        current_action = str(arguments.get("action", "")).strip() if isinstance(arguments.get("action"), str) else arguments.get("action")
+        if action_candidate and (not self._argument_has_value(arguments, "action") or current_action != action_candidate):
+            updates["action"] = action_candidate
+
+        return updates
 
     def _infer_related_list_tools(self, tool_name: str) -> List[str]:
         """Infer related listing tools based on naming conventions."""
@@ -551,6 +750,21 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                     if not self._argument_has_value(arguments, key):
                         arguments[key] = value
             pending_detail.setdefault("arguments", {}).update(arguments)
+        placeholder_params: Dict[str, List[str]] = {}
+        for parameter, value in list(arguments.items()):
+            if not self._argument_has_value(arguments, parameter):
+                continue
+            placeholders = self._extract_placeholders(value)
+            if placeholders:
+                placeholder_params[parameter] = placeholders
+                arguments[parameter] = None
+
+        if pending_detail and placeholder_params:
+            existing_map = pending_detail.setdefault("placeholder_parameters", {})
+            if isinstance(existing_map, dict):
+                for key, tokens in placeholder_params.items():
+                    existing_map.setdefault(key, tokens)
+
         required_params = self._get_required_parameters(tool_name)
         if not required_params:
             return {
@@ -559,11 +773,13 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 "missing": [],
                 "auto_filled": {},
                 "suggestions": {},
-                "message": ""
+                "message": "",
+                "placeholder_parameters": placeholder_params
             }
 
         auto_filled: Dict[str, Any] = {}
         suggestions: Dict[str, Any] = {}
+        metadata_params = self._get_metadata_parameters(tool_name)
 
         # First attempt environment defaults
         for parameter in required_params:
@@ -574,6 +790,26 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 arguments[parameter] = env_value
                 auto_filled[parameter] = env_value
 
+        for parameter in required_params:
+            if self._argument_has_value(arguments, parameter):
+                continue
+            metadata_param = metadata_params.get(parameter.lower()) if metadata_params else None
+            if metadata_param:
+                options = metadata_param.get("options")
+                if isinstance(options, list) and len(options) == 1:
+                    value = options[0]
+                    arguments[parameter] = value
+                    auto_filled[parameter] = value
+
+        if self._is_azure_best_practices_tool(tool_name):
+            inferred = self._infer_azure_best_practices_parameters(tool_name, arguments)
+            for parameter, value in inferred.items():
+                if value is None:
+                    continue
+                if not self._argument_has_value(arguments, parameter) or arguments.get(parameter) != value:
+                    arguments[parameter] = value
+                    auto_filled[parameter] = value
+
         missing = [p for p in required_params if not self._argument_has_value(arguments, p)]
 
         # Gather suggestions via helper tools
@@ -581,6 +817,16 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             discovery = await self._discover_parameter_values(tool_name, parameter, arguments)
             if discovery:
                 suggestions[parameter] = discovery
+            elif metadata_params:
+                metadata_param = metadata_params.get(parameter.lower())
+                if metadata_param:
+                    options = metadata_param.get("options")
+                    if isinstance(options, list) and options:
+                        suggestions.setdefault(parameter, {
+                            "parameter": parameter,
+                            "source": "documentation",
+                            "candidates": options
+                        })
 
         remaining_missing = [p for p in required_params if not self._argument_has_value(arguments, p)]
 
@@ -615,7 +861,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 "missing": [],
                 "auto_filled": auto_filled,
                 "suggestions": suggestions,
-                "message": ""
+                "message": "",
+                "placeholder_parameters": placeholder_params
             }
 
         # Prepare descriptive message for missing params
@@ -635,13 +882,22 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             + ", ".join(missing_details)
         )
 
+        if placeholder_params:
+            placeholder_notice = ", ".join(sorted(placeholder_params.keys()))
+            message = (
+                "Detected placeholder values for: "
+                f"{placeholder_notice}. "
+                + message
+            )
+
         return {
             "status": "incomplete",
             "arguments": arguments,
             "missing": remaining_missing,
             "auto_filled": auto_filled,
             "suggestions": suggestions,
-            "message": message
+            "message": message,
+            "placeholder_parameters": placeholder_params
         }
     
     def _escape_markdown_cell(self, value: Any) -> str:
@@ -1349,6 +1605,7 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
         tool_name: str,
         detail: Dict[str, Any]
     ) -> List[str]:
+        metadata_params = self._get_metadata_parameters(tool_name)
         missing = detail.get("missing_parameters")
         if not isinstance(missing, list):
             missing = []
@@ -1390,6 +1647,10 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             param_type = param_schema.get("type") if isinstance(param_schema, dict) else None
             type_label = f" ({param_type})" if isinstance(param_type, str) else ""
             description = param_schema.get("description") if isinstance(param_schema, dict) else None
+            if (not description or not description.strip()) and metadata_params:
+                metadata_param = metadata_params.get(param.lower())
+                if metadata_param:
+                    description = metadata_param.get("description") or description
 
             if description:
                 guidance_lines.append(f"  - {param}{type_label}: {description}")
@@ -1421,8 +1682,22 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 if isinstance(candidates, list) and candidates:
                     sample_values = ", ".join(str(candidate) for candidate in candidates[:3])
                     guidance_lines.append(f"    e.g., {sample_values}")
+                    guidance_lines.append("    Choose one of these options or provide another specific value if needed.")
+            elif metadata_params:
+                metadata_param = metadata_params.get(param.lower())
+                options = metadata_param.get("options") if metadata_param else None
+                if isinstance(options, list) and options:
+                    sample_values = ", ".join(options[:3])
+                    guidance_lines.append(f"    e.g., {sample_values}")
+                    guidance_lines.append("    Select the option that fits your request or reply with a different valid value.")
 
-        example_lines = self._build_example_lines(missing, properties, attempted_args, suggestions)
+        example_lines = self._build_example_lines(
+            missing,
+            properties,
+            attempted_args,
+            suggestions,
+            metadata_params
+        )
         if example_lines:
             guidance_lines.append("  Example follow-up message:")
             guidance_lines.extend(example_lines)
@@ -1434,7 +1709,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
         parameters: List[str],
         properties: Dict[str, Any],
         attempted_args: Dict[str, Any],
-        suggestions: Dict[str, Any]
+        suggestions: Dict[str, Any],
+        metadata_params: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> List[str]:
         example_map: Dict[str, Any] = {}
         for param in parameters:
@@ -1447,6 +1723,11 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 candidates = suggestion_info.get("candidates")
                 if isinstance(candidates, list) and candidates:
                     candidate_value = candidates[0]
+            elif metadata_params:
+                metadata_param = metadata_params.get(param.lower())
+                options = metadata_param.get("options") if metadata_param else None
+                if isinstance(options, list) and options:
+                    candidate_value = options[0]
 
             value_source = attempted
             if value_source in (None, "", [], {}) and candidate_value is not None:
@@ -1566,6 +1847,9 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             logger.info(f"🔧 Calling MCP tool: {tool_name} with args: {arguments}")
 
             resolution = await self._resolve_tool_arguments(tool_name, arguments or {})
+            placeholder_parameters = resolution.get("placeholder_parameters")
+            if not isinstance(placeholder_parameters, dict):
+                placeholder_parameters = {}
             if resolution["status"] == "incomplete":
                 logger.info(
                     f"⚠️ Missing parameters for tool '{tool_name}': {resolution['missing']}"
@@ -1583,7 +1867,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                     "arguments": resolution["arguments"],
                     "missing_parameters": resolution["missing"],
                     "auto_filled": resolution["auto_filled"],
-                    "suggestions": resolution["suggestions"]
+                    "suggestions": resolution["suggestions"],
+                    "placeholder_parameters": placeholder_parameters
                 }
 
             resolved_arguments = resolution["arguments"]
@@ -1636,6 +1921,7 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                         resolved_arguments
                     )
                     if pagination_payload:
+                        pagination_payload["placeholder_parameters"] = placeholder_parameters
                         return pagination_payload
 
                     table_markdown = self._maybe_convert_to_markdown_table(content)
@@ -1649,7 +1935,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                             "content": content,
                             "arguments": resolved_arguments,
                             "auto_filled": resolution.get("auto_filled"),
-                            "suggestions": resolution.get("suggestions")
+                            "suggestions": resolution.get("suggestions"),
+                            "placeholder_parameters": placeholder_parameters
                         }
 
                     if isinstance(content, list):
@@ -1674,7 +1961,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                             "content": content,
                             "arguments": resolved_arguments,
                             "auto_filled": resolution.get("auto_filled"),
-                            "suggestions": resolution.get("suggestions")
+                            "suggestions": resolution.get("suggestions"),
+                            "placeholder_parameters": placeholder_parameters
                         }
 
                     if isinstance(content, str):
@@ -1694,7 +1982,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                             "content": content,
                             "arguments": resolved_arguments,
                             "auto_filled": resolution.get("auto_filled"),
-                            "suggestions": resolution.get("suggestions")
+                            "suggestions": resolution.get("suggestions"),
+                            "placeholder_parameters": placeholder_parameters
                         }
 
                     formatted = self._format_text_block(json.dumps(content, indent=2))
@@ -1707,7 +1996,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                         "content": content,
                         "arguments": resolved_arguments,
                         "auto_filled": resolution.get("auto_filled"),
-                        "suggestions": resolution.get("suggestions")
+                        "suggestions": resolution.get("suggestions"),
+                        "placeholder_parameters": placeholder_parameters
                     }
 
                 error = result.get("error", "Unknown error")
@@ -1731,7 +2021,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                     "arguments": resolved_arguments,
                     "missing_parameters": result.get("missing_parameters"),
                     "auto_filled": resolution.get("auto_filled"),
-                    "suggestions": resolution.get("suggestions")
+                    "suggestions": resolution.get("suggestions"),
+                    "placeholder_parameters": placeholder_parameters
                 }
 
             fallback = self._format_text_block(json.dumps(result, indent=2))
@@ -1745,7 +2036,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 "raw_result": result,
                 "arguments": resolved_arguments,
                 "auto_filled": resolution.get("auto_filled"),
-                "suggestions": resolution.get("suggestions")
+                "suggestions": resolution.get("suggestions"),
+                "placeholder_parameters": placeholder_parameters
             }
 
         except Exception as e:
@@ -2190,7 +2482,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                             "auto_filled": auto_filled,
                             "arguments": tool_result_data.get("arguments") or function_args,
                             "required_parameters": required_parameters,
-                            "parameter_signal": parameter_signal
+                            "parameter_signal": parameter_signal,
+                            "placeholder_parameters": tool_result_data.get("placeholder_parameters")
                         }
 
                         tool_error_details[function_name] = current_error_detail
