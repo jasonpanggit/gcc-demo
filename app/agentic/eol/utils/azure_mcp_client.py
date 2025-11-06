@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -74,12 +75,26 @@ class AzureMCPClient:
             if "SUBSCRIPTION_ID" in os.environ:
                 mcp_env["AZURE_SUBSCRIPTION_ID"] = os.environ["SUBSCRIPTION_ID"]
             
-            # MCP server configuration - uses npx to run the latest Azure MCP server
-            server_params = StdioServerParameters(
-                command="npx",
-                args=["-y", "@azure/mcp@latest", "server", "start"],
-                env=mcp_env
+            # MCP server configuration - wraps npx execution to filter non-JSON stdout
+            wrapper_path = (
+                Path(__file__).resolve().parent.parent
+                / "mcp_servers"
+                / "json_stdout_filter.js"
             )
+
+            if wrapper_path.is_file():
+                server_params = StdioServerParameters(
+                    command="node",
+                    args=[str(wrapper_path), "npx", "-y", "@azure/mcp@latest", "server", "start"],
+                    env=mcp_env
+                )
+            else:
+                logger.warning("JSON stdout filter wrapper not found at %s; falling back to direct npx execution", wrapper_path)
+                server_params = StdioServerParameters(
+                    command="npx",
+                    args=["-y", "@azure/mcp@latest", "server", "start"],
+                    env=mcp_env
+                )
             
             # Connect to MCP server via stdio
             self._stdio_context = stdio_client(server_params)

@@ -9,6 +9,7 @@ set -e
 # Parse parameters
 REQUESTED_VERSION=${1:-}
 BUILD_ONLY=${2:-false}
+FORCE_REBUILD=${3:-false}
 
 # Navigate to parent directory (app root) from deployment folder
 cd "$(dirname "$0")/.."
@@ -57,6 +58,7 @@ echo "Azure Container Apps Build & Deploy"
 echo "Version: $VERSION"
 echo "Version Source: $VERSION_SOURCE"
 echo "Build Only: $BUILD_ONLY"
+echo "Force Rebuild: $FORCE_REBUILD"
 echo "=============================================="
 
 echo "🚀 Starting deployment process..."
@@ -86,12 +88,24 @@ echo "🏗️  Building Docker image..."
 echo "Image: $FULL_IMAGE_NAME"
 cd "$DEPLOYMENT_DIR"
 
-docker buildx build \
-    --platform linux/amd64 \
-    -t "$FULL_IMAGE_NAME" \
-    -f Dockerfile \
-    .. \
-    --push
+if [[ "$FORCE_REBUILD" == "true" ]]; then
+    echo "Forcing Docker build without cache..."
+fi
+
+BUILD_COMMAND=(
+    docker buildx build
+    --platform linux/amd64
+    -t "$FULL_IMAGE_NAME"
+    -f Dockerfile
+)
+
+if [[ "$FORCE_REBUILD" == "true" ]]; then
+    BUILD_COMMAND+=(--no-cache)
+fi
+
+BUILD_COMMAND+=(".." "--push")
+
+"${BUILD_COMMAND[@]}"
 
 echo "✅ Docker image built and pushed successfully"
 

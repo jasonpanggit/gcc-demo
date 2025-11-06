@@ -65,6 +65,12 @@ except ImportError as e:
     logger.error(f"Azure MCP client import failed: {e}")
 
 try:
+    from utils.azure_cli_executor_client import get_cli_executor_client
+except ImportError as e:
+    logger.error(f"Azure CLI executor client import failed: {e}")
+    get_cli_executor_client = None
+
+try:
     from .tool_metadata import get_tool_metadata_manager
 except ImportError:
     try:
@@ -137,6 +143,11 @@ class MCPOrchestratorAgent:
         self._paginated_results: Dict[str, Dict[str, Any]] = {}
         self._last_paginated_id: Optional[str] = None
         self._pagination_page_size = 10
+
+        # Azure CLI executor integration (lazy initialization)
+        self._cli_executor_client = None
+        self._cli_executor_tools_loaded = False
+        self._cli_executor_tool_names = set()
         
         # Agent communication queue for real-time UI streaming
         self.communication_queue = asyncio.Queue()
@@ -180,7 +191,97 @@ class MCPOrchestratorAgent:
             except Exception as e:
                 logger.error(f"❌ Failed to initialize Azure MCP client: {e}")
                 raise
+
+        """Load and register Azure CLI executor MCP tools if available"""        
+        await self._ensure_cli_executor_client_initialized()
     
+    def _should_enable_cli_executor(self, user_message: Optional[str]) -> bool:
+        """Determine whether the Azure CLI executor should be enabled for this turn."""
+        if not user_message:
+            return False
+        lowered = user_message.lower()
+
+        if "using azure cli executor tool" in lowered:
+            return True
+
+        if "execute azure cli command" in lowered:
+            return True
+
+        if re.search(r"\baz\s+[a-z0-9-]", lowered):
+            return True
+
+        return False
+
+    async def _ensure_cli_executor_client_initialized(self) -> None:
+        """Ensure the standalone Azure CLI executor MCP server is available and registered."""
+        if self._cli_executor_tools_loaded:
+            return
+
+        if get_cli_executor_client is None:
+            logger.warning("Azure CLI executor client is unavailable; CLI execution tools will not be registered.")
+            self._cli_executor_tools_loaded = True
+            return
+
+        try:
+            client = await get_cli_executor_client()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error(f"Failed to initialize Azure CLI executor client: {exc}")
+            return
+
+        self._cli_executor_client = client
+        cli_tools = client.get_available_tools()
+        if not cli_tools:
+            logger.warning("Azure CLI executor client reported no tools; skipping registration.")
+            self._cli_executor_tools_loaded = True
+            return
+
+        existing_names = {
+            tool.get("function", {}).get("name")
+            for tool in self._available_tools
+            if isinstance(tool, dict)
+        }
+
+        added = 0
+        for tool in cli_tools:
+            func = tool.get("function", {}) if isinstance(tool, dict) else {}
+            name = func.get("name") if isinstance(func, dict) else None
+            if not name:
+                continue
+            if name not in existing_names:
+                self._available_tools.append(tool)
+                existing_names.add(name)
+                added += 1
+            self._cli_executor_tool_names.add(name)
+
+        if added:
+            self._index_tool_schemas()
+            if self._client_initialized:
+                self._tool_definitions = self._create_openai_tool_definitions()
+            logger.info("✅ Registered %d Azure CLI executor MCP tool(s)", added)
+
+        self._cli_executor_tools_loaded = True
+
+    def _select_tool_definitions_for_message(self, user_message: Optional[str]) -> List[Dict[str, Any]]:
+        """Return the tool definitions that should be exposed for this specific user message."""
+        if not self._tool_definitions:
+            return []
+
+        if not self._cli_executor_tool_names:
+            return self._tool_definitions
+
+        if self._should_enable_cli_executor(user_message):
+            return self._tool_definitions
+
+        filtered: List[Dict[str, Any]] = []
+        for tool_def in self._tool_definitions:
+            func = tool_def.get("function", {})
+            name = func.get("name") if isinstance(func, dict) else None
+            if name in self._cli_executor_tool_names:
+                continue
+            filtered.append(tool_def)
+
+        return filtered
+
     async def _ensure_openai_client_initialized(self):
         """Lazy initialization of Azure OpenAI client"""
         if self._client_initialized:
@@ -2075,8 +2176,20 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
         request_id = str(uuid.uuid4())[:8]
         
         try:
+            enable_cli_executor = self._should_enable_cli_executor(user_message)
+
             # Ensure OpenAI client is initialized
             await self._ensure_openai_client_initialized()
+
+            if enable_cli_executor:
+                await self._ensure_cli_executor_client_initialized()
+
+            tools_for_request = self._select_tool_definitions_for_message(user_message)
+            if enable_cli_executor and not any(
+                tool.get("function", {}).get("name") in self._cli_executor_tool_names
+                for tool in tools_for_request
+            ):
+                logger.warning("Requested Azure CLI executor tool but it is not available in the current tool set.")
             
             # Clear old buffer and start fresh for this request
             self.communication_buffer.clear()
@@ -2187,7 +2300,7 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             
             # Use LLM function calling to process the message
             logger.info("🔍 Using LLM function calling with all available tools")
-            response_result = await self._llm_process_message()
+            response_result = await self._llm_process_message(tools_for_request)
             tool_calls_made = response_result.get("tool_calls_made", 0)
             response_text = response_result.get("response", "")
             
@@ -2265,7 +2378,10 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             
             return error_response
     
-    async def _llm_process_message(self) -> Dict[str, Any]:
+    async def _llm_process_message(
+        self,
+        tools_for_request: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         Process message using agentic LLM with reasoning, action, and reflection loop.
         
@@ -2302,8 +2418,8 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
                 "max_tokens": 3000  # Increased for more detailed reasoning
             }
             
-            if self._tool_definitions:
-                call_params["tools"] = self._tool_definitions
+            if tools_for_request:
+                call_params["tools"] = tools_for_request
                 call_params["tool_choice"] = "auto"
             
             response = await self._openai_client.chat.completions.create(**call_params)
@@ -2716,8 +2832,20 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             Response chunks as they become available
         """
         try:
+            enable_cli_executor = self._should_enable_cli_executor(user_message)
+
             # Ensure OpenAI client is initialized
             await self._ensure_openai_client_initialized()
+
+            if enable_cli_executor:
+                await self._ensure_cli_executor_client_initialized()
+
+            tools_for_request = self._select_tool_definitions_for_message(user_message)
+            if enable_cli_executor and not any(
+                tool.get("function", {}).get("name") in self._cli_executor_tool_names
+                for tool in tools_for_request
+            ):
+                logger.warning("Requested Azure CLI executor tool during streaming, but it is not available in the current tool set.")
             
             # Add user message to conversation
             self._messages.append({
@@ -2726,15 +2854,18 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
             })
             
             # Stream from Azure OpenAI
-            stream = await self._openai_client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
-                messages=self._messages,
-                tools=self._tool_definitions if self._tool_definitions else None,
-                tool_choice="auto",
-                temperature=0.7,
-                max_tokens=2000,
-                stream=True
-            )
+            stream_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
+                "messages": self._messages,
+                "temperature": 0.7,
+                "max_tokens": 2000,
+                "stream": True,
+            }
+            if tools_for_request:
+                stream_params["tools"] = tools_for_request
+                stream_params["tool_choice"] = "auto"
+
+            stream = await self._openai_client.chat.completions.create(**stream_params)
             
             full_response = ""
             async for chunk in stream:

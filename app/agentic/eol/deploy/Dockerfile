@@ -26,6 +26,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && npm install -g npm@latest \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Azure CLI for runtime command execution and confirm version
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
+    && az version
+
 WORKDIR /app
 
 # Copy requirements from parent directory for better Docker layer caching
@@ -56,6 +60,7 @@ ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 COPY ../api ./api
 COPY ../agents ./agents
 COPY ../utils ./utils
+COPY ../mcp_servers ./mcp_servers
 COPY ../static ./static
 COPY ../templates ./templates
 COPY ../main.py ./
