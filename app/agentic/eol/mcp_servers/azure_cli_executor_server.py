@@ -22,8 +22,27 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+_LOG_LEVEL_NAME = os.getenv("AZURE_CLI_EXECUTOR_LOG_LEVEL")
+_resolved_log_level = logging.INFO
+_invalid_log_level = False
+
+if _LOG_LEVEL_NAME:
+    try:
+        _resolved_log_level = getattr(logging, _LOG_LEVEL_NAME.upper())
+    except AttributeError:
+        _invalid_log_level = True
+        _resolved_log_level = logging.INFO
+
+logging.basicConfig(level=_resolved_log_level, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+if _invalid_log_level:
+    logger.warning(
+        "Invalid AZURE_CLI_EXECUTOR_LOG_LEVEL '%s'. Using INFO instead.",
+        _LOG_LEVEL_NAME,
+    )
+
+logger.debug("Azure CLI executor logging level set to %s", logging.getLevelName(logger.level))
 
 
 @dataclass
@@ -82,6 +101,16 @@ async def _run_subprocess(command: list[str], *, cwd: Optional[str] = None, time
     stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
     stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
 
+    if stdout:
+        logger.debug("Command stdout (%d bytes): %s", len(stdout), stdout[:1000])
+    else:
+        logger.debug("Command stdout is empty")
+
+    if stderr:
+        logger.debug("Command stderr (%d bytes): %s", len(stderr), stderr[:1000])
+    else:
+        logger.debug("Command stderr is empty")
+
     return CliExecutionResult(
         command=" ".join(command),
         exit_code=proc.returncode,
@@ -96,10 +125,12 @@ async def _ensure_login() -> None:
     global _login_completed
 
     if _login_completed:
+        logger.debug("Azure CLI login already completed; skipping new login attempt.")
         return
 
     async with _login_lock:
         if _login_completed:
+            logger.debug("Azure CLI login completed while waiting for lock; skipping new login attempt.")
             return
 
         if not shutil.which("az"):
@@ -144,22 +175,27 @@ async def _ensure_login() -> None:
             tenant_id,
         ]
 
+        redacted_client_id = f"{client_id[:8]}…" if client_id else "<unset>"
+        logger.info("Performing Azure CLI service principal login (client %s)", redacted_client_id)
+
         result = await _run_subprocess(login_command, timeout=120)
         if result.exit_code != 0:
             raise RuntimeError(f"az login failed: {result.stderr or result.stdout}")
 
         subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
         if subscription_id:
+            logger.info("Setting active Azure subscription %s", subscription_id)
             await _run_subprocess(
                 ["az", "account", "set", "--subscription", subscription_id],
                 timeout=60,
             )
 
+        logger.info("Azure CLI authentication completed successfully")
         _login_completed = True
 
 
 @_server.tool(
-    name="azure_cli-execute-command",
+    name="azure_cli_execute_command",
     description=(
         "Execute an Azure CLI command using the configured service principal. "
         "The command must start with 'az'. The tool returns JSON with stdout, stderr, "
@@ -195,10 +231,24 @@ def main() -> None:
         # Ensure the current working directory (workspace root) is on sys.path when started via subprocess.
         os.environ["PYTHONPATH"] = os.getcwd()
 
+    tool_registry = getattr(_server, "_tools", {})
+    if isinstance(tool_registry, dict):
+        tool_names = sorted(tool_registry.keys())
+    else:
+        tool_names = sorted(getattr(tool, "name", str(tool)) for tool in tool_registry)
+
+    logger.info(
+        "Starting Azure CLI MCP server with %d registered tool(s): %s",
+        len(tool_names),
+        ", ".join(tool_names) if tool_names else "(none)",
+    )
+
     try:
         _server.run()
     except KeyboardInterrupt:
         pass
+    finally:
+        logger.info("Azure CLI MCP server stopped")
 
 
 if __name__ == "__main__":

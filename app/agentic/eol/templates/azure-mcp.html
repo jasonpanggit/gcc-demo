@@ -238,6 +238,7 @@
     // Check status on page load
     document.addEventListener('DOMContentLoaded', async function() {
         await loadToolMetadata();
+        await listTools();
         refreshStatus();
     });
 
@@ -272,10 +273,17 @@
             if (data.success && data.data && data.data.length > 0) {
                 const status = data.data[0];
                 const isConnected = status.connection_status === 'connected';
-                
-                const azureToolCount = Number(status.available_tools_count) || 0;
+
+                const azureToolCount = runtimeAzureTools.length ? runtimeAzureTools.length : Number(status.available_tools_count) || 0;
                 const documentedToolCount = metadataTools.length || 0;
                 const totalToolCount = azureToolCount + microsoftLearnTools.length;
+                const lazyPendingTools = lazyLoadedToolMetadata.filter(tool => {
+                    if (!tool || !tool.namespace) {
+                        return false;
+                    }
+                    return !runtimeAzureTools.some(runtimeTool => runtimeTool && runtimeTool.name === tool.namespace);
+                });
+                const lazyPendingCount = lazyPendingTools.length;
 
                 container.innerHTML = `
                     <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'} mb-2">
@@ -285,7 +293,7 @@
                         <p class="mb-1">Azure MCP Server Tools: <strong>${azureToolCount}</strong></p>
                         <p class="mb-1">Microsoft Learn MCP Server Tools: <strong>${microsoftLearnTools.length}</strong></p>
                         <p class="mb-1">Documented Tool Metadata: <strong>${documentedToolCount}</strong></p>
-                        <p class="mb-0">Total Tools Available: <strong>${totalToolCount}</strong></p>
+                        <p class="mb-0">Total Tools Available: <strong>${totalToolCount}</strong>${lazyPendingCount ? ` <span class="text-muted">(+${lazyPendingCount} loads on first use)</span>` : ''}</p>
                     </div>
                     <div class="alert ${isConnected ? 'alert-info' : 'alert-warning'} mb-0">
                         <strong><i class="fas fa-terminal me-2"></i>Connection Mode:</strong> Stdio (npx)
@@ -311,22 +319,25 @@
         }
     }
 
-    async function listTools() {
+    async function listTools(showLoader = true) {
         const container = document.getElementById('tools-container');
-        container.innerHTML = `
-            <div class="text-center py-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+        if (showLoader) {
+            container.innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading tools...</p>
                 </div>
-                <p class="mt-2">Loading tools...</p>
-            </div>
-        `;
+            `;
+        }
 
         try {
             const response = await fetch('/api/azure-mcp/tools');
             const data = await response.json();
 
             let html = '';
+            runtimeAzureTools = Array.isArray(data.data) ? data.data : [];
 
             if (data.success && data.data && data.data.length > 0) {
                 html += '<h6 class="text-primary fw-semibold">Azure MCP Server Tools</h6>';
@@ -344,6 +355,30 @@
                 html += '</div>';
             } else {
                 html += '<div class="alert alert-warning">Azure MCP tools are currently unavailable.</div>';
+            }
+
+            const lazyPendingTools = lazyLoadedToolMetadata.filter(tool => {
+                if (!tool || !tool.namespace) {
+                    return false;
+                }
+                return !runtimeAzureTools.some(runtimeTool => runtimeTool && runtimeTool.name === tool.namespace);
+            });
+
+            if (lazyPendingTools.length > 0) {
+                html += '<h6 class="text-warning fw-semibold">Loads On First Use</h6>';
+                html += '<div class="list-group mb-3">';
+                lazyPendingTools.forEach(tool => {
+                    html += `
+                        <div class="list-group-item list-group-item-warning">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1"><code>${tool.namespace}</code></h6>
+                            </div>
+                            <p class="mb-1 text-muted small">${escapeHtml(tool.description || 'This tool registers the first time you run one of its quick examples.')}</p>
+                            <p class="mb-0 small text-muted">Tip: Use a matching Quick Example to initialize this tool and add it to the active list.</p>
+                        </div>
+                    `;
+                });
+                html += '</div>';
             }
 
             if (microsoftLearnTools.length > 0) {
@@ -365,6 +400,7 @@
             container.innerHTML = html || '<div class="alert alert-warning">No tools available</div>';
         } catch (error) {
             console.error('Error loading tools:', error);
+            runtimeAzureTools = [];
             container.innerHTML = `
                 <div class="alert alert-danger">
                     <p class="mb-0">Failed to load tools: ${error.message}</p>
@@ -456,6 +492,59 @@
         { name: 'microsoft_learn.listModulesByTopic', description: 'List Microsoft Learn modules for a topic with duration and unit counts.' },
         { name: 'microsoft_learn.getModuleOutline', description: 'Retrieve the unit-by-unit outline for a Microsoft Learn module.' },
         { name: 'microsoft_learn.recommendContentForRole', description: 'Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.' }
+    ];
+
+    let runtimeAzureTools = [];
+
+    const lazyLoadedToolMetadata = [
+        {
+            slug: 'azure-cli-executor-execute-command',
+            display_name: 'Azure CLI Executor · Execute command',
+            category: 'Agentic Utilities',
+            namespace: 'azure_cli_execute_command',
+            description: 'Execute Azure CLI commands using the dedicated MCP server with service principal authentication.',
+            lazy_loaded: true,
+            notes: [
+                'Loads on first use—use a CLI example below to start the Azure CLI executor MCP server and add it to the tool list.'
+            ],
+            operations: [
+                {
+                    title: 'Run Azure CLI command',
+                    description: 'Execute an Azure CLI command (must begin with "az") and return stdout, stderr, exit code, and duration.',
+                    parameters: [
+                        {
+                            name: 'command',
+                            required: true,
+                            description: 'Complete Azure CLI command string starting with "az".'
+                        },
+                        {
+                            name: 'working_directory',
+                            required: false,
+                            description: 'Optional working directory to run the command in.'
+                        },
+                        {
+                            name: 'timeout_seconds',
+                            required: false,
+                            description: 'Maximum execution time in seconds (defaults to 300).'
+                        }
+                    ],
+                    examples: [
+                        {
+                            label: 'Create a storage account',
+                            prompt: 'execute cli command "az storage account create --name <storage-account-name> --resource-group <resource-group> --location <azure-region> --sku Standard_LRS"'
+                        },
+                        {
+                            label: 'Show a resource group',
+                            prompt: 'execute cli command "az group show --name <resource-group> --output json"'
+                        },
+                        {
+                            label: 'List container apps',
+                            prompt: 'execute cli command "az containerapp list --resource-group <resource-group> --query \"[].{name:name,location:location}\" --output table"'
+                        }
+                    ]
+                }
+            ]
+        }
     ];
 
     const microsoftLearnToolMetadata = [
@@ -665,6 +754,15 @@
                     metadataBySlug[tool.slug] = tool;
                 }
             });
+            lazyLoadedToolMetadata.forEach(tool => {
+                if (!tool || !tool.slug) {
+                    return;
+                }
+                if (!metadataBySlug[tool.slug]) {
+                    metadataTools.push(tool);
+                    metadataBySlug[tool.slug] = tool;
+                }
+            });
             microsoftLearnToolMetadata.forEach(tool => {
                 if (tool && tool.slug && !metadataBySlug[tool.slug]) {
                     metadataTools.push(tool);
@@ -862,9 +960,25 @@
             return;
         }
 
-        if (docLink && metadata.doc_url) {
-            const description = metadata.description ? `${escapeHtml(metadata.description)} · ` : '';
-            docLink.innerHTML = `${description}<a href="${metadata.doc_url}" target="_blank" rel="noopener">View documentation</a>`;
+        if (docLink) {
+            const segments = [];
+            if (metadata.description) {
+                segments.push(escapeHtml(metadata.description));
+            }
+            if (Array.isArray(metadata.notes)) {
+                metadata.notes.forEach(note => {
+                    if (note) {
+                        segments.push(`<span class="text-warning">${escapeHtml(note)}</span>`);
+                    }
+                });
+            } else if (metadata.lazy_loaded) {
+                segments.push('<span class="text-warning">Loads on first use — run a CLI example to register this tool.</span>');
+            }
+            if (metadata.doc_url) {
+                segments.push(`<a href="${metadata.doc_url}" target="_blank" rel="noopener">View documentation</a>`);
+            }
+
+            docLink.innerHTML = segments.join(' · ') || '';
         }
 
         const examples = collectExamples(metadata);

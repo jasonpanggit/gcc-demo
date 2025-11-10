@@ -65,10 +65,14 @@ except ImportError as e:
     logger.error(f"Azure MCP client import failed: {e}")
 
 try:
-    from utils.azure_cli_executor_client import get_cli_executor_client
+    from utils.azure_cli_executor_client import (
+        get_cli_executor_client,
+        AzureCliExecutorDisabledError,
+    )
 except ImportError as e:
     logger.error(f"Azure CLI executor client import failed: {e}")
     get_cli_executor_client = None
+    AzureCliExecutorDisabledError = RuntimeError  # type: ignore
 
 try:
     from .tool_metadata import get_tool_metadata_manager
@@ -224,6 +228,10 @@ class MCPOrchestratorAgent:
 
         try:
             client = await get_cli_executor_client()
+        except AzureCliExecutorDisabledError:
+            logger.info("Azure CLI executor MCP server disabled via environment; skipping tool registration.")
+            self._cli_executor_tools_loaded = True
+            return
         except Exception as exc:  # pylint: disable=broad-except
             logger.error(f"Failed to initialize Azure CLI executor client: {exc}")
             return
@@ -1974,14 +1982,27 @@ Remember: You are AUTONOMOUS. Make intelligent decisions, adapt to challenges, a
 
             resolved_arguments = resolution["arguments"]
 
+            use_cli_executor = bool(
+                self._cli_executor_client
+                and tool_name in self._cli_executor_tool_names
+            )
+
             retryable_markers = ["429", "Too Many Requests", "Request rate is large"]
-            max_attempts = 3
+            max_attempts = 1 if use_cli_executor else 3
             attempt = 1
             result = None
 
             while attempt <= max_attempts:
-                result = await self._mcp_client.call_tool(tool_name, resolved_arguments)
+                if use_cli_executor:
+                    result = await self._cli_executor_client.call_tool(tool_name, resolved_arguments)
+                else:
+                    result = await self._mcp_client.call_tool(tool_name, resolved_arguments)
+
                 if result.get("success"):
+                    break
+
+                if use_cli_executor:
+                    # Azure CLI execution failures are typically command/runtime issues rather than rate limits.
                     break
 
                 error_text = str(result.get("error", ""))

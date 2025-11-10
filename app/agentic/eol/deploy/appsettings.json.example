@@ -56,5 +56,8 @@
     "DEBUG_MODE": "true",
     "ENVIRONMENT": "production",
     "CONTAINER_MODE": "true"
+  },
+  "McpSettings": {
+    "AzureCliExecutorEnabled": false
   }
 }

@@ -40,6 +40,7 @@ SUBSCRIPTION_ID=$(jq -r '.Azure.SubscriptionId' "$APPSETTINGS_FILE")
 TENANT_ID=$(jq -r '.Azure.TenantId' "$APPSETTINGS_FILE")
 RESOURCE_GROUP=$(jq -r '.Azure.ResourceGroup' "$APPSETTINGS_FILE")
 CONTAINER_APP_NAME=$(jq -r '.Deployment.ContainerApp.Name' "$APPSETTINGS_FILE")
+CONFIGURED_CONTAINER_NAME=$(jq -r '.Deployment.ContainerApp.ContainerName // empty' "$APPSETTINGS_FILE")
 ACR_NAME=$(jq -r '.Deployment.ContainerRegistry.Name' "$APPSETTINGS_FILE")
 IMAGE_NAME=$(jq -r '.Deployment.ContainerRegistry.ImageName' "$APPSETTINGS_FILE")
 MANAGED_IDENTITY_CLIENT_ID=$(jq -r '.ManagedIdentity.ClientId' "$APPSETTINGS_FILE")
@@ -78,6 +79,29 @@ fi
 # Set the subscription
 echo "🔧 Setting Azure subscription..."
 az account set --subscription "$SUBSCRIPTION_ID"
+
+# Resolve container name (from config or existing template)
+if [[ -n "$CONFIGURED_CONTAINER_NAME" ]]; then
+    CONTAINER_NAME="$CONFIGURED_CONTAINER_NAME"
+else
+    echo "🔍 Discovering container name from existing Container App configuration..."
+    set +e
+    CONTAINER_NAME=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "properties.template.containers[0].name" -o tsv 2>/dev/null)
+    SHOW_STATUS=$?
+    set -e
+    if (( SHOW_STATUS != 0 )) || [[ -z "$CONTAINER_NAME" || "$CONTAINER_NAME" == "" ]]; then
+        echo "ℹ️  Falling back to default container name 'eol-app'."
+        CONTAINER_NAME="eol-app"
+    else
+        echo "✅ Using detected container name: $CONTAINER_NAME"
+    fi
+fi
+
+echo "Container Name: $CONTAINER_NAME"
+echo ""
 
 # Login to ACR
 echo "🔐 Logging in to Azure Container Registry..."
@@ -130,6 +154,7 @@ AI_PROJECT_NAME=$(jq -r '.AzureServices.AIFoundry.ProjectName' "$APPSETTINGS_FIL
 AI_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
+AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
 
 # Determine authentication method
 if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
@@ -177,6 +202,8 @@ ENV_VARS="$ENV_VARS WEBSITES_PORT=8000"
 ENV_VARS="$ENV_VARS PYTHONUNBUFFERED=1"
 ENV_VARS="$ENV_VARS CONTAINER_MODE=true"
 ENV_VARS="$ENV_VARS ENVIRONMENT=production"
+# Disable optional MCP servers that cause issues in ACA unless explicitly enabled
+ENV_VARS="$ENV_VARS AZURE_CLI_EXECUTOR_ENABLED=$AZURE_CLI_EXECUTOR_ENABLED"
 
 # Deploy to Container Apps
 echo "🚀 Deploying to Azure Container Apps..."
@@ -207,17 +234,55 @@ fi
 REVISION_SUFFIX=$(printf "rev-%04d" "$NEXT_REVISION_NUM")
 echo "   Using revision suffix: $REVISION_SUFFIX"
 
-az containerapp update \
-    --name "$CONTAINER_APP_NAME" \
-    --resource-group "$RESOURCE_GROUP" \
-    --image "$FULL_IMAGE_NAME" \
-    --container-name eol-app \
-    --revision-suffix "$REVISION_SUFFIX" \
-    --cpu 1.5 \
-    --memory 3.0Gi \
-    --set-env-vars $ENV_VARS \
-    --query "{name:name, latestRevision:properties.latestRevisionName, status:properties.runningStatus}" \
-    -o json
+OUT_FILE=$(mktemp)
+ERR_FILE=$(mktemp)
+cleanup_temp_files() {
+    rm -f "$OUT_FILE" "$ERR_FILE"
+}
+trap cleanup_temp_files EXIT
+
+run_update() {
+    local suffix="$1"
+    # shellcheck disable=SC2086
+    az containerapp update \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --image "$FULL_IMAGE_NAME" \
+        --container-name "$CONTAINER_NAME" \
+        --revision-suffix "$suffix" \
+        --cpu 1.5 \
+        --memory 3.0Gi \
+        --min-replicas 1 \
+        --set-env-vars $ENV_VARS \
+        --query "{name:name, latestRevision:properties.latestRevisionName, status:properties.runningStatus}" \
+        -o json >"$OUT_FILE" 2> >(tee "$ERR_FILE" >&2)
+}
+
+set +e
+run_update "$REVISION_SUFFIX"
+UPDATE_STATUS=$?
+set -e
+
+if (( UPDATE_STATUS != 0 )) && grep -qi "revision with suffix" "$ERR_FILE"; then
+    echo "⚠️ Revision suffix $REVISION_SUFFIX already exists. Generating a unique suffix..."
+    REVISION_SUFFIX="rev-$(date +%Y%m%d%H%M%S)"
+    echo "   Retrying with revision suffix: $REVISION_SUFFIX"
+    : >"$OUT_FILE"
+    : >"$ERR_FILE"
+    set +e
+    run_update "$REVISION_SUFFIX"
+    UPDATE_STATUS=$?
+    set -e
+fi
+
+if (( UPDATE_STATUS != 0 )); then
+    cat "$ERR_FILE" >&2
+    exit $UPDATE_STATUS
+fi
+
+cat "$OUT_FILE"
+trap - EXIT
+cleanup_temp_files
 
 REVISION=$(az containerapp show \
     --name "$CONTAINER_APP_NAME" \
