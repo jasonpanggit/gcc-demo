@@ -86,12 +86,19 @@ async def get_alert_configuration():
         }
     """
     from utils.alert_manager import alert_manager
+
     config = await alert_manager.load_configuration()
-    return {
-        "success": True,
-        "data": config.dict(),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    config_dict = config.dict()
+    if "smtp_settings" in config_dict:
+        config_dict["smtp_settings"]["password"] = "***"
+
+    response = StandardResponse.success_response([
+        {
+            "configuration": config_dict,
+            "source": "cosmos" if config_dict.get("email_recipients") else "local"
+        }
+    ])
+    return response.to_dict()
 
 
 @router.post("/api/alerts/config")
@@ -138,11 +145,19 @@ async def save_alert_configuration(config_data: dict):
     success = await alert_manager.save_configuration(config)
     
     if success:
-        return {
-            "success": True,
-            "message": "Configuration saved successfully",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        sanitized_config = config.dict()
+        if "smtp_settings" in sanitized_config:
+            sanitized_config["smtp_settings"]["password"] = "***"
+
+        response = StandardResponse.success_response(
+            [
+                {
+                    "message": "Configuration saved successfully",
+                    "configuration": sanitized_config,
+                }
+            ]
+        )
+        return response.to_dict()
     else:
         raise HTTPException(status_code=500, detail="Failed to save configuration")
 
@@ -179,12 +194,19 @@ async def reload_alert_configuration():
     # Load fresh configuration from Cosmos DB
     config = await alert_manager.load_configuration()
     
-    return {
-        "success": True,
-        "message": "Configuration reloaded successfully from Cosmos DB",
-        "data": config.dict(),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    config_dict = config.dict()
+    if "smtp_settings" in config_dict:
+        config_dict["smtp_settings"]["password"] = "***"
+
+    response = StandardResponse.success_response(
+        [
+            {
+                "message": "Configuration reloaded successfully from Cosmos DB",
+                "configuration": config_dict,
+            }
+        ]
+    )
+    return response.to_dict()
 
 
 # ============================================================================

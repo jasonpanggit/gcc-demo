@@ -6,7 +6,7 @@ This script crawls the Azure MCP Server tools documentation starting from the
 and parameter descriptions for every documented tool.
 
 Usage:
-    python app/agentic/eol/agents/update_mcp_tool_metadata.py
+    python app/agentic/eol/deploy/update_mcp_tool_metadata.py
 
 The script writes JSON output to
     app/agentic/eol/static/data/azure_mcp_tool_metadata.json

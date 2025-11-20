@@ -52,20 +52,23 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
     
     # Detect if running in Azure App Service
     is_azure_app_service = os.environ.get('WEBSITE_SITE_NAME') is not None
+    is_container_app = os.environ.get('CONTAINER_APP_NAME') is not None
+
+    # Determine output stream and formatter. Azure environments prefer stderr with
+    # plain formatting so logs show up reliably in platform viewers. Container Apps
+    # behaves similarly, so apply the same settings there.
+    use_plain_formatter = is_azure_app_service or is_container_app
     
-    if is_azure_app_service:
-        # Azure App Service configuration
-        # Use stderr for better visibility in App Service logs
-        handler = logging.StreamHandler(sys.stderr)
-        
-        # Simple formatter without colors for Azure (colors can interfere with log parsing)
+    if use_plain_formatter:
+        stream = sys.stderr
+        handler = logging.StreamHandler(stream)
         formatter = logging.Formatter(
             '%(asctime)s [%(name)s] %(levelname)s: %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
     else:
-        # Local development configuration with colors
-        handler = logging.StreamHandler(sys.stdout)
+        stream = sys.stdout
+        handler = logging.StreamHandler(stream)
         formatter = ColoredFormatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -74,22 +77,44 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
     handler.setLevel(numeric_level)
     handler.setFormatter(formatter)
     
-    # For Azure App Service, configure only root logger to avoid duplication
-    if is_azure_app_service:
-        root_logger = logging.getLogger()
-        if not root_logger.handlers:
-            root_logger.setLevel(numeric_level)
-            root_handler = logging.StreamHandler(sys.stderr)
-            root_handler.setFormatter(formatter)
-            root_logger.addHandler(root_handler)
-        
-        # Set level and enable propagation (don't add handler to specific logger)
-        logger.setLevel(numeric_level)
-        logger.propagate = True
+    # Ensure the root logger is configured so platform log collectors always capture
+    # the output. Avoid duplicating handlers if they already exist.
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        root_logger.addHandler(handler)
     else:
-        # Local development: add handler to specific logger and disable propagation
-        logger.addHandler(handler)
-        logger.propagate = False
+        for existing_handler in root_logger.handlers:
+            existing_handler.setLevel(numeric_level)
+            if use_plain_formatter:
+                existing_handler.setFormatter(formatter)
+    root_logger.setLevel(numeric_level)
+
+    # Quiet overly chatty dependency loggers unless explicitly overridden.
+    noisy_loggers = {
+        "openai": os.getenv("OPENAI_LOG_LEVEL", "WARNING"),
+        "openai._base_client": os.getenv("OPENAI_BASE_CLIENT_LOG_LEVEL", "WARNING"),
+        "httpx": os.getenv("HTTPX_LOG_LEVEL", "WARNING"),
+        "httpcore": os.getenv("HTTPCORE_LOG_LEVEL", "WARNING"),
+        "httpcore.connection": os.getenv("HTTPCORE_CONNECTION_LOG_LEVEL", "WARNING"),
+        "httpcore.http11": os.getenv("HTTPCORE_HTTP11_LOG_LEVEL", "WARNING"),
+    }
+    for noisy_name, override_level in noisy_loggers.items():
+        target_logger = logging.getLogger(noisy_name)
+        target_logger.setLevel(getattr(logging, override_level.upper(), logging.WARNING))
+        # Keep propagation so important messages still flow to the root handler.
+
+    # Configure the module logger to propagate to root and avoid duplicate handlers.
+    logger.handlers.clear()
+    logger.setLevel(numeric_level)
+    logger.propagate = True
+
+    # Ensure our application loggers are set to the configured level so INFO writes appear.
+    for app_logger_name in (
+        "agents.mcp_orchestrator",
+        "utils.azure_mcp_client",
+        "api.azure_mcp",
+    ):
+        logging.getLogger(app_logger_name).setLevel(numeric_level)
     
     return logger
 

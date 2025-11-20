@@ -34,6 +34,7 @@ class StandardResponse:
     cached: bool = False
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     metadata: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
     error: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
@@ -49,14 +50,22 @@ class StandardResponse:
         if self.metadata:
             result["metadata"] = self.metadata
         
+        if self.message:
+            result["message"] = self.message
+
         if self.error:
             result["error"] = self.error
         
         return result
     
     @classmethod
-    def success_response(cls, data: List[Dict[str, Any]], cached: bool = False, 
-                        metadata: Optional[Dict[str, Any]] = None) -> "StandardResponse":
+    def success_response(
+        cls,
+        data: List[Dict[str, Any]],
+        cached: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
+        message: Optional[str] = None,
+    ) -> "StandardResponse":
         """Create a successful response
         
         Args:
@@ -72,11 +81,20 @@ class StandardResponse:
             data=data,
             count=len(data),
             cached=cached,
-            metadata=metadata
+            metadata=metadata,
+            message=message,
         )
     
     @classmethod
-    def error_response(cls, error: str, metadata: Optional[Dict[str, Any]] = None) -> "StandardResponse":
+    def error_response(
+        cls,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        message: Optional[str] = None,
+        *,
+        error_message: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> "StandardResponse":
         """Create an error response
         
         Args:
@@ -86,12 +104,19 @@ class StandardResponse:
         Returns:
             StandardResponse instance with error
         """
+        error_text = error or error_message or "Unknown error"
+
+        merged_metadata = metadata.copy() if metadata else {}
+        if details:
+            merged_metadata.update(details)
+
         return cls(
             success=False,
             data=[],
             count=0,
-            error=error,
-            metadata=metadata
+            error=error_text,
+            metadata=merged_metadata or None,
+            message=message,
         )
 
 
@@ -200,6 +225,7 @@ def ensure_standard_format(response: Any) -> Dict[str, Any]:
             "cached": response.get("cached", False),
             "timestamp": response.get("timestamp", datetime.utcnow().isoformat()),
             "metadata": response.get("metadata"),
+            "message": response.get("message"),
             "error": response.get("error")
         }
     

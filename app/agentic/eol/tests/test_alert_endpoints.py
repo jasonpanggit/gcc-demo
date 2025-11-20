@@ -22,16 +22,19 @@ class TestAlertEndpoints:
     @pytest.mark.asyncio
     async def test_get_alert_config(self, client):
         """Test GET /api/alerts/config - Get alert configuration (has validation error)"""
-        # Known issue: StandardResponse expects List but endpoint returns Dict
-        # This causes a ResponseValidationError that prevents the test from even getting a response
-        try:
-            response = await client.get("/api/alerts/config")
-            # If we get here, endpoint returned something (shouldn't happen)
-            assert False, "Expected ResponseValidationError but got response"
-        except Exception as e:
-            # Expect ResponseValidationError from FastAPI
-            assert "ResponseValidationError" in str(type(e)) or "list_type" in str(e)
-        # TODO: Fix API to use proper response model for dict data
+        response = await client.get("/api/alerts/config")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["success"] is True
+        assert isinstance(data.get("data"), list)
+        assert data.get("count", 0) == len(data.get("data", []))
+
+        config_wrapper = data["data"][0]
+        assert "configuration" in config_wrapper
+        configuration = config_wrapper["configuration"]
+        assert "smtp_settings" in configuration
+        assert configuration["smtp_settings"].get("password") == "***"
         
     @pytest.mark.asyncio
     async def test_update_alert_config(self, client, test_alert_config):

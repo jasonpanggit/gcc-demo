@@ -27,10 +27,7 @@ except ImportError as import_error:
 
 
 class PlaywrightEOLAgent(BaseEOLAgent):
-    """
-    EOL Agent that uses Playwright for direct Bing search and extraction.
-    More reliable than WebSurfer for container environments.
-    """
+    """Playwright-powered fallback for web EOL lookups."""
 
     def __init__(self):
         super().__init__("playwright_eol_agent")

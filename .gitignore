@@ -74,6 +74,7 @@ docs/
 
 # pytest cache
 .pytest_cache/
+__pycache__/
 
 # Project TODO file
 # Ignore TODO.md in any directory

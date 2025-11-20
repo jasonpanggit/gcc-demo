@@ -8,7 +8,7 @@ Multi-Agent Application. Each endpoint serves a different page of the web UI:
 - Inventory (/inventory) - Software/OS inventory management
 - EOL Search (/eol-search) - End-of-life date lookup
 - EOL History (/eol-searches) - Historical search results
-- Chat (/chat) - AutoGen multi-agent conversational interface
+- Inventory Assistant (/inventory-assistant) - Agent Framework conversational interface
 - Alerts (/alerts) - Alert configuration and management
 - Cache (/cache) - Cache statistics and management
 - Cache Details (/agent-cache-details) - Detailed per-agent cache metrics
@@ -22,6 +22,7 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from jinja2 import TemplateNotFound
 
 # Import decorators and utilities
 from utils.endpoint_decorators import with_timeout_and_stats
@@ -84,11 +85,16 @@ async def inventory_ui(request: Request):
     Returns:
         HTMLResponse with rendered inventory.html template and Azure config.
     """
-    return templates.TemplateResponse("inventory.html", {
-        "request": request,
-        "subscription_id": config.azure.subscription_id,
-        "resource_group": config.azure.resource_group_name
-    })
+    try:
+        return templates.TemplateResponse("inventory.html", {
+            "request": request,
+            "subscription_id": config.azure.subscription_id,
+            "resource_group": config.azure.resource_group_name
+        })
+    except TemplateNotFound:
+        logger.warning("Inventory template not found; returning fallback HTML")
+        content = "<h1>Inventory</h1><p>Template not available in this environment.</p>"
+        return HTMLResponse(content, status_code=200)
 
 
 @router.get("/eol-search", response_class=HTMLResponse)
@@ -111,7 +117,11 @@ async def eol_ui(request: Request):
     Returns:
         HTMLResponse with rendered eol.html template.
     """
-    return templates.TemplateResponse("eol.html", {"request": request})
+    try:
+        return templates.TemplateResponse("eol.html", {"request": request})
+    except TemplateNotFound:
+        logger.warning("EOL template not found; returning fallback HTML")
+        return HTMLResponse("<h1>EOL Search</h1><p>Template unavailable.</p>", status_code=200)
 
 
 @router.get("/eol-searches", response_class=HTMLResponse)
@@ -137,27 +147,27 @@ async def eol_searches_ui(request: Request):
     return templates.TemplateResponse("eol-searches.html", {"request": request})
 
 
-@router.get("/chat", response_class=HTMLResponse)
+@router.get("/inventory-assistant", response_class=HTMLResponse)
 @with_timeout_and_stats(
-    agent_name="chat_page",
+    agent_name="inventory_assistant_page",
     timeout_seconds=10,
     track_cache=False,
     auto_wrap_response=False
 )
-async def chat_ui(request: Request):
+async def inventory_assistant_ui(request: Request):
     """
-    Chat interface page.
+    Inventory assistant interface page.
     
-    Serves the AutoGen multi-agent chat interface for natural language
+    Serves the Microsoft Agent Framework conversational interface for natural language
     queries about inventory and EOL information.
     
     Args:
         request: FastAPI Request object
     
     Returns:
-        HTMLResponse with rendered chat.html template.
+        HTMLResponse with rendered inventory_asst.html template.
     """
-    return templates.TemplateResponse("chat.html", {"request": request})
+    return templates.TemplateResponse("inventory_asst.html", {"request": request})
 
 
 @router.get("/alerts", response_class=HTMLResponse)
@@ -182,9 +192,12 @@ async def get_alerts_page(request: Request):
     """
     try:
         return templates.TemplateResponse("alerts.html", {"request": request})
+    except TemplateNotFound:
+        logger.warning("Alerts template not found; returning fallback HTML")
+        return HTMLResponse("<h1>Alerts</h1><p>Template unavailable.</p>", status_code=200)
     except Exception as e:
         logger.error(f"❌ Error serving alerts page: {e}")
-        return HTMLResponse("Alert Management - Page not found", status_code=404)
+        return HTMLResponse("<h1>Alerts</h1><p>Error loading page.</p>", status_code=200)
 
 
 @router.get("/cache", response_class=HTMLResponse)
@@ -227,12 +240,12 @@ async def cache_ui(request: Request):
             "request": request,
             "cache_stats": cache_stats
         })
+    except TemplateNotFound:
+        logger.warning("Cache template not found; returning fallback HTML")
+        return HTMLResponse("<h1>Cache Dashboard</h1><p>Template unavailable.</p>", status_code=200)
     except Exception as e:
         logger.error(f"Error loading cache UI: {e}")
-        return templates.TemplateResponse("cache.html", {
-            "request": request,
-            "cache_stats": {"error": str(e)}
-        })
+        return HTMLResponse(f"<h1>Cache Dashboard</h1><p>{e}</p>", status_code=200)
 
 
 @router.get("/agent-cache-details", response_class=HTMLResponse)

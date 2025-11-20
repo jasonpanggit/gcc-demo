@@ -45,14 +45,14 @@ from api.eol import router as eol_router
 from api.alerts import router as alerts_router
 from api.agents import router as agents_router
 from api.communications import router as communications_router
-from api.chat import router as chat_router
+from api.inventory_asst import router as inventory_asst_router
 from api.ui import router as ui_router
 from api.debug import router as debug_router
 from api.azure_mcp import router as azure_mcp_router
 
-# Note: Chat orchestrator is available in separate chat.html interface
+# Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
-CHAT_AVAILABLE = True  # Enable chat functionality with MagenticOne orchestrator
+INVENTORY_ASST_AVAILABLE = True  # Enable inventory assistant functionality with Microsoft Agent Framework orchestrator
 
 # Create FastAPI app
 app = FastAPI(
@@ -68,7 +68,7 @@ app.include_router(eol_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)
 app.include_router(communications_router)
-app.include_router(chat_router)
+app.include_router(inventory_asst_router)
 app.include_router(ui_router)
 app.include_router(debug_router)
 app.include_router(azure_mcp_router)
@@ -152,7 +152,7 @@ cred = DefaultAzureCredential(
 
 # Global orchestrator instances - initialized lazily
 orchestrator = None
-chat_orchestrator = None
+inventory_asst_orchestrator = None
 
 
 def get_eol_orchestrator() -> EOLOrchestratorAgent:
@@ -163,25 +163,23 @@ def get_eol_orchestrator() -> EOLOrchestratorAgent:
     return orchestrator
 
 
-def get_chat_orchestrator() -> Optional[Any]:
-    """Get or initialize the Chat orchestrator instance lazily
-    
-    Returns the MagenticOneChatOrchestrator for multi-agent chat functionality.
-    """
-    global chat_orchestrator
-    if chat_orchestrator is None and CHAT_AVAILABLE:
+def get_inventory_asst_orchestrator() -> Optional[Any]:
+    """Get or initialize the inventory assistant orchestrator instance lazily."""
+
+    global inventory_asst_orchestrator
+    if inventory_asst_orchestrator is None and INVENTORY_ASST_AVAILABLE:
         try:
-            from agents.chat_orchestrator import MagenticOneChatOrchestrator
-            logger.info("🤖 Initializing MagenticOne Chat orchestrator...")
-            chat_orchestrator = MagenticOneChatOrchestrator()
-            logger.info("✅ Chat orchestrator initialized successfully")
+            from agents.inventory_asst_orchestrator import InventoryAssistantOrchestrator
+            logger.info("🤖 Initializing inventory assistant orchestrator...")
+            inventory_asst_orchestrator = InventoryAssistantOrchestrator()
+            logger.info("✅ Inventory assistant orchestrator initialized successfully")
         except Exception as e:
             import traceback
-            error_msg = f"Failed to initialize Chat orchestrator: {e}"
-            logger.error(f"🔍 ERROR in get_chat_orchestrator: {error_msg}")
+            error_msg = f"Failed to initialize inventory assistant orchestrator: {e}"
+            logger.error(f"🔍 ERROR in get_inventory_asst_orchestrator: {error_msg}")
             logger.debug(f"🔍 TRACEBACK: {traceback.format_exc()}")
             return None
-    return chat_orchestrator
+    return inventory_asst_orchestrator
 
 
 # ============================================================================
@@ -203,19 +201,15 @@ class QueryRequest(BaseModel):
     query: str
 
 
-class ChatRequest(BaseModel):
+class InventoryAssistantRequest(BaseModel):
+    """Request model for the inventory assistant endpoint"""
     message: str
-
-
-class AutoGenChatRequest(BaseModel):
-    message: str
-    use_autogen: Optional[bool] = True
     confirmed: Optional[bool] = False
     original_message: Optional[str] = None
     timeout_seconds: Optional[int] = 150  # Default 150 seconds timeout to match frontend expectations
 
 
-class AutoGenChatResponse(BaseModel):
+class InventoryAssistantResponse(BaseModel):
     response: str
     conversation_messages: List[dict]
     agent_communications: List[dict]
@@ -313,6 +307,7 @@ async def shutdown_event():
     """Cleanup services on shutdown"""
     try:
         logger.info("🛑 Shutting down application...")
+        global orchestrator
         
         # Cleanup Azure MCP client
         try:
@@ -321,6 +316,27 @@ async def shutdown_event():
             logger.info("✅ Azure MCP client cleaned up")
         except Exception as e:
             logger.debug(f"Azure MCP cleanup: {e}")
+
+        # Cleanup EOL orchestrator resources if instantiated
+        try:
+            if orchestrator is not None and hasattr(orchestrator, "aclose"):
+                await orchestrator.aclose()
+                orchestrator = None
+                logger.info("✅ EOL orchestrator resources released")
+        except Exception as e:
+            logger.debug(f"EOL orchestrator cleanup: {e}")
+
+        # Cleanup MCP orchestrator resources if instantiated
+        try:
+            from agents import mcp_orchestrator as _mcp_module
+
+            instance = getattr(_mcp_module, "_mcp_orchestrator_instance", None)
+            if instance is not None:
+                await instance.aclose()
+                _mcp_module._mcp_orchestrator_instance = None
+                logger.info("✅ MCP orchestrator resources released")
+        except Exception as e:
+            logger.debug(f"MCP orchestrator cleanup: {e}")
         
         logger.info("✅ Shutdown completed")
     except Exception as e:
@@ -337,9 +353,9 @@ class DebugRequest(BaseModel):
 # @readonly_endpoint(agent_name="debug_tool_selection", timeout_seconds=15)
 async def debug_tool_selection_OLD(request: DebugRequest):
     """
-    Debug endpoint to test tool selection logic for AutoGen chat.
+    Debug endpoint to test tool selection logic for the Microsoft inventory assistant.
     
-    Tests the pattern matching and tool selection logic used by the chat orchestrator
+    Tests the pattern matching and tool selection logic used by the inventory assistant orchestrator
     to determine which functions to call based on user queries. Useful for debugging
     and improving tool selection accuracy.
     
@@ -450,9 +466,9 @@ async def test_logging_OLD():
     logger.warning(f"🧪 MAIN-WARNING Test Log [{test_id}] - {timestamp}")
     logger.error(f"🧪 MAIN-ERROR Test Log [{test_id}] - {timestamp}")
     
-    # Test Chat orchestrator logging if available
+    # Test inventory assistant orchestrator logging if available
     # EOL interface uses only regular orchestrator
-    autogen_test_result = None
+    inventory_asst_test_result = None
     
     # Force flush for Azure
     if os.environ.get('WEBSITE_SITE_NAME'):
@@ -470,7 +486,7 @@ async def test_logging_OLD():
             "level": logger.level,
             "handler_count": len(logger.handlers)
         },
-        "autogen_test": autogen_test_result,
+        "inventory_assistant_test": inventory_asst_test_result,
         "message": f"Logging test completed. Check Azure App Service logs for messages with ID [{test_id}]"
     }
     
@@ -510,7 +526,7 @@ async def status():
 # - GET /inventory - Inventory management UI
 # - GET /eol-search - EOL search interface
 # - GET /eol-searches - EOL search history
-# - GET /chat - AutoGen chat interface
+# - GET /inventory-assistant - Agent Framework inventory assistant interface
 # - GET /alerts - Alert management UI
 # - GET /cache - Cache management dashboard
 # - GET /agent-cache-details - Detailed agent cache metrics
@@ -1372,19 +1388,19 @@ async def get_eol_communications_OLD():
         }
 
 
-# @app.get("/api/communications/chat", response_model=StandardResponse)
-# @readonly_endpoint(agent_name="chat_communications", timeout_seconds=15)
-async def get_chat_communications_OLD():
+# @app.get("/api/communications/inventory-assistant", response_model=StandardResponse)
+# @readonly_endpoint(agent_name="inventory_assistant_communications", timeout_seconds=15)
+async def get_inventory_assistant_communications_OLD():
     """
-    Get real-time chat orchestrator communications log.
+    Get real-time inventory assistant orchestrator communications log.
     
-    Retrieves the communication history from the chat orchestrator,
+    Retrieves the communication history from the inventory assistant orchestrator,
     including agent interactions and OpenAI API calls.
     
     Returns:
-        StandardResponse with list of recent communications from chat orchestrator.
+        StandardResponse with list of recent communications from the inventory assistant orchestrator.
     """
-    orchestrator = get_chat_orchestrator()
+    orchestrator = get_inventory_asst_orchestrator()
     if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
         communications = await orchestrator.get_agent_communications()
         return {
@@ -1396,7 +1412,7 @@ async def get_chat_communications_OLD():
     else:
         return {
             "success": False,
-            "error": "Chat orchestrator not available or communications not supported",
+            "error": "Inventory assistant orchestrator not available or communications not supported",
             "communications": [],
             "count": 0
         }
@@ -1407,7 +1423,7 @@ async def get_chat_communications_OLD():
 # @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
 async def get_eol_agent_responses_OLD():
     """
-    Get all tracked EOL agent responses from both Chat and EOL orchestrators.
+    Get all tracked EOL agent responses from both the inventory assistant and EOL orchestrators.
     
     Retrieves historical EOL search results from all orchestrators, including
     which agents were used, confidence scores, and timestamps.
@@ -1418,17 +1434,17 @@ async def get_eol_agent_responses_OLD():
     """
     all_responses = []
     
-    # Get responses from Chat orchestrator
-    chat_orchestrator = get_chat_orchestrator()
-    if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
-        chat_responses = chat_orchestrator.get_eol_agent_responses()
-        # Mark these as from chat orchestrator
-        for response in chat_responses:
-            response['orchestrator_type'] = 'chat_orchestrator'
-        all_responses.extend(chat_responses)
-        logger.info(f"🔍 [API] Chat orchestrator returned {len(chat_responses)} EOL responses")
+    # Get responses from inventory assistant orchestrator
+    inventory_asst_orchestrator = get_inventory_asst_orchestrator()
+    if inventory_asst_orchestrator and hasattr(inventory_asst_orchestrator, 'get_eol_agent_responses'):
+        inventory_responses = inventory_asst_orchestrator.get_eol_agent_responses()
+        # Mark these as from the inventory assistant orchestrator
+        for response in inventory_responses:
+            response['orchestrator_type'] = 'inventory_asst_orchestrator'
+        all_responses.extend(inventory_responses)
+        logger.info(f"🔍 [API] Inventory assistant orchestrator returned {len(inventory_responses)} EOL responses")
     else:
-        logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
+        logger.warning("🔍 [API] Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
     
     # Get responses from EOL orchestrator
     eol_orchestrator = get_eol_orchestrator()
@@ -1453,7 +1469,7 @@ async def get_eol_agent_responses_OLD():
         "count": len(all_responses),
         "timestamp": datetime.utcnow().isoformat(),
         "sources": {
-            "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
+            "inventory_asst_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'inventory_asst_orchestrator']),
             "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
         }
     }
@@ -1466,19 +1482,19 @@ async def clear_eol_agent_responses_OLD():
     Clear all tracked EOL agent responses from both orchestrators.
     
     Removes all historical EOL search responses from memory, resetting
-    the response tracking for both chat and EOL orchestrators.
+    the response tracking for both inventory assistant and EOL orchestrators.
     
     Returns:
         StandardResponse with count of cleared responses.
     """
     cleared_count = 0
     
-    # Clear from Chat orchestrator
-    chat_orchestrator = get_chat_orchestrator()
-    if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
-        chat_responses_before = len(chat_orchestrator.get_eol_agent_responses()) if hasattr(chat_orchestrator, 'get_eol_agent_responses') else 0
-        chat_orchestrator.clear_eol_agent_responses()
-        cleared_count += chat_responses_before
+    # Clear from inventory assistant orchestrator
+    inventory_asst_orchestrator = get_inventory_asst_orchestrator()
+    if inventory_asst_orchestrator and hasattr(inventory_asst_orchestrator, 'clear_eol_agent_responses'):
+        inventory_responses_before = len(inventory_asst_orchestrator.get_eol_agent_responses()) if hasattr(inventory_asst_orchestrator, 'get_eol_agent_responses') else 0
+        inventory_asst_orchestrator.clear_eol_agent_responses()
+        cleared_count += inventory_responses_before
     
     # Clear from EOL orchestrator
     eol_orchestrator = get_eol_orchestrator()
@@ -1494,27 +1510,27 @@ async def clear_eol_agent_responses_OLD():
     }
 
 
-# @app.post("/api/communications/chat/clear", response_model=StandardResponse)
-# @write_endpoint(agent_name="clear_chat_comms", timeout_seconds=30)
-async def clear_chat_communications_OLD():
+# @app.post("/api/communications/inventory-assistant/clear", response_model=StandardResponse)
+# @write_endpoint(agent_name="clear_inventory_assistant_comms", timeout_seconds=30)
+async def clear_inventory_assistant_communications_OLD():
     """
-    Clear chat orchestrator communications log.
+    Clear inventory assistant orchestrator communications log.
     
-    Removes all communication history from the chat orchestrator,
+    Removes all communication history from the inventory assistant orchestrator,
     freeing up memory and resetting the conversation context.
     
     Returns:
         StandardResponse indicating success of the clear operation.
     """
-    orchestrator = get_chat_orchestrator()
+    orchestrator = get_inventory_asst_orchestrator()
     if orchestrator and hasattr(orchestrator, 'clear_communications'):
         result = await orchestrator.clear_communications()
-        logger.info("Chat communications cleared: %s", result)
+        logger.info("Inventory assistant communications cleared: %s", result)
         return result
     else:
         return {
             "success": False,
-            "error": "Chat orchestrator not available or clear not supported"
+            "error": "Inventory assistant orchestrator not available or clear not supported"
         }
 
 
@@ -1541,7 +1557,7 @@ async def get_webscraping_cache_details():
     total_cached_items = 0
     
     # Get cache details from each web scraping agent
-    for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai", "websurfer"]:
+    for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai"]:
         agent = orchestrator.agents.get(agent_name)
         if agent:
             agent_cache_info = {
@@ -2160,24 +2176,24 @@ async def clear_inventory_cache_OLD():
 
 
 # ============================================================================
-# CHAT ENDPOINTS (Optional - only if Azure OpenAI is configured)
+# INVENTORY ASSISTANT ENDPOINTS (Legacy reference - optional Azure OpenAI configuration)
 # ============================================================================
 
-# @app.post("/chat")
-# async def chat(req: ChatRequest):
-#     """Enhanced AI chat with intelligent routing between OpenAI and specialized EOL agents"""
+# @app.post("/inventory-assistant")
+# async def inventory_assistant(req: InventoryAssistantRequest):
+#     """Enhanced inventory assistant conversation with intelligent routing between OpenAI and specialized EOL agents"""
 #     try:
 #         if not config.azure.aoai_endpoint:
 #             raise HTTPException(status_code=400, detail="Azure OpenAI not configured")
         
-#         logger.info(f"Processing chat request: {req.message[:100]}...")
+#         logger.info(f"Processing inventory assistant request: {req.message[:100]}...")
         
 #         # Initialize orchestrator
 #         orchestrator = EOLOrchestratorAgent()
         
-#         # Handle the chat message with intelligent routing
-#         logger.info("Calling orchestrator.handle_chat_message...")
-#         result = await orchestrator.handle_chat_message(req.message)
+#         # Handle the inventory assistant message with intelligent routing
+#         logger.info("Calling orchestrator.respond_with_confirmation...")
+#         result = await orchestrator.respond_with_confirmation(req.message)
 #         logger.info(f"Orchestrator result: {result}")
         
 #         # Communication history not implemented in current orchestrator version
@@ -2209,18 +2225,18 @@ async def clear_inventory_cache_OLD():
 #         return response_data
         
 #     except Exception as e:
-#         logger.error(f"Chat service error: {str(e)}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Chat service error: {str(e)}")
+#         logger.error(f"Inventory assistant service error: {str(e)}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=f"Inventory assistant service error: {str(e)}")
 
 
 # ============================================================================
-# AUTOGEN CHAT ENDPOINT - Moved to api/chat.py
+# AGENT FRAMEWORK INVENTORY ASSISTANT ENDPOINT - Moved to api/inventory_asst.py
 # ============================================================================
 # 
-# AutoGen multi-agent chat functionality is now handled by chat_router
-# See api/chat.py for:
-# - POST /api/autogen-chat - AI-powered conversational interface
-# - Multi-agent orchestration with AutoGen
+# Agent Framework multi-agent inventory assistant functionality is now handled by inventory_asst_router
+# See api/inventory_asst.py for:
+# - POST /api/inventory-assistant - AI-powered conversational interface
+# - Multi-agent orchestration with the Microsoft Agent Framework
 # - Confirmation workflows for complex operations
 # - Full conversation transparency
 # - Helper functions for inventory context and JSON cleaning
@@ -2584,8 +2600,7 @@ async def validate_cache_system_OLD():
         ('endoflife_agent', 'EndOfLifeAgent'),
         ('ubuntu_agent', 'UbuntuEOLAgent'),
         ('redhat_agent', 'RedHatEOLAgent'),
-        ('azure_ai_agent', 'AzureAIAgentEOLAgent'),
-        ('websurfer_agent', 'WebsurferEOLAgent')
+        ('azure_ai_agent', 'AzureAIAgentEOLAgent')
     ]
     
     working_agents = 0

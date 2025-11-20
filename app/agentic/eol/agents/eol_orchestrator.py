@@ -34,49 +34,176 @@ except ImportError:
     import logging
     logger = logging.getLogger(__name__)
 
+
+DEFAULT_VENDOR_ROUTING: Dict[str, List[str]] = {
+    # Microsoft ecosystem
+    "microsoft": [
+        "windows",
+        "office",
+        "sql server",
+        "iis",
+        "visual studio",
+        ".net",
+        "azure",
+        "sharepoint",
+        "exchange",
+        "teams",
+        "power bi",
+        "dynamics",
+    ],
+    # Red Hat ecosystem
+    "redhat": ["red hat", "rhel", "centos", "fedora", "openshift", "ansible"],
+    # Ubuntu ecosystem
+    "ubuntu": ["ubuntu", "canonical", "snap"],
+    # Oracle ecosystem
+    "oracle": [
+        "oracle",
+        "java",
+        "jdk",
+        "jre",
+        "openjdk",
+        "mysql",
+        "virtualbox",
+        "solaris",
+        "weblogic",
+        "graalvm",
+    ],
+    # VMware ecosystem
+    "vmware": [
+        "vmware",
+        "vsphere",
+        "esxi",
+        "vcenter",
+        "workstation",
+        "fusion",
+        "nsx",
+        "vsan",
+        "vrealize",
+        "horizon",
+        "tanzu",
+    ],
+    # Apache ecosystem
+    "apache": [
+        "apache",
+        "httpd",
+        "tomcat",
+        "kafka",
+        "spark",
+        "maven",
+        "cassandra",
+        "solr",
+        "lucene",
+        "struts",
+        "camel",
+        "activemq",
+        "zookeeper",
+    ],
+    # Node.js ecosystem
+    "nodejs": [
+        "node",
+        "nodejs",
+        "npm",
+        "yarn",
+        "express",
+        "react",
+        "vue",
+        "angular",
+        "next",
+        "gatsby",
+        "electron",
+        "typescript",
+    ],
+    # PostgreSQL ecosystem
+    "postgresql": ["postgresql", "postgres", "postgis", "pgbouncer", "timescaledb"],
+    # PHP ecosystem
+    "php": ["php", "composer", "laravel", "symfony", "drupal", "wordpress"],
+    # Python ecosystem
+    "python": ["python", "pip", "django", "flask", "pandas", "numpy", "jupyter"],
+}
+
 class EOLOrchestratorAgent:
     """
     Autonomous EOL orchestrator that efficiently coordinates EOL data gathering
     from multiple specialized agents with intelligent routing and caching.
     """
-    
-    def __init__(self):
+
+    def __init__(
+        self,
+        *,
+        agents: Optional[Dict[str, Any]] = None,
+        vendor_routing: Optional[Dict[str, List[str]]] = None,
+        use_mock_data: Optional[bool] = None,
+        close_provided_agents: bool = False,
+    ):
         self.session_id = str(uuid.uuid4())
         self.start_time = datetime.utcnow()
-        
+
         # Replace Cosmos-backed comms with in-memory log (per process)
         self._comms_log: List[Dict[str, Any]] = []
         self.agent_name = "eol_orchestrator"
-        
-        # EOL Response Tracking - Track all agent responses for detailed history
-        self.eol_agent_responses = []
 
-        # Check if mock mode is enabled via environment variable
+        # EOL Response Tracking - Track all agent responses for detailed history
+        self.eol_agent_responses: List[Dict[str, Any]] = []
+
+        # Track lifecycle so orchestrator can release owned resources
+        self._close_lock = asyncio.Lock()
+        self._closed = False
+        self._owns_agents = close_provided_agents or agents is None
+
+        if agents is not None:
+            self.agents = dict(agents)
+        else:
+            self.agents = self._create_default_agents(use_mock_data=use_mock_data)
+
+        self.vendor_routing = (
+            {key: list(value) for key, value in vendor_routing.items()}
+            if vendor_routing is not None
+            else {key: list(value) for key, value in DEFAULT_VENDOR_ROUTING.items()}
+        )
+
+        # Cache for EOL results (in-memory for session)
+        self.eol_cache: Dict[str, Any] = {}
+        self.cache_ttl = 3600  # 1 hour cache
+
+        logger.info(
+            "🚀 Autonomous EOL Orchestrator initialized with %d agents",
+            len(self.agents),
+        )
+
+    def _create_default_agents(self, *, use_mock_data: Optional[bool]) -> Dict[str, Any]:
+        """Instantiate the default agent roster with optional mock overrides."""
         import os
-        use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
-        
-        # Initialize inventory agents (with mock support)
-        if use_mock:
+
+        resolved_use_mock = use_mock_data
+        if resolved_use_mock is None:
+            resolved_use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
+
+        if resolved_use_mock:
             try:
-                from tests.mock_agents import MockSoftwareInventoryAgent, MockOSInventoryAgent
+                from tests.mock_agents import (  # type: ignore import-not-found
+                    MockOSInventoryAgent,
+                    MockSoftwareInventoryAgent,
+                )
+
                 logger.info("🧪 Initializing EOL Orchestrator in MOCK MODE")
                 software_agent = MockSoftwareInventoryAgent()
                 os_agent = MockOSInventoryAgent()
-            except ImportError as e:
-                logger.warning(f"Failed to import mock agents: {e}. Falling back to real agents.")
+            except ImportError as exc:
+                logger.warning(
+                    "Failed to import mock agents (%s). Falling back to real agents.",
+                    exc,
+                )
                 software_agent = SoftwareInventoryAgent()
                 os_agent = OSInventoryAgent()
         else:
             software_agent = SoftwareInventoryAgent()
             os_agent = OSInventoryAgent()
 
-        # Initialize only essential agents for EOL analysis
-        self.agents = {
+        return {
             # Inventory agents
             "inventory": InventoryAgent(),
             "os_inventory": os_agent,
             "software_inventory": software_agent,
-            
             # EOL data sources (prioritized by reliability)
             "endoflife": EndOfLifeAgent(),
             "microsoft": MicrosoftEOLAgent(),
@@ -92,50 +219,59 @@ class EOLOrchestratorAgent:
             "azure_ai": AzureAIAgentEOLAgent(),
             "playwright": PlaywrightEOLAgent(),  # Web search fallback agent
         }
-        
-        # Agent routing map for efficient lookups
-        self.vendor_routing = {
-            # Microsoft ecosystem
-            "microsoft": ["windows", "office", "sql server", "iis", "visual studio", ".net", 
-                         "azure", "sharepoint", "exchange", "teams", "power bi", "dynamics"],
-            
-            # Red Hat ecosystem  
-            "redhat": ["red hat", "rhel", "centos", "fedora", "openshift", "ansible"],
-            
-            # Ubuntu ecosystem
-            "ubuntu": ["ubuntu", "canonical", "snap"],
-            
-            # Oracle ecosystem
-            "oracle": ["oracle", "java", "jdk", "jre", "openjdk", "mysql", "virtualbox",
-                      "solaris", "weblogic", "graalvm"],
-            
-            # VMware ecosystem
-            "vmware": ["vmware", "vsphere", "esxi", "vcenter", "workstation", "fusion",
-                      "nsx", "vsan", "vrealize", "horizon", "tanzu"],
-            
-            # Apache ecosystem
-            "apache": ["apache", "httpd", "tomcat", "kafka", "spark", "maven", "cassandra",
-                      "solr", "lucene", "struts", "camel", "activemq", "zookeeper"],
-            
-            # Node.js ecosystem
-            "nodejs": ["node", "nodejs", "npm", "yarn", "express", "react", "vue", "angular",
-                      "next", "gatsby", "electron", "typescript"],
-            
-            # PostgreSQL ecosystem
-            "postgresql": ["postgresql", "postgres", "postgis", "pgbouncer", "timescaledb"],
-            
-            # PHP ecosystem
-            "php": ["php", "composer", "laravel", "symfony", "drupal", "wordpress"],
-            
-            # Python ecosystem
-            "python": ["python", "pip", "django", "flask", "pandas", "numpy", "jupyter"]
-        }
-        
-        # Cache for EOL results (in-memory for session)
-        self.eol_cache = {}
-        self.cache_ttl = 3600  # 1 hour cache
-        
-        logger.info(f"🚀 Autonomous EOL Orchestrator initialized with {len(self.agents)} agents")
+
+    def _iter_unique_agents(self):
+        """Yield unique agent instances to avoid duplicate cleanup calls."""
+        seen: set[int] = set()
+        for agent in self.agents.values():
+            identity = id(agent)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            yield agent
+
+    async def _maybe_aclose_agent(self, agent: Any) -> None:
+        """Gracefully close an agent if it exposes close semantics."""
+        try:
+            close_coro = getattr(agent, "aclose", None)
+            if callable(close_coro):
+                await close_coro()  # type: ignore[misc]
+                return
+
+            close_method = getattr(agent, "close", None)
+            if callable(close_method):
+                result = close_method()
+                if asyncio.iscoroutine(result):
+                    await result
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug(
+                "Ignored error while closing agent %s: %s",
+                type(agent).__name__,
+                exc,
+            )
+
+    async def aclose(self) -> None:
+        """Release orchestrator resources and owned agent instances."""
+        async with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+
+        if not self._owns_agents:
+            logger.debug("EOL orchestrator did not create provided agents; skipping close")
+            return
+
+        close_coroutines = [self._maybe_aclose_agent(agent) for agent in self._iter_unique_agents()]
+        if close_coroutines:
+            await asyncio.gather(*close_coroutines, return_exceptions=True)
+
+        logger.info("🧹 EOL orchestrator resources released")
+
+    async def __aenter__(self) -> "EOLOrchestratorAgent":
+        return self
+
+    async def __aexit__(self, exc_type, exc, exc_tb) -> None:
+        await self.aclose()
         
     async def log_communication(self, agent_name: str, action: str, data: Dict[str, Any], result: Optional[Dict[str, Any]] = None):
         """Log agent communication (in-memory only; Cosmos removed)"""
@@ -653,7 +789,7 @@ class EOLOrchestratorAgent:
     async def get_software_inventory(self, days=90, include_eol=True, use_cache=True):
         """Legacy method for backward compatibility"""
         software_agent = self.agents["software_inventory"]
-        return await software_agent.get_software_inventory(days=days)
+        return await software_agent.get_software_inventory(days=days, use_cache=use_cache)
 
     async def health_check(self):
         """Quick health check for the orchestrator and its agents"""

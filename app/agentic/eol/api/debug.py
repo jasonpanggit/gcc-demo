@@ -5,7 +5,7 @@ This module provides endpoints for debugging, testing, validation, and diagnosti
 of the EOL application components, including notifications management.
 
 Features:
-- Tool selection debugging for AutoGen chat
+- Tool selection debugging for the Microsoft inventory assistant orchestrator
 - Logging functionality testing
 - Cosmos DB connection testing
 - Comprehensive cache system validation
@@ -14,7 +14,7 @@ Features:
 - Environment variable checks
 
 Endpoints:
-    POST /api/debug_tool_selection - Debug AutoGen tool selection logic
+    POST /api/debug_tool_selection - Debug inventory assistant tool selection logic
     GET  /api/test-logging - Test logging functionality
     GET  /api/cosmos/test - Test Cosmos DB connection
     GET  /api/validate-cache - Comprehensive cache system validation
@@ -48,9 +48,9 @@ class DebugRequest(BaseModel):
 @readonly_endpoint(agent_name="debug_tool_selection", timeout_seconds=15)
 async def debug_tool_selection(request: DebugRequest):
     """
-    Debug endpoint to test tool selection logic for AutoGen chat.
+    Debug endpoint to test tool selection logic for the Microsoft inventory assistant orchestrator.
     
-    Tests the pattern matching and tool selection logic used by the chat orchestrator
+    Tests the pattern matching and tool selection logic used by the inventory assistant orchestrator
     to determine which functions to call based on user queries. Useful for debugging
     and improving tool selection accuracy.
     
@@ -191,9 +191,9 @@ async def test_logging():
     logger.warning(f"🧪 MAIN-WARNING Test Log [{test_id}] - {timestamp}")
     logger.error(f"🧪 MAIN-ERROR Test Log [{test_id}] - {timestamp}")
     
-    # Test Chat orchestrator logging if available
+    # Test inventory assistant orchestrator logging if available
     # EOL interface uses only regular orchestrator
-    autogen_test_result = None
+    inventory_asst_test_result = None
     
     # Force flush for Azure
     if os.environ.get('WEBSITE_SITE_NAME'):
@@ -210,7 +210,7 @@ async def test_logging():
             "level": logger.level,
             "handler_count": len(logger.handlers)
         },
-        "autogen_test": autogen_test_result,
+        "inventory_assistant_test": inventory_asst_test_result,
         "message": f"Logging test completed. Check Azure App Service logs for messages with ID [{test_id}]"
     }
     
@@ -460,8 +460,7 @@ async def validate_cache_system():
         ('endoflife_agent', 'EndOfLifeAgent'),
         ('ubuntu_agent', 'UbuntuEOLAgent'),
         ('redhat_agent', 'RedHatEOLAgent'),
-        ('azure_ai_agent', 'AzureAIAgentEOLAgent'),
-        ('websurfer_agent', 'WebsurferEOLAgent')
+        ('azure_ai_agent', 'AzureAIAgentEOLAgent')
     ]
     
     working_agents = 0

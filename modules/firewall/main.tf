@@ -548,9 +548,9 @@ resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_agentic_rules"
       ]
     }
 
-    # AutoGen dependencies - GitHub and NPM repositories
+    # Agent Framework dependencies - GitHub and NPM repositories
     rule {
-      name = "autogen-deps"
+      name = "agent-framework-deps"
       protocols {
         type = "Https"
         port = 443
@@ -1252,9 +1252,9 @@ resource "azurerm_firewall_policy_rule_collection_group" "afwprcg_agentic_egress
       ]
     }
 
-    # Development Dependencies
+    # Agent Framework development dependencies
     rule {
-      name = "autogen-deps"
+      name = "agent-framework-deps"
       protocols {
         type = "Https"
         port = 443

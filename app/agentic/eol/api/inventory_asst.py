@@ -1,27 +1,28 @@
 """
-Chat/AutoGen API Module
+Inventory Assistant API Module (Microsoft Agent Framework)
 
-This module provides AI-powered conversational endpoints using AutoGen's
-multi-agent orchestration system. Enables natural language interaction with
-the EOL analysis system through intelligent agent coordination.
+Provides conversational endpoints backed by the Microsoft Agent Framework
+preview orchestrator. Natural language requests are routed through the modern
+`InventoryAssistantOrchestrator`, delivering inventory-aware responses with
+full transparency for the UI.
 
 Key Features:
-    - Multi-agent conversation orchestration
-    - Confirmation workflows for complex operations
+    - Microsoft Agent Framework powered orchestration
+    - Confirmation workflows for potentially destructive tasks
     - Full conversation transparency and history
     - Inventory-grounded responses
     - Timeout management and error handling
 
 Endpoints:
-    POST /api/autogen-chat - Main AutoGen chat endpoint with agent orchestration
+    POST /api/inventory-assistant - Main inventory assistant endpoint
 
 Dependencies:
-    - AutoGen agents.chat_orchestrator module
+    - agents.inventory_asst_orchestrator.InventoryAssistantOrchestrator
     - EOL orchestrator for inventory context
     - FastAPI async support
 
 Author: GitHub Copilot
-Date: October 2025
+Date: November 2025
 """
 
 import asyncio
@@ -38,25 +39,24 @@ from utils.config import config
 # Initialize logger
 logger = get_logger(__name__)
 
-# Create router for chat endpoints
-router = APIRouter(tags=["AI Chat & Conversation"])
+# Create router for inventory assistant endpoints
+router = APIRouter(tags=["AI Inventory Assistant"])
 
 
 # ============================================================================
 # PYDANTIC MODELS
 # ============================================================================
 
-class AutoGenChatRequest(BaseModel):
-    """Request model for AutoGen chat endpoint"""
+class InventoryAssistantRequest(BaseModel):
+    """Request model for the inventory assistant endpoint"""
     message: str
-    use_autogen: Optional[bool] = True
     confirmed: Optional[bool] = False
     original_message: Optional[str] = None
     timeout_seconds: Optional[int] = 150  # Default 150 seconds timeout
 
 
-class AutoGenChatResponse(BaseModel):
-    """Response model for AutoGen chat with full conversation transparency"""
+class InventoryAssistantResponse(BaseModel):
+    """Response model for the inventory assistant with full conversation transparency"""
     response: str
     conversation_messages: List[dict]
     agent_communications: List[dict]
@@ -74,12 +74,12 @@ class AutoGenChatResponse(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_chat_orchestrator():
+def _get_inventory_asst_orchestrator():
     """Lazy import to avoid circular dependency"""
-    from main import get_chat_orchestrator, CHAT_AVAILABLE
-    if not CHAT_AVAILABLE:
+    from main import get_inventory_asst_orchestrator, INVENTORY_ASST_AVAILABLE
+    if not INVENTORY_ASST_AVAILABLE:
         return None
-    return get_chat_orchestrator()
+    return get_inventory_asst_orchestrator()
 
 
 def _get_eol_orchestrator():
@@ -118,9 +118,9 @@ _inventory_context_cache = {"data": None, "timestamp": None, "ttl": 300}
 
 async def _get_optimized_inventory_context() -> str:
     """
-    Get optimized inventory context for chat with caching and efficient processing.
+    Get optimized inventory context for the assistant with caching and efficient processing.
     
-    Provides a fast summary of inventory data suitable for chat context without
+    Provides a fast summary of inventory data suitable for assistant context without
     performing full EOL analysis. Uses 5-minute caching to improve performance.
     
     Returns:
@@ -149,7 +149,7 @@ async def _get_optimized_inventory_context() -> str:
         try:
             orchestrator = _get_eol_orchestrator()
             
-            # Use fast inventory summary for chat context (no EOL enrichment for speed)
+            # Use fast inventory summary for assistant context (no EOL enrichment for speed)
             inventory_summary = await asyncio.wait_for(
                 orchestrator.agents["inventory"].get_fast_inventory_summary(),
                 timeout=15.0
@@ -238,7 +238,7 @@ async def _get_optimized_inventory_context() -> str:
 
 async def _get_inventory_context() -> str:
     """
-    Get detailed inventory context for chat with full EOL risk analysis.
+    Get detailed inventory context for the assistant with full EOL risk analysis.
     
     Performs comprehensive EOL risk analysis on inventory data. More expensive
     than _get_optimized_inventory_context() but provides detailed risk breakdown.
@@ -280,29 +280,28 @@ KEY RECOMMENDATIONS:
 
 
 # ============================================================================
-# CHAT ENDPOINTS
+# INVENTORY ASSISTANT ENDPOINTS
 # ============================================================================
 
-@router.post("/api/autogen-chat", response_model=AutoGenChatResponse)
+@router.post("/api/inventory-assistant", response_model=InventoryAssistantResponse)
 @with_timeout_and_stats(
-    agent_name="autogen_chat",
+    agent_name="inventory_assistant",
     timeout_seconds=180,  # 3 minutes for complex multi-agent conversations
-    track_cache=False,  # Don't track cache stats for chat
-    auto_wrap_response=False  # Use custom AutoGenChatResponse model
+    track_cache=False,  # Don't track cache stats for conversations
+    auto_wrap_response=False  # Use custom InventoryAssistantResponse model
 )
-async def autogen_chat(req: AutoGenChatRequest):
+async def inventory_assistant_conversation(req: InventoryAssistantRequest):
     """
-    AutoGen-powered multi-agent conversation endpoint.
-    
-    Enables transparent agent-to-agent communication for inventory and EOL analysis
-    using AutoGen's multi-agent orchestration. Supports confirmation workflows for
+    Microsoft Agent Framework powered conversation endpoint.
+
+    Enables transparent, inventory-aware responses powered by the
+    `InventoryAssistantOrchestrator`. Supports confirmation workflows for
     complex operations and provides full conversation transparency.
     
-    The endpoint orchestrates multiple specialized agents:
-    - OSInventoryAnalyst: Discovers and analyzes operating systems
-    - SoftwareInventoryAnalyst: Discovers and analyzes software installations
-    - Microsoft/Python/NodeJS/etc EOL Specialists: Check EOL dates for specific technologies
-    - WebSurfer: Performs web searches for EOL information
+    The endpoint combines several signals to ground responses:
+    - Azure Log Analytics inventory summaries for OS and software coverage
+    - EOL risk insights from the core orchestrator
+    - Azure service configuration indicators for troubleshooting context
     
     Features:
     - **Natural Language**: Accepts conversational queries about inventory and EOL
@@ -312,16 +311,16 @@ async def autogen_chat(req: AutoGenChatRequest):
     - **Error Handling**: Graceful degradation with helpful error messages
     
     Args:
-        req: AutoGenChatRequest containing:
+        req: InventoryAssistantRequest containing:
             - message: Natural language query or command
             - timeout_seconds: Max time for operation (default: 150s)
             - confirmed: Whether user confirmed a previous operation
             - original_message: Original message if this is a confirmation response
     
     Returns:
-        AutoGenChatResponse with:
+        InventoryAssistantResponse with:
             - response: Human-readable response text
-            - conversation_messages: Full AutoGen conversation history
+            - conversation_messages: Full Agent Framework conversation history
             - agent_communications: Inter-agent communication log
             - agents_involved: List of agents that participated
             - total_exchanges: Number of agent-to-agent exchanges
@@ -330,7 +329,7 @@ async def autogen_chat(req: AutoGenChatRequest):
             - error: Error message if operation failed
     
     Raises:
-        HTTPException: 503 if chat orchestrator unavailable
+        HTTPException: 503 if inventory assistant orchestrator unavailable
         HTTPException: 408 if operation times out
     
     Example Request:
@@ -346,31 +345,37 @@ async def autogen_chat(req: AutoGenChatRequest):
             "agent_communications": [...],
             "agents_involved": ["OSInventoryAnalyst", "MicrosoftEOLSpecialist"],
             "total_exchanges": 12,
-            "session_id": "chat_20251015_143022_abc123"
+            "session_id": "inventory_assistant_20251015_143022_abc123"
         }
     
     Note:
-        This endpoint uses a custom response model (AutoGenChatResponse) rather than
+        This endpoint uses a custom response model (InventoryAssistantResponse) rather than
         StandardResponse to support detailed conversation tracking and agent transparency.
     """
-    # Check if chat orchestrator is available
-    from main import CHAT_AVAILABLE
+    # Check if inventory assistant orchestrator is available
+    from main import INVENTORY_ASST_AVAILABLE
     
-    if not CHAT_AVAILABLE:
+    if not INVENTORY_ASST_AVAILABLE:
         raise HTTPException(
-            status_code=503, 
-            detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
+            status_code=503,
+            detail="Inventory assistant orchestrator is not available. Multi-agent inventory assistant functionality requires the inventory_asst_orchestrator module."
         )
     
-    # Get the chat orchestrator instance
-    chat_orch = _get_chat_orchestrator()
-    if chat_orch is None:
+    # Get the inventory assistant orchestrator instance
+    assistant_orchestrator = _get_inventory_asst_orchestrator()
+    if assistant_orchestrator is None:
         raise HTTPException(
             status_code=503, 
-            detail="Chat orchestrator is not available. Multi-agent chat functionality requires the chat_orchestrator module."
+            detail="Inventory assistant orchestrator is not available. Multi-agent inventory assistant functionality requires the inventory_asst_orchestrator module."
         )
     
-    logger.info(f"🤖 AutoGen Chat Request: {req.message[:100]}... (timeout: {req.timeout_seconds}s)")
+    logger.info(f"🤖 Agent Framework Inventory Assistant Request: {req.message[:100]}... (timeout: {req.timeout_seconds}s)")
+
+    if req.timeout_seconds is not None and req.timeout_seconds <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="timeout_seconds must be a positive integer"
+        )
     
     # Start multi-agent conversation with confirmation support and timeout
     # Use the minimum of the FastAPI timeout (3 minutes) and the requested timeout
@@ -378,7 +383,7 @@ async def autogen_chat(req: AutoGenChatRequest):
     
     try:
         result = await asyncio.wait_for(
-            chat_orch.chat_with_confirmation(
+            assistant_orchestrator.respond_with_confirmation(
                 req.message, 
                 confirmed=req.confirmed or False,
                 original_message=req.original_message,
@@ -387,17 +392,17 @@ async def autogen_chat(req: AutoGenChatRequest):
             timeout=effective_timeout + 10  # Add buffer for FastAPI timeout
         )
     except asyncio.TimeoutError:
-        logger.error(f"❌ AutoGen Chat Timeout after {effective_timeout}s")
+        logger.error(f"❌ Inventory assistant timeout after {effective_timeout}s")
         raise HTTPException(
             status_code=408,
-            detail=f"Chat operation timed out after {effective_timeout} seconds. Try a more specific query or increase timeout."
+            detail=f"Inventory assistant operation timed out after {effective_timeout} seconds. Try a more specific query or increase timeout."
         )
 
     # Ensure all data is JSON serializable and limit size to prevent parsing issues
     cleaned_result = clean_for_json(result)
     
     # Return full conversation transparency with increased limits for inventory data
-    response = AutoGenChatResponse(
+    response = InventoryAssistantResponse(
         response=cleaned_result.get("response", "No response generated")[:100000],  # Increased limit for large inventories
         conversation_messages=cleaned_result.get("conversation_messages", [])[:200],  # Increased message count
         agent_communications=cleaned_result.get("agent_communications", [])[-100:],  # Last 100 communications
@@ -411,7 +416,9 @@ async def autogen_chat(req: AutoGenChatRequest):
         fast_path=cleaned_result.get("fast_path", False)
     )
     
-    logger.info(f"✅ AutoGen Chat Complete - Agents: {response.agents_involved}, Exchanges: {response.total_exchanges}")
+    logger.info(
+        f"✅ Inventory assistant complete - Agents: {response.agents_involved}, Exchanges: {response.total_exchanges}"
+    )
     logger.info(f"[DEBUG] Agent communications count: {len(response.agent_communications)}")
     logger.info(f"[DEBUG] Raw agents_involved from result: {cleaned_result.get('agents_involved', [])}")
     if response.agent_communications:
@@ -424,4 +431,4 @@ async def autogen_chat(req: AutoGenChatRequest):
     return response
 
 
-# Chat API module complete - single powerful endpoint for multi-agent conversations
+# Inventory assistant API module complete - single powerful endpoint for multi-agent conversations

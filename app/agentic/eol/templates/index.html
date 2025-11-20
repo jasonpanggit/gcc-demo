@@ -199,7 +199,7 @@
                     Intelligent cloud management platform powered by autonomous AI agents and Azure MCP Server. 
                     Orchestrate multi-agent workflows for end-of-life analysis, inventory management, Azure resource 
                     operations, and comprehensive cloud insights through an advanced agentic architecture.<br/>
-                    Built on Azure App Service, Cosmos DB, FastAPI, and Azure OpenAI with Autogen Framework. 
+                    Built on Azure App Service, Cosmos DB, FastAPI, and Azure OpenAI with the Microsoft Agent Framework preview. 
                     Features direct Azure resource access via Model Context Protocol (MCP), real-time inventory 
                     from Log Analytics Workspace, and autonomous reasoning capabilities.
                 </p>
@@ -213,7 +213,7 @@
                     <a href="/inventory" class="btn btn-outline-light">
                         <i class="fas fa-list-ul me-2"></i>OS & Software Inventory
                     </a>
-                    <a href="/chat" class="btn btn-outline-light">
+                    <a href="/inventory-assistant" class="btn btn-outline-light">
                         <i class="fas fa-robot me-2"></i>Inventory Assistant
                     </a>
                 </div>
@@ -233,7 +233,7 @@
         <div class="stat-label">Cached Items</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value" id="dash-autogen-sessions">—</div>
+        <div class="stat-value" id="dash-chat-sessions">—</div>
         <div class="stat-label">AI Sessions</div>
     </div>
     <div class="stat-card">
@@ -323,7 +323,7 @@
             Intelligent EOL and inventory analysis powered by multi-agent workflows. 
             Query software lifecycle data, identify compliance risks, and get automated recommendations.
         </p>
-        <a href="/chat" class="feature-link">
+        <a href="/inventory-assistant" class="feature-link">
             Open Assistant <i class="fas fa-arrow-right"></i>
         </a>
     </div>
@@ -494,7 +494,7 @@
     }
 
     function showLoadingState() {
-        const loadingElements = ['dash-active-agents', 'dash-total-cache', 'dash-autogen-sessions', 'dash-cosmos-items'];
+        const loadingElements = ['dash-active-agents', 'dash-total-cache', 'dash-chat-sessions', 'dash-cosmos-items'];
         loadingElements.forEach(id => {
             const element = document.getElementById(id);
             if (element) element.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -502,7 +502,7 @@
     }
 
     function showErrorState() {
-        const errorElements = ['dash-active-agents', 'dash-total-cache', 'dash-autogen-sessions', 'dash-cosmos-items'];
+        const errorElements = ['dash-active-agents', 'dash-total-cache', 'dash-chat-sessions', 'dash-cosmos-items'];
         errorElements.forEach(id => {
             const element = document.getElementById(id);
             if (element) element.textContent = '—';
@@ -554,7 +554,7 @@
         if (enhancedData && enhancedData.performance_summary) {
             sessions = enhancedData.performance_summary.total_requests || 0;
         }
-        document.getElementById('dash-autogen-sessions').textContent = sessions;
+        document.getElementById('dash-chat-sessions').textContent = sessions;
 
         // Database items - get from enhanced stats cosmos total requests
         let cosmosItems = 0;

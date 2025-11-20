@@ -44051,6 +44051,534 @@
           ]
         }
       ]
+    },
+    {
+      "slug": "law-get-os-inventory",
+      "display_name": "Log Analytics · OS inventory",
+      "category": "Inventory Insights",
+      "namespace": "law_get_os_inventory",
+      "description": "Retrieve operating system inventory records from Azure Log Analytics Heartbeat, including environment and resource identifiers.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/agents/data-sources-heartbeat",
+      "examples": [
+        {
+          "label": "Last 30 days of OS inventory",
+          "prompt": "Use law_get_os_inventory to list operating systems seen in the last 30 days with limit 1000.",
+          "original_prompt": "Use law_get_os_inventory to list operating systems seen in the last 30 days with limit 1000."
+        },
+        {
+          "label": "Full inventory without cache",
+          "prompt": "Run law_get_os_inventory for 120 days with caching disabled to refresh the dataset.",
+          "original_prompt": "Run law_get_os_inventory for 120 days with caching disabled to refresh the dataset."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Limit",
+          "required": false,
+          "description": "Maximum number of rows to return (default 2000, null for all)."
+        },
+        {
+          "name": "Use cache",
+          "required": false,
+          "description": "Set to false to force a fresh Log Analytics query."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Query OS inventory",
+          "description": "Loads raw operating system inventory from Heartbeat, including computer type and environment classification.",
+          "examples": [
+            {
+              "label": "Arc-enabled servers",
+              "prompt": "Call law_get_os_inventory for the past 60 days to review Arc-enabled server operating systems.",
+              "original_prompt": "Call law_get_os_inventory for the past 60 days to review Arc-enabled server operating systems."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "limit",
+              "required": false,
+              "description": "Maximum number of rows to return (default 2000, null for all)."
+            },
+            {
+              "name": "use_cache",
+              "required": false,
+              "description": "When false, bypasses cached inventory to force a live query."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-os-summary",
+      "display_name": "Log Analytics · OS summary",
+      "category": "Inventory Insights",
+      "namespace": "law_get_os_summary",
+      "description": "Summarize operating system coverage from Log Analytics by name, version, and platform type.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/agents/data-sources-heartbeat",
+      "examples": [
+        {
+          "label": "Windows vs Linux break down",
+          "prompt": "Summarize operating systems from the past 45 days with law_get_os_summary.",
+          "original_prompt": "Summarize operating systems from the past 45 days with law_get_os_summary."
+        },
+        {
+          "label": "Inventory freshness",
+          "prompt": "Use law_get_os_summary with days set to 7 to confirm recent heartbeat coverage.",
+          "original_prompt": "Use law_get_os_summary with days set to 7 to confirm recent heartbeat coverage."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Summarize OS inventory",
+          "description": "Aggregates OS inventory counts by platform and version for quick reporting.",
+          "examples": [
+            {
+              "label": "Top operating systems",
+              "prompt": "Run law_get_os_summary for 90 days to list the most common operating systems in the workspace.",
+              "original_prompt": "Run law_get_os_summary for 90 days to list the most common operating systems in the workspace."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-os-environment-breakdown",
+      "display_name": "Log Analytics · OS environment breakdown",
+      "category": "Inventory Insights",
+      "namespace": "law_get_os_environment_breakdown",
+      "description": "Group operating systems by environment (Azure, Arc, on-premises) and computer type using Heartbeat data.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-arc/servers/overview",
+      "examples": [
+        {
+          "label": "Environment summary",
+          "prompt": "Use law_get_os_environment_breakdown to compare Azure VM and Arc-enabled server counts for the past 60 days.",
+          "original_prompt": "Use law_get_os_environment_breakdown to compare Azure VM and Arc-enabled server counts for the past 60 days."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Top",
+          "required": false,
+          "description": "Optional cap on rows returned (default all)."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Summarize by environment",
+          "description": "Counts unique computers per environment and computer type with last heartbeat timestamps.",
+          "examples": [
+            {
+              "label": "Recent Arc inventory",
+              "prompt": "Call law_get_os_environment_breakdown for 30 days with top 5 rows to highlight Arc-enabled coverage.",
+              "original_prompt": "Call law_get_os_environment_breakdown for 30 days with top 5 rows to highlight Arc-enabled coverage."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "top",
+              "required": false,
+              "description": "Optional cap on rows returned (default all)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-os-vendor-summary",
+      "display_name": "Log Analytics · OS vendor summary",
+      "category": "Inventory Insights",
+      "namespace": "law_get_os_vendor_summary",
+      "description": "Summarize operating systems by detected vendor and OS type to spotlight Microsoft, Linux, or other platforms.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/agents/data-sources-heartbeat",
+      "examples": [
+        {
+          "label": "Vendor mix",
+          "prompt": "Run law_get_os_vendor_summary for 180 days to understand vendor distribution.",
+          "original_prompt": "Run law_get_os_vendor_summary for 180 days to understand vendor distribution."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Top",
+          "required": false,
+          "description": "Optional cap on rows returned (default all)."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Summarize by vendor",
+          "description": "Aggregates OS inventory counts by vendor and OS type with sample OS names.",
+          "examples": [
+            {
+              "label": "Highlight top vendors",
+              "prompt": "Call law_get_os_vendor_summary for the past 90 days and limit results to the top 10 vendors.",
+              "original_prompt": "Call law_get_os_vendor_summary for the past 90 days and limit results to the top 10 vendors."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "top",
+              "required": false,
+              "description": "Optional cap on rows returned (default all)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-software-inventory",
+      "display_name": "Log Analytics · Software inventory",
+      "category": "Inventory Insights",
+      "namespace": "law_get_software_inventory",
+      "description": "Load software inventory records from the ConfigurationData table, including publisher and last seen timestamps.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/configurationdata",
+      "examples": [
+        {
+          "label": "Filter by software name",
+          "prompt": "Query law_get_software_inventory for the past 90 days filtering on 'SQL Server'.",
+          "original_prompt": "Query law_get_software_inventory for the past 90 days filtering on 'SQL Server'."
+        },
+        {
+          "label": "Inventory by computer",
+          "prompt": "Use law_get_software_inventory to list software installed on WIN-P3OD2Q85TKG.",
+          "original_prompt": "Use law_get_software_inventory to list software installed on WIN-P3OD2Q85TKG."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Software filter",
+          "required": false,
+          "description": "Optional substring filter applied to the software name."
+        },
+        {
+          "name": "Computer filter",
+          "required": false,
+          "description": "Optional exact computer name filter."
+        },
+        {
+          "name": "Limit",
+          "required": false,
+          "description": "Maximum number of rows to return (default 10000, null for all)."
+        },
+        {
+          "name": "Use cache",
+          "required": false,
+          "description": "Set to false to bypass cached inventory results."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Query software inventory",
+          "description": "Retrieves software installations with publisher, version, and last seen information from Log Analytics.",
+          "examples": [
+            {
+              "label": "Non-cached refresh",
+              "prompt": "Call law_get_software_inventory for 30 days with use_cache set to false for a current snapshot.",
+              "original_prompt": "Call law_get_software_inventory for 30 days with use_cache set to false for a current snapshot."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "software_filter",
+              "required": false,
+              "description": "Optional substring filter applied to the software name."
+            },
+            {
+              "name": "computer_filter",
+              "required": false,
+              "description": "Optional exact computer name filter."
+            },
+            {
+              "name": "limit",
+              "required": false,
+              "description": "Maximum number of rows to return (default 10000, null for all)."
+            },
+            {
+              "name": "use_cache",
+              "required": false,
+              "description": "When false, bypasses cached inventory to force a live query."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-software-publisher-summary",
+      "display_name": "Log Analytics · Software publisher summary",
+      "category": "Inventory Insights",
+      "namespace": "law_get_software_publisher_summary",
+      "description": "Summarize software installations by normalized publisher using ConfigurationData.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/configurationdata",
+      "examples": [
+        {
+          "label": "Top publishers",
+          "prompt": "Run law_get_software_publisher_summary for 60 days to view leading publishers by installation count.",
+          "original_prompt": "Run law_get_software_publisher_summary for 60 days to view leading publishers by installation count."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Top",
+          "required": false,
+          "description": "Maximum number of publishers to return (default 25)."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Summarize software publishers",
+          "description": "Counts installations per publisher and highlights unique software titles and last seen timestamps.",
+          "examples": [
+            {
+              "label": "License focus",
+              "prompt": "Call law_get_software_publisher_summary with top set to 15 to focus on major vendors.",
+              "original_prompt": "Call law_get_software_publisher_summary with top set to 15 to focus on major vendors."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "top",
+              "required": false,
+              "description": "Maximum number of publishers to return (default 25)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "law-get-top-software-packages",
+      "display_name": "Log Analytics · Top software packages",
+      "category": "Inventory Insights",
+      "namespace": "law_get_top_software_packages",
+      "description": "Identify the most common software packages across computers, optionally grouped by version.",
+      "doc_url": "https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/configurationdata",
+      "examples": [
+        {
+          "label": "Include version detail",
+          "prompt": "Use law_get_top_software_packages with include_versions true to highlight the most installed builds.",
+          "original_prompt": "Use law_get_top_software_packages with include_versions true to highlight the most installed builds."
+        },
+        {
+          "label": "Aggregate across versions",
+          "prompt": "Call law_get_top_software_packages with include_versions false to combine installations by product name only.",
+          "original_prompt": "Call law_get_top_software_packages with include_versions false to combine installations by product name only."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Days",
+          "required": false,
+          "description": "Lookback window in days (default 90)."
+        },
+        {
+          "name": "Top",
+          "required": false,
+          "description": "Maximum number of packages to return (default 50)."
+        },
+        {
+          "name": "Include versions",
+          "required": false,
+          "description": "Set to false to aggregate installations across all versions of each product."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Rank software packages",
+          "description": "Ranks software packages by installation counts with optional version detail and publisher list.",
+          "examples": [
+            {
+              "label": "Security audit",
+              "prompt": "Run law_get_top_software_packages for 30 days with top 25 to support a security audit.",
+              "original_prompt": "Run law_get_top_software_packages for 30 days with top 25 to support a security audit."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "days",
+              "required": false,
+              "description": "Lookback window in days (default 90)."
+            },
+            {
+              "name": "top",
+              "required": false,
+              "description": "Maximum number of packages to return (default 50)."
+            },
+            {
+              "name": "include_versions",
+              "required": false,
+              "description": "Set to false to aggregate installations across all versions of each product."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "os-eol-lookup",
+      "display_name": "EOL · Operating system lookup",
+      "category": "End of Life",
+      "namespace": "os_eol_lookup",
+      "description": "Retrieve end-of-life milestones for a specific operating system using the EOL orchestrator.",
+      "doc_url": "https://aka.ms/eol-solution",
+      "examples": [
+        {
+          "label": "Single operating system",
+          "prompt": "Use os_eol_lookup for Windows Server 2016 to confirm end of support dates.",
+          "original_prompt": "Use os_eol_lookup for Windows Server 2016 to confirm end of support dates."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "OS name",
+          "required": true,
+          "description": "Operating system name such as 'Windows Server 2016'."
+        },
+        {
+          "name": "OS version",
+          "required": false,
+          "description": "Optional operating system version string."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Lookup OS end-of-life",
+          "description": "Returns lifecycle milestones, support phases, and migration guidance for a single OS.",
+          "examples": [
+            {
+              "label": "Linux distribution",
+              "prompt": "Call os_eol_lookup for Ubuntu 18.04 LTS to check support timelines.",
+              "original_prompt": "Call os_eol_lookup for Ubuntu 18.04 LTS to check support timelines."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "os_name",
+              "required": true,
+              "description": "Operating system name such as 'Windows Server 2016'."
+            },
+            {
+              "name": "os_version",
+              "required": false,
+              "description": "Optional operating system version string."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "os-eol-bulk-lookup",
+      "display_name": "EOL · Bulk OS lookup",
+      "category": "End of Life",
+      "namespace": "os_eol_bulk_lookup",
+      "description": "Perform end-of-life lookups for multiple operating systems in a single request with concurrency control.",
+      "doc_url": "https://aka.ms/eol-solution",
+      "examples": [
+        {
+          "label": "Bulk lifecycle assessment",
+          "prompt": "Run os_eol_bulk_lookup for Windows Server 2012 R2 and Windows Server 2016 to compare lifecycle states.",
+          "original_prompt": "Run os_eol_bulk_lookup for Windows Server 2012 R2 and Windows Server 2016 to compare lifecycle states."
+        }
+      ],
+      "parameters": [
+        {
+          "name": "Items",
+          "required": true,
+          "description": "List of operating system descriptors with name and optional version."
+        },
+        {
+          "name": "Concurrency",
+          "required": false,
+          "description": "Maximum concurrent lookups (default 5, max 10)."
+        }
+      ],
+      "operations": [
+        {
+          "title": "Bulk OS end-of-life lookup",
+          "description": "Processes multiple OS lifecycle lookups in parallel and returns structured results for each input.",
+          "examples": [
+            {
+              "label": "Arc fleet assessment",
+              "prompt": "Call os_eol_bulk_lookup with three Arc server OS versions to plan upgrades.",
+              "original_prompt": "Call os_eol_bulk_lookup with three Arc server OS versions to plan upgrades."
+            }
+          ],
+          "parameters": [
+            {
+              "name": "items",
+              "required": true,
+              "description": "Array of operating system descriptors including name, version, or alias."
+            },
+            {
+              "name": "concurrency",
+              "required": false,
+              "description": "Maximum concurrent lookups (default 5, max 10)."
+            }
+          ]
+        }
+      ]
     }
   ],
   "source": "https://learn.microsoft.com/en-us/azure/developer/azure-mcp-server/tools/"

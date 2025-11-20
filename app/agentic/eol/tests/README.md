@@ -1,6 +1,6 @@
 # Comprehensive Test Suite
 
-This directory contains a comprehensive pytest-based test suite for the EOL Multi-Agent App with **63 tests** covering all API endpoints and UI routes. Tests use mock data to run **without any Azure dependencies**.
+This directory contains a comprehensive pytest-based test suite for the EOL Agentic app with **122 automated tests** (including async coverage and orchestrator unit tests). The suite runs entirely against mock data, so no Azure resources are required.
 
 ## 📁 Test Infrastructure
 
@@ -13,19 +13,24 @@ This directory contains a comprehensive pytest-based test suite for the EOL Mult
 | `test_*.py` | 9 test modules covering all endpoint categories |
 | `TEST_RESULTS_SUMMARY.md` | Detailed test results and analysis |
 
-## 🧪 Test Modules (63 tests)
+## 🧪 Test Modules
 
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| `test_health_endpoints.py` | 5 | Health & status endpoints |
-| `test_inventory_endpoints.py` | 8 | Software & OS inventory |
-| `test_eol_search_endpoints.py` | 4 | EOL date search & analysis |
-| `test_cache_endpoints.py` | 15 | Cache management operations |
-| `test_alert_endpoints.py` | 6 | Alert configuration |
-| `test_agent_endpoints.py` | 5 | Agent management |
-| `test_cosmos_endpoints.py` | 7 | Cosmos DB operations |
-| `test_communication_endpoints.py` | 6 | Email & notifications |
-| `test_ui_endpoints.py` | 7 | HTML page rendering |
+| Module | Focus |
+|--------|-------|
+| `test_health_endpoints.py` | Platform and dependency health probes |
+| `test_inventory_endpoints.py` | Software & OS inventory APIs |
+| `test_eol_search_endpoints.py` | EOL risk analysis endpoints |
+| `test_cache_endpoints.py` | Cache CRUD and statistics APIs |
+| `test_cache_advanced_endpoints.py` | Advanced cache maintenance workflows |
+| `test_alert_endpoints.py` | Alert configuration & SMTP validation |
+| `test_agent_endpoints.py` | Agent lifecycle and configuration APIs |
+| `test_cosmos_endpoints.py` | Cosmos DB caching operations |
+| `test_communication_endpoints.py` | Email and notification history APIs |
+| `test_inventory_asst_endpoints.py` | Agent Framework inventory assistant orchestration APIs |
+| `test_azure_mcp_endpoints.py` | Azure MCP REST surfaces |
+| `test_mcp_orchestrator.py` | Dependency-injected MCP orchestrator behaviors |
+| `test_eol_orchestrator.py` | EOL orchestrator dependency injection & cleanup |
+| `test_ui_endpoints.py` | HTML routes and UI health |
 
 ## 🚀 Quick Start
 

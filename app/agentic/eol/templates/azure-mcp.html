@@ -10,7 +10,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fab fa-microsoft me-3"></i>Azure MCP Server
+                    <i class="fab fa-microsoft me-3"></i>Azure MCP Assistant
                 </h1>
                 <p class="hero-subtitle">
                     Explore and manage Azure resources through the Azure Agentic Platform using Model Context Protocol tooling.
@@ -73,14 +73,14 @@
         <div class="col-12 mb-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>MCP Chat Assistant</h5>
+                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Conversation</h5>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()">
                         <i class="fas fa-trash me-1"></i>Clear Chat
                     </button>
                 </div>
                 <div class="card-body" style="background-color: #f8f9fa;">
                     <!-- Chat History -->
-                    <div id="chat-history" class="chat-container mb-3" style="height: 400px; overflow-y: auto; background-color: white; border-radius: 8px; padding: 1rem;">
+                    <div id="chat-history" class="chat-container mb-3">
                         <div class="text-center text-muted py-5">
                             <i class="fas fa-robot fa-3x mb-3"></i>
                             <p>Ask me anything about your Azure resources!</p>
@@ -274,9 +274,68 @@
                 const status = data.data[0];
                 const isConnected = status.connection_status === 'connected';
 
-                const azureToolCount = runtimeAzureTools.length ? runtimeAzureTools.length : Number(status.available_tools_count) || 0;
+                const toolCounts = status.tool_counts || {};
+                const activeClients = Array.isArray(status.active_clients) ? status.active_clients : [];
+                const aggregatedToolCount = Object.values(toolCounts).reduce((total, value) => total + (typeof value === 'number' ? value : 0), 0) || Number(status.available_tools_count) || 0;
                 const documentedToolCount = metadataTools.length || 0;
-                const totalToolCount = azureToolCount + microsoftLearnTools.length;
+                const totalToolCount = aggregatedToolCount + microsoftLearnTools.length;
+
+                const friendlyNameFor = (key) => {
+                    if (!key) {
+                        return 'Unknown';
+                    }
+                    return mcpSourceDisplayNames[key] || key.replace(/_/g, ' ');
+                };
+
+                const countsForDisplay = (activeClients.length
+                    ? activeClients.map(label => [label, typeof toolCounts[label] === 'number' ? toolCounts[label] : 0])
+                    : Object.entries(toolCounts)
+                ).map(([label, count]) => ({
+                    key: label,
+                    label: friendlyNameFor(label),
+                    count: typeof count === 'number' ? count : 0,
+                })).sort((a, b) => a.label.localeCompare(b.label));
+
+                const activeClientEntries = [...new Set(activeClients)]
+                    .map(client => ({ key: client, label: friendlyNameFor(client) }))
+                    .sort((a, b) => a.label.localeCompare(b.label));
+
+                const serverList = countsForDisplay.length
+                    ? countsForDisplay.map(({ label, count }) => `
+                        <li class="d-flex justify-content-between align-items-center mb-1">
+                            <span>${label}</span>
+                            <span class="badge bg-secondary">${count} ${count === 1 ? 'tool' : 'tools'}</span>
+                        </li>
+                    `).join('')
+                    : '<li class="text-muted small mb-0">No MCP servers registered</li>';
+
+                const clientList = activeClientEntries.length
+                    ? activeClientEntries.map(({ label }) => `
+                        <li class="d-flex justify-content-between align-items-center mb-1">
+                            <span>${label}</span>
+                            <span class="badge bg-success">Active</span>
+                        </li>
+                    `).join('')
+                    : '<li class="text-muted small mb-0">No active clients</li>';
+
+                const toolMetrics = [
+                    { label: 'Agent-ready tools', value: aggregatedToolCount },
+                    { label: 'Microsoft Learn tools', value: microsoftLearnTools.length },
+                    {
+                        label: 'Documented tool metadata',
+                        value: documentedToolCount,
+                        href: 'https://learn.microsoft.com/en-us/azure/developer/azure-mcp-server/tools/'
+                    },
+                    { label: 'Total tools available', value: totalToolCount },
+                ];
+
+                const toolList = toolMetrics.map(({ label, value, href }) => `
+                    <li class="d-flex justify-content-between align-items-center mb-1">
+                        <span>${href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>` : label}</span>
+                        <span class="badge bg-primary">${value}</span>
+                    </li>
+                `).join('');
+
                 const lazyPendingTools = lazyLoadedToolMetadata.filter(tool => {
                     if (!tool || !tool.namespace) {
                         return false;
@@ -285,24 +344,52 @@
                 });
                 const lazyPendingCount = lazyPendingTools.length;
 
+                const lazyNote = lazyPendingCount
+                    ? `<div class="text-muted small mt-2"><i class="fas fa-clock me-1"></i>${lazyPendingCount} tools load on first use.</div>`
+                    : '';
+
                 container.innerHTML = `
-                    <div class="alert ${isConnected ? 'alert-success' : 'alert-warning'} mb-2">
-                        <h6><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>
-                            ${isConnected ? 'Connected to Azure MCP Server' : 'Disconnected'}
-                        </h6>
-                        <p class="mb-1">Azure MCP Server Tools: <strong>${azureToolCount}</strong></p>
-                        <p class="mb-1">Microsoft Learn MCP Server Tools: <strong>${microsoftLearnTools.length}</strong></p>
-                        <p class="mb-1">Documented Tool Metadata: <strong>${documentedToolCount}</strong></p>
-                        <p class="mb-0">Total Tools Available: <strong>${totalToolCount}</strong>${lazyPendingCount ? ` <span class="text-muted">(+${lazyPendingCount} loads on first use)</span>` : ''}</p>
-                    </div>
-                    <div class="alert ${isConnected ? 'alert-info' : 'alert-warning'} mb-0">
-                        <strong><i class="fas fa-terminal me-2"></i>Connection Mode:</strong> Stdio (npx)
-                        <br>
-                        <small class="text-muted">
-                            ${isConnected ? 
-                                '<i class="fas fa-check-circle me-1"></i>Azure MCP server running via npx subprocess with managed identity authentication' : 
-                                '<i class="fas fa-exclamation-triangle me-1"></i>MCP server is not responding. Check container logs or restart the application.'}
-                        </small>
+                    <div class="card shadow-sm mb-0">
+                        <div class="card-header d-flex justify-content-between align-items-center ${isConnected ? 'bg-success text-white' : 'bg-warning'}">
+                            <span><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>${isConnected ? 'Connected to Azure MCP Orchestrator' : 'Disconnected from Azure MCP Orchestrator'}</span>
+                            <span class="badge ${isConnected ? 'bg-light text-dark' : 'bg-dark text-white'}"><i class="fas fa-terminal me-1"></i>Stdio (npx)</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <h6 class="text-uppercase text-muted small mb-2"><i class="fas fa-server me-2"></i>MCP Servers</h6>
+                                        <ul class="list-unstyled mb-0">
+                                            ${serverList}
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <h6 class="text-uppercase text-muted small mb-2"><i class="fas fa-plug me-2"></i>Agent Clients</h6>
+                                        <ul class="list-unstyled mb-0">
+                                            ${clientList}
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="border rounded p-3 h-100">
+                                        <h6 class="text-uppercase text-muted small mb-2"><i class="fas fa-toolbox me-2"></i>Tool Catalog</h6>
+                                        <ul class="list-unstyled mb-0">
+                                            ${toolList}
+                                        </ul>
+                                        ${lazyNote}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pt-3 mt-3 border-top">
+                                <small class="text-muted">
+                                    ${isConnected ?
+                                        '<i class="fas fa-check-circle text-success me-1"></i>MCP orchestrator running via composite stdio clients.' :
+                                        '<i class="fas fa-exclamation-triangle text-warning me-1"></i>MCP orchestrator is not responding. Check server logs or restart the application.'}
+                                </small>
+                            </div>
+                        </div>
                     </div>
                 `;
             } else {
@@ -339,20 +426,47 @@
             let html = '';
             runtimeAzureTools = Array.isArray(data.data) ? data.data : [];
 
-            if (data.success && data.data && data.data.length > 0) {
-                html += '<h6 class="text-primary fw-semibold">Azure MCP Server Tools</h6>';
-                html += '<div class="list-group mb-3">';
-                data.data.forEach(tool => {
-                    html += `
-                        <div class="list-group-item">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1"><code>${tool.name}</code></h6>
+            const toolsBySource = {};
+            runtimeAzureTools.forEach(tool => {
+                const source = tool.source || 'azure';
+                if (!toolsBySource[source]) {
+                    toolsBySource[source] = [];
+                }
+                toolsBySource[source].push(tool);
+            });
+
+            const preferredOrder = ['azure', 'inventory', 'os_eol', 'azure_cli'];
+            const orderedSources = [
+                ...preferredOrder.filter(source => Array.isArray(toolsBySource[source]) && toolsBySource[source].length > 0),
+                ...Object.keys(toolsBySource).filter(source => !preferredOrder.includes(source) && toolsBySource[source].length > 0)
+            ];
+
+            if (data.success && orderedSources.length > 0) {
+                orderedSources.forEach(source => {
+                    const tools = toolsBySource[source] || [];
+                    if (!tools.length) {
+                        return;
+                    }
+                    const friendlySource = mcpSourceDisplayNames[source] || source;
+                    html += `<h6 class="fw-semibold ${source === 'azure' ? 'text-primary' : 'text-secondary'}">${friendlySource}</h6>`;
+                    html += '<div class="list-group mb-3">';
+                    tools.forEach(tool => {
+                        const originalName = tool.original_name && tool.original_name !== tool.name ? tool.original_name : null;
+                        html += `
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <h6 class="mb-1"><code>${tool.name}</code></h6>
+                                    <div class="d-flex gap-2">
+                                        ${originalName ? `<span class="badge bg-light text-dark">${escapeHtml(originalName)}</span>` : ''}
+                                        <span class="badge bg-secondary text-uppercase" style="font-size: 0.7rem;">${friendlySource}</span>
+                                    </div>
+                                </div>
+                                <p class="mb-1 text-muted small">${escapeHtml(tool.description || 'No description available')}</p>
                             </div>
-                            <p class="mb-1 text-muted small">${tool.description}</p>
-                        </div>
-                    `;
+                        `;
+                    });
+                    html += '</div>';
                 });
-                html += '</div>';
             } else {
                 html += '<div class="alert alert-warning">Azure MCP tools are currently unavailable.</div>';
             }
@@ -493,6 +607,13 @@
         { name: 'microsoft_learn.getModuleOutline', description: 'Retrieve the unit-by-unit outline for a Microsoft Learn module.' },
         { name: 'microsoft_learn.recommendContentForRole', description: 'Recommend Microsoft Learn content for a specific Azure job role and prerequisite knowledge.' }
     ];
+
+    const mcpSourceDisplayNames = {
+        azure: 'Azure MCP Server',
+        inventory: 'Log Analytics Inventory',
+        os_eol: 'Operating System EOL',
+        azure_cli: 'Azure CLI Executor',
+    };
 
     let runtimeAzureTools = [];
 
@@ -1121,8 +1242,7 @@
         const header = document.createElement('div');
         header.className = 'chat-message-header';
         header.style.color = textColor;
-        header.innerHTML = `${icon}${role.charAt(0).toUpperCase() + role.slice(1)}`;
-
+        header.innerHTML = `${icon}${role === 'user' ? 'You' : 'Assistant'}`;
         const body = document.createElement('div');
         body.className = 'chat-message-body';
         body.style.color = '#333';
@@ -1136,6 +1256,7 @@
         }
 
         body.innerHTML = html;
+        deduplicateSequentialContent(body);
 
         wrapper.appendChild(header);
         wrapper.appendChild(body);
@@ -1174,6 +1295,30 @@
         return template.innerHTML;
     }
 
+    function deduplicateSequentialContent(container) {
+        const normalise = value => value.replace(/\s+/g, ' ').trim();
+
+        let lastTableSignature = null;
+        container.querySelectorAll('table').forEach(table => {
+            const signature = normalise(table.textContent || '');
+            if (signature && signature === lastTableSignature) {
+                table.remove();
+            } else {
+                lastTableSignature = signature;
+            }
+        });
+
+        let lastParagraphSignature = null;
+        container.querySelectorAll('p').forEach(paragraph => {
+            const signature = normalise(paragraph.textContent || '');
+            if (signature && signature === lastParagraphSignature) {
+                paragraph.remove();
+            } else {
+                lastParagraphSignature = signature;
+            }
+        });
+    }
+
     function buildStructuredHtml(text) {
         const container = document.createElement('div');
         const lines = text.split('\n');
@@ -1184,30 +1329,6 @@
         const isListLine = (line) => {
             const trimmed = line.trim();
             return /^[-*+]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed);
-        };
-        const isTableStart = (position) => {
-            if (position + 2 >= lines.length) {
-                return false;
-            }
-            const header = lines[position];
-            const separator = lines[position + 1];
-            const firstRow = lines[position + 2];
-            if (!header || !separator || !firstRow) {
-                return false;
-            }
-            if (header.indexOf('|') === -1 || separator.indexOf('|') === -1 || firstRow.indexOf('|') === -1) {
-                return false;
-            }
-            const headers = header.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()).filter(Boolean);
-            if (!headers.length) {
-                return false;
-            }
-            const separatorValid = separator.replace(/^\||\|$/g, '').split('|').every(cell => /^[-:\s]*$/.test(cell.trim()));
-            if (!separatorValid) {
-                return false;
-            }
-            const rowCells = firstRow.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()).filter(Boolean);
-            return rowCells.length > 0;
         };
         const isSpecialBlockStart = (position) => {
             if (position >= lines.length) {
@@ -1222,9 +1343,6 @@
                 return true;
             }
             if (isMetadataHeader(trimmed)) {
-                return true;
-            }
-            if (isTableStart(position)) {
                 return true;
             }
             return isListLine(trimmed);
@@ -1339,89 +1457,6 @@
             return { node: wrapper, nextIndex: idx };
         };
 
-        const parseMarkdownTableBlock = (startIndex) => {
-            if (!isTableStart(startIndex)) {
-                return null;
-            }
-
-            let idx = startIndex;
-            const tableLines = [];
-
-            while (idx < lines.length) {
-                const current = lines[idx];
-                if (!current.trim()) {
-                    break;
-                }
-                if (current.indexOf('|') === -1) {
-                    break;
-                }
-                tableLines.push(current);
-                idx++;
-            }
-
-            if (tableLines.length < 3) {
-                return null;
-            }
-
-            const headers = tableLines[0]
-                .replace(/^\||\|$/g, '')
-                .split('|')
-                .map(cell => cell.trim())
-                .filter(Boolean);
-            if (!headers.length) {
-                return null;
-            }
-
-            const rows = [];
-            for (let i = 2; i < tableLines.length; i++) {
-                const dataLine = tableLines[i].trim();
-                if (!dataLine) {
-                    continue;
-                }
-                const separatorTest = dataLine.replace(/\|/g, '').replace(/[-:\s]/g, '');
-                if (!separatorTest) {
-                    continue;
-                }
-                const cells = dataLine
-                    .replace(/^\||\|$/g, '')
-                    .split('|')
-                    .map(cell => cell.trim());
-                const normalizedRow = headers.map((_, columnIndex) => cells[columnIndex] ?? '');
-                rows.push(normalizedRow);
-            }
-
-            if (!rows.length) {
-                return null;
-            }
-
-            const table = document.createElement('table');
-            table.className = 'mcp-table';
-
-            const thead = document.createElement('thead');
-            const headerRow = document.createElement('tr');
-            headers.forEach(header => {
-                const th = document.createElement('th');
-                th.textContent = header;
-                headerRow.appendChild(th);
-            });
-            thead.appendChild(headerRow);
-            table.appendChild(thead);
-
-            const tbody = document.createElement('tbody');
-            rows.forEach(rowValues => {
-                const tr = document.createElement('tr');
-                rowValues.forEach(value => {
-                    const td = document.createElement('td');
-                    td.textContent = value;
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-
-            return { node: table, nextIndex: idx };
-        };
-
         const parseListBlock = (startIndex) => {
             const firstLine = lines[startIndex];
             if (!firstLine || !isListLine(firstLine)) {
@@ -1517,14 +1552,6 @@
             if (metadataBlock) {
                 container.appendChild(metadataBlock.node);
                 index = metadataBlock.nextIndex;
-                hasRichContent = true;
-                continue;
-            }
-
-            const tableBlock = parseMarkdownTableBlock(index);
-            if (tableBlock) {
-                container.appendChild(tableBlock.node);
-                index = tableBlock.nextIndex;
                 hasRichContent = true;
                 continue;
             }
@@ -1857,6 +1884,20 @@
     /* Chat Interface Styles */
     .chat-container {
         border: 1px solid #dee2e6;
+        height: 600px;
+        overflow-y: auto;
+        background-color: #ffffff;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .chat-container::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .chat-container::-webkit-scrollbar-thumb {
+        background: rgba(37, 99, 235, 0.35);
+        border-radius: 4px;
     }
 
     .chat-message {
@@ -1888,20 +1929,52 @@
 
     .chat-html-content {
         white-space: normal;
+        overflow-x: auto;
     }
 
-    .chat-html-content .mcp-table {
-        background-color: #ffffff !important;
-        border: 2px solid #5b21b6 !important;
-        border-radius: var(--border-radius);
-        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 10px 24px rgba(37, 99, 235, 0.12);
+    .chat-html-content table {
+        width: 100%;
+        margin: 1rem 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        background-color: #ffffff;
+        border: 1px solid #e9ecef;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
 
-    .chat-html-content .mcp-table th,
-    .chat-html-content .mcp-table td {
-        padding: 1rem 1.4rem;
-        background-color: transparent;
-        border: 1px solid rgba(91, 33, 182, 0.35) !important;
+    .chat-html-content th {
+        background-color: #343a40;
+        color: #ffffff;
+        font-weight: 600;
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 2px solid #495057;
+        border-right: 1px solid #495057;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .chat-html-content td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e9ecef;
+        border-right: 1px solid #e9ecef;
+        color: #374151;
+        background-color: #ffffff;
+    }
+
+    .chat-html-content table tr:hover {
+        background-color: #f8f9fa;
+    }
+
+    .chat-html-content table th:last-child,
+    .chat-html-content table td:last-child {
+        border-right: none;
+    }
+
+    .chat-html-content table tbody tr:last-child td {
+        border-bottom: none;
     }
 
     @keyframes slideIn {
@@ -1921,7 +1994,7 @@
     }
 
     .user-message {
-        text-align: right;
+        text-align: left;
     }
 
     .assistant-message {

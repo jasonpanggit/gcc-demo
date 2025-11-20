@@ -28,11 +28,19 @@ class AzureConfig:
 @dataclass
 class AppConfig:
     """Application configuration"""
-    title: str = "EOL Multi-Agent App"
-    version: str = "2.0.0"
+    title: str = "Azure Agentic Platform"
+    version: str = "1.0.0"
     timeout: int = 60
     log_level: str = "INFO"
     debug_mode: bool = False
+
+
+@dataclass
+class InventoryAssistantConfig:
+    """Inventory assistant experience configuration"""
+    enabled: bool = True
+    provider: str = "agent-framework"
+    default_timeout: int = 150
 
 
 class ConfigManager:
@@ -41,6 +49,7 @@ class ConfigManager:
     def __init__(self):
         self._azure_config: Optional[AzureConfig] = None
         self._app_config: Optional[AppConfig] = None
+        self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
     
     @property
     def azure(self) -> AzureConfig:
@@ -63,13 +72,36 @@ class ConfigManager:
         """Get application configuration"""
         if self._app_config is None:
             self._app_config = AppConfig(
-                title=os.getenv("APP_TITLE", "EOL Multi-Agent App"),
-                version=os.getenv("APP_VERSION", "2.0.0"),
+                title=os.getenv("APP_TITLE", "Azure Agentic Platform"),
+                version=os.getenv("APP_VERSION", "1.0.0"),
                 timeout=int(os.getenv("APP_TIMEOUT", "60")),
                 log_level=os.getenv("LOG_LEVEL", "INFO"),
                 debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true"
             )
         return self._app_config
+
+    @property
+    def inventory_assistant(self) -> InventoryAssistantConfig:
+        """Get inventory assistant configuration"""
+        if self._inventory_asst_config is None:
+            enabled = os.getenv("INVENTORY_ASSISTANT_ENABLED")
+            provider = os.getenv("INVENTORY_ASSISTANT_PROVIDER")
+            default_timeout = os.getenv("INVENTORY_ASSISTANT_DEFAULT_TIMEOUT")
+
+            # Fallback to legacy environment variables if new ones are unset
+            if enabled is None:
+                enabled = os.getenv("CHAT_ENABLED", "true")
+            if provider is None:
+                provider = os.getenv("CHAT_PROVIDER", "agent-framework")
+            if default_timeout is None:
+                default_timeout = os.getenv("CHAT_DEFAULT_TIMEOUT", "150")
+
+            self._inventory_asst_config = InventoryAssistantConfig(
+                enabled=str(enabled).lower() == "true",
+                provider=str(provider),
+                default_timeout=int(str(default_timeout)),
+            )
+        return self._inventory_asst_config
     
     def validate_config(self) -> Dict[str, Any]:
         """

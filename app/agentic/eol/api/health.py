@@ -29,12 +29,12 @@ from utils.endpoint_decorators import (
 router = APIRouter(tags=["Health & Status"])
 
 
-def _get_chat_available():
-    """Lazy import to get CHAT_AVAILABLE from main module"""
+def _get_inventory_asst_available():
+    """Lazy import to get inventory assistant availability from main module"""
     try:
-        from main import CHAT_AVAILABLE
-        return CHAT_AVAILABLE
-    except:
+        from main import INVENTORY_ASST_AVAILABLE
+        return INVENTORY_ASST_AVAILABLE
+    except Exception:
         return False
 
 
@@ -58,14 +58,14 @@ async def health_check() -> Dict[str, Any]:
             - status (str): Application health status ("ok")
             - timestamp (str): Current UTC timestamp in ISO format
             - version (str): Application version from config
-            - autogen_available (bool): Whether chat functionality is available
+            - inventory_asst_available (bool): Whether inventory assistant functionality is available
     
     Example Response:
         {
             "status": "ok",
             "timestamp": "2025-10-15T10:30:00.000Z",
             "version": "1.0.0",
-            "autogen_available": true
+            "inventory_asst_available": true
         }
     
     Note:
@@ -76,7 +76,7 @@ async def health_check() -> Dict[str, Any]:
         "status": "ok", 
         "timestamp": datetime.utcnow().isoformat(),
         "version": config.app.version,
-        "autogen_available": _get_chat_available()
+        "inventory_asst_available": _get_inventory_asst_available()
     }
 
 
@@ -104,7 +104,7 @@ async def detailed_health() -> Dict[str, Any]:
             - services (Dict): Status of each service component
             - errors (List[str]): Any configuration or service errors
             - warnings (List[str]): Non-critical warnings
-            - autogen (Dict): Chat functionality status
+            - inventory_assistant (Dict): Inventory assistant functionality status
     
     Example Response:
         {
@@ -119,7 +119,7 @@ async def detailed_health() -> Dict[str, Any]:
                 },
                 "errors": [],
                 "warnings": [],
-                "autogen": {
+                "inventory_assistant": {
                     "available": false,
                     "status": "not_available",
                     "agents_count": 0
@@ -130,8 +130,8 @@ async def detailed_health() -> Dict[str, Any]:
     validation = config.validate_config()
     
     # EOL interface uses only regular orchestrator (no chat)
-    autogen_status = "not_available"
-    autogen_agents_count = 0
+    inventory_asst_status = "not_available"
+    inventory_asst_agents_count = 0
     
     health_status = {
         "status": "ok" if validation["valid"] else "degraded",
@@ -139,10 +139,10 @@ async def detailed_health() -> Dict[str, Any]:
         "services": validation["services"],
         "errors": validation["errors"],
         "warnings": validation["warnings"],
-        "autogen": {
-            "available": _get_chat_available(),
-            "status": autogen_status,
-            "agents_count": autogen_agents_count
+        "inventory_assistant": {
+            "available": _get_inventory_asst_available(),
+            "status": inventory_asst_status,
+            "agents_count": inventory_asst_agents_count
         }
     }
     return health_status

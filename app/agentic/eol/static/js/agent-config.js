@@ -21,7 +21,6 @@ const AGENT_DISPLAY_MAPPING = {
     "postgresql": "PostgreSQL",
     "microsoft": "Microsoft",
     "orchestrator": "Orchestrator",
-    "websurfer": "WebSurfer",
     "playwright": "Playwright (Bing Search)"
 };
 

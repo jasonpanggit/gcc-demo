@@ -29,7 +29,7 @@ This demo deploys a complete End-of-Life (EOL) agentic application with all requ
 ### **Reliable Search Architecture**
 - **Primary**: Static EOL knowledge base (fast, reliable)
 - **Secondary**: Bing Search API (no browser dependencies, works in containers)
-- **Fallback**: WebSurfer with Playwright (legacy browser automation)
+- **Fallback**: Playwright automation (optional legacy browser workflow)
 
 ### **Production-Ready Infrastructure**
 - Container-based deployment with Azure Container Registry

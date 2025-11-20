@@ -51,10 +51,10 @@ def _get_eol_orchestrator():
     return get_eol_orchestrator()
 
 
-def _get_chat_orchestrator():
+def _get_inventory_asst_orchestrator():
     """Lazy import to avoid circular dependency"""
-    from main import get_chat_orchestrator
-    return get_chat_orchestrator()
+    from main import get_inventory_asst_orchestrator
+    return get_inventory_asst_orchestrator()
 
 
 # ============================================================================
@@ -436,7 +436,7 @@ async def cache_eol_result(request: CacheEOLRequest):
 @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
 async def get_eol_agent_responses():
     """
-    Get all tracked EOL agent responses from both Chat and EOL orchestrators.
+    Get all tracked EOL agent responses from both Inventory Assistant and EOL orchestrators.
     
     Retrieves historical EOL search results from all orchestrators, including
     which agents were used, confidence scores, and timestamps.
@@ -459,24 +459,24 @@ async def get_eol_agent_responses():
             ],
             "count": 45,
             "sources": {
-                "chat_orchestrator": 20,
+                "inventory_asst_orchestrator": 20,
                 "eol_orchestrator": 25
             }
         }
     """
     all_responses = []
     
-    # Get responses from Chat orchestrator
-    chat_orchestrator = _get_chat_orchestrator()
-    if chat_orchestrator and hasattr(chat_orchestrator, 'get_eol_agent_responses'):
-        chat_responses = chat_orchestrator.get_eol_agent_responses()
-        # Mark these as from chat orchestrator
-        for response in chat_responses:
-            response['orchestrator_type'] = 'chat_orchestrator'
-        all_responses.extend(chat_responses)
-        logger.info(f"🔍 [API] Chat orchestrator returned {len(chat_responses)} EOL responses")
+    # Get responses from Inventory Assistant orchestrator
+    inventory_orchestrator = _get_inventory_asst_orchestrator()
+    if inventory_orchestrator and hasattr(inventory_orchestrator, 'get_eol_agent_responses'):
+        inventory_responses = inventory_orchestrator.get_eol_agent_responses()
+        # Mark these as from the inventory assistant orchestrator
+        for response in inventory_responses:
+            response['orchestrator_type'] = 'inventory_asst_orchestrator'
+        all_responses.extend(inventory_responses)
+        logger.info(f"🔍 [API] Inventory assistant orchestrator returned {len(inventory_responses)} EOL responses")
     else:
-        logger.warning("🔍 [API] Chat orchestrator not available or missing get_eol_agent_responses method")
+        logger.warning("🔍 [API] Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
     
     # Get responses from EOL orchestrator
     eol_orchestrator = _get_eol_orchestrator()
@@ -503,7 +503,7 @@ async def get_eol_agent_responses():
         "timestamp": datetime.utcnow().isoformat(),
         "metadata": {
             "sources": {
-                "chat_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'chat_orchestrator']),
+                "inventory_asst_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'inventory_asst_orchestrator']),
                 "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
             }
         }
@@ -517,7 +517,7 @@ async def clear_eol_agent_responses():
     Clear all tracked EOL agent responses from both orchestrators.
     
     Removes all historical EOL search responses from memory, resetting
-    the response tracking for both chat and EOL orchestrators.
+    the response tracking for both inventory assistant and EOL orchestrators.
     
     Returns:
         StandardResponse indicating success and counts cleared from each source.
@@ -527,23 +527,23 @@ async def clear_eol_agent_responses():
             "success": true,
             "message": "EOL agent responses cleared",
             "cleared_counts": {
-                "chat_orchestrator": 20,
+                "inventory_asst_orchestrator": 20,
                 "eol_orchestrator": 25
             },
             "total_cleared": 45
         }
     """
     cleared_counts = {
-        "chat_orchestrator": 0,
+        "inventory_asst_orchestrator": 0,
         "eol_orchestrator": 0
     }
     
-    # Clear chat orchestrator responses
-    chat_orchestrator = _get_chat_orchestrator()
-    if chat_orchestrator and hasattr(chat_orchestrator, 'clear_eol_agent_responses'):
-        count = chat_orchestrator.clear_eol_agent_responses()
-        cleared_counts["chat_orchestrator"] = count
-        logger.info(f"🧹 [API] Cleared {count} EOL responses from chat orchestrator")
+    # Clear inventory assistant orchestrator responses
+    inventory_orchestrator = _get_inventory_asst_orchestrator()
+    if inventory_orchestrator and hasattr(inventory_orchestrator, 'clear_eol_agent_responses'):
+        count = inventory_orchestrator.clear_eol_agent_responses()
+        cleared_counts["inventory_asst_orchestrator"] = count
+        logger.info(f"🧹 [API] Cleared {count} EOL responses from inventory assistant orchestrator")
     
     # Clear EOL orchestrator responses
     eol_orchestrator = _get_eol_orchestrator()

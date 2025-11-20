@@ -1,75 +1,58 @@
-"""
-Operating System Inventory Agent - Retrieves OS information from Azure Log Analytics Heartbeat table
-"""
+"""Operating System Inventory Agent - Retrieves OS information from Azure Log Analytics."""
+
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
-from azure.identity import DefaultAzureCredential
-from azure.monitor.query import LogsQueryClient, LogsQueryStatus
+try:  # Optional Azure dependencies – absent when running unit tests with mock data
+    from azure.identity import DefaultAzureCredential
+except ImportError:  # pragma: no cover - exercised only in local testing environments without Azure SDK
+    DefaultAzureCredential = None  # type: ignore[assignment]
 
-# Import utilities
+try:
+    from azure.monitor.query import LogsQueryClient, LogsQueryStatus
+except ImportError:  # pragma: no cover - avoid hard dependency during local testing
+    LogsQueryClient = None  # type: ignore[assignment]
+
+    class _FallbackLogsQueryStatus:
+        SUCCESS = "success"
+
+    LogsQueryStatus = _FallbackLogsQueryStatus()  # type: ignore[assignment]
+
 try:
     from ..utils import get_logger, config
     from ..utils.inventory_cache import inventory_cache
     from ..utils.cache_stats_manager import cache_stats_manager
-except ImportError:
+except ImportError:  # pragma: no cover - support execution when run as script
     import sys
-    import os
+
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
+
     try:
         from utils.cache_stats_manager import cache_stats_manager
-    except ImportError:
-        # Create dummy stats manager if import fails
-        class DummyCacheStatsManager:
-            def record_agent_request(self, *args, **kwargs): pass
-        cache_stats_manager = DummyCacheStatsManager()
+    except ImportError:  # pragma: no cover - last-resort fallback for tooling
+        class _DummyCacheStatsManager:
+            def record_agent_request(self, *args, **kwargs):  # noqa: D401 - simple stub
+                """No-op fallback when cache stats manager is unavailable."""
 
-# Initialize logger
+        cache_stats_manager = _DummyCacheStatsManager()
+
+
 logger = get_logger(__name__)
 
-# Suppress Azure SDK verbose logging
-azure_loggers = [
+for azure_logger_name in (
     "azure.core.pipeline.policies.http_logging_policy",
     "azure.identity",
     "azure.core",
     "azure.monitor",
-    "urllib3.connectionpool"
-]
-for azure_logger_name in azure_loggers:
-    azure_logger = logging.getLogger(azure_logger_name)
-    azure_logger.setLevel(logging.WARNING)
-import os
-from typing import List, Dict, Any, Optional
-from azure.monitor.query import LogsQueryClient, LogsQueryStatus
-from azure.identity import DefaultAzureCredential
-from datetime import datetime, timedelta
-
-# Import utilities
-try:
-    from utils import get_logger, config
-    from utils.inventory_cache import inventory_cache
-    from utils.cache_stats_manager import cache_stats_manager
-except ImportError:
-    import sys
-    import os
-    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-    from utils import get_logger, config
-    from utils.inventory_cache import inventory_cache
-    try:
-        from utils.cache_stats_manager import cache_stats_manager
-    except ImportError:
-        # Create dummy stats manager if import fails
-        class DummyCacheStatsManager:
-            def record_agent_request(self, *args, **kwargs): pass
-        cache_stats_manager = DummyCacheStatsManager()
-
-# Initialize logger
-logger = get_logger(__name__)
+    "urllib3.connectionpool",
+):
+    logging.getLogger(azure_logger_name).setLevel(logging.WARNING)
 
 
 class OSInventoryAgent:
@@ -86,20 +69,28 @@ class OSInventoryAgent:
             self.workspace_id[:8] + "..." if self.workspace_id else "NOT_SET",
         )
 
-        # Always prioritize managed identity for better security
-        self.credential = DefaultAzureCredential()
+        # Always prioritize managed identity for better security when SDK is available
+        if DefaultAzureCredential is None:
+            self.credential = None
+            logger.warning("Azure SDK not available – OS inventory agent will operate in mock mode")
+        else:
+            self.credential = DefaultAzureCredential()
+
         self._logs_client: Optional[LogsQueryClient] = None
+        self._cache_has_full_dataset: bool = False
 
     async def clear_cache(self) -> Dict[str, Any]:
         """Clear cached OS inventory data"""
-        return inventory_cache.clear_cache(
+        cleared = inventory_cache.clear_cache(
             cache_key=self.agent_name,
             cache_type="os"
         )
+        self._cache_has_full_dataset = False
+        return cleared
 
     @property
     def logs_client(self) -> Optional[LogsQueryClient]:
-        if self._logs_client is None and self.workspace_id:
+        if self._logs_client is None and self.workspace_id and LogsQueryClient is not None and self.credential is not None:
             try:
                 self._logs_client = LogsQueryClient(self.credential)
                 logger.info("✅ OS Inventory Agent Log Analytics client initialized")
@@ -107,7 +98,7 @@ class OSInventoryAgent:
                 logger.error("❌ OS Inventory Agent failed to initialize logs client: %s", e)
         return self._logs_client
 
-    async def get_os_inventory(self, days: int = 90, limit: int = 2000, use_cache: bool = True) -> Dict[str, Any]:
+    async def get_os_inventory(self, days: int = 90, limit: Optional[int] = 2000, use_cache: bool = True) -> Dict[str, Any]:
         """Retrieve OS inventory from Heartbeat with caching support.
 
         Args:
@@ -119,13 +110,40 @@ class OSInventoryAgent:
             Dict with success status and OS inventory data
         """
         # Prepare query parameters for cache key
+        # Normalize limit handling so the orchestrator can request the full dataset (limit=None)
+        full_dataset_requested = False
+        normalized_limit: Optional[int]
+        if limit is None:
+            normalized_limit = None
+            full_dataset_requested = True
+        elif isinstance(limit, int):
+            if limit > 0:
+                normalized_limit = limit
+            else:
+                normalized_limit = None
+                full_dataset_requested = True
+        else:
+            try:
+                parsed_limit = int(str(limit))
+                if parsed_limit > 0:
+                    normalized_limit = parsed_limit
+                else:
+                    normalized_limit = None
+                    full_dataset_requested = True
+            except (TypeError, ValueError):
+                normalized_limit = None
+                full_dataset_requested = True
+
         query_params = {
             "days": days,
-            "limit": limit
+            "limit": normalized_limit if not full_dataset_requested else "all"
         }
         
         # Try to get cached data first
-        if use_cache:
+        cache_allowed = use_cache and (not full_dataset_requested or self._cache_has_full_dataset)
+        cache_result = None
+
+        if cache_allowed:
             cache_start_time = datetime.utcnow()
             cache_result = inventory_cache.get_cached_data_with_metadata(
                 cache_key=self.agent_name,
@@ -136,6 +154,8 @@ class OSInventoryAgent:
             
             if cache_result and cache_result.get('data'):
                 cached_data = cache_result['data']
+                if isinstance(cached_data, list) and normalized_limit is not None:
+                    cached_data = cached_data[:normalized_limit]
                 cached_timestamp = cache_result['timestamp']
                 logger.info(f"🖥️ Using cached OS inventory data: {len(cached_data)} items (cached at {cached_timestamp})")
                 
@@ -183,6 +203,10 @@ class OSInventoryAgent:
                 "from_cache": False
             }
 
+        limit_clause = f"| take {normalized_limit}" if normalized_limit is not None else ""
+        if full_dataset_requested:
+            logger.info("🖥️ OS inventory request for full dataset (pagination handled upstream)")
+
         query = f"""
         Heartbeat
         | where TimeGenerated >= ago({days}d)
@@ -223,7 +247,7 @@ class OSInventoryAgent:
                 "On-Premises"
             )
         | project Computer, OSName, VersionString, OSType, Vendor, ComputerEnvironment, ComputerType, ResourceId, LastHeartbeat
-        | take {limit}
+        {limit_clause}
         """
 
         try:
@@ -317,13 +341,24 @@ class OSInventoryAgent:
                     url=f"law://workspace/{self.workspace_id}/Heartbeat"
                 )
             
+            # Track whether the returned data represents the full dataset so pagination can surface all records
+            retrieved_full_dataset = full_dataset_requested or (
+                normalized_limit is not None and len(results) < normalized_limit
+            )
+            if retrieved_full_dataset:
+                self._cache_has_full_dataset = True
+            elif not full_dataset_requested:
+                self._cache_has_full_dataset = False
+
             return {
                 "success": True,
                 "data": results,
                 "count": len(results),
                 "query_params": query_params,
                 "from_cache": False,
-                "cached_at": datetime.utcnow().isoformat()
+                "cached_at": datetime.utcnow().isoformat(),
+                "limit_applied": normalized_limit,
+                "full_dataset": retrieved_full_dataset,
             }
             
         except Exception as e:
@@ -396,6 +431,241 @@ class OSInventoryAgent:
             "from_cache": inventory_result.get("from_cache", False),
             "cached_at": inventory_result.get("cached_at", None),
         }
+
+    async def get_os_environment_breakdown(self, days: int = 90, top_n: Optional[int] = None) -> Dict[str, Any]:
+        """Summarize OS inventory by environment and computed device classification."""
+        if not self.logs_client or not self.workspace_id:
+            return {
+                "success": False,
+                "error": "OS inventory agent not fully configured",
+                "environment_breakdown": [],
+            }
+
+        limit_clause = f"| take {int(top_n)}" if top_n else ""
+        query = f"""
+        Heartbeat
+        | where TimeGenerated >= ago({days}d)
+        | where isnotempty(OSName) and isnotempty(Computer)
+        | extend 
+            ComputerEnvironmentNormalized = case(
+                isempty(ComputerEnvironment), "Unknown",
+                ComputerEnvironment =~ "NonAzure", "Non-Azure",
+                tolower(ComputerEnvironment) == "nonazure", "Non-Azure",
+                ComputerEnvironment
+            ),
+            ResourceIdText = tostring(ResourceId),
+            ComputerType = case(
+                ComputerEnvironmentNormalized =~ "Azure", "Azure VM",
+                ComputerEnvironmentNormalized =~ "Non-Azure", "Arc-enabled Server",
+                isnotempty(ResourceIdText) and ResourceIdText contains "/virtualMachines/", "Azure VM",
+                isnotempty(ResourceIdText) and ResourceIdText contains "/machines/", "Arc-enabled Server",
+                isnotempty(ResourceIdText) and ResourceIdText startswith "/", "Azure Resource",
+                "On-Premises"
+            )
+        | summarize 
+            DeviceCount = dcount(Computer),
+            LastHeartbeat = max(TimeGenerated)
+          by ComputerEnvironmentNormalized, ComputerType
+        | order by DeviceCount desc
+        {limit_clause}
+        | project ComputerEnvironment = ComputerEnvironmentNormalized, ComputerType, DeviceCount, LastHeartbeat
+        """
+
+        try:
+            query_start = datetime.utcnow()
+            response = self.logs_client.query_workspace(
+                workspace_id=self.workspace_id,
+                query=query,
+                timespan=timedelta(days=days),
+            )
+            query_duration_ms = (datetime.utcnow() - query_start).total_seconds() * 1000
+
+            if response.status != LogsQueryStatus.SUCCESS or not response.tables:
+                cache_stats_manager.record_agent_request(
+                    agent_name="os_inventory",
+                    response_time_ms=query_duration_ms,
+                    was_cache_hit=False,
+                    had_error=True,
+                    software_name="log_analytics",
+                    version="heartbeat_environment_breakdown",
+                    url=f"law://workspace/{self.workspace_id}/Heartbeat",
+                )
+                return {
+                    "success": False,
+                    "error": f"Query unsuccessful with status: {response.status}",
+                    "environment_breakdown": [],
+                }
+
+            table = response.tables[0]
+            results: List[Dict[str, Any]] = []
+            for row in table.rows:
+                environment = str(row[0]) if row[0] else "Unknown"
+                computer_type = str(row[1]) if row[1] else "Unknown"
+                device_count = int(row[2]) if row[2] is not None else 0
+                last_heartbeat = row[3].isoformat() if row[3] else None
+                results.append(
+                    {
+                        "computer_environment": environment,
+                        "computer_type": computer_type,
+                        "device_count": device_count,
+                        "last_heartbeat": last_heartbeat,
+                    }
+                )
+
+            cache_stats_manager.record_agent_request(
+                agent_name="os_inventory",
+                response_time_ms=query_duration_ms,
+                was_cache_hit=False,
+                had_error=False,
+                software_name="log_analytics",
+                version="heartbeat_environment_breakdown",
+                url=f"law://workspace/{self.workspace_id}/Heartbeat",
+            )
+
+            total_devices = sum(item["device_count"] for item in results)
+            return {
+                "success": True,
+                "environment_breakdown": results,
+                "total_segments": len(results),
+                "total_devices": total_devices,
+                "queried_at": datetime.utcnow().isoformat(),
+                "requested_days": days,
+                "top": top_n,
+            }
+
+        except Exception as exc:  # pragma: no cover - defensive catch
+            logger.error("OS environment breakdown query failed: %s", exc)
+            cache_stats_manager.record_agent_request(
+                agent_name="os_inventory",
+                response_time_ms=0,
+                was_cache_hit=False,
+                had_error=True,
+                software_name="log_analytics",
+                version="heartbeat_environment_breakdown",
+                url=f"law://workspace/{self.workspace_id}/Heartbeat",
+            )
+            return {
+                "success": False,
+                "error": str(exc),
+                "environment_breakdown": [],
+            }
+
+    async def get_os_vendor_summary(self, days: int = 90, top_n: Optional[int] = None) -> Dict[str, Any]:
+        """Summarize OS inventory by detected vendor and OS type."""
+        if not self.logs_client or not self.workspace_id:
+            return {
+                "success": False,
+                "error": "OS inventory agent not fully configured",
+                "vendor_summary": [],
+            }
+
+        limit_clause = f"| take {int(top_n)}" if top_n else ""
+        query = f"""
+        Heartbeat
+        | where TimeGenerated >= ago({days}d)
+        | where isnotempty(OSName) and isnotempty(Computer)
+        | extend 
+            Vendor = case(
+                OSName contains "Windows", "Microsoft Corporation",
+                OSName contains "Ubuntu", "Canonical Ltd.",
+                OSName contains "Red Hat", "Red Hat Inc.",
+                OSName contains "CentOS", "CentOS Project",
+                OSName contains "SUSE", "SUSE",
+                OSName contains "Debian", "Debian Project",
+                OSName contains "Linux", "Various",
+                "Unknown"
+            ),
+            NormalizedOSType = coalesce(OSType, "Unknown")
+        | summarize 
+            DeviceCount = dcount(Computer),
+            LastHeartbeat = max(TimeGenerated),
+            SampleOS = any(OSName)
+          by Vendor, NormalizedOSType
+        | order by DeviceCount desc
+        {limit_clause}
+        | project Vendor, os_type = NormalizedOSType, DeviceCount, LastHeartbeat, SampleOS
+        """
+
+        try:
+            query_start = datetime.utcnow()
+            response = self.logs_client.query_workspace(
+                workspace_id=self.workspace_id,
+                query=query,
+                timespan=timedelta(days=days),
+            )
+            query_duration_ms = (datetime.utcnow() - query_start).total_seconds() * 1000
+
+            if response.status != LogsQueryStatus.SUCCESS or not response.tables:
+                cache_stats_manager.record_agent_request(
+                    agent_name="os_inventory",
+                    response_time_ms=query_duration_ms,
+                    was_cache_hit=False,
+                    had_error=True,
+                    software_name="log_analytics",
+                    version="heartbeat_vendor_summary",
+                    url=f"law://workspace/{self.workspace_id}/Heartbeat",
+                )
+                return {
+                    "success": False,
+                    "error": f"Query unsuccessful with status: {response.status}",
+                    "vendor_summary": [],
+                }
+
+            table = response.tables[0]
+            results: List[Dict[str, Any]] = []
+            for row in table.rows:
+                vendor = str(row[0]) if row[0] else "Unknown"
+                os_type = str(row[1]) if row[1] else "Unknown"
+                device_count = int(row[2]) if row[2] is not None else 0
+                last_heartbeat = row[3].isoformat() if row[3] else None
+                sample_os = str(row[4]) if row[4] else None
+                results.append(
+                    {
+                        "vendor": vendor,
+                        "os_type": os_type,
+                        "device_count": device_count,
+                        "last_heartbeat": last_heartbeat,
+                        "sample_os": sample_os,
+                    }
+                )
+
+            cache_stats_manager.record_agent_request(
+                agent_name="os_inventory",
+                response_time_ms=query_duration_ms,
+                was_cache_hit=False,
+                had_error=False,
+                software_name="log_analytics",
+                version="heartbeat_vendor_summary",
+                url=f"law://workspace/{self.workspace_id}/Heartbeat",
+            )
+
+            total_devices = sum(item["device_count"] for item in results)
+            return {
+                "success": True,
+                "vendor_summary": results,
+                "total_entries": len(results),
+                "total_devices": total_devices,
+                "queried_at": datetime.utcnow().isoformat(),
+                "requested_days": days,
+                "top": top_n,
+            }
+
+        except Exception as exc:  # pragma: no cover - defensive catch
+            logger.error("OS vendor summary query failed: %s", exc)
+            cache_stats_manager.record_agent_request(
+                agent_name="os_inventory",
+                response_time_ms=0,
+                was_cache_hit=False,
+                had_error=True,
+                software_name="log_analytics",
+                version="heartbeat_vendor_summary",
+                url=f"law://workspace/{self.workspace_id}/Heartbeat",
+            )
+            return {
+                "success": False,
+                "error": str(exc),
+                "vendor_summary": [],
+            }
 
     async def health_check(self) -> Dict[str, Any]:
         """Lightweight health check for the OS Inventory agent."""

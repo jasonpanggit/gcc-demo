@@ -144,12 +144,17 @@ const api = {
         return await api.call(`/eol?${params}`);
     },
 
-    // Send chat message
-    sendChatMessage: async function (message) {
-        return await api.call('/chat', {
+    // Send inventory assistant message
+    sendInventoryAssistantMessage: async function (message) {
+        return await api.call('/api/inventory-assistant', {
             method: 'POST',
             body: { message }
         });
+    },
+
+    // Backward-compatible alias for legacy callers
+    sendChatMessage: async function (message) {
+        return await this.sendInventoryAssistantMessage(message);
     }
 };
 

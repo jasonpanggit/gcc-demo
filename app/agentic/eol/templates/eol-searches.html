@@ -87,7 +87,7 @@
                     <select class="form-select" id="orchestratorFilter">
                         <option value="">All Orchestrators</option>
                         <option value="eol_orchestrator">EOL Orchestrator</option>
-                        <option value="chat_orchestrator">Chat Orchestrator</option>
+                        <option value="inventory_asst_orchestrator">Inventory Assistant Orchestrator</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -248,7 +248,7 @@
 
             // Orchestrator filter
             if (orchestratorFilter) {
-                const orchestratorType = response.orchestrator_type || 'chat_orchestrator';
+                const orchestratorType = response.orchestrator_type || 'inventory_asst_orchestrator';
                 if (orchestratorType !== orchestratorFilter) {
                     return false;
                 }
@@ -318,7 +318,7 @@
 
     function createResponseHTML(response) {
         const timestamp = new Date(response.timestamp).toLocaleString();
-        const orchestratorType = response.orchestrator_type || 'chat_orchestrator';
+        const orchestratorType = response.orchestrator_type || 'inventory_asst_orchestrator';
         const successClass = response.success ? 'success' : 'failure';
         const responseTimeClass = getResponseTimeClass(response.response_time);
         
@@ -393,7 +393,7 @@
         const types = {
             'eol_orchestrator': 'EOL Orchestrator',
             // 'eol-orchestrator': 'EOL Orchestrator',
-            'chat_orchestrator': 'Chat Orchestrator',
+            'inventory_asst_orchestrator': 'Inventory Assistant Orchestrator',
             // 'chat-orchestrator': 'Chat Orchestrator',
             'magentic_one': 'Magentic-One'
             // 'magentic-one': 'Magentic-One'
@@ -425,7 +425,6 @@
             // 'php-agent': 'PHP EOL',
             'postgresql_agent': 'PostgreSQL EOL',
             // 'postgresql-agent': 'PostgreSQL EOL',
-            'websurfer': 'WebSurfer',
             'azure_ai_agent': 'Azure AI Agent'
             // 'azure-ai-agent': 'Azure AI Agent',
             // 'azureai': 'Azure AI Agent'
@@ -554,7 +553,7 @@
             response.software_name,
             response.software_version,
             response.agent_name,
-            response.orchestrator_type || 'chat_orchestrator',
+            response.orchestrator_type || 'inventory_asst_orchestrator',
             response.success,
             response.query_type,
             response.response_time,

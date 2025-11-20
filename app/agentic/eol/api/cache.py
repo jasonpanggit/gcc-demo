@@ -125,10 +125,33 @@ async def get_cache_status():
     
     # Wrap in StandardResponse format - data must be a list per StandardResponse model
     # Final structure: {"success": true, "data": [{"eol_cache": {...}, "agents": {...}, "enhanced_stats": {...}, "inventory_context_cache": {...}}]}
-    return {
-        "success": True,
-        "data": [cache_data]  # Wrap in list to match StandardResponse format
+    response = StandardResponse.success_response(
+        [cache_data],
+        cached=inventory_stats["cached"],
+        metadata={"source": "orchestrator"}
+    )
+    return response.to_dict()
+
+
+@router.get("/api/cache/ui", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cache_ui_data", timeout_seconds=15)
+async def get_cache_ui_data():
+    """Aggregate cache statistics for the cache management UI."""
+    all_stats = cache_stats_manager.get_all_statistics()
+
+    payload = {
+        "agents": all_stats.get("agent_stats", {}),
+        "inventory": all_stats.get("inventory_stats", {}),
+        "cosmos": all_stats.get("cosmos_stats", {}),
+        "performance": all_stats.get("performance_summary", {}),
+        "last_updated": all_stats.get("last_updated"),
     }
+
+    response = StandardResponse.success_response(
+        [payload],
+        metadata={"source": "cache_stats_manager"}
+    )
+    return response.to_dict()
 
 
 @router.post("/api/cache/clear")
@@ -168,23 +191,32 @@ async def clear_cache():
     try:
         # Clear all inventory caches (software and OS)
         result = await inventory_cache.clear_all_cache()
-        
+
+        if not result.get("cleared_count"):
+            return StandardResponse.error_response(
+                error_message="No cache entries were cleared",
+                details={
+                    "cache_types": result.get("cache_types", []),
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            ).to_dict()
+
         # Wrap in StandardResponse format with data as list
         return StandardResponse.success_response(
             data=[{
-                "cleared_cache_types": result.get("cleared_types", []),
-                "memory_entries_cleared": result.get("memory_entries_cleared", 0),
+                "cleared_cache_types": result.get("cache_types", []),
+                "memory_entries_cleared": result.get("cleared_count", 0),
                 "cosmos_cleared": result.get("cosmos_cleared", False),
                 "timestamp": datetime.utcnow().isoformat()
             }],
             message="Inventory caches cleared successfully"
-        )
+        ).to_dict()
     except Exception as e:
         logger.error(f"❌ Error clearing caches: {e}")
         return StandardResponse.error_response(
             error_message=f"Failed to clear caches: {str(e)}",
             details={"error_type": type(e).__name__}
-        )
+        ).to_dict()
 
 
 @router.post("/api/cache/purge", response_model=StandardResponse)
@@ -309,11 +341,17 @@ async def get_inventory_cache_stats():
     # Add enhanced statistics
     enhanced_inventory_stats = cache_stats_manager.get_inventory_statistics()
     
-    return {
-        "success": True,
-        "cache_stats": stats,
-        "enhanced_stats": enhanced_inventory_stats
-    }
+    response = StandardResponse.success_response(
+        [
+            {
+                "cache_stats": stats,
+                "enhanced_stats": enhanced_inventory_stats,
+            }
+        ],
+        cached=was_cache_hit,
+        metadata={"source": "inventory_cache"},
+    )
+    return response.to_dict()
 
 
 @router.get("/api/cache/inventory/details", response_model=StandardResponse)
@@ -349,7 +387,7 @@ async def get_inventory_cache_details():
                         "top_software": {...}
                     }
                 }
-            }
+            }]
         }
     """
     from utils.inventory_cache import inventory_cache
@@ -358,35 +396,45 @@ async def get_inventory_cache_details():
     cache_stats = inventory_cache.get_cache_stats()
     
     if cache_stats.get("total_memory_entries", 0) == 0:
-        return {
-            "success": False,
-            "error": "No inventory data cached",
-            "cache_stats": cache_stats
-        }
-    
-    # Build details from what we know
+        response = StandardResponse.success_response(
+            [{
+                "summary": {
+                    "total_cache_entries": 0,
+                    "cache_types": cache_stats.get("supported_cache_types", []),
+                    "cosmos_initialized": cache_stats.get("cosmos_initialized", False),
+                },
+                "cache_stats": cache_stats,
+                "message": "No inventory data cached",
+            }],
+            cached=False,
+            metadata={"warning": "inventory_cache_empty"},
+        )
+        return response.to_dict()
+
     details = {
         "timestamp": None,  # inventory_cache tracks per-entry timestamps
         "ttl_seconds": cache_stats.get("cache_duration_hours", 4) * 3600,
-        "size_bytes": 0,  # Would need to iterate all cached data
+        "size_bytes": 0,  # Calculating size requires iterating all cached data
         "type": "distributed_cache",
         "cache_types": cache_stats.get("memory_cache_entries", {}),
         "sample_data": {},
         "summary": {
             "total_cache_entries": cache_stats.get("total_memory_entries", 0),
             "cache_types": cache_stats.get("supported_cache_types", []),
-            "cosmos_initialized": cache_stats.get("cosmos_initialized", False)
-        }
+            "cosmos_initialized": cache_stats.get("cosmos_initialized", False),
+        },
+        "cache_stats": cache_stats,
     }
-    
-    # Note: The new inventory_cache is distributed and doesn't have a single "data" object
-    # to analyze. It stores separate software and OS inventory caches keyed by specific identifiers.
-    # To get actual data, we would need to know the specific cache keys.
-    
-    return {
-        "success": True,
-        "details": details
-    }
+
+    response = StandardResponse.success_response(
+        [{"details": details}],
+        cached=True,
+        metadata={
+            "summary": details["summary"],
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
+    return response.to_dict()
 
 
 @router.get("/api/cache/webscraping/details", response_model=StandardResponse)
@@ -432,7 +480,7 @@ async def get_webscraping_cache_details():
     total_cached_items = 0
     
     # Get cache details from each web scraping agent
-    for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai", "websurfer"]:
+    for agent_name in ["microsoft", "redhat", "ubuntu", "oracle", "vmware", "apache", "nodejs", "postgresql", "php", "python", "azure_ai"]:
         agent = orchestrator.agents.get(agent_name)
         if agent:
             agent_cache_info = {
@@ -521,69 +569,59 @@ async def get_cosmos_cache_stats():
     from fastapi import HTTPException
     from utils.cosmos_cache import base_cosmos
     from utils.eol_cache import eol_cache
-    
+    from utils.inventory_cache import inventory_cache
+
     start_time = time.time()
-    was_cache_hit = False
-    
-    if not getattr(base_cosmos, 'initialized', False):
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(response_time_ms, False, "stats_query_failed")
-        raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-    
     try:
-        # Get EOL cache stats
-        stats = await eol_cache.get_cache_stats()
-        was_cache_hit = stats.get('cached', False)
-        
-        # Remove the 'success' key so StandardResponse wrapper can properly format the response
-        stats.pop('success', None)
-        
-        # Add inventory cache statistics to the Cosmos DB section
-        try:
-            from utils.inventory_cache import inventory_cache
-            
-            cache_stats = inventory_cache.get_cache_stats()
-            software_memory_count = cache_stats.get('memory_cache_entries', {}).get('software', 0)
-            os_memory_count = cache_stats.get('memory_cache_entries', {}).get('os', 0)
-            
-            stats['inventory_containers'] = {
-                'software_container': 'inventory_software',
-                'os_container': 'inventory_os',
-                'memory_cache_entries': {
-                    'software': software_memory_count,
-                    'os': os_memory_count
-                },
-                'total_memory_entries': software_memory_count + os_memory_count,
-                'cache_duration_hours': cache_stats.get('cache_duration_hours', 4),
-                'supported_cache_types': cache_stats.get('supported_cache_types', ['software', 'os'])
+        was_cache_hit = False
+        stats: Dict[str, Any] = {
+            "cosmos": {
+                "initialized": getattr(base_cosmos, "initialized", False),
+                "database": getattr(base_cosmos, "database_name", None),
+                "containers": getattr(base_cosmos, "container_configs", {}),
             }
-            
-        except Exception as inv_err:
-            logger.warning(f"Could not get inventory cache stats for Cosmos DB section: {inv_err}")
-            stats['inventory_containers'] = {'error': str(inv_err)}
-        
-        # Record performance metrics
+        }
+
+        try:
+            eol_stats = await eol_cache.get_cache_stats()
+            stats["eol_cache_stats"] = eol_stats
+            was_cache_hit = bool(eol_stats.get("cached")) if isinstance(eol_stats, dict) else False
+        except Exception as eol_error:
+            stats["eol_cache_stats"] = {"error": str(eol_error)}
+
+        try:
+            inventory_stats = inventory_cache.get_cache_stats()
+            stats["inventory_containers"] = inventory_stats
+        except Exception as inv_error:
+            stats["inventory_containers"] = {"error": str(inv_error)}
+
+        try:
+            enhanced_stats = cache_stats_manager.get_cosmos_statistics()
+            stats["enhanced_stats"] = enhanced_stats
+        except Exception as enh_error:
+            stats["enhanced_stats"] = {"error": str(enh_error)}
+
         response_time_ms = (time.time() - start_time) * 1000
         cache_stats_manager.record_cosmos_request(
             response_time_ms=response_time_ms,
             was_cache_hit=was_cache_hit,
-            operation="stats_query"
+            operation="stats_query",
         )
-        
-        # Add enhanced statistics
-        enhanced_cosmos_stats = cache_stats_manager.get_cosmos_statistics()
-        stats["enhanced_stats"] = enhanced_cosmos_stats
-        
-        # Return using StandardResponse.success_response to ensure proper formatting
-        return StandardResponse.success_response(
-            data=[stats],  # Wrap stats dict in a list for data array
+
+        response = StandardResponse.success_response(
+            data=[stats],
             cached=was_cache_hit,
-            metadata={"agent": "cosmos_cache_stats"}
+            metadata={"agent": "cosmos_cache_stats"},
         )
-        
+        return response.to_dict()
+
     except Exception as e:
         response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(response_time_ms, False, "stats_query_error")
+        cache_stats_manager.record_cosmos_request(
+            response_time_ms=response_time_ms,
+            was_cache_hit=False,
+            operation="stats_query_error",
+        )
         logger.error(f"Error getting Cosmos cache stats: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting cache stats: {str(e)}")
 
@@ -846,11 +884,15 @@ async def reset_cache_stats():
         StandardResponse with reset confirmation.
     """
     cache_stats_manager.reset_all_stats()
-    return {
-        "success": True,
-        "message": "All cache statistics have been reset",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    response = StandardResponse.success_response(
+        [
+            {
+                "message": "All cache statistics have been reset",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        ]
+    )
+    return response.to_dict()
 
 
 # All cache endpoints have been successfully migrated from main.py

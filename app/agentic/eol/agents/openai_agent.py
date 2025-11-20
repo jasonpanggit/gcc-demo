@@ -224,7 +224,7 @@ class OpenAIAgent:
         """
         if not await self.is_available():
             return {
-                "response": "I'm sorry, but the AI assistant is currently unavailable. Please try again later.",
+                "response": "I'm sorry, but the OpenAI assistant is currently unavailable. Please try again later.",
                 "response_type": "error",
                 "tokens_used": 0
             }
@@ -234,7 +234,7 @@ class OpenAIAgent:
             client = self._get_client()
             if not client:
                 return {
-                    "response": "I'm sorry, but the AI assistant is currently unavailable. Please try again later.",
+                    "response": "I'm sorry, but the OpenAI assistant is currently unavailable. Please try again later.",
                     "response_type": "error",
                     "tokens_used": 0
                 }
@@ -958,7 +958,7 @@ FORMATTING:
             Enhanced, conversational response
         """
         if not await self.is_available():
-            return "Enhanced response unavailable - AI assistant not configured."
+            return "Enhanced response unavailable - OpenAI assistant not configured."
         
         try:
             # Get fresh client

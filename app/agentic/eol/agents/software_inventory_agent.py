@@ -1,12 +1,25 @@
-"""
-Software Inventory Agent - Retrieves software inventory from Azure Log Analytics ConfigurationData table
-"""
+"""Software Inventory Agent - Retrieves software inventory from Azure Log Analytics."""
+
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
-from azure.monitor.query import LogsQueryClient, LogsQueryStatus
-from azure.identity import DefaultAzureCredential
+from typing import Any, Dict, List, Optional
+
+try:  # Optional dependencies for local/mock testing
+    from azure.monitor.query import LogsQueryClient, LogsQueryStatus
+except ImportError:  # pragma: no cover - only triggered when Azure SDK is absent
+    LogsQueryClient = None  # type: ignore[assignment]
+
+    class _FallbackLogsQueryStatus:
+        SUCCESS = "success"
+
+    LogsQueryStatus = _FallbackLogsQueryStatus()  # type: ignore[assignment]
+
+try:
+    from azure.identity import DefaultAzureCredential
+except ImportError:  # pragma: no cover - support running tests without Azure SDK
+    DefaultAzureCredential = None  # type: ignore[assignment]
 
 # Import utilities
 try:
@@ -42,6 +55,28 @@ for azure_logger_name in azure_loggers:
     azure_logger = logging.getLogger(azure_logger_name)
     azure_logger.setLevel(logging.WARNING)
 
+
+def _escape_kql_literal(value: str) -> str:
+    """Escape characters that can break KQL string literals."""
+    return value.replace("\\", "\\\\").replace('"', r'\"')
+
+
+def _to_string_list(value: Any) -> List[str]:
+    """Normalize dynamic arrays returned by Log Analytics."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed]
+        except Exception:  # pragma: no cover - lenient parsing for dynamic types
+            return [value]
+        return [value]
+    return [str(value)]
+
 class SoftwareInventoryAgent:
     """Agent responsible for retrieving software inventory from ConfigurationData table"""
     
@@ -50,8 +85,14 @@ class SoftwareInventoryAgent:
         self.agent_name = "software_inventory"
         
         self.workspace_id = getattr(config.azure, 'log_analytics_workspace_id', None)
-        self.credential = DefaultAzureCredential()
+
+        if DefaultAzureCredential is None:
+            self.credential = None
+            logger.warning("Azure SDK not available – Software inventory agent will operate in mock mode")
+        else:
+            self.credential = DefaultAzureCredential()
         self._logs_client: Optional[LogsQueryClient] = None
+        self._full_cache_scopes: Dict[str, bool] = {}
         
         logger.info(f"✅ SoftwareInventoryAgent initialized with workspace: {self.workspace_id}")
 
@@ -80,10 +121,12 @@ class SoftwareInventoryAgent:
                 "success": False,
                 "error": f"Cache clear failed: {str(clear_err)}"
             }
+        finally:
+            self._full_cache_scopes.clear()
 
     @property
     def logs_client(self) -> Optional[LogsQueryClient]:
-        if self._logs_client is None and self.workspace_id:
+        if self._logs_client is None and self.workspace_id and LogsQueryClient is not None and self.credential is not None:
             try:
                 self._logs_client = LogsQueryClient(self.credential)
                 logger.info("✅ Software Inventory Agent Log Analytics client initialized")
@@ -91,41 +134,76 @@ class SoftwareInventoryAgent:
                 logger.error("❌ Software Inventory Agent failed to initialize logs client: %s", e)
         return self._logs_client
 
-    async def get_software_inventory(self, days: int = 90, software_filter: Optional[str] = None, limit: int = 10000, use_cache: bool = True) -> Dict[str, Any]:
-        """Retrieve software inventory from ConfigurationData table with caching"""
-        
-        # Prepare query parameters for cache key
+    async def get_software_inventory(
+        self,
+        days: int = 90,
+        software_filter: Optional[str] = None,
+        computer_filter: Optional[str] = None,
+        limit: Optional[int] = 10000,
+        use_cache: bool = True,
+    ) -> Dict[str, Any]:
+        """Retrieve software inventory from ConfigurationData table with caching."""
+
+        full_dataset_requested = False
+        normalized_limit: Optional[int]
+        if limit is None:
+            normalized_limit = None
+            full_dataset_requested = True
+        elif isinstance(limit, int):
+            if limit > 0:
+                normalized_limit = limit
+            else:
+                normalized_limit = None
+                full_dataset_requested = True
+        else:
+            try:
+                parsed_limit = int(str(limit))
+                if parsed_limit > 0:
+                    normalized_limit = parsed_limit
+                else:
+                    normalized_limit = None
+                    full_dataset_requested = True
+            except (TypeError, ValueError):
+                normalized_limit = None
+                full_dataset_requested = True
+
         query_params = {
             "days": days,
             "software_filter": software_filter,
-            "limit": limit
+            "computer_filter": computer_filter,
+            "limit": normalized_limit if not full_dataset_requested else "all",
         }
-        
-        # Try to get cached data first
-        if use_cache:
-            logger.info(f"🔍 Attempting to retrieve cached software inventory data from Cosmos DB")
-            # logger.debug(f"Cache query parameters: {query_params}")
-            # logger.debug(f"Cache key components - type: 'software', agent: '{self.agent_name}', workspace: '{self.workspace_id or 'unknown'}'")
-            
+
+        cache_key = self.agent_name if not computer_filter else f"{self.agent_name}:{computer_filter.lower()}"
+        scope_note = f" for computer '{computer_filter}'" if computer_filter else ""
+
+        cache_scope = cache_key
+        cache_has_full = self._full_cache_scopes.get(cache_scope, False)
+        cache_allowed = use_cache and (not full_dataset_requested or cache_has_full)
+
+        if cache_allowed:
+            logger.info("🔍 Attempting to retrieve cached software inventory data from Cosmos DB%s", scope_note)
             try:
                 cache_start_time = datetime.utcnow()
                 cache_result = inventory_cache.get_cached_data_with_metadata(
-                    cache_key=self.agent_name,
-                    cache_type="software"
+                    cache_key=cache_key,
+                    cache_type="software",
                 )
                 cache_end_time = datetime.utcnow()
-                cache_response_time = (cache_end_time - cache_start_time).total_seconds() * 1000  # Convert to ms
-                
-                if cache_result and cache_result.get('data'):
-                    # cache_result contains both data and timestamp
-                    cached_data = cache_result['data']
-                    cached_timestamp = cache_result['timestamp']
+                cache_response_time = (cache_end_time - cache_start_time).total_seconds() * 1000
+
+                if cache_result and cache_result.get("data"):
+                    cached_data = cache_result["data"]
+                    if isinstance(cached_data, list) and normalized_limit is not None:
+                        cached_data = cached_data[:normalized_limit]
+                    cached_timestamp = cache_result["timestamp"]
                     cached_count = len(cached_data) if isinstance(cached_data, list) else 0
-                    logger.info(f"✅ Successfully retrieved cached software inventory data from Cosmos DB: {cached_count} items (cached at {cached_timestamp})")
-                    # logger.debug(f"Cached data type: {type(cached_data).__name__}")
-                    # logger.debug(f"Cached data sample: {cached_data[:2] if isinstance(cached_data, list) and len(cached_data) > 0 else 'empty or invalid'}")
-                    
-                    # Record cache hit statistics
+                    logger.info(
+                        "✅ Successfully retrieved cached software inventory data from Cosmos DB%s: %d items (cached at %s)",
+                        scope_note,
+                        cached_count,
+                        cached_timestamp,
+                    )
                     cache_stats_manager.record_agent_request(
                         agent_name="software_inventory",
                         response_time_ms=cache_response_time,
@@ -133,39 +211,37 @@ class SoftwareInventoryAgent:
                         had_error=False,
                         software_name="inventory_cache",
                         version="unified",
-                        url=f"cache://software/{self.agent_name}"
+                        url=f"cache://software/{cache_key}",
                     )
-                    
-                    # Wrap cached list in the expected result format
                     return {
                         "success": True,
                         "data": cached_data,
                         "count": cached_count,
                         "query_params": query_params,
-                        "cached_at": cached_timestamp,  # Use actual cache timestamp
+                        "cached_at": cached_timestamp,
                         "from_cache": True,
-                        "source": "cosmos_cache"
+                        "source": "cosmos_cache",
+                        "target_computer": computer_filter,
+                        "limit_applied": normalized_limit,
+                        "full_dataset": cache_has_full and full_dataset_requested,
                     }
-                else:
-                    logger.info(f"❌ No cached software inventory data found in Cosmos DB for the specified parameters")
-                    # logger.debug(f"Cache miss - will proceed with LAW query")
-                    
-                    # Record cache miss statistics
-                    cache_stats_manager.record_agent_request(
-                        agent_name="software_inventory",
-                        response_time_ms=cache_response_time,
-                        was_cache_hit=False,
-                        had_error=False,
-                        software_name="inventory_cache",
-                        version="unified",
-                        url=f"cache://software/{self.agent_name}"
-                    )
-                    
-            except Exception as cache_err:
-                logger.error(f"❌ Error retrieving cached software inventory data from Cosmos DB: {cache_err}")
-                # logger.debug(f"Cache retrieval exception details: {type(cache_err).__name__}: {str(cache_err)}")
-                
-                # Record error statistics for cache retrieval
+
+                cache_stats_manager.record_agent_request(
+                    agent_name="software_inventory",
+                    response_time_ms=cache_response_time,
+                    was_cache_hit=False,
+                    had_error=False,
+                    software_name="inventory_cache",
+                    version="unified",
+                    url=f"cache://software/{cache_key}",
+                )
+                logger.info("❌ No cached software inventory data found in Cosmos DB%s", scope_note)
+            except Exception as cache_err:  # pragma: no cover - defensive logging
+                logger.error(
+                    "❌ Error retrieving cached software inventory data from Cosmos DB%s: %s",
+                    scope_note,
+                    cache_err,
+                )
                 error_response_time = (datetime.utcnow() - cache_start_time).total_seconds() * 1000
                 cache_stats_manager.record_agent_request(
                     agent_name="software_inventory",
@@ -174,13 +250,11 @@ class SoftwareInventoryAgent:
                     had_error=True,
                     software_name="inventory_cache",
                     version="unified",
-                    url=f"cache://software/{self.agent_name}"
+                    url=f"cache://software/{cache_key}",
                 )
-                # Continue with LAW query if cache fails
         else:
-            logger.info(f"🚫 Cache disabled (use_cache=False) - skipping Cosmos DB cache retrieval")
-        
-        # If no cache or cache disabled, query LAW
+            logger.info("🚫 Cache retrieval skipped%s (use_cache=%s, full_dataset_requested=%s, cached_full=%s)", scope_note, use_cache, full_dataset_requested, cache_has_full)
+
         if not self.logs_client or not self.workspace_id:
             logger.warning("SoftwareInventoryAgent not fully configured (logs_client/workspace_id)")
             return {
@@ -189,10 +263,10 @@ class SoftwareInventoryAgent:
                 "data": [],
                 "count": 0,
                 "query_params": query_params,
-                "from_cache": False
+                "from_cache": False,
+                "target_computer": computer_filter,
             }
 
-        # Build KQL query - Aggregated to show unique software names
         query = f"""
         ConfigurationData
         | where TimeGenerated >= ago({days}d)
@@ -200,13 +274,19 @@ class SoftwareInventoryAgent:
         | where isnotempty(SoftwareName)
         | where isnotempty(Computer)
         """
-        
-        # Add software filter if specified
-        if software_filter:
-            query += f'| where SoftwareName contains "{software_filter}"\n'
 
-        # Complete the query - Keep individual Computer + Software + Version records
-        # This preserves the relationship between computers, software, and versions
+        limit_clause = f"| take {normalized_limit}" if normalized_limit is not None else ""
+        if full_dataset_requested:
+            logger.info("📦 Software inventory request for full dataset%s (pagination managed by orchestrator)", scope_note)
+
+        if software_filter:
+            software_literal = _escape_kql_literal(software_filter)
+            query += f'| where SoftwareName contains "{software_literal}"\n'
+
+        if computer_filter:
+            computer_literal = _escape_kql_literal(computer_filter.lower())
+            query += f'| where tolower(Computer) == "{computer_literal}"\n'
+
         query += f"""
         | extend 
             NormalizedPublisher = case(
@@ -223,112 +303,106 @@ class SoftwareInventoryAgent:
             by Computer, SoftwareName, CurrentVersion
         | project Computer, SoftwareName, CurrentVersion, Publisher, SoftwareType, LastSeen
         | order by SoftwareName asc, Computer asc
-        | take {limit}
         """
+        if limit_clause:
+            query += f"\n        {limit_clause}"
 
-        logger.info(f"🔍 Executing software inventory query for {days} days (cache miss - querying LAW)")
-        # logger.debug(f"LAW query parameters - workspace: {self.workspace_id}, days: {days}, filter: {software_filter}, limit: {limit}")
-        
+        logger.info(
+            "🔍 Executing software inventory query for %s days%s (cache miss - querying LAW)",
+            days,
+            scope_note,
+        )
+
         try:
             query_start_time = datetime.utcnow()
             response = self.logs_client.query_workspace(
                 workspace_id=self.workspace_id,
                 query=query,
-                timespan=timedelta(days=days)
+                timespan=timedelta(days=days),
             )
             query_end_time = datetime.utcnow()
             query_duration = (query_end_time - query_start_time).total_seconds()
-            
-            logger.info(f"📊 LAW query completed in {query_duration:.2f}s with status: {response.status}")
-            
+
+            logger.info("📊 LAW query completed in %.2fs with status: %s", query_duration, response.status)
+
             if response.status != LogsQueryStatus.SUCCESS:
-                logger.error(f"❌ LAW query failed with status: {response.status}")
+                logger.error("❌ LAW query failed with status: %s", response.status)
                 return {
                     "success": False,
                     "error": f"Query unsuccessful with status: {response.status}",
                     "data": [],
                     "count": 0,
                     "query_params": query_params,
-                    "from_cache": False
+                    "from_cache": False,
+                    "target_computer": computer_filter,
                 }
 
-            # Process results
-            # logger.debug(f"LAW response contains {len(response.tables)} table(s)")
-            if response.tables:
-                pass  # logger.debug(f"First table contains {len(response.tables[0].rows)} rows")
-            results = []
+            results: List[Dict[str, Any]] = []
             processed_rows = 0
             failed_rows = 0
-            
+
             if response.tables and len(response.tables) > 0:
                 table = response.tables[0]
-                # logger.debug(f"Processing {len(table.rows)} rows from LAW response")
-                
                 for row_index, row in enumerate(table.rows):
                     try:
-                        # Row mapping for individual computer records:
-                        # row[0] = Computer, row[1] = SoftwareName, row[2] = CurrentVersion,
-                        # row[3] = Publisher, row[4] = SoftwareType, row[5] = LastSeen
-                        
                         item = {
                             "computer": row[0] if row[0] else "Unknown",
                             "name": row[1] if row[1] else "Unknown",
                             "version": row[2] if row[2] else "",
                             "publisher": row[3] if row[3] else "Unknown",
                             "software_type": row[4] if row[4] else "Unknown",
-                            "install_date": None,  # Not available in ConfigurationData
+                            "install_date": None,
                             "last_seen": row[5].isoformat() if row[5] else None,
-                            "computer_count": 1,  # Each record is for one computer
+                            "computer_count": 1,
                             "source": "log_analytics_configurationdata",
                         }
                         results.append(item)
                         processed_rows += 1
-                        
-                        # Log every 100th row for progress tracking
-                        if (row_index + 1) % 100 == 0:
-                            # logger.debug(f"Processed {row_index + 1}/{len(table.rows)} rows from LAW response")
-                            pass
-                            
-                    except Exception as row_err:
+                    except Exception as row_err:  # pragma: no cover - unexpected row shapes
                         failed_rows += 1
-                        logger.warning(f"Row {row_index} parse error: {row_err}")
-                        # logger.debug(f"Failed row data: {row}")
-                        continue
+                        logger.warning("Row %s parse error: %s", row_index, row_err)
 
-            logger.info(f"📦 Retrieved {len(results)} software inventory items from LAW (processed: {processed_rows}, failed: {failed_rows})")
-            # logger.debug(f"Processing summary - Total rows: {len(table.rows) if 'table' in locals() else 0}, Success: {processed_rows}, Failed: {failed_rows}")
+            logger.info(
+                "📦 Retrieved %d software inventory items from LAW%s (processed: %d, failed: %d)",
+                len(results),
+                scope_note,
+                processed_rows,
+                failed_rows,
+            )
 
-            # Cache the results
             result_data = {
                 "success": True,
                 "data": results,
                 "count": len(results),
                 "query_params": query_params,
                 "from_cache": False,
-                "cached_at": datetime.utcnow().isoformat()
+                "cached_at": datetime.utcnow().isoformat(),
+                "target_computer": computer_filter,
+                "limit_applied": normalized_limit,
+                "full_dataset": full_dataset_requested,
             }
 
             if use_cache:
-                logger.info(f"💾 Attempting to cache {len(results)} software inventory items to Cosmos DB")
-                # logger.debug(f"Cache data size: {len(str(result_data))} characters")
-                # logger.debug(f"Cache storage parameters - type: 'software', agent: '{self.agent_name}', workspace: '{self.workspace_id}'")
-                
+                logger.info(
+                    "💾 Attempting to cache %d software inventory items to Cosmos DB%s",
+                    len(results),
+                    scope_note,
+                )
                 try:
                     cache_start_time = datetime.utcnow()
                     inventory_cache.store_cached_data(
-                        cache_key=self.agent_name,
-                        data=results,  # Store the actual results list, not the wrapped result_data
-                        cache_type="software"
+                        cache_key=cache_key,
+                        data=results,
+                        cache_type="software",
                     )
                     cache_end_time = datetime.utcnow()
                     cache_duration = (cache_end_time - cache_start_time).total_seconds()
-                    cache_response_time = cache_duration * 1000  # Convert to ms
-                    
-                    logger.info(f"✅ Successfully cached software inventory data to Cosmos DB in {cache_duration:.2f}s")
-                    # logger.debug(f"Cached {len(results)} items at timestamp: {cache_start_time.isoformat()}")
-                    
-                    # Record statistics for LAW query + cache store operation
                     total_response_time = (cache_end_time - query_start_time).total_seconds() * 1000
+                    logger.info(
+                        "✅ Successfully cached software inventory data to Cosmos DB in %.2fs%s",
+                        cache_duration,
+                        scope_note,
+                    )
                     cache_stats_manager.record_agent_request(
                         agent_name="software_inventory",
                         response_time_ms=total_response_time,
@@ -336,14 +410,14 @@ class SoftwareInventoryAgent:
                         had_error=False,
                         software_name="log_analytics",
                         version="configurationdata",
-                        url=f"law://workspace/{self.workspace_id}/ConfigurationData"
+                        url=f"law://workspace/{self.workspace_id}/ConfigurationData",
                     )
-                    
-                except Exception as cache_err:
-                    logger.error(f"❌ Failed to cache software inventory data to Cosmos DB: {cache_err}")
-                    # logger.debug(f"Cache storage exception details: {type(cache_err).__name__}: {str(cache_err)}")
-                    
-                    # Record error statistics
+                except Exception as cache_err:  # pragma: no cover - cache failures shouldn't break flow
+                    logger.error(
+                        "❌ Failed to cache software inventory data to Cosmos DB%s: %s",
+                        scope_note,
+                        cache_err,
+                    )
                     error_response_time = (datetime.utcnow() - query_start_time).total_seconds() * 1000
                     cache_stats_manager.record_agent_request(
                         agent_name="software_inventory",
@@ -352,13 +426,9 @@ class SoftwareInventoryAgent:
                         had_error=True,
                         software_name="log_analytics",
                         version="configurationdata",
-                        url=f"law://workspace/{self.workspace_id}/ConfigurationData"
+                        url=f"law://workspace/{self.workspace_id}/ConfigurationData",
                     )
-                    # Continue execution even if caching fails
             else:
-                logger.info(f"🚫 Cache disabled (use_cache=False) - skipping Cosmos DB cache storage")
-                
-                # Record statistics for LAW query without caching
                 total_response_time = (datetime.utcnow() - query_start_time).total_seconds() * 1000
                 cache_stats_manager.record_agent_request(
                     agent_name="software_inventory",
@@ -367,16 +437,25 @@ class SoftwareInventoryAgent:
                     had_error=False,
                     software_name="log_analytics",
                     version="configurationdata",
-                    url=f"law://workspace/{self.workspace_id}/ConfigurationData"
+                    url=f"law://workspace/{self.workspace_id}/ConfigurationData",
                 )
+
+            retrieved_full_dataset = full_dataset_requested or (
+                normalized_limit is not None and len(results) < normalized_limit
+            )
+            self._full_cache_scopes[cache_scope] = retrieved_full_dataset
+
+            result_data["full_dataset"] = retrieved_full_dataset
 
             return result_data
 
-        except Exception as e:
-            logger.error(f"SoftwareInventoryAgent query failed: {e}")
-            
-            # Record error statistics for LAW query failure
-            error_response_time = (datetime.utcnow() - query_start_time).total_seconds() * 1000 if 'query_start_time' in locals() else 0
+        except Exception as exc:  # pragma: no cover - broad safety net
+            logger.error("SoftwareInventoryAgent query failed%s: %s", scope_note, exc)
+            error_response_time = (
+                (datetime.utcnow() - query_start_time).total_seconds() * 1000
+                if "query_start_time" in locals()
+                else 0
+            )
             cache_stats_manager.record_agent_request(
                 agent_name="software_inventory",
                 response_time_ms=error_response_time,
@@ -384,16 +463,16 @@ class SoftwareInventoryAgent:
                 had_error=True,
                 software_name="log_analytics",
                 version="configurationdata",
-                url=f"law://workspace/{self.workspace_id}/ConfigurationData"
+                url=f"law://workspace/{self.workspace_id}/ConfigurationData",
             )
-            
             return {
                 "success": False,
-                "error": str(e),
+                "error": str(exc),
                 "data": [],
                 "count": 0,
                 "query_params": query_params,
-                "from_cache": False
+                "from_cache": False,
+                "target_computer": computer_filter,
             }
 
     async def get_software_summary(self, days: int = 90) -> Dict[str, Any]:
@@ -472,3 +551,274 @@ class SoftwareInventoryAgent:
             status["error"] = str(e)
             
         return status
+
+    async def get_software_publisher_summary(self, days: int = 90, top_n: Optional[int] = 25) -> Dict[str, Any]:
+        """Summarize software installations by publisher."""
+        if not self.logs_client or not self.workspace_id:
+            return {
+                "success": False,
+                "error": "Software inventory agent not fully configured",
+                "publisher_summary": [],
+            }
+
+        limit_clause = f"| take {int(top_n)}" if top_n else ""
+        query = f"""
+        ConfigurationData
+        | where TimeGenerated >= ago({days}d)
+        | where ConfigDataType == "Software"
+        | where isnotempty(SoftwareName) and isnotempty(Computer)
+        | extend 
+            NormalizedPublisher = case(
+                isempty(Publisher), "Unknown",
+                Publisher contains "Microsoft", "Microsoft Corporation",
+                Publisher contains "Oracle", "Oracle Corporation",
+                Publisher contains "Adobe", "Adobe Inc.",
+                Publisher contains "VMware", "VMware",
+                Publisher
+            )
+        | summarize 
+            Installations = dcount(Computer),
+            SoftwareCount = dcount(SoftwareName),
+            LastSeen = max(TimeGenerated)
+          by Publisher = NormalizedPublisher
+        | order by Installations desc
+        {limit_clause}
+        | project Publisher, Installations, SoftwareCount, LastSeen
+        """
+
+        try:
+            query_start = datetime.utcnow()
+            response = self.logs_client.query_workspace(
+                workspace_id=self.workspace_id,
+                query=query,
+                timespan=timedelta(days=days),
+            )
+            query_duration_ms = (datetime.utcnow() - query_start).total_seconds() * 1000
+
+            if response.status != LogsQueryStatus.SUCCESS or not response.tables:
+                cache_stats_manager.record_agent_request(
+                    agent_name="software_inventory",
+                    response_time_ms=query_duration_ms,
+                    was_cache_hit=False,
+                    had_error=True,
+                    software_name="log_analytics",
+                    version="configurationdata_publisher_summary",
+                    url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+                )
+                return {
+                    "success": False,
+                    "error": f"Query unsuccessful with status: {response.status}",
+                    "publisher_summary": [],
+                }
+
+            table = response.tables[0]
+            summary: List[Dict[str, Any]] = []
+            for row in table.rows:
+                publisher = str(row[0]) if row[0] else "Unknown"
+                installations = int(row[1]) if row[1] is not None else 0
+                software_count = int(row[2]) if row[2] is not None else 0
+                last_seen = row[3].isoformat() if row[3] else None
+                summary.append(
+                    {
+                        "publisher": publisher,
+                        "installations": installations,
+                        "unique_software": software_count,
+                        "last_seen": last_seen,
+                    }
+                )
+
+            cache_stats_manager.record_agent_request(
+                agent_name="software_inventory",
+                response_time_ms=query_duration_ms,
+                was_cache_hit=False,
+                had_error=False,
+                software_name="log_analytics",
+                version="configurationdata_publisher_summary",
+                url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+            )
+
+            total_installations = sum(item["installations"] for item in summary)
+            return {
+                "success": True,
+                "publisher_summary": summary,
+                "total_publishers": len(summary),
+                "total_installations": total_installations,
+                "requested_days": days,
+                "top": top_n,
+                "queried_at": datetime.utcnow().isoformat(),
+            }
+
+        except Exception as exc:  # pragma: no cover - defensive catch
+            logger.error("Software publisher summary query failed: %s", exc)
+            cache_stats_manager.record_agent_request(
+                agent_name="software_inventory",
+                response_time_ms=0,
+                was_cache_hit=False,
+                had_error=True,
+                software_name="log_analytics",
+                version="configurationdata_publisher_summary",
+                url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+            )
+            return {
+                "success": False,
+                "error": str(exc),
+                "publisher_summary": [],
+            }
+
+    async def get_top_software_packages(
+        self,
+        days: int = 90,
+        top_n: Optional[int] = 50,
+        include_versions: bool = True,
+    ) -> Dict[str, Any]:
+        """Return the most common software packages observed across computers."""
+        if not self.logs_client or not self.workspace_id:
+            return {
+                "success": False,
+                "error": "Software inventory agent not fully configured",
+                "software_packages": [],
+            }
+
+        group_clause = "SoftwareName, CurrentVersion" if include_versions else "SoftwareName"
+        projection = (
+            "| project SoftwareName, CurrentVersion, Installations, SoftwareType, LastSeen, Publishers"
+            if include_versions
+            else "| project SoftwareName, Installations, SoftwareType, LastSeen, Versions, Publishers"
+        )
+        limit_clause = f"| take {int(top_n)}" if top_n else ""
+
+        query = f"""
+        ConfigurationData
+        | where TimeGenerated >= ago({days}d)
+        | where ConfigDataType == "Software"
+        | where isnotempty(SoftwareName) and isnotempty(Computer)
+        | extend 
+            NormalizedPublisher = case(
+                isempty(Publisher), "Unknown",
+                Publisher contains "Microsoft", "Microsoft Corporation",
+                Publisher contains "Oracle", "Oracle Corporation",
+                Publisher contains "Adobe", "Adobe Inc.",
+                Publisher contains "VMware", "VMware",
+                Publisher
+            ),
+            ActualSoftwareType = coalesce(SoftwareType, "Application")
+        | summarize 
+            Installations = dcount(Computer),
+            LastSeen = max(TimeGenerated),
+            Publishers = make_set(NormalizedPublisher, 5),
+            Versions = make_set(CurrentVersion, 5),
+            SoftwareType = any(ActualSoftwareType)
+          by {group_clause}
+        | order by Installations desc
+        {limit_clause}
+        {projection}
+        """
+
+        try:
+            query_start = datetime.utcnow()
+            response = self.logs_client.query_workspace(
+                workspace_id=self.workspace_id,
+                query=query,
+                timespan=timedelta(days=days),
+            )
+            query_duration_ms = (datetime.utcnow() - query_start).total_seconds() * 1000
+
+            if response.status != LogsQueryStatus.SUCCESS or not response.tables:
+                cache_stats_manager.record_agent_request(
+                    agent_name="software_inventory",
+                    response_time_ms=query_duration_ms,
+                    was_cache_hit=False,
+                    had_error=True,
+                    software_name="log_analytics",
+                    version="configurationdata_top_software",
+                    url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+                )
+                return {
+                    "success": False,
+                    "error": f"Query unsuccessful with status: {response.status}",
+                    "software_packages": [],
+                }
+
+            table = response.tables[0]
+            packages: List[Dict[str, Any]] = []
+            for row in table.rows:
+                idx = 0
+                name = str(row[idx]) if row[idx] else "Unknown"
+                idx += 1
+                version_value = None
+                if include_versions:
+                    version_value = str(row[idx]) if row[idx] else ""
+                    idx += 1
+                installations = int(row[idx]) if row[idx] is not None else 0
+                idx += 1
+                software_type = str(row[idx]) if row[idx] else "Unknown"
+                idx += 1
+                last_seen = row[idx].isoformat() if row[idx] else None
+                idx += 1
+                if include_versions:
+                    publishers_raw = row[idx]
+                    idx += 1
+                    publishers = _to_string_list(publishers_raw)
+                    package = {
+                        "software_name": name,
+                        "version": version_value,
+                        "installations": installations,
+                        "software_type": software_type,
+                        "last_seen": last_seen,
+                        "publishers": publishers,
+                    }
+                else:
+                    versions_raw = row[idx]
+                    idx += 1
+                    publishers_raw = row[idx]
+                    idx += 1
+                    versions = _to_string_list(versions_raw)
+                    publishers = _to_string_list(publishers_raw)
+                    package = {
+                        "software_name": name,
+                        "versions": versions,
+                        "installations": installations,
+                        "software_type": software_type,
+                        "last_seen": last_seen,
+                        "publishers": publishers,
+                    }
+                packages.append(package)
+
+            cache_stats_manager.record_agent_request(
+                agent_name="software_inventory",
+                response_time_ms=query_duration_ms,
+                was_cache_hit=False,
+                had_error=False,
+                software_name="log_analytics",
+                version="configurationdata_top_software",
+                url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+            )
+
+            total_installations = sum(item["installations"] for item in packages)
+            return {
+                "success": True,
+                "software_packages": packages,
+                "total_packages": len(packages),
+                "total_installations": total_installations,
+                "requested_days": days,
+                "top": top_n,
+                "include_versions": include_versions,
+                "queried_at": datetime.utcnow().isoformat(),
+            }
+
+        except Exception as exc:  # pragma: no cover - defensive catch
+            logger.error("Top software packages query failed: %s", exc)
+            cache_stats_manager.record_agent_request(
+                agent_name="software_inventory",
+                response_time_ms=0,
+                was_cache_hit=False,
+                had_error=True,
+                software_name="log_analytics",
+                version="configurationdata_top_software",
+                url=f"law://workspace/{self.workspace_id}/ConfigurationData",
+            )
+            return {
+                "success": False,
+                "error": str(exc),
+                "software_packages": [],
+            }

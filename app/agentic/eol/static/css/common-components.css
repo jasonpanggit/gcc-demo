@@ -44,12 +44,11 @@
     font-size: var(--font-size-lg);
     margin-bottom: var(--spacing-xl);
     opacity: 0.95;
-    max-width: 800px;
     line-height: 1.6;
 }
 
 /* Responsive hero */
-@media (max-width: 768px) {
+/* @media (max-width: 100%) {
     .hero-section {
         padding: var(--spacing-xl) 0;
     }
@@ -61,7 +60,7 @@
     .hero-subtitle {
         font-size: var(--font-size-base);
     }
-}
+} */
 
 /* ============================================================
    MODERN CARDS
@@ -307,10 +306,6 @@
     background: linear-gradient(135deg, #2d5a7b, #244d68); 
 }
 
-.agent-badge.websurfer { 
-    background: linear-gradient(135deg, #006b5d, #005a4d); 
-}
-
 .agent-badge.azure-ai-agent,
 .agent-badge.azure_ai_agent,
 .agent-badge.azureai { 
@@ -333,7 +328,7 @@
 }
 
 /* Default for unknown agents */
-.agent-badge:not([class*="-agent"]):not([class*="_agent"]):not([class*="-orchestrator"]):not([class*="_orchestrator"]):not([class*="websurfer"]):not([class*="azure"]):not([class*="magentic"]) {
+.agent-badge:not([class*="-agent"]):not([class*="_agent"]):not([class*="-orchestrator"]):not([class*="_orchestrator"]):not([class*="azure"]):not([class*="magentic"]) {
     background: linear-gradient(135deg, #495057, #343a40);
 }
 

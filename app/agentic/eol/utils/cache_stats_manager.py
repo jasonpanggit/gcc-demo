@@ -468,5 +468,9 @@ class CacheStatsManager:
         self.recent_inventory_requests.clear()
         self.recent_cosmos_requests.clear()
 
+    def reset_all_stats(self) -> None:
+        """Backward compatible alias for reset_statistics."""
+        self.reset_statistics()
+
 # Global cache statistics manager instance
 cache_stats_manager = CacheStatsManager()

@@ -1,6 +1,6 @@
 # 🔄 EOL Agentic Platform
 
-An advanced End-of-Life (EOL) analysis platform built on Azure App Service, Cosmos DB, FastAPI, and OpenAI with the AutoGen Framework. This intelligent agentic system pulls real-time inventory data (captured by Azure Arc inventory features) from Log Analytics Workspace to provide comprehensive software lifecycle insights and proactive management capabilities.
+An advanced End-of-Life (EOL) analysis platform built on Azure App Service, Cosmos DB, FastAPI, and OpenAI with the Microsoft Agent Framework preview. This intelligent agentic system pulls real-time inventory data (captured by Azure Arc inventory features) from Log Analytics Workspace to provide comprehensive software lifecycle insights and proactive management capabilities.
 
 ## 🚀 Overview
 
@@ -17,7 +17,7 @@ The EOL Agentic Platform orchestrates multi-agent workflows to automatically dis
 
 - **🔍 Intelligent Inventory Discovery**: Real-time software and OS inventory from Azure Log Analytics (Azure Arc enabled)
 - **🤖 Multi-Agent EOL Analysis**: Specialized agents for different software vendors (Microsoft, Red Hat, Ubuntu, Oracle, etc.)
-- **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4) with AutoGen 0.7.x multi-agent framework
+- **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4) with the Microsoft Agent Framework (preview)
 - **📊 Real-time Risk Assessment**: Automatic categorization of EOL risks (Critical, High, Medium, Low)
 - **🔔 Intelligent Alert Management**: Configurable EOL alerts with SMTP email notifications
 - **🎯 Smart EOL Search**: Confidence scoring, early termination, and comprehensive EOL history tracking
@@ -32,8 +32,10 @@ The EOL Agentic Platform orchestrates multi-agent workflows to automatically dis
 The application uses a sophisticated multi-agent architecture:
 
 #### Core Orchestrators
-- **`ChatOrchestratorAgent`**: Manages conversational AI interactions and AutoGen multi-agent conversations
+- **`AgentFrameworkChatOrchestrator`**: Manages conversational AI interactions using the Microsoft Agent Framework preview
 - **`EOLOrchestratorAgent`**: Coordinates EOL data gathering from specialized agents
+   - Constructor now accepts injected `agents`, optional `vendor_routing`, and a `close_provided_agents` flag for precise test control.
+   - Implements async `aclose()` plus context manager support so FastAPI and tests can release owned resources deterministically.
 
 #### Inventory Agents
 - **`InventoryAgent`**: Provides summary and coordination for inventory data
@@ -57,7 +59,6 @@ The application uses a sophisticated multi-agent architecture:
 - **`OpenAIAgent`**: Azure OpenAI (GPT-4) integration for AI-powered analysis
 - **`AzureAIAgent`**: Azure AI Agent Service for intelligent web data extraction
 - **`PlaywrightAgent`**: Automated browser-based web scraping
-- **`WebSurferAgent`**: AutoGen web surfer for dynamic content retrieval
 
 ### Intelligent Routing
 
@@ -73,14 +74,13 @@ The system uses intelligent agent routing based on:
 - **FastAPI 0.112.x**: High-performance async web framework
 - **Python 3.11+**: Core runtime environment
 - **Azure SDK**: Integration with Azure services (Identity, Monitor Query, Cosmos DB)
-- **AutoGen 0.7.4**: Multi-agent conversation framework (agentchat + extensions)
+- **Microsoft Agent Framework 1.0.0b251112**: Preview multi-agent conversation framework
 - **Pydantic 2.x**: Data validation and serialization
 
 ### AI & Web Automation
 - **Azure OpenAI**: GPT-4 powered conversational AI (OpenAI 1.51.0)
 - **Azure AI Agent Service**: Modern intelligent agent capabilities (replaces Bing Search)
 - **Playwright 1.50.0**: Browser automation for web scraping
-- **AutoGen Web Surfer**: Dynamic web content retrieval
 - **Azure Log Analytics**: Real-time inventory data source
 
 ### Data & Caching
@@ -115,7 +115,7 @@ app/agentic/eol/
 │   └── debug.py                      # Debug utilities (3)
 ├── agents/                           # Multi-agent system
 │   ├── base_eol_agent.py             # Base class for all EOL agents
-│   ├── chat_orchestrator.py          # Conversational AI orchestrator (AutoGen)
+│   ├── inventory_asst_orchestrator.py# Conversational AI orchestrator (Microsoft Agent Framework)
 │   ├── eol_orchestrator.py           # EOL analysis orchestrator
 │   ├── inventory_agent.py            # Inventory coordination
 │   ├── os_inventory_agent.py         # OS inventory from Log Analytics
@@ -134,11 +134,10 @@ app/agentic/eol/
 │   ├── openai_agent.py               # Azure OpenAI (GPT-4) integration
 │   ├── azure_ai_agent.py             # Azure AI Agent Service integration
 │   ├── playwright_agent.py           # Playwright web scraping
-│   └── websurfer_agent.py            # AutoGen web surfer agent
 ├── templates/                        # Web interface templates
 │   ├── base.html                     # Base template with common layout
 │   ├── index.html                    # Dashboard homepage with statistics
-│   ├── chat.html                     # Conversational AI interface
+│   ├── inventory_asst.html           # Inventory assistant conversational interface
 │   ├── eol.html                      # EOL analysis interface (deprecated)
 │   ├── eol-searches.html             # EOL search history viewer
 │   ├── inventory.html                # Inventory management
@@ -315,8 +314,8 @@ MAX_CONCURRENT_AGENTS=10                          # Max concurrent agents
      - `/` - Dashboard with real-time metrics
      - `/inventory` - Inventory management
      - `/eol-search` - EOL search interface
-     - `/eol-searches` - Search history viewer
-     - `/chat` - Conversational AI interface
+   - `/eol-searches` - Search history viewer
+   - `/inventory-assistant` - Inventory assistant conversational interface
      - `/alerts` - Alert management
      - `/cache` - Cache statistics
      - `/agents` - Agent monitoring
@@ -379,7 +378,7 @@ All API endpoints follow the **StandardResponse** format for consistency:
 - `GET /inventory` - Inventory management interface
 - `GET /eol-search` - EOL search interface
 - `GET /eol-searches` - EOL search history viewer
-- `GET /chat` - Conversational AI interface
+- `GET /inventory-assistant` - Inventory assistant conversational interface
 - `GET /alerts` - Alert management interface
 - `GET /cache` - Cache statistics dashboard
 - `GET /agent-cache-details` - Detailed agent cache metrics
@@ -438,9 +437,9 @@ All API endpoints follow the **StandardResponse** format for consistency:
 
 ### Communication History Endpoints
 - `GET /api/communications/eol` - Get EOL orchestrator communications
-- `GET /api/communications/chat` - Get chat orchestrator communications
+- `GET /api/communications/inventory-assistant` - Get inventory assistant communications
 - `POST /api/communications/clear` - Clear EOL communications
-- `POST /api/communications/chat/clear` - Clear chat communications
+- `POST /api/communications/inventory-assistant/clear` - Clear inventory assistant communications
 
 ### Health & Monitoring Endpoints
 - `GET /health` - Basic health check
@@ -448,25 +447,18 @@ All API endpoints follow the **StandardResponse** format for consistency:
 - `GET /api/test-logging` - Test logging configuration
 - `GET /api/cosmos/test` - Test Cosmos DB connectivity
 
-### Chat & AI Endpoints
-- `POST /api/autogen-chat` - AI-powered conversational interface with AutoGen orchestration
-
-## 📦 API Module Architecture
-
-The application uses a **modular API architecture** with specialized routers for improved organization and maintainability:
-
-```
-api/
+### Inventory Assistant Endpoints
+- `POST /api/inventory-assistant` - AI-powered conversational interface powered by the Microsoft Agent Framework
 ├── __init__.py              # API package initialization
 ├── health.py                # Health check endpoints (3 endpoints)
-├── cache.py                 # Cache management (17 endpoints)
+## ✅ Testing
 ├── inventory.py             # Inventory operations (7 endpoints)
 ├── eol.py                   # EOL analysis (5 endpoints)
 ├── cosmos.py                # Cosmos DB operations (6 endpoints)
 ├── agents.py                # Agent management (5 endpoints)
 ├── alerts.py                # Alert configuration (6 endpoints)
 ├── communications.py        # Communication history (6 endpoints)
-├── chat.py                  # AI chat interface (1 endpoint)
+├── inventory_asst.py        # Inventory assistant interface (1 endpoint)
 ├── ui.py                    # HTML page templates (8 endpoints)
 └── debug.py                 # Debug utilities (3 endpoints)
 ```
@@ -475,6 +467,7 @@ api/
 
 #### `api/health.py` - Health & Status
 **Purpose**: Application health monitoring and status reporting  
+| Orchestrator | 3 | `tests/test_eol_orchestrator.py` dependency injection & cleanup |
 **Endpoints**:
 - `GET /health` - Basic health check (fast, no dependencies)
 - `GET /api/health/detailed` - Comprehensive health with dependency checks
@@ -504,6 +497,15 @@ api/
 #### `api/inventory.py` - Inventory Operations
 **Purpose**: Software and OS inventory management  
 **Endpoints**:
+### Local Virtual Environment Setup
+To run the tests using pytest, it is recommended to use a local virtual environment. Here’s how to set it up:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use .venv\Scripts\activate
+pip install -r requirements-dev.txt
+pytest
+```
+If `requirements-dev.txt` is not present, install `pytest` (and `pytest-asyncio`) manually before running the suite.
 - `GET /api/inventory` - Enhanced inventory with EOL data
 - `GET /api/inventory/status` - Processing status
 - `GET /api/os` - OS inventory data
@@ -554,16 +556,16 @@ api/
 **Purpose**: Agent-to-agent communication tracking  
 **Endpoints**:
 - `GET /api/communications/eol` - EOL orchestrator history
-- `GET /api/communications/chat` - Chat orchestrator history
+- `GET /api/communications/inventory-assistant` - Inventory assistant history
 - `POST /api/communications/clear` - Clear EOL history
-- `POST /api/communications/chat/clear` - Clear chat history
+- `POST /api/communications/inventory-assistant/clear` - Clear inventory assistant history
 - `GET /api/agent-communications/{session_id}` - Session communications
 - `GET /api/debug/agent-communications` - Debug all communications
 
-#### `api/chat.py` - AI Conversational Interface
-**Purpose**: AutoGen multi-agent chat orchestration  
+#### `api/inventory_asst.py` - Inventory Assistant Interface
+**Purpose**: Microsoft Agent Framework powered inventory assistant orchestration  
 **Endpoints**:
-- `POST /api/autogen-chat` - AI-powered conversational queries
+- `POST /api/inventory-assistant` - AI-powered conversational queries
 
 **Features**:
 - Multi-agent orchestration (10+ specialized agents)
@@ -581,7 +583,7 @@ api/
 - `GET /inventory` - Inventory management UI
 - `GET /eol-search` - EOL search interface
 - `GET /eol-searches` - Search history viewer
-- `GET /chat` - Conversational AI interface
+- `GET /inventory-assistant` - Inventory assistant interface
 - `GET /alerts` - Alert configuration UI
 - `GET /cache` - Cache statistics dashboard
 - `GET /agent-cache-details` - Detailed agent metrics
@@ -672,7 +674,7 @@ The application implements a sophisticated 3-strategy search approach:
 - **Agent Statistics**: Request counts, cache performance, URL-level metrics
 - **Load Management**: Intelligent request distribution and timeout handling
 
-### 6. Conversational AI (AutoGen Integration)
+### 6. Conversational AI (Microsoft Agent Framework Integration)
 - **Natural Language**: Ask questions about your software inventory using GPT-4
 - **Multi-Agent Collaboration**: Specialized agents collaborate to provide insights
 - **Context Awareness**: Maintains conversation context and history
@@ -683,7 +685,7 @@ The application implements a sophisticated 3-strategy search approach:
 ### 7. Web Scraping Capabilities
 - **Playwright Agent**: Browser automation for JavaScript-rendered content
 - **Azure AI Agent Service**: Modern intelligent web data extraction
-- **Web Surfer Agent**: AutoGen-based dynamic content retrieval
+- **Web Surfer Agent**: Optional legacy AutoGen-based dynamic content retrieval
 - **Cache Management**: Separate cache for web scraping results
 
 ## 🚀 Deployment
@@ -766,7 +768,7 @@ az container create \
 Access comprehensive metrics at `/cache` and `/`:
 - **Active Agents**: Count of all registered agents
 - **Cached Items**: Total cached items across all caches
-- **AI Sessions**: Total AutoGen conversation sessions
+- **AI Sessions**: Total Microsoft Agent Framework conversation sessions
 - **Database Items**: Cosmos DB operations count
 - **Cache Hit Rates**: Per-agent and global cache efficiency
 - **Response Times**: Average, min, max response times per agent
@@ -796,7 +798,7 @@ The `cache_stats_manager` provides comprehensive tracking:
 - `GET /api/health/detailed` - Detailed health check with dependencies
 - `GET /api/agents/status` - Agent health and availability
 
-## � Testing
+## ✅ Testing
 
 The application includes a comprehensive pytest-based test suite with **63 tests** covering all 72 endpoints.
 
@@ -841,6 +843,7 @@ python3 tests/run_comprehensive_tests.py --quick
 - ✅ **Selective Execution**: Run by category, marker, or individual test
 - ✅ **Coverage Reports**: HTML and terminal coverage analysis
 - ✅ **Detailed Reporting**: Pass/fail status with timing and error details
+- ✅ **Resource Lifecycle**: `tests/test_eol_orchestrator.py` verifies dependency injection and cleanup semantics
 
 ### Using pytest directly
 
@@ -850,6 +853,9 @@ pytest tests/ -v
 
 # Run specific test file
 pytest tests/test_cache_endpoints.py -v
+
+# Run EOL orchestrator dependency injection tests
+pytest tests/test_eol_orchestrator.py -v
 
 # Run tests with specific marker
 pytest -m cache -v
@@ -898,11 +904,11 @@ For detailed test information, see:
 
 To add a new EOL agent:
 
-1. Create a new agent class inheriting from `BaseEOLAgent`
-2. Implement required methods: `get_eol_data()`, `search_eol()`
-3. Add agent to `EOLOrchestratorAgent.__init__()`
-4. Update routing logic in `_route_to_agents()`
-5. Add tests for the new agent
+1. Create a new agent class inheriting from `BaseEOLAgent`.
+2. Implement required methods: `get_eol_data()` (and optionally `search_eol()`).
+3. Register the agent in `_create_default_agents()` so it participates in default orchestration.
+4. Extend `DEFAULT_VENDOR_ROUTING` with vendor keywords to enable intelligent routing.
+5. Add targeted tests (e.g. via `tests/test_eol_orchestrator.py`) to verify routing and cleanup behaviors.
 
 ### Architecture Guidelines
 
@@ -972,8 +978,8 @@ A comprehensive refactoring effort has modernized the codebase with significant 
 - **Web Scraping Cache**: Dedicated cache for Playwright and web surfer results
 - **Cache Management UI**: Visual interface for cache statistics and purging
 
-### AutoGen 0.7.x Integration
-- **Modern Framework**: Upgraded to AutoGen 0.7.4 with agentchat + extensions
+### Microsoft Agent Framework Preview Integration
+- **Modern Framework**: Migrated to Microsoft Agent Framework 1.0.0b251112 preview for chat orchestration
 - **Web Surfer Agent**: Dynamic web content retrieval for up-to-date EOL data
 - **Improved Chat Experience**: Better conversation handling and context management
 

@@ -646,6 +646,13 @@ body {
     color: rgba(255, 255, 255, 0.9);
     margin-bottom: var(--spacing-xl);
     line-height: 1.5;
+    width: 100%;
+    max-width: none;
+}
+
+.hero-section .hero-subtitle {
+    max-width: none;
+    width: 100%;
 }
 
 /* Dark mode support (future enhancement) */

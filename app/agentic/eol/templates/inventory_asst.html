@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}AI Assistant — Azure Agentic Platform{% endblock %}
+{% block title %}Inventory Assistant — Azure Agentic Platform{% endblock %}
 
 {% block extra_head %}
 <style>
-    /* Chat Interface Styles - Consistent with platform design */
+    /* Inventory Assistant Interface Styles - Consistent with platform design */
     .chat-container {
         padding: 0;
         margin-bottom: var(--spacing-xl);
@@ -991,7 +991,7 @@
         font-weight: bold;
     }
 
-    .status-autogen {
+    .status-agent-framework {
         background: #d4edda;
         color: #155724;
         border: 1px solid #c3e6cb;
@@ -1358,7 +1358,7 @@
     }
 
     @media (max-width: 768px) {
-        .autogen-container {
+        .agent-framework-container {
             flex-direction: column;
             height: auto;
             min-height: 800px;
@@ -1392,9 +1392,6 @@
             flex-direction: column;
             align-items: flex-start;
             gap: 0.25rem;
-        }
-
-        .section-header .toggle-btn {
             font-size: 1em;
         }
     }
@@ -1409,7 +1406,7 @@
         padding: 0.75rem;
     }
 
-    .response-header {
+    .eol-response-title {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         padding: 0.5rem;
@@ -1877,14 +1874,14 @@
     }
 </style>
 
-<!-- Chat Hero Section -->
+<!-- Inventory Assistant Hero Section -->
 <div class="hero-section fade-in">
     <div class="hero-content">
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
                     <i class="fas fa-robot me-3"></i>
-                    AI Assistant
+                    Inventory Assistant
                 </h1>
                 <p class="hero-subtitle">
                     Intelligent conversational interface powered by multi-agent orchestration.
@@ -1895,7 +1892,7 @@
     </div>
 </div>
 
-<!-- Chat Interface -->
+<!-- Inventory Assistant Interface -->
 <div class="container-fluid px-0">
     <div class="chat-container fade-in">
         <!-- Main Chat Area -->
@@ -1903,7 +1900,7 @@
             <div class="chat-header">
                 <h5 class="mb-0">
                     <i class="fas fa-comments me-2"></i>
-                    Multi-Agent Conversation
+                    Conversation
                 </h5>
                 <div>
                     <span class="badge bg-light text-dark me-2" id="conversationStats">Ready to start</span>
@@ -1918,7 +1915,7 @@
                     <div class="mb-3">
                         <i class="fas fa-robot fa-3x text-primary mb-3"></i>
                     </div>
-                    <h5>Welcome to the AI Assistant!</h5>
+                    <h5>Welcome to the Inventory Assistant!</h5>
                     <p class="mb-4">Ask about your software inventory, EOL risks, or get expert recommendations.</p>
                 </div>
             </div>
@@ -1935,10 +1932,6 @@
                     <div class="quick-action"
                         onclick="sendQuickMessage('What operating systems do I have in my inventory?')">
                         <i class="fab fa-windows me-1"></i>What OS versions do I have in my inventory?
-                    </div>
-                    <div class="quick-action" onclick="sendQuickMessage('Show my OS inventory with EOL dates')">
-                        <i class="fas fa-desktop me-1"></i><i class="fas fa-calendar-times me-1"></i>Show my OS
-                        inventory with EOL dates
                     </div>
                     <div class="quick-action"
                         onclick="sendQuickMessage('What is the EOL date of Windows Server 2016?')">
@@ -1966,7 +1959,7 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h5><i class="fas fa-comments"></i> Live Agent Communications</h5>
-                    <small class="text-muted">Real-time view of AutoGen tasks and agent coordination during
+                    <small class="text-muted">Real-time view of Agent Framework conversations and orchestration during
                         searches</small>
                 </div>
                 <button class="btn btn-sm btn-outline-primary" onclick="clearCommunicationsStream()">
@@ -1984,7 +1977,7 @@
                 style="max-width: 100%; overflow-x: hidden; height: 450px; overflow-y: auto;">
                 <div class="text-center text-muted py-3">
                     <i class="fas fa-robot fa-2x mb-2"></i>
-                    <p>⚙️ AutoGen tasks and results will appear here</p>
+                    <p>⚙️ Agent Framework activity and results will appear here</p>
                     <p><small>Watch real-time task execution and agent coordination during searches</small></p>
                 </div>
             </div>
@@ -2048,7 +2041,7 @@
             }
 
             try {
-                const response = await fetch('/api/communications/chat');
+                const response = await fetch('/api/communications/inventory-assistant');
                 const data = await response.json();
                 console.log('📡 Polling response:', data);
 
@@ -2111,7 +2104,7 @@
     async function clearCommunicationsStream() {
         try {
             // First, clear the backend orchestrator communications log
-            const response = await fetch('/api/communications/chat/clear', {
+            const response = await fetch('/api/communications/inventory-assistant/clear', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2165,7 +2158,7 @@
             stream.innerHTML = `
             <div class="text-center text-muted py-4">
                 <i class="fas fa-robot fa-2x mb-3"></i>
-                <p>⚙️ AutoGen tasks and results will appear here</p>
+                <p>⚙️ Agent Framework activity and results will appear here</p>
                 <p><small>Watch real-time task execution and agent coordination during conversations</small></p>
             </div>
         `;
@@ -2227,7 +2220,7 @@
                     <div class="mb-3">
                         <i class="fas fa-robot fa-3x text-primary mb-3"></i>
                     </div>
-                    <h5>Welcome to the AI Assistant!</h5>
+                    <h5>Welcome to the Inventory Assistant!</h5>
                     <p class="mb-4">Ask about your software inventory, EOL risks, or get expert recommendations.</p>
                 </div>
             `;
@@ -2320,7 +2313,6 @@
         try {
             const requestBody = {
                 message: message,
-                use_autogen: true,
                 timeout_seconds: 150  // Match with frontend timeout but leave buffer
             };
 
@@ -2334,7 +2326,7 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 180000); // 180 second timeout (3 minutes) for inventory operations
 
-            const response = await fetch('/api/autogen-chat', {
+            const response = await fetch('/api/inventory-assistant', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2469,7 +2461,7 @@
         const messageHeader = document.createElement('div');
         messageHeader.className = 'message-header';
         messageHeader.innerHTML = `
-            <span class="message-sender">${type === 'user' ? 'You' : 'AI Assistant'}</span>
+            <span class="message-sender">${type === 'user' ? 'You' : 'Assistant'}</span>
             <span class="message-time">${new Date().toLocaleTimeString()}</span>
         `;
 

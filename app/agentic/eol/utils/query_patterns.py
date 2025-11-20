@@ -33,7 +33,7 @@ class QueryPatterns:
         APPROACHING_EOL_PATTERNS: Patterns for approaching EOL queries  
         INVENTORY_PATTERNS: Regex patterns for inventory requests
         OS_INVENTORY_PATTERNS: Patterns specific to OS inventory
-        SOFTWARE_PATTERNS: Common software name patterns
+        SOFTWARE_INVENTORY_PATTERNS: Patterns specific to software inventory queries
     """
     
     # EOL-related patterns
@@ -57,10 +57,11 @@ class QueryPatterns:
     INVENTORY_PATTERNS = [
         r'show\s+(?:me\s+)?(?:the\s+)?inventory',
         r'(?:get|retrieve|fetch)\s+(?:the\s+)?inventory',
-        r'what\s+software',
-        r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?software',
+        r'what\s+softwares?',
+        r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?softwares?',
         r'inventory\s+(?:of|for)',
-        r'software\s+(?:inventory|list)',
+        r'softwares?\s+(?:inventory|list)',
+        r'show\s+(?:all\s+)?softwares?',
         r'show\s+(?:all\s+)?applications',
         r'what\s+(?:is\s+)?installed'
     ]
@@ -71,6 +72,18 @@ class QueryPatterns:
         r'what\s+(?:operating\s+)?systems?',
         r'os\s+inventory',
         r'operating\s+system\s+(?:list|inventory)'
+    ]
+
+    # Software-focused inventory patterns
+    SOFTWARE_INVENTORY_PATTERNS = [
+        r'what\s+softwares?',
+        r'list\s+(?:all\s+)?(?:the\s+)?(?:installed\s+)?softwares?',
+        r'softwares?\s+(?:inventory|list)',
+        r'show\s+(?:all\s+)?softwares?',
+        r'show\s+(?:all\s+)?applications',
+        r'what\s+(?:is\s+)?installed',
+        r'softwares?\s+installed\s+on',
+        r'applications?\s+installed\s+on'
     ]
     
     @classmethod
@@ -126,6 +139,14 @@ class QueryPatterns:
             True if query requests OS inventory
         """
         return any(re.search(pattern, query, re.IGNORECASE) for pattern in cls.OS_INVENTORY_PATTERNS)
+
+    @classmethod
+    def matches_software_inventory_pattern(cls, query: str) -> bool:
+        """Check if query matches software inventory patterns."""
+        return any(
+            re.search(pattern, query, re.IGNORECASE)
+            for pattern in cls.SOFTWARE_INVENTORY_PATTERNS
+        )
     
     @classmethod
     def get_matched_patterns(cls, query: str, pattern_list: List[str], use_regex: bool = False) -> List[str]:
@@ -190,10 +211,16 @@ class QueryPatterns:
             "is_approaching_eol_query": cls.matches_approaching_eol_pattern(query),
             "is_inventory_query": cls.matches_inventory_pattern(query),
             "is_os_inventory_query": cls.matches_os_inventory_pattern(query),
+            "is_software_inventory_query": cls.matches_software_inventory_pattern(query),
             "matched_eol_patterns": cls.get_matched_patterns(query, cls.EOL_PATTERNS),
             "matched_approaching_patterns": cls.get_matched_patterns(query, cls.APPROACHING_EOL_PATTERNS),
             "matched_inventory_patterns": cls.get_matched_patterns(query, cls.INVENTORY_PATTERNS, use_regex=True),
-            "matched_os_patterns": cls.get_matched_patterns(query, cls.OS_INVENTORY_PATTERNS, use_regex=True)
+            "matched_os_patterns": cls.get_matched_patterns(query, cls.OS_INVENTORY_PATTERNS, use_regex=True),
+            "matched_software_inventory_patterns": cls.get_matched_patterns(
+                query,
+                cls.SOFTWARE_INVENTORY_PATTERNS,
+                use_regex=True,
+            ),
         }
 
 

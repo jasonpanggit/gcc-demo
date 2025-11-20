@@ -1,4 +1,4 @@
-// Enhanced Agent Communication Handler - inspired by MagenticOne pattern
+// Enhanced Agent Communication Handler - inspired by the earlier multi-agent pattern
 // Guard declaration so loading this script multiple times doesn't redeclare the class
 // Define the class in an IIFE and attach it to window to avoid temporal-dead-zone
 if (typeof window.AgentCommunicationHandler === 'undefined') {
@@ -901,7 +901,7 @@ function displayAgentCommunications(communications, options = {}) {
     // Add header summary
     handler.addInteraction(
         '📋 System',
-        `AutoGen Task Results (${filteredCommunications.length} entries)`,
+        `Agent Framework Task Results (${filteredCommunications.length} entries)`,
         'summary'
     );
 

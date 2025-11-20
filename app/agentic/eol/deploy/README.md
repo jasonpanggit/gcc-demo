@@ -57,6 +57,16 @@ The script maps Terraform outputs to application settings:
 
 - `deploy-app.sh` - Quick deployment without package building (legacy)
 - `deploy-app-with-build.sh` - Deployment with proper Python package installation (recommended)
+- `update_mcp_tool_metadata.py` - Refreshes cached Azure MCP tool metadata for offline documentation
+
+Run the metadata refresh script inside the project virtual environment so it picks up BeautifulSoup and other crawler dependencies:
+
+```bash
+source ../../../../.venv/bin/activate
+python update_mcp_tool_metadata.py
+```
+
+The script writes to `../static/data/azure_mcp_tool_metadata.json`, which the web app reads at runtime.
 
 ### App Settings Configuration
 
@@ -220,16 +230,16 @@ Checks end-of-life status for specified software.
 }
 ```
 
-### AI Chat Interface
+### Inventory Assistant API
 ```http
-POST /chat
+POST /inventory-assistant
 Content-Type: application/json
 
 {
-  "query": "What software in our inventory is approaching end-of-life?"
+  "message": "What software in our inventory is approaching end-of-life?"
 }
 ```
-AI-powered analysis of software inventory and EOL status.
+AI-powered analysis of software inventory and EOL status powered by the Microsoft Agent Framework inventory assistant.
 
 **Response:**
 ```json

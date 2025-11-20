@@ -3,10 +3,14 @@ Pytest Configuration and Fixtures for EOL App Testing
 Provides shared fixtures and configuration for all test modules
 """
 import pytest
+import pytest_asyncio
 import sys
 import os
+from types import SimpleNamespace
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
+
+from utils import config as app_config
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,7 +36,7 @@ def base_url():
     return BASE_URL
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def app():
     """Create FastAPI app instance with mock data (only for local testing)"""
     if USE_MOCK_DATA:
@@ -43,7 +47,7 @@ async def app():
         yield None
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def client(app, base_url) -> AsyncGenerator[AsyncClient, None]:
     """
     Create async HTTP client for testing endpoints
@@ -132,4 +136,11 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers", "alerts: Tests for alert management"
+    )
+
+    # Expose application configuration to pytest skip expressions
+    config.inventory_assistant = app_config.inventory_assistant
+    config.cosmos = SimpleNamespace(
+        enabled=bool(app_config.azure.cosmos_endpoint),
+        endpoint=app_config.azure.cosmos_endpoint,
     )

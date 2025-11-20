@@ -36,6 +36,54 @@ class ResourceQueryRequest(BaseModel):
     database: Optional[str] = None      # For Kusto queries
 
 
+async def _load_composite_tool_catalog() -> List[Dict[str, Any]]:
+    """Retrieve the full MCP tool catalog with source metadata, using orchestrator when possible."""
+    try:
+        from agents.mcp_orchestrator import get_mcp_orchestrator
+
+        orchestrator = await get_mcp_orchestrator()
+        if await orchestrator.ensure_mcp_ready():
+            tool_catalog = await orchestrator.get_tool_catalog()
+            source_map = orchestrator.get_tool_source_map()
+
+            formatted: List[Dict[str, Any]] = []
+            for tool in tool_catalog:
+                func = tool.get("function", {})
+                metadata = tool.get("metadata", {})
+                name = func.get("name", "unknown")
+                formatted.append({
+                    "name": name,
+                    "description": func.get("description") or tool.get("description", "No description available"),
+                    "parameters": func.get("parameters", {}),
+                    "source": metadata.get("source") or source_map.get(name),
+                    "original_name": metadata.get("original_name") or func.get("x_original_name"),
+                    "metadata": metadata,
+                })
+
+            formatted.sort(key=lambda item: item["name"].lower())
+            return formatted
+    except Exception as exc:  # pragma: no cover - fallback when orchestrator unavailable
+        logger.warning("Unable to load MCP tool catalog via orchestrator: %s", exc)
+
+    client = await get_azure_mcp_client()
+    tools = client.get_available_tools()
+    formatted: List[Dict[str, Any]] = []
+    for tool in tools:
+        func = tool.get("function", {})
+        name = func.get("name", "unknown")
+        formatted.append({
+            "name": name,
+            "description": func.get("description", "No description available"),
+            "parameters": func.get("parameters", {}),
+            "source": "azure",
+            "original_name": func.get("name"),
+            "metadata": {"source": "azure", "original_name": func.get("name")},
+        })
+
+    formatted.sort(key=lambda item: item["name"].lower())
+    return formatted
+
+
 # ============================================================================
 # AZURE MCP STATUS & INFO ENDPOINTS
 # ============================================================================
@@ -50,13 +98,44 @@ async def get_azure_mcp_status():
         StandardResponse with connection status and available tools count
     """
     try:
-        client = await get_azure_mcp_client()
-        
-        status_info = {
-            "initialized": client.is_initialized(),
-            "available_tools_count": len(client.get_available_tools()),
-            "connection_status": "connected" if client.is_initialized() else "disconnected"
-        }
+        status_info: Dict[str, Any]
+
+        try:
+            from agents.mcp_orchestrator import get_mcp_orchestrator
+
+            orchestrator = await get_mcp_orchestrator()
+            ready = await orchestrator.ensure_mcp_ready()
+        except Exception as orchestrator_exc:  # pragma: no cover - fallback to direct client
+            logger.warning("MCP orchestrator unavailable; falling back to Azure MCP client: %s", orchestrator_exc)
+            ready = False
+            orchestrator = None  # type: ignore[assignment]
+
+        if ready:
+            tool_catalog = await orchestrator.get_tool_catalog()  # type: ignore[union-attr]
+            tool_counts = orchestrator.summarize_tool_counts()  # type: ignore[union-attr]
+            tool_sources = orchestrator.get_tool_source_map()  # type: ignore[union-attr]
+            active_clients = orchestrator.get_registered_clients()  # type: ignore[union-attr]
+
+            status_info = {
+                "initialized": True,
+                "connection_status": "connected",
+                "available_tools_count": len(tool_catalog),
+                "active_clients": active_clients,
+                "tool_counts": tool_counts,
+                "tool_sources": tool_sources,
+            }
+        else:
+            client = await get_azure_mcp_client()
+            initialized = client.is_initialized()
+            tool_count = len(client.get_available_tools()) if initialized else 0
+            status_info = {
+                "initialized": initialized,
+                "connection_status": "connected" if initialized else "disconnected",
+                "available_tools_count": tool_count,
+                "active_clients": ["azure"] if initialized else [],
+                "tool_counts": {"azure": tool_count} if initialized else {},
+                "tool_sources": {},
+            }
         
         return StandardResponse.success_response(
             data=[status_info],
@@ -77,19 +156,7 @@ async def list_azure_mcp_tools():
         StandardResponse with list of available tools and their descriptions
     """
     try:
-        client = await get_azure_mcp_client()
-        tools = client.get_available_tools()
-        
-        # Format tools for display
-        formatted_tools = []
-        for tool in tools:
-            func = tool.get("function", {})
-            formatted_tools.append({
-                "name": func.get("name", "unknown"),
-                "description": func.get("description", "No description available"),
-                "parameters": func.get("parameters", {})
-            })
-        
+        formatted_tools = await _load_composite_tool_catalog()
         return StandardResponse.success_response(
             data=formatted_tools,
             metadata={"agent": "azure_mcp", "total_tools": len(formatted_tools)}
@@ -256,25 +323,18 @@ async def search_azure_mcp_tools(pattern: str):
         StandardResponse with matching tools
     """
     try:
-        client = await get_azure_mcp_client()
-        tools = client.get_available_tools()
-        
-        # Search for matching tools
+        tools = await _load_composite_tool_catalog()
+
         pattern_lower = pattern.lower()
-        matching_tools = []
-        
+        matching_tools: List[Dict[str, Any]] = []
+
         for tool in tools:
-            func = tool.get("function", {})
-            tool_name = func.get("name", "")
-            tool_desc = func.get("description", "")
-            
+            tool_name = tool.get("name", "")
+            tool_desc = tool.get("description", "")
+
             if pattern_lower in tool_name.lower() or pattern_lower in tool_desc.lower():
-                matching_tools.append({
-                    "name": tool_name,
-                    "description": tool_desc,
-                    "parameters": func.get("parameters", {})
-                })
-        
+                matching_tools.append(tool)
+
         return StandardResponse.success_response(
             data=matching_tools,
             metadata={
@@ -301,8 +361,21 @@ async def call_azure_mcp_tool(request: ToolCallRequest):
         StandardResponse with tool execution result
     """
     try:
-        client = await get_azure_mcp_client()
-        result = await client.call_tool(request.tool_name, request.arguments)
+        try:
+            from agents.mcp_orchestrator import get_mcp_orchestrator
+
+            orchestrator = await get_mcp_orchestrator()
+            ready = await orchestrator.ensure_mcp_ready()
+        except Exception as orchestrator_exc:  # pragma: no cover - fallback when orchestrator unavailable
+            logger.warning("MCP orchestrator unavailable for tool call; falling back to Azure MCP client: %s", orchestrator_exc)
+            ready = False
+            orchestrator = None  # type: ignore[assignment]
+
+        if ready:
+            result = await orchestrator.execute_tool(request.tool_name, request.arguments)  # type: ignore[union-attr]
+        else:
+            client = await get_azure_mcp_client()
+            result = await client.call_tool(request.tool_name, request.arguments)
         
         if not result.get("success"):
             raise HTTPException(

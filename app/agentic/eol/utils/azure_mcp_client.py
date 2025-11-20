@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +34,7 @@ class AzureMCPClient:
         self._write = None
         self._stdio_context = None
         self._session_context = None
+        self._tool_name_map: Dict[str, str] = {}
         
     async def initialize(self) -> bool:
         """
@@ -49,11 +51,19 @@ class AzureMCPClient:
             # The Azure MCP server will use these for authentication
             mcp_env = os.environ.copy()
             
-            # Check if Service Principal authentication is configured
-            use_sp = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
+            # Check if Service Principal authentication is configured. We allow
+            # explicit opt-in via USE_SERVICE_PRINCIPAL, but also auto-detect when
+            # the standard AZURE_SP_* variables are provided to avoid silent
+            # fallbacks to Managed Identity.
+            use_sp_flag = os.getenv("USE_SERVICE_PRINCIPAL")
             sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
             sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
             tenant_id = os.getenv("AZURE_TENANT_ID")
+
+            if use_sp_flag is None:
+                use_sp = bool(sp_client_id and sp_client_secret and tenant_id)
+            else:
+                use_sp = use_sp_flag.lower() == "true"
             
             if use_sp and sp_client_id and sp_client_secret and tenant_id:
                 logger.info("🔐 Using Service Principal authentication for Azure MCP Server")
@@ -64,6 +74,11 @@ class AzureMCPClient:
                 logger.info(f"   Client ID: {sp_client_id[:8]}...")
                 logger.info(f"   Tenant ID: {tenant_id[:8]}...")
             else:
+                if use_sp:
+                    logger.warning(
+                        "Service Principal authentication requested but credentials are incomplete; "
+                        "falling back to Managed Identity"
+                    )
                 logger.info("🔐 Using Managed Identity authentication for Azure MCP Server")
                 # For Managed Identity, ensure CLIENT_ID is set if available
                 managed_identity_client_id = os.getenv("MANAGED_IDENTITY_CLIENT_ID")
@@ -109,18 +124,37 @@ class AzureMCPClient:
             
             # List and cache available tools
             tools = await self.session.list_tools()
-            self.available_tools = [{
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.inputSchema
-                }
-            } for tool in tools.tools]
+            self.available_tools = []
+            self._tool_name_map.clear()
+            for tool in tools.tools:
+                original_name = tool.name
+                safe_name = self._get_safe_tool_name(original_name)
+                self._tool_name_map[safe_name] = original_name
+                logger.info(
+                    "🛠️ Registered Azure MCP tool: %s → %s",
+                    safe_name,
+                    original_name,
+                )
+                self.available_tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": safe_name,
+                            "description": tool.description,
+                            "parameters": tool.inputSchema,
+                        },
+                    }
+                )
             
             logger.info(f"✅ Azure MCP Server initialized with {len(self.available_tools)} tools")
             for tool in tools.tools:
-                logger.debug(f"  - {tool.name}: {tool.description}")
+                safe_name = self._resolve_safe_name(tool.name)
+                logger.debug(
+                    "  - %s (sanitized: %s): %s",
+                    tool.name,
+                    safe_name,
+                    tool.description,
+                )
             
             self._initialized = True
             return True
@@ -137,6 +171,7 @@ class AzureMCPClient:
                 await self._session_context.__aexit__(None, None, None)
             if self._stdio_context:
                 await self._stdio_context.__aexit__(None, None, None)
+            self._tool_name_map.clear()
             self._initialized = False
             logger.info("✅ Azure MCP Server client cleaned up")
         except Exception as e:
@@ -173,11 +208,21 @@ class AzureMCPClient:
         if not self._initialized or not self.session:
             raise RuntimeError("Azure MCP client not initialized. Call initialize() first.")
         
+        resolved_name = self._tool_name_map.get(tool_name, tool_name)
+
         try:
-            logger.info(f"🔧 Calling Azure MCP tool: {tool_name}")
-            logger.debug(f"Arguments: {json.dumps(arguments, indent=2)}")
+            logger.info(
+                "🔧 Calling Azure MCP tool: %s (resolved: %s)",
+                tool_name,
+                resolved_name,
+            )
+            try:
+                serialized_args = json.dumps(arguments, ensure_ascii=False, indent=2)
+            except (TypeError, ValueError):  # pragma: no cover - defensive serialization
+                serialized_args = str(arguments)
+            logger.info("🧾 Tool arguments: %s", serialized_args)
             
-            result = await self.session.call_tool(tool_name, arguments)
+            result = await self.session.call_tool(resolved_name, arguments)
             
             logger.info(f"✅ Tool '{tool_name}' executed successfully")
             logger.debug(f"Result: {result.content}")
@@ -210,6 +255,7 @@ class AzureMCPClient:
             return {
                 "success": True,
                 "tool_name": tool_name,
+                "original_tool_name": resolved_name,
                 "content": content_list,
                 "is_error": getattr(result, 'isError', False)
             }
@@ -219,9 +265,35 @@ class AzureMCPClient:
             return {
                 "success": False,
                 "tool_name": tool_name,
+                "original_tool_name": resolved_name,
                 "error": str(e),
                 "is_error": True
             }
+
+    def _resolve_safe_name(self, original_name: str) -> str:
+        """Look up the sanitized tool name for a given original name without mutating state."""
+
+        for safe_name, mapped_original in self._tool_name_map.items():
+            if mapped_original == original_name:
+                return safe_name
+        return original_name
+
+    def _get_safe_tool_name(self, original_name: str) -> str:
+        """Return a sanitized, unique tool name acceptable to the Azure OpenAI APIs."""
+
+        sanitized = re.sub(r"[^0-9a-zA-Z_-]", "_", original_name or "")
+        sanitized = sanitized.strip("_") or "tool"
+        if sanitized[0].isdigit():
+            sanitized = f"tool_{sanitized}"
+
+        base_name = sanitized
+        suffix = 1
+        # Ensure uniqueness but map same original name to same sanitized name
+        while sanitized in self._tool_name_map and self._tool_name_map[sanitized] != original_name:
+            suffix += 1
+            sanitized = f"{base_name}_{suffix}"
+
+        return sanitized
     
     async def list_resource_groups(self) -> Dict[str, Any]:
         """
@@ -231,7 +303,7 @@ class AzureMCPClient:
             Dictionary with resource group information
         """
         return await self.call_tool(
-            "azure_resource-groups-list",
+            self._resolve_safe_name("azure_resource-groups-list"),
             {}
         )
     
@@ -250,7 +322,7 @@ class AzureMCPClient:
             args["resourceGroupName"] = resource_group
         
         return await self.call_tool(
-            "azure_storage-accounts-list",
+            self._resolve_safe_name("azure_storage-accounts-list"),
             args
         )
     
@@ -265,7 +337,7 @@ class AzureMCPClient:
             Dictionary with resource information
         """
         return await self.call_tool(
-            "azure_resources-get",
+            self._resolve_safe_name("azure_resources-get"),
             {"resourceId": resource_id}
         )
     
@@ -280,7 +352,7 @@ class AzureMCPClient:
             Dictionary with query results
         """
         return await self.call_tool(
-            "azure_resources-query",
+            self._resolve_safe_name("azure_resources-query"),
             {"query": query}
         )
 

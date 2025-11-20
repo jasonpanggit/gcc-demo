@@ -1,17 +1,20 @@
-fastapi==0.112.1
-uvicorn[standard]>=0.38.0
-pydantic>=2.0.0
-autogen-agentchat==0.7.4
-autogen-ext==0.7.4
-autogen-ext[web-surfer]==0.7.4
+fastapi==0.121.2  # Required by agent-framework-ag-ui prerelease
+uvicorn[standard]==0.38.0
+pydantic==2.12.4
+agent-framework==1.0.0b251112  # Preview build requires pip --pre
+agent-framework-ag-ui==1.0.0b251112.post1
+agent-framework-chatkit==1.0.0b251112.post1
 azure-identity==1.17.1
-azure-core==1.30.2
+azure-core==1.36.0
 azure-monitor-query==1.4.0
-openai==1.51.0
-tiktoken>=0.8.0
+openai==2.7.1
+tiktoken==0.12.0
+a2a-sdk==0.3.12
+tqdm==4.67.1
 aiohttp==3.10.5
-httpx>=0.27.1,<0.28
+httpx==0.28.1
 beautifulsoup4==4.12.3
+soupsieve==2.5
 lxml==5.3.0
 jinja2==3.1.4
 python-multipart==0.0.9
@@ -20,12 +23,18 @@ pytest-asyncio==0.23.8
 azure-cosmos==4.7.0
 aiofiles==24.1.0
 email-validator==2.1.0
+PyYAML==6.0.2
 playwright==1.50.0
 # Azure AI Agent Service dependencies (Modern replacement for Bing Search)
-azure-ai-projects>=1.0.0
-azure-ai-agents>=1.0.0
+azure-ai-projects==2.0.0b1
+azure-ai-agents==1.2.0b5
 azure-search-documents==11.5.3
 html2text==2025.4.15
 # Azure MCP Server integration
-mcp>=1.20.0
-python-dotenv>=1.0.1
+mcp==1.21.1
+python-dotenv==1.2.1
+sse-starlette==3.0.3
+uvloop==0.22.1
+websockets==15.0.1
+watchfiles==1.1.1
+httptools==0.7.1

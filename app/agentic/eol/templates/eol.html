@@ -979,7 +979,6 @@ Legacy format handling has been removed as all agents now use the standardized f
             if (agentLower.includes('php')) return 'fab fa-php';
             if (agentLower.includes('python')) return 'fab fa-python';
             if (agentLower.includes('postgresql') || agentLower.includes('postgres')) return 'fas fa-database';
-            if (agentLower.includes('websurfer')) return 'fas fa-search';
             if (agentLower.includes('azure_ai') || agentLower.includes('azureai')) return 'fas fa-brain';
             return 'fas fa-robot';
         }
@@ -997,7 +996,6 @@ Legacy format handling has been removed as all agents now use the standardized f
             if (agentLower.includes('php')) return '#777bb4';
             if (agentLower.includes('python')) return '#3776ab';
             if (agentLower.includes('postgresql') || agentLower.includes('postgres')) return '#336791';
-            if (agentLower.includes('websurfer')) return '#008272';
             if (agentLower.includes('azure_ai') || agentLower.includes('azureai')) return '#0078d4';
             return '#6c757d';
         }
@@ -1665,7 +1663,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                         <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
                         <p><strong>EOL Search Completed</strong></p>
                         <p>Used optimized single-agent routing for fast results.</p>
-                        <p><small>For detailed multi-agent interactions, use the <a href="/chat" class="text-decoration-none">Chat Interface</a></small></p>
+                        <p><small>For detailed multi-agent interactions, use the <a href="/inventory-assistant" class="text-decoration-none">Inventory Assistant</a></small></p>
                     </div>
                 `;
             }
@@ -2368,7 +2366,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                             <i class="fas fa-info-circle fa-2x mb-3"></i>
                             <p><strong>No Agent Communications</strong></p>
                             <p>This search completed without detailed agent interactions to display.</p>
-                            <p><small>For detailed multi-agent interactions, use the <a href="/chat" class="text-decoration-none">Chat Interface</a></small></p>
+                            <p><small>For detailed multi-agent interactions, use the <a href="/inventory-assistant" class="text-decoration-none">Inventory Assistant</a></small></p>
                         </div>`;
                     } else {
                         commContainer.innerHTML = `

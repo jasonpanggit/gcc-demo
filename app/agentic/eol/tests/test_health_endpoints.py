@@ -30,7 +30,7 @@ class TestHealthEndpoints:
         assert data['status'] == "ok"
         assert 'timestamp' in data
         assert 'version' in data
-        assert isinstance(data['autogen_available'], bool)
+        assert isinstance(data['inventory_asst_available'], bool)
         
     @pytest.mark.asyncio
     async def test_api_health_endpoint(self, client):

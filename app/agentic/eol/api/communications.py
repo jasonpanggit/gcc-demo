@@ -2,11 +2,11 @@
 Communications API Module
 
 This module provides endpoints for managing and retrieving communication logs from
-the EOL and Chat orchestrators, including real-time agent interaction history.
+the EOL and inventory assistant orchestrators, including real-time agent interaction history.
 
 Features:
 - EOL orchestrator communication logs
-- Chat orchestrator communication logs
+- Inventory assistant orchestrator communication logs
 - Session-based communication filtering
 - Communication log clearing
 - Agent-to-agent interaction tracking
@@ -14,9 +14,9 @@ Features:
 
 Endpoints:
     GET  /api/communications/eol - Get EOL orchestrator communications
-    GET  /api/communications/chat - Get chat orchestrator communications
+    GET  /api/communications/inventory-assistant - Get inventory assistant orchestrator communications
     POST /api/communications/clear - Clear EOL orchestrator communications
-    POST /api/communications/chat/clear - Clear chat orchestrator communications
+    POST /api/communications/inventory-assistant/clear - Clear inventory assistant orchestrator communications
     GET  /api/agent-communications/{session_id} - Get session-specific communications
     GET  /api/debug/agent-communications - Debug all agent communications
 """
@@ -38,16 +38,16 @@ def _get_eol_orchestrator():
     return get_eol_orchestrator()
 
 
-def _get_chat_orchestrator():
+def _get_inventory_asst_orchestrator():
     """Lazy import to avoid circular dependency"""
-    from main import get_chat_orchestrator
-    return get_chat_orchestrator()
+    from main import get_inventory_asst_orchestrator
+    return get_inventory_asst_orchestrator()
 
 
-def _get_chat_available():
+def _get_inventory_asst_available():
     """Lazy import to avoid circular dependency"""
-    from main import CHAT_AVAILABLE
-    return CHAT_AVAILABLE
+    from main import INVENTORY_ASST_AVAILABLE
+    return INVENTORY_ASST_AVAILABLE
 
 
 @router.get("/api/communications/eol", response_model=StandardResponse)
@@ -95,17 +95,17 @@ async def get_eol_communications():
         }
 
 
-@router.get("/api/communications/chat", response_model=StandardResponse)
-@readonly_endpoint(agent_name="chat_communications", timeout_seconds=15)
-async def get_chat_communications():
+@router.get("/api/communications/inventory-assistant", response_model=StandardResponse)
+@readonly_endpoint(agent_name="inventory_assistant_communications", timeout_seconds=15)
+async def get_inventory_assistant_communications():
     """
-    Get real-time chat orchestrator communications log.
+    Get real-time inventory assistant orchestrator communications log.
     
-    Retrieves the communication history from the chat orchestrator,
+    Retrieves the communication history from the inventory assistant orchestrator,
     including agent interactions and OpenAI API calls.
     
     Returns:
-        StandardResponse with list of recent communications from chat orchestrator.
+        StandardResponse with list of recent communications from the inventory assistant orchestrator.
         
     Example Response:
         {
@@ -122,11 +122,11 @@ async def get_chat_communications():
             "timestamp": "2025-01-15T10:35:00Z"
         }
     """
-    orchestrator = _get_chat_orchestrator()
+    orchestrator = _get_inventory_asst_orchestrator()
     logger.info(f"🔍 [COMMS API] Orchestrator instance: {orchestrator}")
     logger.info(f"🔍 [COMMS API] Has get_agent_communications: {hasattr(orchestrator, 'get_agent_communications')}")
-    
-    if orchestrator and hasattr(orchestrator, 'get_agent_communications'):
+
+    if orchestrator and _get_inventory_asst_available() and hasattr(orchestrator, 'get_agent_communications'):
         # Check internal state before calling
         if hasattr(orchestrator, 'orchestrator_logs'):
             logger.info(f"🔍 [COMMS API] orchestrator_logs length: {len(orchestrator.orchestrator_logs)}")
@@ -142,23 +142,24 @@ async def get_chat_communications():
             logger.info(f"🔍 [COMMS API] First communication: {communications[0]}")
         
         # Wrap in StandardResponse format with data as list
+        communications_count = len(communications) if isinstance(communications, list) else 1
         return StandardResponse.success_response(
             data=communications if isinstance(communications, list) else [communications],
             metadata={
-                "count": len(communications) if isinstance(communications, list) else 1,
+                "count": communications_count,
                 "timestamp": datetime.utcnow().isoformat(),
-                "source": "chat_orchestrator",
+                "source": "inventory_asst_orchestrator",
                 "orchestrator_state": {
                     "has_logs": hasattr(orchestrator, 'orchestrator_logs'),
                     "logs_count": len(orchestrator.orchestrator_logs) if hasattr(orchestrator, 'orchestrator_logs') else 0
                 }
             },
-            message=f"Retrieved {len(communications) if isinstance(communications, list) else 1} communications"
+            message=f"Retrieved {communications_count} communications"
         )
     else:
-        logger.warning("🔍 [COMMS API] Chat orchestrator not available or method missing")
+        logger.warning("🔍 [COMMS API] Inventory assistant orchestrator not available or method missing")
         return StandardResponse.error_response(
-            error_message="Chat orchestrator not available or communications not supported",
+            error_message="Inventory assistant orchestrator not available or communications not supported",
             details={"communications_count": 0}
         )
 
@@ -187,13 +188,13 @@ async def clear_communications():
     return result
 
 
-@router.post("/api/communications/chat/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="clear_chat_comms", timeout_seconds=30)
-async def clear_chat_communications():
+@router.post("/api/communications/inventory-assistant/clear", response_model=StandardResponse)
+@write_endpoint(agent_name="clear_inventory_assistant_comms", timeout_seconds=30)
+async def clear_inventory_assistant_communications():
     """
-    Clear chat orchestrator communications log.
+    Clear inventory assistant orchestrator communications log.
     
-    Removes all communication history from the chat orchestrator,
+    Removes all communication history from the inventory assistant orchestrator,
     freeing up memory and resetting the conversation context.
     
     Returns:
@@ -202,18 +203,18 @@ async def clear_chat_communications():
     Example Response:
         {
             "success": true,
-            "message": "Chat communications cleared successfully"
+            "message": "Inventory assistant communications cleared successfully"
         }
     """
-    orchestrator = _get_chat_orchestrator()
+    orchestrator = _get_inventory_asst_orchestrator()
     if orchestrator and hasattr(orchestrator, 'clear_communications'):
         result = await orchestrator.clear_communications()
-        logger.info("Chat communications cleared: %s", result)
+        logger.info("Inventory assistant communications cleared: %s", result)
         return result
     else:
         return {
             "success": False,
-            "error": "Chat orchestrator not available or clear not supported"
+            "error": "Inventory assistant orchestrator not available or clear not supported"
         }
 
 
@@ -223,11 +224,11 @@ async def get_agent_communications(session_id: str):
     """
     Get agent communication history for a specific session.
     
-    Retrieves all agent-to-agent communications for a specific chat session,
-    useful for debugging AutoGen conversations and understanding agent interactions.
+    Retrieves all agent-to-agent communications for a specific assistant session,
+    useful for debugging Agent Framework conversations and understanding agent interactions.
     
     Args:
-        session_id: Unique identifier for the chat session
+        session_id: Unique identifier for the assistant session
     
     Returns:
         StandardResponse with filtered communications for the session and debug info.
@@ -252,16 +253,16 @@ async def get_agent_communications(session_id: str):
             "debug_all_communications": [...]
         }
     """
-    if not CHAT_AVAILABLE:
-        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    if not _get_inventory_asst_available():
+        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
     
-    # Get the chat orchestrator instance
-    chat_orch = _get_chat_orchestrator()
-    if chat_orch is None:
-        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    # Get the inventory assistant orchestrator instance
+    assistant_orchestrator = _get_inventory_asst_orchestrator()
+    if assistant_orchestrator is None:
+        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
     
     # Get ALL communications for debugging
-    all_communications = await chat_orch.get_agent_communications()
+    all_communications = await assistant_orchestrator.get_agent_communications()
     
     # Filter communications by session_id
     session_communications = [
@@ -284,8 +285,8 @@ async def debug_agent_communications():
     """
     Debug endpoint to check all agent communications across all sessions.
     
-    Returns complete history of agent-to-agent communications from AutoGen
-    chat orchestrator, useful for troubleshooting and monitoring agent interactions.
+    Returns complete history of agent-to-agent communications from the Agent Framework
+    inventory assistant orchestrator, useful for troubleshooting and monitoring agent interactions.
     
     Returns:
         StandardResponse with all communications and orchestrator session info.
@@ -305,18 +306,18 @@ async def debug_agent_communications():
             "orchestrator_session_id": "main-session-xyz"
         }
     """
-    if not CHAT_AVAILABLE:
-        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    if not _get_inventory_asst_available():
+        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
     
-    # Get the chat orchestrator instance
-    chat_orch = _get_chat_orchestrator()
-    if chat_orch is None:
-        return {"error": "Chat orchestrator not available in EOL interface", "communications": []}
+    # Get the inventory assistant orchestrator instance
+    assistant_orchestrator = _get_inventory_asst_orchestrator()
+    if assistant_orchestrator is None:
+        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
     
-    all_communications = await chat_orch.get_agent_communications()
+    all_communications = await assistant_orchestrator.get_agent_communications()
     
     return {
         "total_communications": len(all_communications),
         "communications": all_communications,
-        "orchestrator_session_id": chat_orch.session_id if hasattr(chat_orch, 'session_id') else 'unknown'
+        "orchestrator_session_id": assistant_orchestrator.session_id if hasattr(assistant_orchestrator, 'session_id') else 'unknown'
     }

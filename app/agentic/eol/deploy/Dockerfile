@@ -1,6 +1,9 @@
 # Multi-stage build for EOL Application without embedded Azure MCP Server
 FROM mcr.microsoft.com/playwright:v1.50.0-jammy
 
+# Prefer prebuilt wheels during pip installs to avoid compilation failures
+ENV PIP_PREFER_BINARY=1
+
 # Set environment variables for Playwright in container
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
@@ -36,7 +39,7 @@ WORKDIR /app
 COPY ../requirements.txt ./
 
 # Install Python packages
-RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create playwright directory with correct permissions before installing browsers
