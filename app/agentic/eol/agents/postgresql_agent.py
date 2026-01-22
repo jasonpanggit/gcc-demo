@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import json
 import hashlib
 import asyncio
-from utils.eol_cache import eol_cache
 from .base_eol_agent import BaseEOLAgent
 try:
     from utils.logger import get_logger
@@ -46,8 +45,8 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
             )
         }
         
-        # Use shared EOL cache singleton
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cosmos_cache = None
 
         # PostgreSQL EOL URLs with metadata (single source of truth)
         self.eol_urls = {
@@ -181,70 +180,19 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
         return hashlib.md5(cache_input.encode()).hexdigest()
 
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieve cached EOL data if available"""
-        try:
-            cached_result = await self.cosmos_cache.get_cached_response(software_name, version, self.agent_name)
-            
-            if cached_result:
-                logger.info(f"✅ Cache hit for PostgreSQL {software_name} {version or 'latest'}")
-                return cached_result
-                
-            return None
-        except Exception as e:
-            logger.error(f"Cache retrieval error for PostgreSQL {software_name}: {e}")
-            return None
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], confidence_level: int, source_url: Optional[str] = None) -> None:
-        """Cache EOL data regardless of confidence level for comprehensive statistics"""
-        try:
-            # Always cache data to ensure comprehensive statistics and tracking
-            data_to_cache = data.copy()
-            data_to_cache['confidence_level'] = confidence_level
-            
-            # Extract source_url from data if not provided explicitly
-            if not source_url and 'source_url' in data:
-                source_url = data['source_url']
-            
-            await self.cosmos_cache.cache_response(
-                software_name=software_name, 
-                version=version, 
-                agent_name=self.agent_name, 
-                response_data=data_to_cache,
-                source_url=source_url
-            )
-            logger.info(f"✅ Cached PostgreSQL {software_name} {version or 'latest'} (confidence: {confidence_level}%) from {source_url or 'static data'}")
-        except Exception as e:
-            logger.error(f"Cache storage error for PostgreSQL {software_name}: {e}")
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
-        """Purge cached PostgreSQL EOL data"""
-        try:
-            if software_name:
-                # Purge specific software/version
-                cache_key = self._generate_cache_key(software_name, version)
-                result = await self.cosmos_cache.delete_cached_data(cache_key)
-                return {
-                    "status": "success",
-                    "action": "purged_specific",
-                    "software": software_name,
-                    "version": version,
-                    "result": result
-                }
-            else:
-                # Purge all PostgreSQL cache entries
-                result = await self.cosmos_cache.purge_agent_cache("postgresql")
-                return {
-                    "status": "success", 
-                    "action": "purged_all",
-                    "agent": "postgresql",
-                    "result": result
-                }
-        except Exception as e:
-            return {
-                "status": "error",
-                "action": "purge_failed",
-                "error": str(e)
-            }
+        """Agent-level caching disabled - use eol_inventory for cache management"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return {"status": "success", "action": "disabled", "message": "Agent-level caching disabled - use eol_inventory"}
 
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Dict[str, Any]:
         """Get EOL data for PostgreSQL products with enhanced static data checking"""

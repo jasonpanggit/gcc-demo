@@ -350,7 +350,7 @@ resource "azurerm_linux_web_app" "app" {
     # Always enable HTTPS only and configure startup
     always_on = true
   # Startup command for Python app with dependency installation (Search/Cosmos removed)
-  app_command_line = "python -m pip install --upgrade pip && python -m pip install uvicorn[standard]==0.30.6 fastapi==0.112.1 openai==1.51.0 azure-identity==1.17.1 azure-monitor-query==1.4.0 requests==2.32.3 msal==1.31.0 jinja2==3.1.4 python-multipart==0.0.9 httpx==0.27.0 agent-framework==1.0.0b251112 beautifulsoup4==4.12.3 lxml==5.3.0 asyncio==3.4.3 aiohttp==3.10.5 && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+  app_command_line = "python -m pip install --upgrade pip && python -m pip install uvicorn[standard]==0.30.6 fastapi==0.112.1 openai==1.51.0 azure-identity==1.17.1 azure-monitor-query==1.4.0 requests==2.32.3 msal==1.31.0 jinja2==3.1.4 python-multipart==0.0.9 httpx==0.27.0 agent-framework==1.0.0b260107 beautifulsoup4==4.12.3 lxml==5.3.0 asyncio==3.4.3 aiohttp==3.10.5 && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
   }
 
   identity {

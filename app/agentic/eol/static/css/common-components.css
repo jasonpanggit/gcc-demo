@@ -7,11 +7,12 @@
    HERO SECTION
    ============================================================ */
 .hero-section {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    background: linear-gradient(135deg, #0b5ed7 0%, #5f3dc4 55%, #7c3aed 100%);
     color: white;
-    padding: var(--spacing-2xl) 0;
+    padding: clamp(2.5rem, 4vw, 4rem) 0;
     margin-bottom: var(--spacing-xl);
-    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-2xl);
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
     position: relative;
     overflow: hidden;
 }
@@ -19,11 +20,11 @@
 .hero-section::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+    inset: 0;
+    background:
+        radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.16) 0%, transparent 48%),
+        radial-gradient(circle at 85% 30%, rgba(255, 255, 255, 0.12) 0%, transparent 45%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 55%);
     pointer-events: none;
 }
 
@@ -34,17 +35,34 @@
 }
 
 .hero-title {
-    font-size: var(--font-size-4xl);
+    font-size: clamp(2rem, 3vw, 2.75rem);
     font-weight: 700;
-    margin-bottom: var(--spacing-lg);
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    margin-bottom: var(--spacing-md);
+    letter-spacing: -0.02em;
+    text-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
+}
+
+.hero-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+    color: #fff;
+    font-size: 1.1rem;
+    flex-shrink: 0;
 }
 
 .hero-subtitle {
-    font-size: var(--font-size-lg);
-    margin-bottom: var(--spacing-xl);
+    font-size: clamp(1rem, 1.6vw, 1.2rem);
+    margin-bottom: var(--spacing-lg);
     opacity: 0.95;
     line-height: 1.6;
+    max-width: 60ch;
 }
 
 /* Responsive hero */

@@ -91,6 +91,9 @@
         transition: all 0.3s ease;
         position: relative;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
     }
 
     .feature-card:hover {
@@ -133,12 +136,14 @@
         font-weight: 600;
         color: var(--gray-800);
         margin-bottom: var(--spacing-sm);
+        min-height: 2.5rem;
     }
 
     .feature-description {
         color: var(--gray-600);
         line-height: 1.6;
         margin-bottom: var(--spacing-lg);
+        flex: 1 1 auto;
     }
 
     .feature-link {
@@ -149,6 +154,7 @@
         align-items: center;
         gap: var(--spacing-xs);
         transition: all 0.2s ease;
+        margin-top: auto;
     }
 
     .feature-link:hover {
@@ -192,8 +198,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-cloud me-3"></i>
-                    Azure Agentic Platform
+                    <span class="hero-icon me-3"><i class="fas fa-cloud"></i></span>Azure Agentic Platform
                 </h1>
                 <p class="hero-subtitle">
                     Intelligent cloud management platform powered by autonomous AI agents and Azure MCP Server. 
@@ -208,7 +213,7 @@
                         <i class="fas fa-magic me-2"></i>Azure MCP Assistant
                     </a>
                     <a href="/eol-search" class="btn btn-outline-light">
-                        <i class="fas fa-search me-2"></i>EOL Analysis
+                        <i class="fas fa-search me-2"></i>EOL Search
                     </a>
                     <a href="/inventory" class="btn btn-outline-light">
                         <i class="fas fa-list-ul me-2"></i>OS & Software Inventory
@@ -262,13 +267,13 @@
         <div class="feature-icon">
             <i class="fas fa-search"></i>
         </div>
-        <h3 class="feature-title">EOL Analysis</h3>
+        <h3 class="feature-title">EOL Date Search Assistant</h3>
         <p class="feature-description">
-            Comprehensive end-of-life analysis for software, operating systems, and dependencies. 
+            Search end-of-life date for software, operating systems, and dependencies. 
             Get accurate lifecycle information and security recommendations.
         </p>
         <a href="/eol-search" class="feature-link">
-            Start Analysis <i class="fas fa-arrow-right"></i>
+            Start Search <i class="fas fa-arrow-right"></i>
         </a>
     </div>
 
@@ -283,6 +288,34 @@
         </p>
         <a href="/eol-searches" class="feature-link">
             View History <i class="fas fa-arrow-right"></i>
+        </a>
+    </div>
+
+    <div class="feature-card">
+        <div class="feature-icon">
+            <i class="fas fa-table"></i>
+        </div>
+        <h3 class="feature-title">EOL Inventory</h3>
+        <p class="feature-description">
+            Browse cached EOL records with confidence scores, sources, and freshness metadata. 
+            Edit or clean up records as needed.
+        </p>
+        <a href="/eol-inventory" class="feature-link">
+            View Inventory <i class="fas fa-arrow-right"></i>
+        </a>
+    </div>
+
+    <div class="feature-card">
+        <div class="feature-icon">
+            <i class="fas fa-chart-pie"></i>
+        </div>
+        <h3 class="feature-title">OS EOL Management</h3>
+        <p class="feature-description">
+            Explore OS distribution, EOL timelines, and risk breakdowns across the fleet 
+            with interactive charts and filters.
+        </p>
+        <a href="/eol-management" class="feature-link">
+            Open Dashboard <i class="fas fa-arrow-right"></i>
         </a>
     </div>
 
@@ -346,7 +379,7 @@
         <div class="feature-icon">
             <i class="fas fa-cogs"></i>
         </div>
-        <h3 class="feature-title">Agent Orchestration</h3>
+        <h3 class="feature-title">Agent Management</h3>
         <p class="feature-description">
             Configure and monitor AI agents. Set up workflows, review performance, 
             and optimize agent collaboration for maximum efficiency.

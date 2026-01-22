@@ -704,23 +704,22 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         }
     
     def _build_grounding_query(self, software_name: str, version: Optional[str] = None, technology_context: str = "general") -> str:
-        """Build an optimized query for Azure AI grounding"""
-        
-        # Technology-specific search queries optimized for grounding
-        base_terms = f"{software_name} {version or ''} end of life EOL support lifecycle"
-        
-        if technology_context.lower() == "microsoft":
-            return f"Microsoft {base_terms} official documentation lifecycle support dates"
-        elif technology_context.lower() == "ubuntu":
-            return f"Ubuntu {base_terms} official support policy LTS"
-        elif technology_context.lower() == "oracle":
-            return f"Oracle {base_terms} official support lifecycle premier"
-        elif technology_context.lower() == "redhat":
-            return f"Red Hat {base_terms} official support lifecycle subscription"
-        elif technology_context.lower() == "vmware":
-            return f"VMware {base_terms} official support lifecycle general availability"
-        else:
-            return f"{base_terms} official vendor documentation"
+        """Build a grounded query biased to official lifecycle sources."""
+
+        base_terms = f"{software_name} {version or ''} end of life support lifecycle".strip()
+        ctx = (technology_context or "").lower()
+
+        site_hints = {
+            "microsoft": "site:learn.microsoft.com/lifecycle",
+            "ubuntu": "site:ubuntu.com/security/notices",
+            "redhat": "site:access.redhat.com/support/policy",
+            "oracle": "site:docs.oracle.com OR site:support.oracle.com",
+            "vmware": "site:kb.vmware.com OR site:docs.vmware.com",
+            "apache": "site:projects.apache.org OR site:blogs.apache.org",
+        }
+
+        hint = site_hints.get(ctx, "official vendor documentation")
+        return f"{base_terms} {hint}".strip()
     
     def _extract_eol_from_content(self, content: str, software_name: str, version: str = None) -> Dict[str, Any]:
         """

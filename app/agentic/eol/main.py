@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Any, Dict
 
@@ -36,6 +37,7 @@ logger = get_logger(__name__, config.app.log_level)
 # Import multi-agent systems
 from agents.eol_orchestrator import EOLOrchestratorAgent
 from utils.eol_cache import eol_cache
+from utils.eol_inventory import eol_inventory
 
 # Import API routers
 from api.health import router as health_router
@@ -241,8 +243,7 @@ class SoftwareSearchRequest(BaseModel):
 # STARTUP AND HEALTH ENDPOINTS
 # ============================================================================
 
-@app.on_event("startup")
-async def startup_event():
+async def _run_startup_tasks():
     """Initialize services on startup"""
     try:
         logger.info(f"🚀 Starting {config.app.title} v{config.app.version}")
@@ -271,6 +272,7 @@ async def startup_event():
         # Initialize specialized caches
         try:
             await eol_cache.initialize()
+            await eol_inventory.initialize()
             
             # Initialize the unified inventory cache used by agents
             from utils.inventory_cache import inventory_cache
@@ -302,8 +304,7 @@ async def startup_event():
         # Don't fail startup for non-critical issues
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
+async def _run_shutdown_tasks():
     """Cleanup services on shutdown"""
     try:
         logger.info("🛑 Shutting down application...")
@@ -341,6 +342,18 @@ async def shutdown_event():
         logger.info("✅ Shutdown completed")
     except Exception as e:
         logger.warning(f"⚠️ Shutdown warning: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _run_startup_tasks()
+    try:
+        yield
+    finally:
+        await _run_shutdown_tasks()
+
+
+app.router.lifespan_context = lifespan
 
 
 class DebugRequest(BaseModel):
@@ -511,7 +524,7 @@ async def status():
         StandardResponse with app status, name, and version.
     """
     return {
-        "message": config.app.title, 
+        "message": os.getenv("STATUS_MESSAGE", "EOL Multi-Agent App"),
         "status": "running",
         "version": config.app.version
     }

@@ -60,7 +60,7 @@ async def index(request: Request):
         HTMLResponse with rendered index.html template.
     """
     try:
-        return templates.TemplateResponse("index.html", {"request": request})
+        return templates.TemplateResponse(request, "index.html")
     except Exception:
         return HTMLResponse("EOL Multi-Agent App", status_code=200)
 
@@ -86,8 +86,7 @@ async def inventory_ui(request: Request):
         HTMLResponse with rendered inventory.html template and Azure config.
     """
     try:
-        return templates.TemplateResponse("inventory.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "inventory.html", {
             "subscription_id": config.azure.subscription_id,
             "resource_group": config.azure.resource_group_name
         })
@@ -118,7 +117,7 @@ async def eol_ui(request: Request):
         HTMLResponse with rendered eol.html template.
     """
     try:
-        return templates.TemplateResponse("eol.html", {"request": request})
+        return templates.TemplateResponse(request, "eol.html")
     except TemplateNotFound:
         logger.warning("EOL template not found; returning fallback HTML")
         return HTMLResponse("<h1>EOL Search</h1><p>Template unavailable.</p>", status_code=200)
@@ -144,7 +143,31 @@ async def eol_searches_ui(request: Request):
     Returns:
         HTMLResponse with rendered eol-searches.html template.
     """
-    return templates.TemplateResponse("eol-searches.html", {"request": request})
+    return templates.TemplateResponse(request, "eol-searches.html")
+
+
+@router.get("/eol-inventory", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="eol_inventory_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def eol_inventory_ui(request: Request):
+    """EOL Cosmos inventory browser page."""
+    return templates.TemplateResponse(request, "eol-inventory.html")
+
+
+@router.get("/eol-management", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="eol_management_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def eol_management_ui(request: Request):
+    """OS EOL management dashboard with tables and charts."""
+    return templates.TemplateResponse(request, "eol-management.html")
 
 
 @router.get("/inventory-assistant", response_class=HTMLResponse)
@@ -167,7 +190,7 @@ async def inventory_assistant_ui(request: Request):
     Returns:
         HTMLResponse with rendered inventory_asst.html template.
     """
-    return templates.TemplateResponse("inventory_asst.html", {"request": request})
+    return templates.TemplateResponse(request, "inventory_asst.html")
 
 
 @router.get("/alerts", response_class=HTMLResponse)
@@ -191,7 +214,7 @@ async def get_alerts_page(request: Request):
         HTMLResponse with rendered alerts.html template.
     """
     try:
-        return templates.TemplateResponse("alerts.html", {"request": request})
+        return templates.TemplateResponse(request, "alerts.html")
     except TemplateNotFound:
         logger.warning("Alerts template not found; returning fallback HTML")
         return HTMLResponse("<h1>Alerts</h1><p>Template unavailable.</p>", status_code=200)
@@ -236,8 +259,7 @@ async def cache_ui(request: Request):
             "last_updated": all_stats.get("last_updated")
         }
         
-        return templates.TemplateResponse("cache.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "cache.html", {
             "cache_stats": cache_stats
         })
     except TemplateNotFound:
@@ -289,15 +311,13 @@ async def agent_cache_details(request: Request, agent_name: Optional[str] = None
         else:
             filtered_stats = agent_stats_data.copy()
         
-        return templates.TemplateResponse("agent-cache-details.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "agent-cache-details.html", {
             "agent_stats": filtered_stats,
             "selected_agent": agent_name
         })
     except Exception as e:
         logger.error(f"Error loading agent cache details: {e}")
-        return templates.TemplateResponse("agent-cache-details.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "agent-cache-details.html", {
             "agent_stats": {"error": str(e)},
             "selected_agent": agent_name
         })
@@ -323,7 +343,7 @@ async def agent_management_ui(request: Request):
     Returns:
         HTMLResponse with rendered agents.html template.
     """
-    return templates.TemplateResponse("agents.html", {"request": request})
+    return templates.TemplateResponse(request, "agents.html")
 
 
 @router.get("/azure-mcp", response_class=HTMLResponse)
@@ -346,4 +366,4 @@ async def azure_mcp_ui(request: Request):
     Returns:
         HTMLResponse with rendered azure-mcp.html template.
     """
-    return templates.TemplateResponse("azure-mcp.html", {"request": request})
+    return templates.TemplateResponse(request, "azure-mcp.html")

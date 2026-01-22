@@ -14,6 +14,11 @@ from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 # Import stdio client for direct MCP communication
 from utils.azure_mcp_client import get_azure_mcp_client
 
+
+def _orchestrator_disabled() -> bool:
+    """Skip MCP orchestrator wiring when running under pytest or explicitly disabled."""
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or os.getenv("DISABLE_MCP_ORCHESTRATOR", "").lower() == "true"
+
 logger = get_logger(__name__)
 
 router = APIRouter()
@@ -38,32 +43,33 @@ class ResourceQueryRequest(BaseModel):
 
 async def _load_composite_tool_catalog() -> List[Dict[str, Any]]:
     """Retrieve the full MCP tool catalog with source metadata, using orchestrator when possible."""
-    try:
-        from agents.mcp_orchestrator import get_mcp_orchestrator
+    if not _orchestrator_disabled():
+        try:
+            from agents.mcp_orchestrator import get_mcp_orchestrator
 
-        orchestrator = await get_mcp_orchestrator()
-        if await orchestrator.ensure_mcp_ready():
-            tool_catalog = await orchestrator.get_tool_catalog()
-            source_map = orchestrator.get_tool_source_map()
+            orchestrator = await get_mcp_orchestrator()
+            if await orchestrator.ensure_mcp_ready():
+                tool_catalog = await orchestrator.get_tool_catalog()
+                source_map = orchestrator.get_tool_source_map()
 
-            formatted: List[Dict[str, Any]] = []
-            for tool in tool_catalog:
-                func = tool.get("function", {})
-                metadata = tool.get("metadata", {})
-                name = func.get("name", "unknown")
-                formatted.append({
-                    "name": name,
-                    "description": func.get("description") or tool.get("description", "No description available"),
-                    "parameters": func.get("parameters", {}),
-                    "source": metadata.get("source") or source_map.get(name),
-                    "original_name": metadata.get("original_name") or func.get("x_original_name"),
-                    "metadata": metadata,
-                })
+                formatted: List[Dict[str, Any]] = []
+                for tool in tool_catalog:
+                    func = tool.get("function", {})
+                    metadata = tool.get("metadata", {})
+                    name = func.get("name", "unknown")
+                    formatted.append({
+                        "name": name,
+                        "description": func.get("description") or tool.get("description", "No description available"),
+                        "parameters": func.get("parameters", {}),
+                        "source": metadata.get("source") or source_map.get(name),
+                        "original_name": metadata.get("original_name") or func.get("x_original_name"),
+                        "metadata": metadata,
+                    })
 
-            formatted.sort(key=lambda item: item["name"].lower())
-            return formatted
-    except Exception as exc:  # pragma: no cover - fallback when orchestrator unavailable
-        logger.warning("Unable to load MCP tool catalog via orchestrator: %s", exc)
+                formatted.sort(key=lambda item: item["name"].lower())
+                return formatted
+        except Exception as exc:  # pragma: no cover - fallback when orchestrator unavailable
+            logger.warning("Unable to load MCP tool catalog via orchestrator: %s", exc)
 
     client = await get_azure_mcp_client()
     tools = client.get_available_tools()
@@ -103,8 +109,11 @@ async def get_azure_mcp_status():
         try:
             from agents.mcp_orchestrator import get_mcp_orchestrator
 
-            orchestrator = await get_mcp_orchestrator()
-            ready = await orchestrator.ensure_mcp_ready()
+            orchestrator = None
+            ready = False
+            if not _orchestrator_disabled():
+                orchestrator = await get_mcp_orchestrator()
+                ready = await orchestrator.ensure_mcp_ready()
         except Exception as orchestrator_exc:  # pragma: no cover - fallback to direct client
             logger.warning("MCP orchestrator unavailable; falling back to Azure MCP client: %s", orchestrator_exc)
             ready = False
@@ -116,6 +125,13 @@ async def get_azure_mcp_status():
             tool_sources = orchestrator.get_tool_source_map()  # type: ignore[union-attr]
             active_clients = orchestrator.get_registered_clients()  # type: ignore[union-attr]
 
+            auth_mode = None
+            try:
+                azure_client = await get_azure_mcp_client()
+                auth_mode = azure_client.get_auth_mode()
+            except Exception:
+                auth_mode = None
+
             status_info = {
                 "initialized": True,
                 "connection_status": "connected",
@@ -123,6 +139,7 @@ async def get_azure_mcp_status():
                 "active_clients": active_clients,
                 "tool_counts": tool_counts,
                 "tool_sources": tool_sources,
+                "auth_mode": auth_mode,
             }
         else:
             client = await get_azure_mcp_client()
@@ -135,6 +152,7 @@ async def get_azure_mcp_status():
                 "active_clients": ["azure"] if initialized else [],
                 "tool_counts": {"azure": tool_count} if initialized else {},
                 "tool_sources": {},
+                "auth_mode": client.get_auth_mode(),
             }
         
         return StandardResponse.success_response(
@@ -364,8 +382,11 @@ async def call_azure_mcp_tool(request: ToolCallRequest):
         try:
             from agents.mcp_orchestrator import get_mcp_orchestrator
 
-            orchestrator = await get_mcp_orchestrator()
-            ready = await orchestrator.ensure_mcp_ready()
+            orchestrator = None
+            ready = False
+            if not _orchestrator_disabled():
+                orchestrator = await get_mcp_orchestrator()
+                ready = await orchestrator.ensure_mcp_ready()
         except Exception as orchestrator_exc:  # pragma: no cover - fallback when orchestrator unavailable
             logger.warning("MCP orchestrator unavailable for tool call; falling back to Azure MCP client: %s", orchestrator_exc)
             ready = False

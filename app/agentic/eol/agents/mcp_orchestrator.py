@@ -243,7 +243,7 @@ Formatting guidance:
                     tools=self._tool_definitions if mcp_ready else None,
                     tool_choice="auto",
                     temperature=self._default_temperature,
-                    max_tokens=1200,
+                    max_tokens=3000,
                 )
                 logger.debug(
                     "Agent Framework returned %d message(s) for iteration %d",
@@ -385,11 +385,23 @@ Formatting guidance:
                 )
                 break
 
+            # Create detailed tool list for display
+            tool_details = []
+            for call in tool_calls:
+                tool_name = call.name or "unknown_tool"
+                args_preview = self._parse_call_arguments(call)
+                try:
+                    args_str = json.dumps(args_preview, ensure_ascii=False)[:200]
+                except:
+                    args_str = str(args_preview)[:200]
+                tool_details.append(f"{tool_name}({args_str})")
+            
             await self._push_event(
                 "action",
-                f"Invoking {len(tool_calls)} Azure MCP tool(s)",
+                f"Invoking {len(tool_calls)} Azure MCP tool(s): {', '.join([call.name for call in tool_calls])}",
                 iteration=iteration,
                 tool_names=[call.name for call in tool_calls],
+                tool_details=tool_details,
             )
 
             logger.info(
@@ -721,13 +733,6 @@ Formatting guidance:
 
         try:
             self._chat_client = AzureOpenAIChatClient(**client_kwargs)
-            try:
-                config = getattr(self._chat_client, "function_invocation_config", None)
-                if config is not None and getattr(config, "enabled", True):
-                    config.enabled = False
-                    logger.debug("Disabled built-in function auto-invocation for Azure OpenAI client")
-            except Exception:  # pragma: no cover - defensive guard around preview SDK internals
-                logger.debug("Unable to adjust function invocation config", exc_info=True)
             logger.info(
                 "✅ MCP orchestrator chat client ready (deployment=%s, endpoint_configured=%s)",
                 deployment,

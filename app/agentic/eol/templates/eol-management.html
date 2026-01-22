@@ -1,0 +1,587 @@
+{% extends "base.html" %}
+{% block title %}OS EOL Tracker{% endblock %}
+
+{% block extra_head %}
+<!-- Chart.js for visualizations -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<style>
+    .stat-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        color: #fff;
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 0.9rem;
+    }
+    .modern-card {
+        background: #fff;
+        border: 1px solid #e9ecef;
+        border-radius: 18px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+    }
+    .card-header {
+        border-bottom: 1px solid #e9ecef;
+        background: #fff;
+    }
+    .chart-container {
+        min-height: 300px;
+    }
+    /* Compact variant for the pie chart so it doesn't dominate the row */
+    .chart-container.pie-compact {
+        min-height: 220px;
+        max-height: 260px;
+    }
+    .badge-soft {
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+    .badge-soft-success { background: #e8f5e9; color: #198754; border: 1px solid #d1e7dd; }
+    .badge-soft-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .badge-soft-danger { background: #fde2e1; color: #c1121f; border: 1px solid #f8d7da; }
+    .badge-soft-secondary { background: #e9ecef; color: #495057; border: 1px solid #dee2e6; }
+    .table th { font-size: 0.9rem; }
+    .table td { font-size: 0.9rem; }
+    .table thead th { position: sticky; top: 0; z-index: 5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hero-section">
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="hero-title mb-2"><span class="hero-icon me-3"><i class="fas fa-globe-americas"></i></span>OS EOL Tracker</h1>
+                <p class="mb-3">Unified view of operating systems, their end-of-life timelines, and environment coverage across your fleet.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <span class="stat-pill"><i class="fas fa-desktop"></i><span id="stat-total">0 systems</span></span>
+                    <span class="stat-pill"><i class="fas fa-hourglass-end"></i><span id="stat-expiring">0 expiring/expired</span></span>
+                    <span class="stat-pill"><i class="fas fa-cloud"></i><span id="stat-azure">0 Azure / Arc</span></span>
+                </div>
+            </div>
+            <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
+                <div class="d-flex flex-lg-column gap-2 justify-content-end align-items-lg-end">
+                    <div class="text-white-50 small">Last updated: <span id="lastUpdated">Never</span></div>
+                    <div class="badge bg-light text-dark" id="loadStatus">Idle</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid px-0">
+    <div class="content-container">
+        <div class="modern-card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Filters</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" id="resetFilters"><i class="fas fa-undo me-1"></i>Reset</button>
+                    <button class="btn btn-primary btn-sm" id="refreshData"><i class="fas fa-rotate me-1"></i>Refresh</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Lookback (days)</label>
+                        <select class="form-select" id="lookbackDays">
+                            <option value="30">30</option>
+                            <option value="60">60</option>
+                            <option value="90" selected>90</option>
+                            <option value="180">180</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Environment</label>
+                        <select class="form-select" id="environmentFilter">
+                            <option value="all" selected>All</option>
+                            <option value="Azure">Azure</option>
+                            <option value="Non-Azure">Non-Azure</option>
+                            <option value="Unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Search</label>
+                        <input type="text" id="searchInput" class="form-control" placeholder="Search by computer or OS name">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-outline-primary w-100" id="applyFilters"><i class="fas fa-filter me-1"></i>Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-lg-6">
+                <div class="modern-card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fas fa-chart-pie text-primary"></i>
+                            <span class="fw-semibold">OS Distribution</span>
+                        </div>
+                        <span class="text-muted small" id="osCountLabel">0 systems</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="text-muted small mb-2">By resource group</div>
+                                <div class="chart-container pie-compact">
+                                    <canvas id="osTypeChart" aria-label="Resource group distribution"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-muted small mb-2">By OS family</div>
+                                <div class="chart-container pie-compact">
+                                    <canvas id="osFamilyChart" aria-label="OS type distribution"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-muted small mb-2">Windows Server versions</div>
+                                <div class="chart-container pie-compact">
+                                    <canvas id="windowsServerChart" aria-label="Windows Server version distribution"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="modern-card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fas fa-calendar-alt text-danger"></i>
+                            <span class="fw-semibold">EOL Timeline</span>
+                        </div>
+                        <span class="text-muted small" id="eolCountLabel">0 with EOL</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="eolTimelineChart" aria-label="EOL timeline"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <div class="modern-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fas fa-table text-primary"></i>
+                    <div>
+                        <h5 class="mb-0">OS Inventory</h5>
+                        <small class="text-muted">Includes EOL status when available</small>
+                    </div>
+                </div>
+                <span class="badge bg-primary" id="tableCount">0</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Computer</th>
+                                <th>OS</th>
+                                <th>Version</th>
+                                <th>Environment</th>
+                                <th>Last Heartbeat</th>
+                                <th>EOL Date</th>
+                                <th>Days Left</th>
+                                <th>Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody id="osTableBody">
+                            <tr><td colspan="8" class="text-center text-muted py-4">Loading inventory...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+    const state = {
+        inventory: [],
+        filtered: [],
+        charts: {}
+    };
+
+    const elements = {
+        lookback: document.getElementById('lookbackDays'),
+        environment: document.getElementById('environmentFilter'),
+        search: document.getElementById('searchInput'),
+        apply: document.getElementById('applyFilters'),
+        reset: document.getElementById('resetFilters'),
+        refresh: document.getElementById('refreshData'),
+        loadStatus: document.getElementById('loadStatus'),
+        lastUpdated: document.getElementById('lastUpdated'),
+        osCountLabel: document.getElementById('osCountLabel'),
+        eolCountLabel: document.getElementById('eolCountLabel'),
+        statTotal: document.getElementById('stat-total'),
+        statExpiring: document.getElementById('stat-expiring'),
+        statAzure: document.getElementById('stat-azure'),
+        tableBody: document.getElementById('osTableBody'),
+        tableCount: document.getElementById('tableCount')
+    };
+
+    function setStatus(text, variant = 'bg-secondary') {
+        if (!elements.loadStatus) return;
+        elements.loadStatus.textContent = text;
+        elements.loadStatus.className = `badge ${variant}`;
+    }
+
+    function classifyEol(dateStr) {
+        if (typeof dateStr === 'object' && dateStr && dateStr.date) {
+            dateStr = dateStr.date;
+        }
+        if (!dateStr || dateStr === '-' || String(dateStr).toLowerCase() === 'n/a' || String(dateStr).toLowerCase() === 'none') {
+            return { label: 'Unknown', risk: 'unknown', bucket: 'unknown', days: null };
+        }
+        const parsed = new Date(dateStr);
+        if (Number.isNaN(parsed)) {
+            return { label: 'Unknown', risk: 'unknown', bucket: 'unknown', days: null };
+        }
+        const now = new Date();
+        const diffDays = Math.round((parsed - now) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) return { label: 'Expired', risk: 'critical', bucket: 'expired', days: diffDays };
+        if (diffDays <= 90) return { label: '0-90 days', risk: 'high', bucket: '0-90', days: diffDays };
+        if (diffDays <= 180) return { label: '91-180 days', risk: 'high', bucket: '91-180', days: diffDays };
+        if (diffDays <= 365) return { label: '181-365 days', risk: 'medium', bucket: '181-365', days: diffDays };
+        return { label: '> 365 days', risk: 'low', bucket: '>365', days: diffDays };
+    }
+
+    function normalizeItem(item) {
+        const osName = item.os_name || item.name || 'Unknown';
+        const osVersion = item.os_version || item.version || '';
+        const environmentRaw = item.computer_environment || item.environment || 'Unknown';
+        const environment = environmentRaw === 'NonAzure' ? 'Non-Azure' : environmentRaw;
+        const heartbeat = item.last_heartbeat || item.lastHeartbeat || item.time_generated;
+        const resourceGroup = item.resource_group || parseResourceGroup(item.resource_id || item.resourceId || '');
+        const rawEol = item.eol_date
+            || item.eolDate
+            || item.support_end_date
+            || item.supportEndDate
+            || null;
+        const normalizeDateValue = (value) => {
+            if (value && typeof value === 'object' && value.date) return value.date;
+            if (value === '-' || value === 'n/a' || value === 'N/A' || value === 'None') return null;
+            return value || null;
+        };
+        const eolDate = normalizeDateValue(rawEol);
+        const supportEndDate = normalizeDateValue(item.support_end_date || item.supportEndDate || null);
+        const eolMeta = classifyEol(eolDate);
+        return {
+            computer: item.computer_name || item.computer || 'Unknown',
+            os_name: osName,
+            os_version: osVersion,
+            os_type: item.os_type || item.type || '',
+            computer_environment: environment,
+            resource_group: resourceGroup || 'Unknown',
+            last_heartbeat: heartbeat,
+            eol_date: eolDate,
+            support_end_date: supportEndDate,
+            eol_status: eolMeta.label,
+            eol_risk: eolMeta.risk,
+            days_until_eol: eolMeta.days,
+            bucket: eolMeta.bucket
+        };
+    }
+
+    function parseResourceGroup(resourceId) {
+        if (!resourceId || typeof resourceId !== 'string') return '';
+        const match = resourceId.match(/\/resourceGroups\/([^/]+)/i);
+        return match ? match[1] : '';
+    }
+
+    function applyFilters() {
+        const term = (elements.search?.value || '').toLowerCase();
+        const env = (elements.environment?.value || 'all');
+        state.filtered = state.inventory.filter(item => {
+            const matchesTerm = term ? (
+                item.computer.toLowerCase().includes(term) ||
+                item.os_name.toLowerCase().includes(term) ||
+                item.os_version.toLowerCase().includes(term)
+            ) : true;
+            const matchesEnv = env === 'all' ? true : (item.computer_environment || 'Unknown') === env;
+            return matchesTerm && matchesEnv;
+        });
+        renderTable();
+        renderStats();
+        renderCharts();
+    }
+
+    function renderTable() {
+        if (!elements.tableBody) return;
+        if (!state.filtered.length) {
+            elements.tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No matching systems found.</td></tr>';
+            elements.tableCount.textContent = '0';
+            return;
+        }
+        const rows = state.filtered.map(item => {
+            const riskBadge = formatRiskBadge(item.eol_risk, item.eol_status);
+            return `<tr>
+                <td>${escapeHtml(item.computer)}</td>
+                <td>${escapeHtml(item.os_name)}</td>
+                <td>${escapeHtml(item.os_version)}</td>
+                <td>${escapeHtml(item.computer_environment)}</td>
+                <td><small class="text-muted">${formatDateTime(item.last_heartbeat)}</small></td>
+                <td>${formatDate(item.eol_date)}</td>
+                <td>${item.days_until_eol === null ? '—' : item.days_until_eol}</td>
+                <td>${riskBadge}</td>
+            </tr>`;
+        });
+        elements.tableBody.innerHTML = rows.join('');
+        elements.tableCount.textContent = String(state.filtered.length);
+    }
+
+    function formatRiskBadge(risk, label) {
+        const map = {
+            critical: 'badge-soft-danger',
+            high: 'badge-soft-danger',
+            medium: 'badge-soft-warning',
+            low: 'badge-soft-success',
+            unknown: 'badge-soft-secondary'
+        };
+        const cls = map[risk] || 'badge-soft-secondary';
+        return `<span class="badge-soft ${cls}">${escapeHtml(label)}</span>`;
+    }
+
+    function renderStats() {
+        const total = state.inventory.length;
+        const azure = state.inventory.filter(i => (i.computer_environment || '').toLowerCase().includes('azure')).length;
+        const expiring = state.inventory.filter(i => ['critical', 'high'].includes(i.eol_risk)).length;
+        const withEol = state.inventory.filter(i => i.eol_date).length;
+
+        if (elements.statTotal) elements.statTotal.textContent = `${total} systems`;
+        if (elements.statExpiring) elements.statExpiring.textContent = `${expiring} expiring/expired`;
+        if (elements.statAzure) elements.statAzure.textContent = `${azure} Azure / Arc`;
+        if (elements.osCountLabel) elements.osCountLabel.textContent = `${total} systems`;
+        if (elements.eolCountLabel) elements.eolCountLabel.textContent = `${withEol} with EOL data`;
+    }
+
+    function renderCharts() {
+        const groupCounts = {};
+        const typeBuckets = { Windows: 0, Linux: 0, Other: 0 };
+        const windowsServerCounts = {};
+        state.inventory.forEach(item => {
+            const groupName = (item.resource_group || 'Unknown').trim() || 'Unknown';
+            groupCounts[groupName] = (groupCounts[groupName] || 0) + 1;
+
+            const name = (item.os_name || '').toLowerCase();
+            if (name.includes('windows')) {
+                typeBuckets.Windows += 1;
+                if (name.includes('windows server')) {
+                    const versionText = `${item.os_version || ''} ${item.os_name || ''}`;
+                    const match = versionText.match(/(20\d{2}|19\d{2})/);
+                    const label = match ? match[1] : 'Unknown';
+                    windowsServerCounts[label] = (windowsServerCounts[label] || 0) + 1;
+                }
+            } else if (name.includes('linux') || name.includes('ubuntu') || name.includes('red hat') || name.includes('rhel') || name.includes('suse') || name.includes('debian')) {
+                typeBuckets.Linux += 1;
+            } else {
+                typeBuckets.Other += 1;
+            }
+        });
+
+        const sortedGroups = Object.entries(groupCounts)
+            .sort((a, b) => b[1] - a[1]);
+        const topGroups = sortedGroups.slice(0, 8);
+        const otherCount = sortedGroups.slice(8).reduce((sum, [, count]) => sum + count, 0);
+
+        const labels = topGroups.map(([name]) => name);
+        const values = topGroups.map(([, count]) => count);
+        if (otherCount > 0) {
+            labels.push('Other');
+            values.push(otherCount);
+        }
+
+        const eolBuckets = { expired: 0, '0-90': 0, '91-180': 0, '181-365': 0, '>365': 0, unknown: 0 };
+        state.inventory.forEach(item => {
+            const bucket = item.bucket || 'unknown';
+            if (eolBuckets[bucket] !== undefined) {
+                eolBuckets[bucket] += 1;
+            } else {
+                eolBuckets.unknown += 1;
+            }
+        });
+
+        upsertChart('osTypeChart', 'doughnut', {
+            labels,
+            datasets: [{
+                label: 'Systems',
+                data: values,
+                backgroundColor: ['#0d6efd', '#20c997', '#6f42c1', '#fd7e14', '#0dcaf0', '#198754', '#ffc107', '#6c757d', '#adb5bd']
+            }]
+        }, {
+            plugins: { pieCountLabels: { display: true } }
+        });
+
+        upsertChart('osFamilyChart', 'doughnut', {
+            labels: Object.keys(typeBuckets),
+            datasets: [{
+                label: 'Systems',
+                data: Object.values(typeBuckets),
+                backgroundColor: ['#0d6efd', '#20c997', '#6c757d']
+            }]
+        }, {
+            plugins: { pieCountLabels: { display: true } }
+        });
+
+        const windowsServerLabels = Object.keys(windowsServerCounts);
+        const windowsServerValues = windowsServerLabels.map(label => windowsServerCounts[label]);
+        upsertChart('windowsServerChart', 'doughnut', {
+            labels: windowsServerLabels.length ? windowsServerLabels : ['No Windows Server'],
+            datasets: [{
+                label: 'Systems',
+                data: windowsServerValues.length ? windowsServerValues : [0],
+                backgroundColor: ['#0d6efd', '#6f42c1', '#20c997', '#fd7e14', '#0dcaf0', '#198754', '#ffc107', '#6c757d']
+            }]
+        }, {
+            plugins: { pieCountLabels: { display: true } }
+        });
+
+        upsertChart('eolTimelineChart', 'bar', {
+            labels: ['Expired', '0-90 days', '91-180 days', '181-365 days', '>365 days', 'Unknown'],
+            datasets: [{
+                label: 'Systems',
+                data: [
+                    eolBuckets.expired,
+                    eolBuckets['0-90'],
+                    eolBuckets['91-180'],
+                    eolBuckets['181-365'],
+                    eolBuckets['>365'],
+                    eolBuckets.unknown
+                ],
+                backgroundColor: '#6610f2'
+            }]
+        }, {
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        });
+    }
+
+    const pieCountLabels = {
+        id: 'pieCountLabels',
+        afterDraw(chart, args, opts) {
+            if (!opts || !opts.display) return;
+            const meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data) return;
+
+            const { ctx, data } = chart;
+            ctx.save();
+            ctx.fillStyle = '#1f2937';
+            ctx.font = '600 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const dataset = data.datasets[0];
+            meta.data.forEach((element, index) => {
+                const value = dataset.data[index];
+                if (!value) return;
+                const pos = element.tooltipPosition();
+                ctx.fillText(String(value), pos.x, pos.y);
+            });
+            ctx.restore();
+        }
+    };
+
+    function upsertChart(id, type, data, options = {}) {
+        if (typeof Chart === 'undefined') return;
+        if (state.charts[id]) {
+            state.charts[id].data = data;
+            state.charts[id].options = options;
+            state.charts[id].update();
+            return;
+        }
+        const ctx = document.getElementById(id);
+        if (!ctx) return;
+        state.charts[id] = new Chart(ctx, { type, data, options, plugins: [pieCountLabels] });
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '—';
+        if (typeof dateStr === 'object' && dateStr.date) {
+            dateStr = dateStr.date;
+        }
+        try {
+            if (typeof eolUtils !== 'undefined' && eolUtils.formatDate) {
+                return eolUtils.formatDate(dateStr);
+            }
+            const parsed = new Date(dateStr);
+            if (!Number.isNaN(parsed.getTime())) {
+                return parsed.toISOString().split('T')[0];
+            }
+            return dateStr;
+        } catch (e) {
+            return dateStr;
+        }
+    }
+
+    function formatDateTime(dateStr) {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleString();
+        } catch (e) {
+            return dateStr;
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    async function loadInventory() {
+        setStatus('Loading...', 'bg-secondary');
+        try {
+            const days = elements.lookback?.value || 90;
+            const response = await fetch(`/api/os?days=${days}`);
+            const payload = await response.json();
+            if (!payload.success) {
+                throw new Error(payload.error || 'Failed to load OS inventory');
+            }
+            const items = Array.isArray(payload.data) ? payload.data : [];
+            state.inventory = items.map(normalizeItem);
+            if (elements.lastUpdated) {
+                elements.lastUpdated.textContent = new Date().toLocaleString();
+            }
+            applyFilters();
+            setStatus(`Loaded ${state.inventory.length} systems`, 'bg-success');
+        } catch (err) {
+            console.error('Error loading OS inventory', err);
+            setStatus('Load failed', 'bg-danger');
+            if (elements.tableBody) {
+                elements.tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">${escapeHtml(err.message || 'Failed to load OS inventory')}</td></tr>`;
+            }
+        }
+    }
+
+    function resetFilters() {
+        if (elements.environment) elements.environment.value = 'all';
+        if (elements.search) elements.search.value = '';
+        applyFilters();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        elements.apply?.addEventListener('click', applyFilters);
+        elements.environment?.addEventListener('change', applyFilters);
+        elements.search?.addEventListener('keyup', (e) => { if (e.key === 'Enter') applyFilters(); });
+        elements.reset?.addEventListener('click', resetFilters);
+        elements.refresh?.addEventListener('click', loadInventory);
+        elements.lookback?.addEventListener('change', loadInventory);
+        loadInventory();
+    });
+})();
+</script>
+{% endblock %}

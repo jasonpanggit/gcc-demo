@@ -609,23 +609,24 @@ body {
 
 /* Hero Section Styles - Consistent across all templates */
 .hero-section {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 50%, #1e3a8a 100%);
+    background: linear-gradient(135deg, #0b5ed7 0%, #5f3dc4 55%, #7c3aed 100%);
     color: white;
-    padding: var(--spacing-2xl);
-    border-radius: var(--radius-xl);
+    padding: clamp(2.5rem, 4vw, 4rem);
+    border-radius: var(--radius-2xl);
     margin-bottom: var(--spacing-xl);
     position: relative;
     overflow: hidden;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
 }
 
 .hero-section::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="white" opacity="0.1"/><circle cx="80" cy="40" r="3" fill="white" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="white" opacity="0.1"/></svg>');
+    inset: 0;
+    background:
+        radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.16) 0%, transparent 48%),
+        radial-gradient(circle at 85% 30%, rgba(255, 255, 255, 0.12) 0%, transparent 45%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 55%);
     pointer-events: none;
 }
 
@@ -635,23 +636,25 @@ body {
 }
 
 .hero-title {
-    font-size: var(--font-size-3xl);
+    font-size: clamp(2rem, 3vw, 2.75rem);
     font-weight: 700;
     margin-bottom: var(--spacing-md);
     line-height: 1.2;
+    letter-spacing: -0.02em;
+    text-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
 }
 
 .hero-subtitle {
-    font-size: var(--font-size-lg);
-    color: rgba(255, 255, 255, 0.9);
-    margin-bottom: var(--spacing-xl);
+    font-size: clamp(1rem, 1.6vw, 1.2rem);
+    color: rgba(255, 255, 255, 0.92);
+    margin-bottom: var(--spacing-lg);
     line-height: 1.5;
     width: 100%;
-    max-width: none;
+    max-width: 60ch;
 }
 
 .hero-section .hero-subtitle {
-    max-width: none;
+    max-width: 60ch;
     width: 100%;
 }
 

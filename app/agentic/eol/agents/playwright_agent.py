@@ -8,10 +8,19 @@ import logging
 import time
 import re
 import os
+import json
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
 from .base_eol_agent import BaseEOLAgent
+
+# Optional Azure OpenAI client (used only when LLM extraction is enabled)
+try:
+    from azure.identity import DefaultAzureCredential
+    from openai import AzureOpenAI
+    AZURE_OAI_AVAILABLE = True
+except Exception:
+    AZURE_OAI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +49,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
         self._health_checked = False
         self._use_firefox = True
         self._stealth_mode = True
+        self.enable_llm_extraction = os.getenv("PLAYWRIGHT_LLM_EXTRACTION", "false").lower() == "true"
         
         # Container-friendly browser arguments for Chromium
         self.browser_args = [
@@ -85,6 +95,8 @@ class PlaywrightEOLAgent(BaseEOLAgent):
         
         browser_type = 'Firefox' if self._use_firefox else 'Chromium'
         logger.info(f"🎭 Playwright agent initialized: {browser_type} | Stealth: {self._stealth_mode}")
+        if self.enable_llm_extraction:
+            logger.info("🧠 LLM-based date extraction enabled for Playwright agent")
 
     async def _ensure_browser(self) -> bool:
         """Ensure browser is launched and ready with advanced stealth"""
@@ -160,9 +172,16 @@ class PlaywrightEOLAgent(BaseEOLAgent):
         """
         result = {
             "eol_date": None,
+            "support_end_date": None,
+            "release_date": None,
             "confidence": "low",
+            "eol_confidence": "low",
+            "support_confidence": "low",
+            "release_confidence": "low",
             "all_dates": [],
-            "context": None
+            "context": None,
+            "support_context": None,
+            "release_context": None
         }
         
         # Enhanced patterns (in priority order)
@@ -180,32 +199,220 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             (r'\b(\d{1,2}/\d{1,2}/\d{4})\b', 'medium'),
             (r'\b(\d{4}-\d{2}-\d{2})\b', 'medium'),
         ]
-        
-        date_map = {}
-        for pattern, conf in patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches:
-                date_str = match if isinstance(match, str) else (match[0] if match else None)
-                if date_str and date_str not in date_map:
-                    date_map[date_str] = conf
-        
-        # Sort by confidence
+
+        eol_keywords = [
+            "end of life",
+            "eol",
+            "support end",
+            "support ends",
+            "extended support",
+            "retirement",
+            "deprecated",
+            "sunset",
+        ]
+        release_keywords = [
+            "release",
+            "released",
+            "ga",
+            "general availability",
+            "available",
+            "launched",
+            "shipped",
+            "next stable",
+            "expected to be released",
+            "preview",
+            "rc",
+        ]
+        support_keywords = [
+            "end of support",
+            "support ends",
+            "support end",
+            "support until",
+            "support date",
+            "extended support ends",
+            "mainstream support",
+            "extended support",
+        ]
+
         conf_order = {'very_high': 4, 'high': 3, 'medium': 2, 'low': 1}
-        sorted_dates = sorted(date_map.items(), key=lambda x: conf_order[x[1]], reverse=True)
-        
-        if sorted_dates:
-            result["eol_date"] = sorted_dates[0][0]
-            result["confidence"] = sorted_dates[0][1]
-            result["all_dates"] = [d[0] for d in sorted_dates]
-            
-            # Extract context around the date for verification
-            date_pos = text.lower().find(result["eol_date"].lower())
-            if date_pos != -1:
-                start = max(0, date_pos - 100)
-                end = min(len(text), date_pos + 100)
-                result["context"] = text[start:end].replace('\n', ' ')
-        
+        eol_candidates = {}
+        support_candidates = {}
+        release_candidates = {}
+
+        for pattern, base_conf in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                date_str = match.group(1) if match and match.groups() else None
+                if not date_str:
+                    continue
+
+                # Evaluate context around the date so we can discard release/GA dates
+                span_start, span_end = match.span(1)
+                ctx_start = max(0, span_start - 100)
+                ctx_end = min(len(text), span_end + 100)
+                context_snippet = text[ctx_start:ctx_end]
+                context_lower = context_snippet.lower()
+
+                release_hit = any(keyword in context_lower for keyword in release_keywords)
+                eol_hit = any(keyword in context_lower for keyword in eol_keywords)
+                support_hit = any(keyword in context_lower for keyword in support_keywords)
+
+                # Skip pure release/GA dates; we only want lifecycle endings
+                if release_hit and not eol_hit:
+                    # Treat as release candidate but do not return as EOL/support
+                    conf_label = 'medium' if base_conf in ['very_high', 'high'] else 'low'
+                    previous_rel = release_candidates.get(date_str)
+                    if not previous_rel or conf_order[conf_label] > conf_order[previous_rel["confidence"]]:
+                        release_candidates[date_str] = {
+                            "confidence": conf_label,
+                            "context": context_snippet,
+                            "position": span_start,
+                        }
+                    continue
+
+                # Adjust confidence based on proximity to lifecycle vs. release language
+                conf_label = 'very_high' if eol_hit else base_conf
+                if not eol_hit and base_conf == 'high':
+                    conf_label = 'medium'
+                elif not eol_hit and base_conf == 'medium':
+                    conf_label = 'low'
+
+                previous = eol_candidates.get(date_str)
+                if eol_hit and (not previous or conf_order[conf_label] > conf_order[previous["confidence"]]):
+                    eol_candidates[date_str] = {
+                        "confidence": conf_label,
+                        "context": context_snippet,
+                        "position": span_start,
+                    }
+
+                previous_support = support_candidates.get(date_str)
+                if support_hit and (not previous_support or conf_order[conf_label] > conf_order[previous_support["confidence"]]):
+                    support_candidates[date_str] = {
+                        "confidence": conf_label,
+                        "context": context_snippet,
+                        "position": span_start,
+                    }
+
+        # Helper to select best candidate set
+        def select_best(candidates_dict):
+            if not candidates_dict:
+                return None
+            sorted_candidates = sorted(
+                candidates_dict.items(),
+                key=lambda item: (conf_order[item[1]["confidence"]], -item[1]["position"]),
+                reverse=True
+            )
+            return sorted_candidates[0], [c[0] for c in sorted_candidates]
+
+        chosen_eol = select_best(eol_candidates)
+        chosen_support = select_best(support_candidates)
+        chosen_release = select_best(release_candidates)
+
+        if chosen_eol:
+            (best_date, meta), all_dates = chosen_eol
+            result["eol_date"] = best_date
+            result["confidence"] = meta["confidence"]
+            result["eol_confidence"] = meta["confidence"]
+            result["all_dates"].extend(all_dates)
+            result["context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+
+        if chosen_support:
+            (best_date, meta), all_dates = chosen_support
+            result["support_end_date"] = best_date
+            result["support_confidence"] = meta["confidence"]
+            result["all_dates"].extend(all_dates)
+            result["support_context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+
+        if chosen_release:
+            (best_date, meta), all_dates = chosen_release
+            result["release_date"] = best_date
+            result["release_confidence"] = meta["confidence"]
+            result["all_dates"].extend(all_dates)
+            result["release_context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+
+        # Remove duplicates while preserving order in all_dates
+        seen_dates = set()
+        deduped_dates = []
+        for d in result["all_dates"]:
+            if d not in seen_dates:
+                seen_dates.add(d)
+                deduped_dates.append(d)
+        result["all_dates"] = deduped_dates
+
+        # If no EOL date but we have support date, set primary confidence to support; else release
+        if not result["eol_date"] and result["support_end_date"]:
+            result["confidence"] = result["support_confidence"]
+        elif not result["eol_date"] and not result["support_end_date"] and result["release_date"]:
+            result["confidence"] = result["release_confidence"]
+
         return result
+
+    async def _extract_dates_with_llm(self, text: str, software_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Optional Azure OpenAI pass to classify lifecycle dates from Playwright text."""
+        if not self.enable_llm_extraction or not AZURE_OAI_AVAILABLE:
+            return None
+
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AOAI_ENDPOINT")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv("AOAI_DEPLOYMENT")
+        if not endpoint or not deployment:
+            return None
+
+        try:
+            credential = DefaultAzureCredential(
+                exclude_environment_credential=False,
+                exclude_shared_token_cache_credential=True,
+                exclude_visual_studio_code_credential=True,
+                exclude_powershell_credential=True,
+                exclude_cli_credential=True,
+            )
+
+            # Truncate text to keep prompt small
+            snippet = text[:6000]
+            prompt = (
+                "You are a lifecycle analyst. Extract lifecycle dates from the provided text and return ONLY JSON. "
+                "Fields: eol_date, support_end_date, release_date (string or null); "
+                "eol_confidence, support_confidence, release_confidence (0-1 floats); "
+                "eol_evidence, support_evidence, release_evidence (short snippets). "
+                "Prefer end-of-life/support end over release dates. If unsure, leave null."
+            )
+
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AOAI_API_VERSION") or "2024-08-01-preview"
+
+            client = AzureOpenAI(
+                api_version=api_version,
+                azure_endpoint=endpoint,
+                azure_ad_token=credential.get_token("https://cognitiveservices.azure.com/.default").token,
+            )
+
+            user_content = {
+                "software": software_name,
+                "version": version,
+                "text": snippet,
+            }
+
+            resp = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": json.dumps(user_content)},
+                ],
+                temperature=0.1,
+                max_tokens=300,
+            )
+
+            content = resp.choices[0].message.content if resp and resp.choices else None
+            if not content:
+                return None
+
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError:
+                return None
+
+            return parsed
+        except Exception as exc:
+            logger.warning(f"⚠️ LLM extraction failed: {exc}")
+            return None
 
     async def _search_bing_for_eol(self, software_name: str, version: str = None) -> Dict[str, Any]:
         """
@@ -443,55 +650,102 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     error_code="search_failed"
                 )
             
-            # Extract EOL dates from content
+            # Extract lifecycle dates from content
             text_content = search_result["content"]
             eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
-            
-            if eol_extraction["eol_date"]:
-                # Success - found EOL date
+
+            # Optional LLM refinement when no EOL/support date is found
+            if self.enable_llm_extraction and not eol_extraction.get("eol_date") and not eol_extraction.get("support_end_date"):
+                llm_result = await self._extract_dates_with_llm(text_content, software_name, version)
+                if llm_result:
+                    def conf_to_label(val: Optional[float]) -> str:
+                        if val is None:
+                            return "low"
+                        if val >= 0.9:
+                            return "very_high"
+                        if val >= 0.75:
+                            return "high"
+                        if val >= 0.5:
+                            return "medium"
+                        return "low"
+
+                    # Fill dates if present
+                    for key in ["eol_date", "support_end_date", "release_date"]:
+                        if llm_result.get(key):
+                            eol_extraction[key] = llm_result.get(key)
+
+                    # Map confidences
+                    eol_extraction["eol_confidence"] = conf_to_label(llm_result.get("eol_confidence"))
+                    eol_extraction["support_confidence"] = conf_to_label(llm_result.get("support_confidence"))
+                    eol_extraction["release_confidence"] = conf_to_label(llm_result.get("release_confidence"))
+
+                    # Preserve evidence snippets
+                    eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
+                    eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
+                    eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+
+            # Map confidence labels to numeric scores
+            confidence_map = {
+                'very_high': 0.95,
+                'high': 0.85,
+                'medium': 0.70,
+                'low': 0.50
+            }
+
+            # Pick primary confidence based on available signals
+            primary_conf_label = eol_extraction.get('eol_confidence') or eol_extraction.get('support_confidence') or eol_extraction.get('release_confidence') or 'low'
+            # Clamp Playwright confidence to a max of 95% to prevent overstatement
+            confidence_score = min(confidence_map.get(primary_conf_label, 0.70), 0.95)
+
+            if any([eol_extraction.get("eol_date"), eol_extraction.get("support_end_date"), eol_extraction.get("release_date")]):
                 response_time = time.time() - start_time
-                
-                logger.info(f"✅ Found EOL date: {eol_extraction['eol_date']} (confidence: {eol_extraction['confidence']})")
+
+                if eol_extraction.get("eol_date"):
+                    logger.info(f"✅ Found EOL date: {eol_extraction['eol_date']} (confidence: {eol_extraction['eol_confidence']})")
+                elif eol_extraction.get("support_end_date"):
+                    logger.info(f"✅ Found support end date: {eol_extraction['support_end_date']} (confidence: {eol_extraction['support_confidence']})")
+                elif eol_extraction.get("release_date"):
+                    logger.info(f"✅ Found release date: {eol_extraction['release_date']} (confidence: {eol_extraction['release_confidence']})")
+
                 if len(eol_extraction.get("all_dates", [])) > 1:
                     logger.info(f"📅 Other dates found: {', '.join(eol_extraction['all_dates'][1:3])}")
-                
-                # Map confidence to numeric value
-                confidence_map = {
-                    'very_high': 0.95,
-                    'high': 0.85,
-                    'medium': 0.70,
-                    'low': 0.50
-                }
-                confidence_score = confidence_map.get(eol_extraction['confidence'], 0.70)
-                
+
                 return self.create_success_response(
                     software_name=software_name,
                     version=version,
-                    eol_date=eol_extraction["eol_date"],
+                    eol_date=eol_extraction.get("eol_date"),
+                    support_end_date=eol_extraction.get("support_end_date"),
+                    release_date=eol_extraction.get("release_date"),
                     confidence=confidence_score,
                     source_url=search_result.get("url"),
                     additional_data={
-                        "confidence_level": eol_extraction["confidence"],
-                        "all_dates_found": eol_extraction["all_dates"][:5],  # Top 5 dates
+                        "confidence_level": primary_conf_label,
+                        "eol_confidence": eol_extraction.get("eol_confidence"),
+                        "support_confidence": eol_extraction.get("support_confidence"),
+                        "release_confidence": eol_extraction.get("release_confidence"),
+                        "all_dates_found": eol_extraction.get("all_dates", [])[:5],  # Top 5 dates
                         "extraction_context": eol_extraction.get("context", ""),
+                        "support_context": eol_extraction.get("support_context", ""),
+                        "release_context": eol_extraction.get("release_context", ""),
                         "selector_used": search_result.get("selector"),
                         "response_time": round(response_time, 2),
-                        "extraction_method": "playwright_bing_search"
+                        "extraction_method": "playwright_bing_search",
+                        "evidence_checklist": [
+                            "Includes source_url for traceability",
+                            "Date extracted near lifecycle keywords",
+                            "Context snippet captured around date"
+                        ],
                     }
                 )
-            else:
-                # No EOL date found
-                logger.warning(f"⚠️ No EOL date found for {software_name} {version or ''}")
-                
-                # Provide a sample of the content for debugging
-                sample = text_content[:300] if text_content else ""
-                
-                return self.create_failure_response(
-                    software_name=software_name,
-                    version=version,
-                    error_message="No EOL date found in search results",
-                    error_code="no_eol_date_found"
-                )
+
+            # No lifecycle dates found
+            logger.warning(f"⚠️ No EOL/support/release date found for {software_name} {version or ''}")
+            return self.create_failure_response(
+                software_name=software_name,
+                version=version,
+                error_message="No lifecycle dates found in search results",
+                error_code="no_eol_date_found"
+            )
             
         except Exception as e:
             logger.error(f"❌ Playwright agent failed: {e}", exc_info=True)

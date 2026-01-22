@@ -131,46 +131,17 @@ class OpenAIAgent:
                     "reasoning": "OpenAI client not available"
                 }
             
-            system_prompt = """You are an intelligent query analyzer for a software lifecycle management system. 
-            Analyze user queries to determine intent and routing strategy.
+            system_prompt = (
+                "You classify software lifecycle queries for routing. "
+                "Return ONLY JSON. Fields: intent (eol_specific|inventory_focused|general_tech|conversational), "
+                "confidence (0-1), requires_eol_agents (bool), suggested_agents (array), "
+                "software_mentioned (array), reasoning (short)."
+            )
 
-            AVAILABLE AGENT TYPES:
-            - microsoft: Microsoft products (Windows, Office, SQL Server, .NET, etc.)
-            - redhat: Red Hat products (RHEL, CentOS, Fedora, etc.)
-            - ubuntu: Ubuntu and Canonical products
-            - oracle: Oracle products (Database, Java, etc.)
-            - vmware: VMware products
-            - apache: Apache products (HTTP Server, Tomcat, etc.)
-            - nodejs: Node.js and npm packages
-            - postgresql: PostgreSQL database
-            - php: PHP language and frameworks
-            - python: Python language and packages
-            - os: General operating system queries
-            - azure_ai: Web search for unknown software
-            - endoflife: Generic EOL database
-
-            QUERY CATEGORIES:
-            1. EOL_SPECIFIC: Questions about end-of-life dates, support status, vulnerability info
-            2. INVENTORY_FOCUSED: Questions about current software inventory
-            3. GENERAL_TECH: General technology questions not requiring EOL data
-            4. CONVERSATIONAL: Greetings, thank you, general chat
-
-            Respond with JSON only:
-            {
-                "intent": "eol_specific|inventory_focused|general_tech|conversational",
-                "confidence": 0.0-1.0,
-                "requires_eol_agents": true|false,
-                "suggested_agents": ["agent1", "agent2"],
-                "software_mentioned": ["software1", "software2"],
-                "reasoning": "brief explanation"
-            }"""
-            
-            user_prompt = f"""
-            USER QUERY: {query}
-            
-            INVENTORY CONTEXT: {inventory_context[:500] if inventory_context else "No inventory data available"}
-            
-            Analyze this query and provide routing recommendations."""
+            user_prompt = (
+                f"query: {query}\n"
+                f"inventory_context: {inventory_context[:500] if inventory_context else 'none'}"
+            )
             
             response = await asyncio.to_thread(
                 client.chat.completions.create,
@@ -179,8 +150,8 @@ class OpenAIAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=300,
-                temperature=0.1
+                max_tokens=180,
+                temperature=0.05
             )
             
             content = response.choices[0].message.content.strip()

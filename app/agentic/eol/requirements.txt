@@ -1,9 +1,9 @@
 fastapi==0.121.2  # Required by agent-framework-ag-ui prerelease
 uvicorn[standard]==0.38.0
 pydantic==2.12.4
-agent-framework==1.0.0b251112  # Preview build requires pip --pre
-agent-framework-ag-ui==1.0.0b251112.post1
-agent-framework-chatkit==1.0.0b251112.post1
+agent-framework==1.0.0b260107  # Preview build requires pip --pre
+agent-framework-ag-ui==1.0.0b260107
+agent-framework-chatkit==1.0.0b260107
 azure-identity==1.17.1
 azure-core==1.36.0
 azure-monitor-query==1.4.0
@@ -31,7 +31,7 @@ azure-ai-agents==1.2.0b5
 azure-search-documents==11.5.3
 html2text==2025.4.15
 # Azure MCP Server integration
-mcp==1.21.1
+mcp==1.25.0
 python-dotenv==1.2.1
 sse-starlette==3.0.3
 uvloop==0.22.1

@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+import math
 
 try:  # Optional dependencies for local/mock testing
     from azure.monitor.query import LogsQueryClient, LogsQueryStatus
@@ -95,6 +96,100 @@ class SoftwareInventoryAgent:
         self._full_cache_scopes: Dict[str, bool] = {}
         
         logger.info(f"✅ SoftwareInventoryAgent initialized with workspace: {self.workspace_id}")
+
+    async def _fetch_eol(self, software_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Resolve EOL data using Cosmos cache first, then agent orchestrator with confidence logic."""
+        if not software_name:
+            return None
+
+        try:
+            from utils.eol_inventory import eol_inventory
+            cached = await eol_inventory.get(software_name, version)
+            if cached:
+                return cached
+        except Exception as exc:
+            logger.debug("EOL cache lookup failed for %s %s: %s", software_name, version or "(any)", exc)
+
+        try:
+            # Lazy import to avoid circular dependencies during app startup
+            from main import get_eol_orchestrator
+
+            orchestrator = get_eol_orchestrator()
+            eol_result = await orchestrator.get_autonomous_eol_data(
+                software_name, version, item_type="software"
+            )
+            if eol_result and eol_result.get("success"):
+                try:
+                    from utils.eol_inventory import eol_inventory
+                    await eol_inventory.upsert(software_name, version, eol_result)
+                except Exception as exc:
+                    logger.debug("EOL cache upsert failed for %s %s: %s", software_name, version or "(any)", exc)
+                return eol_result
+        except Exception as exc:
+            logger.debug("EOL agent lookup failed for %s %s: %s", software_name, version or "(any)", exc)
+
+        return None
+
+    async def _enrich_with_eol(self, items: List[Dict[str, Any]]) -> None:
+        """Populate EOL fields on inventory items using cache-first then agent lookup."""
+        if not items:
+            return
+
+        semaphore = asyncio.Semaphore(6)
+
+        def _key(name: Optional[str], version: Optional[str]) -> Optional[str]:
+            if not name:
+                return None
+            return f"{name.strip().lower()}::{(version or '').strip().lower()}"
+
+        unique_pairs: Dict[str, Dict[str, Optional[str]]] = {}
+        for item in items:
+            name = item.get("name") or item.get("software")
+            version = item.get("version")
+            key = _key(name, version)
+            if key and key not in unique_pairs:
+                unique_pairs[key] = {"name": name, "version": version}
+
+        async def _fetch_pair(name: Optional[str], version: Optional[str]):
+            async with semaphore:
+                return await self._fetch_eol(name, version)
+
+        tasks = {
+            key: asyncio.create_task(_fetch_pair(pair["name"], pair["version"]))
+            for key, pair in unique_pairs.items()
+        }
+
+        results: Dict[str, Optional[Dict[str, Any]]] = {}
+        for key, task in tasks.items():
+            try:
+                results[key] = await task
+            except Exception:
+                results[key] = None
+
+        for item in items:
+            name = item.get("name") or item.get("software")
+            version = item.get("version")
+            key = _key(name, version)
+            eol_data = results.get(key) if key else None
+            if not eol_data:
+                continue
+
+            payload = eol_data.get("data") if isinstance(eol_data, dict) else None
+            payload = payload if isinstance(payload, dict) else {}
+
+            item["eol_date"] = payload.get("eol_date")
+            item["support_end_date"] = payload.get("support_end_date") or payload.get("support")
+            item["eol_status"] = payload.get("status") or payload.get("support_status")
+            item["risk_level"] = payload.get("risk_level")
+            item["eol_confidence"] = payload.get("confidence") or eol_data.get("confidence")
+            item["eol_source"] = payload.get("source") or payload.get("agent_used") or eol_data.get("agent_used")
+
+            if item.get("eol_date"):
+                try:
+                    days = math.floor((datetime.fromisoformat(item["eol_date"]) - datetime.utcnow()).total_seconds() / 86400)
+                    item["days_until_eol"] = days
+                except Exception:
+                    item["days_until_eol"] = None
 
     async def clear_cache(self) -> Dict[str, Any]:
         """Clear cached software inventory data"""
@@ -197,6 +292,14 @@ class SoftwareInventoryAgent:
                     if isinstance(cached_data, list) and normalized_limit is not None:
                         cached_data = cached_data[:normalized_limit]
                     cached_timestamp = cache_result["timestamp"]
+                    cached_full_dataset = False
+                    metadata = cache_result.get("metadata") if isinstance(cache_result, dict) else None
+                    if isinstance(metadata, dict):
+                        cached_full_dataset = bool(metadata.get("full_dataset"))
+                    elif normalized_limit is not None and len(cached_data) < normalized_limit:
+                        cached_full_dataset = True
+                    if cached_full_dataset:
+                        self._full_cache_scopes[cache_scope] = True
                     cached_count = len(cached_data) if isinstance(cached_data, list) else 0
                     logger.info(
                         "✅ Successfully retrieved cached software inventory data from Cosmos DB%s: %d items (cached at %s)",
@@ -223,7 +326,7 @@ class SoftwareInventoryAgent:
                         "source": "cosmos_cache",
                         "target_computer": computer_filter,
                         "limit_applied": normalized_limit,
-                        "full_dataset": cache_has_full and full_dataset_requested,
+                        "full_dataset": cached_full_dataset,
                     }
 
                 cache_stats_manager.record_agent_request(
@@ -370,6 +473,9 @@ class SoftwareInventoryAgent:
                 failed_rows,
             )
 
+            # Enrich with EOL data (Cosmos first, then agents with confidence logic)
+            await self._enrich_with_eol(results)
+
             result_data = {
                 "success": True,
                 "data": results,
@@ -394,6 +500,13 @@ class SoftwareInventoryAgent:
                         cache_key=cache_key,
                         data=results,
                         cache_type="software",
+                        metadata={
+                            "full_dataset": full_dataset_requested or (
+                                normalized_limit is not None and len(results) < normalized_limit
+                            ),
+                            "query_params": query_params,
+                            "computer_filter": computer_filter,
+                        },
                     )
                     cache_end_time = datetime.utcnow()
                     cache_duration = (cache_end_time - cache_start_time).total_seconds()
@@ -490,7 +603,9 @@ class SoftwareInventoryAgent:
         
         software_items = inventory_result.get("data", [])
         total_software = len(software_items)
-        total_computers = len(set(comp for item in software_items for comp in item.get("computers", [])))
+        total_computers = len({
+            item.get("computer") for item in software_items if item.get("computer")
+        })
         
         by_category = {}
         by_publisher = {}

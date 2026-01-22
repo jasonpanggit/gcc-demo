@@ -9,15 +9,9 @@
     /* Management Grid */
     .management-grid {
         display: grid;
-        grid-template-columns: 1fr 400px;
+        grid-template-columns: 1fr;
         gap: var(--spacing-xl);
         margin-bottom: var(--spacing-xl);
-    }
-
-    @media (max-width: 992px) {
-        .management-grid {
-            grid-template-columns: 1fr;
-        }
     }
 
     /* Agent Cards */
@@ -1241,6 +1235,56 @@
     #messageContainer {
         margin: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
     }
+
+    /* Parsing Controls */
+    .parse-card {
+        padding: var(--spacing-lg);
+    }
+
+    .parse-form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--spacing-md);
+        align-items: end;
+    }
+
+    .parse-form-grid .form-group {
+        margin-bottom: 0;
+    }
+
+    .parse-form-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.5rem;
+    }
+
+    .parse-form-actions .btn {
+        height: 100%;
+        min-height: 48px;
+    }
+
+    .parse-mode-note {
+        font-size: 0.875rem;
+        color: var(--gray-600);
+    }
+
+    .parse-result {
+        background: var(--gray-50);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-md);
+        height: 360px;
+        font-family: "Menlo", "Monaco", monospace;
+        font-size: 0.85rem;
+        overflow: auto;
+    }
+
+    .parse-meta {
+        display: flex;
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+        margin-bottom: var(--spacing-sm);
+    }
 </style>
 {% endblock %}
 
@@ -1251,8 +1295,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-robot me-3"></i>
-                    Agent Management
+                    <span class="hero-icon me-3"><i class="fas fa-robot"></i></span>Agent Management
                 </h1>
                 <p class="hero-subtitle">
                     Monitor and configure your EOL search agents. Track performance, 
@@ -1336,6 +1379,41 @@
                 <div class="card-body py-3">
                     <h3 class="card-title text-dark mb-1" id="avgResponseTime">0ms</h3>
                     <p class="card-text small text-muted mb-0">Avg Response</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parsing Controls -->
+    <div class="management-grid">
+        <div class="card system-overview-card parse-card h-100">
+            <div class="card-body">
+                <h3 class="card-title">Vendor EOL Parsing</h3>
+                <p class="card-text parse-mode-note">
+                    Pick a vendor to let the orchestrator crawl its configured URLs and keywords, then extract software, versions, and EOL data automatically.
+                </p>
+                <form id="parsingForm" onsubmit="return agentManager.triggerVendorParsing(event)">
+                    <div class="parse-form-grid">
+                        <div class="form-group">
+                            <select class="form-control" id="parseVendor" name="vendor" required>
+                                <option value="" disabled selected>Select a vendor</option>
+                            </select>
+                        </div>
+                        <div class="form-group parse-form-actions">
+                            <button type="submit" id="parseSubmit" class="btn btn-primary">
+                                <i class="fas fa-play me-1"></i>Run Vendor Parsing
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="card system-overview-card parse-card h-100">
+            <div class="card-body">
+                <h3 class="card-title">Parsing Results</h3>
+                <div class="parse-meta" id="parsingMeta"></div>
+                <div class="parse-result" id="parsingResult">
+                    <div class="text-muted">No parsing run yet.</div>
                 </div>
             </div>
         </div>
@@ -1461,6 +1539,7 @@
         constructor() {
             this.agents = [];
             this.filteredAgents = [];
+            this.vendors = [];
             this.systemStats = {
                 totalAgents: 0,
                 activeAgents: 0,
@@ -1475,6 +1554,13 @@
                 sortBy: 'name',
                 search: ''
             };
+            this.parsingState = {
+                running: false,
+                lastMode: 'agents_plus_internet'
+            };
+            this.testState = {
+                last: null
+            };
             this.init();
         }
 
@@ -1487,9 +1573,59 @@
             }
             
             this.showLoading();
-            await this.loadAgents();
+            await Promise.all([
+                this.loadAgents(),
+                this.loadVendors()
+            ]);
             this.setupEventListeners();
             this.hideLoading();
+            this.loadPersistedParsingResult();
+        }
+
+        async loadVendors() {
+            const fallbackVendors = [
+                'microsoft', 'redhat', 'ubuntu', 'oracle', 'vmware', 'nodejs', 'postgresql', 'php', 'python'
+            ];
+
+            // try {
+            //     const response = await fetch('/api/vendors');
+            //     if (!response.ok) {
+            //         throw new Error(`Vendor API HTTP ${response.status}`);
+            //     }
+
+            //     const data = await response.json();
+            //     const vendors = data?.vendors || Object.keys(data?.vendor_routing || {});
+            //     this.vendors = vendors && vendors.length ? vendors : fallbackVendors;
+            // } catch (error) {
+            //     console.warn('Failed to load vendors:', error);
+            //     if (!this.vendors || this.vendors.length === 0) {
+            //         this.vendors = fallbackVendors;
+            //     }
+            //     this.showMessage('Vendor API unavailable. Using fallback vendor list.', 'error');
+            // }
+
+            this.vendors = fallbackVendors;
+            this.renderVendorOptions();
+        }
+
+        renderVendorOptions() {
+            const select = document.getElementById('parseVendor');
+            if (!select) return;
+
+            const currentValue = select.value;
+            const placeholderSelected = currentValue ? '' : ' selected';
+            select.innerHTML = `<option value="" disabled${placeholderSelected}>Select a vendor</option>`;
+
+            this.vendors.forEach(vendor => {
+                const option = document.createElement('option');
+                option.value = vendor;
+                option.textContent = vendor.charAt(0).toUpperCase() + vendor.slice(1);
+                select.appendChild(option);
+            });
+
+            if (currentValue && this.vendors.includes(currentValue)) {
+                select.value = currentValue;
+            }
         }
 
         setupEventListeners() {
@@ -1506,6 +1642,284 @@
             }
 
             // Filter change listeners are handled by onchange attributes in HTML
+        }
+
+        describeMode(mode) {
+            switch (mode) {
+                case 'internet_only':
+                    return 'Internet only';
+                case 'agents_plus_internet':
+                    return 'Agents + Internet';
+                case 'agents_only':
+                    return 'Agents only';
+                default:
+                    return 'Standard multi-agent';
+            }
+        }
+
+        setParsingResult(html) {
+            const resultEl = document.getElementById('parsingResult');
+            if (resultEl) {
+                resultEl.innerHTML = html;
+            }
+        }
+
+        updateParsingMeta(meta = {}) {
+            const metaEl = document.getElementById('parsingMeta');
+            if (!metaEl) return;
+
+            const badges = [];
+            if (meta.mode) {
+                badges.push(`<span class="badge bg-primary">${meta.mode}</span>`);
+            }
+            if (meta.vendor) {
+                badges.push(`<span class="badge bg-dark">Vendor: ${meta.vendor}</span>`);
+            }
+            if (meta.agent) {
+                badges.push(`<span class="badge bg-success">Agent: ${meta.agent}</span>`);
+            }
+            if (meta.confidence !== undefined && meta.confidence !== null) {
+                badges.push(`<span class="badge bg-info">Confidence: ${meta.confidence}%</span>`);
+            }
+            if (meta.timestamp) {
+                badges.push(`<span class="badge bg-secondary">${meta.timestamp}</span>`);
+            }
+
+            metaEl.innerHTML = badges.join(' ');
+        }
+
+        renderParsingResult(data, requestedMode) {
+            if (data && Array.isArray(data.runs)) {
+                this.renderVendorParsingResult(data);
+                return;
+            }
+
+            const mode = data?.search_mode || requestedMode || 'multi_agent';
+            const result = data?.result || {};
+            const success = result.success !== false && (result.success || !!result.data);
+            const agentUsed = result.agent_used || result.primary_source || result.agent || 'unknown';
+            const eolData = result.data || result.eol_data || result.result || {};
+            const eolDate = eolData.eol_date || eolData.support_end_date || eolData.eol || eolData.date || 'n/a';
+
+            let confidenceRaw = result.confidence;
+            if (confidenceRaw === undefined || confidenceRaw === null) {
+                confidenceRaw = result.score;
+            }
+            if (confidenceRaw !== undefined && confidenceRaw !== null && confidenceRaw <= 1) {
+                confidenceRaw = confidenceRaw * 100;
+            }
+            const confidence = confidenceRaw !== undefined && confidenceRaw !== null
+                ? Math.round(confidenceRaw * 100) / 100
+                : null;
+
+            this.updateParsingMeta({
+                mode: this.describeMode(mode),
+                agent: agentUsed,
+                confidence: confidence || null,
+                timestamp: data?.timestamp || new Date().toISOString()
+            });
+
+            const summary = `
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>Status:</strong> ${success ? 'Success' : 'Failed'}
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>Mode:</strong> ${this.describeMode(mode)}
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>Agent:</strong> ${agentUsed}
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>EOL Date:</strong> ${eolDate}
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>Confidence:</strong> ${confidence ? `${confidence}%` : 'n/a'}
+                </div>
+                <div><strong>Raw Response</strong></div>
+                <pre class="json-display" style="white-space: pre-wrap;">${JSON.stringify(data, null, 2)}</pre>
+            `;
+
+            this.setParsingResult(summary);
+        }
+
+        renderVendorParsingResult(data) {
+            const runs = Array.isArray(data?.runs) ? data.runs : [];
+            const vendor = data?.vendor || 'vendor';
+            const modeLabel = this.describeMode(data?.mode || this.parsingState.lastMode || 'agents_plus_internet');
+            const timestamp = data?.timestamp || new Date().toISOString();
+            const successes = runs.filter(run => run?.success).length;
+
+            this.updateParsingMeta({
+                mode: modeLabel,
+                vendor: vendor,
+                confidence: null,
+                timestamp: timestamp
+            });
+
+            if (!runs.length) {
+                this.setParsingResult('<div class="text-muted">No parsing results returned for this vendor.</div>');
+                return;
+            }
+
+            const rows = runs.map((run, index) => {
+                const eolDate = run?.eol_date || run?.support_end_date || 'n/a';
+                const version = run?.version || 'n/a';
+                const agent = run?.agent_used || 'n/a';
+                const source = run?.source_url ? `<a href="${run.source_url}" target="_blank" rel="noopener">Link</a>` : 'n/a';
+                let confidenceValue = run?.confidence;
+                if (confidenceValue !== undefined && confidenceValue !== null) {
+                    if (confidenceValue <= 1) {
+                        confidenceValue = confidenceValue * 100;
+                    }
+                    confidenceValue = Math.round(confidenceValue * 100) / 100;
+                }
+                const confidence = (confidenceValue !== undefined && confidenceValue !== null)
+                    ? `${confidenceValue}%`
+                    : 'n/a';
+                const statusBadge = run?.success
+                    ? '<span class="badge bg-success">Success</span>'
+                    : '<span class="badge bg-danger">Failed</span>';
+
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${run?.software_name || 'n/a'}</td>
+                        <td>${version}</td>
+                        <td>${eolDate}</td>
+                        <td>${agent}</td>
+                        <td>${confidence}</td>
+                        <td>${source}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const vendorUrls = (data?.vendor_urls || []).map((entry) => {
+                if (!entry || !entry.url) return null;
+                const desc = entry.description ? ` - ${entry.description}` : '';
+                return `<li><a href="${entry.url}" target="_blank" rel="noopener">${entry.url}</a>${desc}</li>`;
+            }).filter(Boolean).join('') || '<li>No URLs configured for this vendor.</li>';
+
+            const summary = `
+                <div class="mb-2">
+                    <strong>Vendor:</strong> ${vendor}<br>
+                    <strong>Mode:</strong> ${modeLabel}<br>
+                    <strong>Completed:</strong> ${successes}/${runs.length} successful
+                </div>
+                <div class="mb-3">
+                    <strong>Vendor URLs</strong>
+                    <ul>${vendorUrls}</ul>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Software</th>
+                                <th>Version</th>
+                                <th>EOL / Support End</th>
+                                <th>Agent</th>
+                                <th>Confidence</th>
+                                <th>Source</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="mt-3">
+                    <strong>Raw Response</strong>
+                    <pre class="json-display" style="white-space: pre-wrap;">${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+
+            this.setParsingResult(summary);
+        }
+
+        loadPersistedParsingResult() {
+            try {
+                const cached = localStorage.getItem('eolParsingLastRun');
+                if (!cached) return;
+                const parsed = JSON.parse(cached);
+                if (parsed && parsed.data) {
+                    this.renderParsingResult(parsed.data, parsed.mode);
+                }
+            } catch (error) {
+                console.warn('Failed to restore last parsing run from storage:', error);
+            }
+        }
+
+        async triggerVendorParsing(event) {
+            if (event) event.preventDefault();
+            if (this.parsingState.running) return false;
+
+            const vendorSelect = document.getElementById('parseVendor');
+            const ignoreCache = document.getElementById('parseIgnoreCache');
+            const submitBtn = document.getElementById('parseSubmit');
+
+            const vendor = vendorSelect?.value;
+            const mode = 'agents_only';
+
+            if (!vendor) {
+                this.showMessage('Vendor is required for parsing', 'error');
+                return false;
+            }
+
+            const payload = {
+                vendor: vendor,
+                mode: mode,
+                ignore_cache: !!ignoreCache?.checked
+            };
+
+            this.parsingState.running = true;
+            this.parsingState.lastMode = mode;
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>Running...';
+            }
+
+            this.updateParsingMeta({ mode: this.describeMode(mode), vendor });
+            this.setParsingResult('<div class="text-muted">Running vendor parsing request...</div>');
+
+            try {
+                const response = await fetch('/api/search/eol/vendor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data?.detail || data?.error || `HTTP ${response.status}`);
+                }
+
+                this.renderParsingResult(data, mode);
+                try {
+                    localStorage.setItem('eolParsingLastRun', JSON.stringify({ data, mode }));
+                } catch (storageError) {
+                    console.warn('Failed to persist parsing result:', storageError);
+                }
+
+                const totalRuns = Array.isArray(data?.runs) ? data.runs.length : 0;
+                const successes = Array.isArray(data?.runs) ? data.runs.filter(run => run?.success).length : 0;
+                const message = successes
+                    ? `Parsed ${successes}/${totalRuns} entries for ${vendor}`
+                    : `Parsing completed with no EOL data for ${vendor}`;
+                this.showMessage(message, successes ? 'success' : 'error');
+            } catch (error) {
+                console.error('Vendor parsing failed:', error);
+                this.setParsingResult(`<div class="text-danger">Parsing failed: ${error.message}</div>`);
+                this.showMessage(`Parsing failed: ${error.message}`, 'error');
+            } finally {
+                this.parsingState.running = false;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-play me-1"></i>Run Vendor Parsing';
+                }
+            }
+
+            return false;
         }
 
         async loadAgents(silent = false) {
@@ -1772,6 +2186,9 @@
                         cache_hits: urlStats?.cache_hits || 0,
                         cache_misses: urlStats?.cache_misses || 0,
                         cache_hit_rate: urlStats?.hit_rate || 0,
+
+                        // Parsing output metrics
+                        records_extracted: urlStats?.records_extracted || 0,
                         
                         // Data quality metrics - using real data when available
                         data_freshness_score: urlStats?.data_freshness_score || 0,
@@ -2476,6 +2893,10 @@
                         <div class="url-stat-value" style="color: #198754;">${(stats.success_count || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
+                        <div class="url-stat-label">Records:</div>
+                        <div class="url-stat-value" style="color: #0d6efd;">${(stats.records_extracted || 0).toLocaleString()}</div>
+                    </div>
+                    <div class="url-stat-item">
                         <div class="url-stat-label">Response:</div>
                         <div class="url-stat-value" style="color: #6f42c1;">${(stats.avg_response_time || 0).toFixed(4)}ms</div>
                     </div>
@@ -2492,58 +2913,258 @@
         `;
         }
 
+        // URL Management Helpers
+        normalizeUrl(url) {
+            if (!url) return '';
+            let trimmed = url.trim();
+            if (!trimmed.match(/^https?:\/\//i)) {
+                trimmed = `https://${trimmed}`;
+            }
+            return trimmed;
+        }
+
+        isValidUrl(url) {
+            try {
+                const parsed = new URL(url);
+                return ['http:', 'https:'].includes(parsed.protocol);
+            } catch (error) {
+                return false;
+            }
+        }
+
+        openUrlModal(agentId, mode = 'add', urlObj = {}) {
+            const agent = this.agents.find(a => a.id === agentId);
+            if (!agent) {
+                this.showMessage('Agent not found for URL management', 'error');
+                return;
+            }
+
+            const displayName = agent.name || agentId;
+            const standardizedName = agent.standardizedName || agentId;
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">${mode === 'add' ? 'Add URL' : 'Edit URL'}</h5>
+                        <button type="button" class="btn-close" data-close> X </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="urlModalForm">
+                            <div class="form-group">
+                                <label class="form-label" for="urlInput">URL</label>
+                                <input type="url" class="form-control" id="urlInput" name="url" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="urlDescInput">Description (optional)</label>
+                                <input type="text" class="form-control" id="urlDescInput" name="description">
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-close>Cancel</button>
+                        <button type="submit" form="urlModalForm" class="btn btn-primary">${mode === 'add' ? 'Add URL' : 'Save Changes'}</button>
+                    </div>
+                </div>
+            `;
+
+            const closeModal = () => {
+                if (overlay && overlay.parentElement) {
+                    overlay.parentElement.removeChild(overlay);
+                }
+            };
+
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay || e.target.hasAttribute('data-close')) {
+                    closeModal();
+                }
+            });
+
+            const form = overlay.querySelector('#urlModalForm');
+            const urlInput = overlay.querySelector('#urlInput');
+            const descInput = overlay.querySelector('#urlDescInput');
+
+            if (urlInput) urlInput.value = urlObj.url || '';
+            if (descInput) descInput.value = urlObj.description || '';
+
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const rawUrl = urlInput ? urlInput.value : '';
+                    const description = descInput ? (descInput.value?.trim() || '') : '';
+                    const normalizedUrl = this.normalizeUrl(rawUrl);
+
+                    if (!this.isValidUrl(normalizedUrl)) {
+                        this.showMessage('Enter a valid http/https URL', 'error');
+                        return;
+                    }
+
+                    try {
+                        if (mode === 'add') {
+                            await this.addUrl(standardizedName, normalizedUrl, description, displayName);
+                        } else {
+                            await this.updateUrl(
+                                standardizedName,
+                                urlObj.url,
+                                normalizedUrl,
+                                description,
+                                urlObj.description || '',
+                                displayName
+                            );
+                        }
+                        closeModal();
+                    } catch (error) {
+                        this.showMessage(error.message || 'URL update failed', 'error');
+                    }
+                });
+            }
+
+            document.body.appendChild(overlay);
+        }
+
+        async addUrl(agentName, url, description, displayName) {
+            return this.postUrlRequest(
+                '/api/agents/add-url',
+                { agent_name: agentName, url, description },
+                `URL added to ${displayName}`
+            );
+        }
+
+        async updateUrl(agentName, existingUrl, newUrl, description, existingDescription, displayName) {
+            const hasChanges = newUrl !== existingUrl || description !== (existingDescription || '');
+            if (!hasChanges) {
+                this.showMessage('No changes to save', 'info');
+                return;
+            }
+
+            await this.postUrlRequest(
+                '/api/agents/remove-url',
+                { agent_name: agentName, url: existingUrl },
+                `URL removed from ${displayName}`,
+                { refresh: false }
+            );
+
+            await this.postUrlRequest(
+                '/api/agents/add-url',
+                { agent_name: agentName, url: newUrl, description },
+                `URL updated for ${displayName}`,
+                { refresh: false }
+            );
+
+            await this.loadAgents(true);
+            this.showMessage(`URL updated for ${displayName}`, 'success');
+        }
+
+        async postUrlRequest(endpoint, payload, successFallback, options = {}) {
+            const { refresh = true } = options;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.success === false) {
+                const errorMsg = data.error || data.message || `Request failed (${response.status})`;
+                throw new Error(errorMsg);
+            }
+
+            if (refresh) {
+                await this.loadAgents(true);
+            }
+
+            const message = data.message || successFallback || 'Operation completed';
+            this.showMessage(message, 'success');
+            return data;
+        }
+
         // URL Management Methods
         showAddUrlModal(agentId) {
-            // Find the agent to get both display name and standardized name
-            const agent = this.agents.find(a => a.id === agentId);
-            const displayName = agent ? agent.name : agentId;
-            const standardizedName = agent ? agent.standardizedName : agentId;
-            
-            const url = prompt(`Enter URL for agent ${displayName}:`);
-            if (url) {
-                this.showMessage(`URL management not yet implemented for ${displayName}`, 'info');
-                // Future: Use standardizedName for API calls
-            }
+            this.openUrlModal(agentId, 'add');
         }
 
         editUrl(agentId, url) {
             const agent = this.agents.find(a => a.id === agentId);
-            const displayName = agent ? agent.name : agentId;
-            this.showMessage(`URL editing not yet implemented for ${displayName}`, 'info');
+            const urlObj = agent?.urls?.find(u => (u.url || u) === url);
+            this.openUrlModal(agentId, 'edit', urlObj || { url });
         }
 
-        removeUrl(agentId, url) {
+        async removeUrl(agentId, url) {
             const agent = this.agents.find(a => a.id === agentId);
             const displayName = agent ? agent.name : agentId;
-            if (confirm(`Remove URL: ${url} from ${displayName}?`)) {
-                this.showMessage(`URL removal not yet implemented for ${displayName}`, 'info');
+            const standardizedName = agent ? agent.standardizedName : agentId;
+            if (!confirm(`Remove URL: ${url} from ${displayName}?`)) {
+                return;
+            }
+
+            try {
+                await this.postUrlRequest(
+                    '/api/agents/remove-url',
+                    { agent_name: standardizedName, url },
+                    `URL removed from ${displayName}`
+                );
+            } catch (error) {
+                this.showMessage(error.message || `Failed to remove URL for ${displayName}`, 'error');
             }
         }
 
         testUrl(agentId, url) {
             const agent = this.agents.find(a => a.id === agentId);
             const displayName = agent ? agent.name : agentId;
+            const normalizedUrl = this.normalizeUrl(url);
+            this.testState.last = { agentId, url: normalizedUrl, displayName };
             
             // Validate URL format
-            if (!url || typeof url !== 'string') {
+            if (!normalizedUrl || typeof normalizedUrl !== 'string' || !this.isValidUrl(normalizedUrl)) {
                 this.showMessage(`Invalid URL provided for ${displayName}`, 'error');
                 return;
             }
-            
-            // Ensure URL has protocol
-            let testUrl = url.trim();
-            if (!testUrl.match(/^https?:\/\//)) {
-                testUrl = 'https://' + testUrl;
+
+            const modalEl = document.getElementById('testResultsModal');
+            const resultsEl = document.getElementById('testResults');
+            const retestBtn = document.getElementById('retestButton');
+
+            if (retestBtn) retestBtn.style.display = 'none';
+            if (resultsEl) {
+                resultsEl.innerHTML = `
+                    <div class="text-center py-4">
+                        <div class="spinner"></div>
+                        <div class="mt-3">Testing ${normalizedUrl} ...</div>
+                    </div>
+                `;
             }
-            
-            try {
-                // Open URL in new tab
-                window.open(testUrl, '_blank', 'noopener,noreferrer');
-                this.showMessage(`Opened ${testUrl} in new tab for ${displayName}`, 'success');
-            } catch (error) {
-                console.error('Error opening URL:', error);
-                this.showMessage(`Failed to open URL for ${displayName}: ${error.message}`, 'error');
+
+            // Open modal if bootstrap is available, otherwise fall back to new tab
+            if (modalEl && window.bootstrap?.Modal) {
+                const modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
             }
+
+            this.testUrlConnectivity(normalizedUrl)
+                .then(result => {
+                    if (resultsEl) {
+                        resultsEl.innerHTML = `
+                            <div class="alert ${result.ok ? 'alert-success' : 'alert-danger'}" role="alert">
+                                <strong>${result.ok ? 'Reachable' : 'Unreachable'}</strong> in ${result.duration} ms<br>
+                                Status: ${result.status}
+                            </div>
+                            ${result.detail ? `<div class="small text-muted">${result.detail}</div>` : ''}
+                        `;
+                    }
+                    if (retestBtn) retestBtn.style.display = 'inline-flex';
+                    this.showMessage(result.ok ? `URL reachable for ${displayName}` : `URL unreachable for ${displayName}`, result.ok ? 'success' : 'error');
+                })
+                .catch(error => {
+                    if (resultsEl) {
+                        resultsEl.innerHTML = `
+                            <div class="alert alert-danger" role="alert">
+                                <strong>Test failed</strong><br>${error.message}
+                            </div>
+                        `;
+                    }
+                    if (retestBtn) retestBtn.style.display = 'inline-flex';
+                    this.showMessage(`Test failed for ${displayName}: ${error.message}`, 'error');
+                });
         }
 
         saveUrl() {
@@ -2551,7 +3172,44 @@
         }
 
         retestUrl() {
-            this.showMessage('URL retesting not yet implemented', 'info');
+            if (!this.testState.last) {
+                this.showMessage('No previous URL test to repeat', 'info');
+                return;
+            }
+            this.testUrl(this.testState.last.agentId, this.testState.last.url);
+        }
+
+        async testUrlConnectivity(url, timeoutMs = 8000) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
+            const started = performance.now();
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-store',
+                    redirect: 'follow',
+                    signal: controller.signal
+                });
+                const duration = Math.round(performance.now() - started);
+                clearTimeout(timeout);
+
+                const statusText = `${response.status} ${response.statusText || ''}`.trim();
+                const ok = response.ok;
+                return {
+                    ok,
+                    status: statusText || 'No status',
+                    duration
+                };
+            } catch (error) {
+                clearTimeout(timeout);
+                const duration = Math.round(performance.now() - started);
+                if (error.name === 'AbortError') {
+                    return Promise.reject(new Error(`Timed out after ${timeoutMs} ms`));
+                }
+                return Promise.reject(new Error(`${error.message || 'Request failed'} (after ${duration} ms)`));
+            }
         }
 
         // Utility Methods
@@ -2640,7 +3298,8 @@
         removeUrl: (agentId, url) => agentManager?.removeUrl(agentId, url),
         testUrl: (agentId, url) => agentManager?.testUrl(agentId, url),
         saveUrl: () => agentManager?.saveUrl(),
-        retestUrl: () => agentManager?.retestUrl()
+        retestUrl: () => agentManager?.retestUrl(),
+        triggerVendorParsing: (event) => agentManager?.triggerVendorParsing(event)
     };
 </script>
 

@@ -16,11 +16,19 @@ for depth in range(4, -1, -1):
             sys.path.insert(0, str(candidate))
         break
 
+EOL_ROOT = PROJECT_ROOT.parent.parent
+if (EOL_ROOT / "agents").is_dir() and str(EOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(EOL_ROOT))
+
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
-from app.agentic.eol.agents.os_inventory_agent import OSInventoryAgent
-from app.agentic.eol.agents.software_inventory_agent import SoftwareInventoryAgent
+try:
+    from agents.os_inventory_agent import OSInventoryAgent
+    from agents.software_inventory_agent import SoftwareInventoryAgent
+except ModuleNotFoundError:
+    from app.agentic.eol.agents.os_inventory_agent import OSInventoryAgent
+    from app.agentic.eol.agents.software_inventory_agent import SoftwareInventoryAgent
 
 logger = logging.getLogger(__name__)
 

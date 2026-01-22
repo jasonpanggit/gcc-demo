@@ -10,7 +10,6 @@ import json
 import hashlib
 import time
 import asyncio
-from utils.eol_cache import eol_cache
 from .base_eol_agent import BaseEOLAgent
 
 # Import cache stats manager for tracking URL usage
@@ -44,8 +43,8 @@ class OracleEOLAgent(BaseEOLAgent):
             )
         }
 
-        # Use shared EOL cache singleton
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cosmos_cache = None
 
         # Oracle EOL URLs with metadata (single source of truth)
         self.eol_urls = {
@@ -178,44 +177,19 @@ class OracleEOLAgent(BaseEOLAgent):
         return hashlib.md5(key_data.encode()).hexdigest()
 
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Get cached EOL data from Cosmos DB"""
-        try:
-            return await self.cosmos_cache.get_cached_response(software_name, version, self.agent_name)
-        except Exception as e:
-            logger.error(f"Error retrieving cached data: {e}")
-            return None
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], source_url: Optional[str] = None):
-        """Cache EOL data in Cosmos DB if confidence is high enough"""
-        try:
-            if not source_url:
-                # Determine source URL based on software type
-                software_lower = software_name.lower()
-                if "java" in software_lower:
-                    source_url = self.eol_urls.get("java")
-                elif "mysql" in software_lower:
-                    source_url = self.eol_urls.get("mysql")
-                elif "virtualbox" in software_lower:
-                    source_url = self.eol_urls.get("virtualbox")
-                else:
-                    source_url = self.eol_urls.get("oracle-database", "https://www.oracle.com/support/lifetime-support/")
-            
-            await self.cosmos_cache.cache_response(software_name, version, self.agent_name, data, source_url=source_url)
-        except Exception as e:
-            logger.error(f"Error caching data: {e}")
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
-        """Purge cached data for specific software or all Oracle cache"""
-        try:
-            if software_name:
-                cache_key = self._generate_cache_key(software_name, version)
-                # Implementation would depend on CosmosEOLCache having a delete method
-                return {"success": True, "deleted_count": 1, "message": f"Purged cache for {software_name}"}
-            else:
-                # Purge all Oracle cache entries
-                return {"success": True, "deleted_count": 0, "message": "Bulk purge not implemented"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Agent-level caching disabled - use eol_inventory for cache management"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
 
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Dict[str, Any]:
         """Get EOL data for Oracle products with enhanced static data checking"""

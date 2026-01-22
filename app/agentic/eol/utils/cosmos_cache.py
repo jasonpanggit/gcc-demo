@@ -123,7 +123,7 @@ class BaseCosmosClient:
             raise RuntimeError('Cosmos base client not initialized')
 
         # Check if container is already cached
-        cache_key = f"{container_id}:{partition_path}:{offer_throughput}"
+        cache_key = f"{container_id}:{partition_path}:{offer_throughput}:{default_ttl or 'no-ttl'}"
         logger.debug(f"🔍 Looking for container cache key: {cache_key}")
         logger.debug(f"🔍 Available cache keys: {list(self._container_cache.keys())}")
         
@@ -134,12 +134,18 @@ class BaseCosmosClient:
         # Create container if it doesn't exist - only log warning for new containers
         try:
             logger.info(f"🔄 Creating/getting Cosmos DB container {container_id} (first time)")
-            
-            container = self.database.create_container_if_not_exists(
-                id=container_id,
-                partition_key=PartitionKey(path=partition_path, kind='Hash'),
-                offer_throughput=offer_throughput
-            )
+
+            container_kwargs = {
+                "id": container_id,
+                "partition_key": PartitionKey(path=partition_path, kind='Hash'),
+                "offer_throughput": offer_throughput,
+            }
+
+            # Respect default TTL when provided so callers can set retention
+            if default_ttl is not None:
+                container_kwargs["default_ttl"] = default_ttl
+
+            container = self.database.create_container_if_not_exists(**container_kwargs)
             
             # Cache the container reference
             self._container_cache[cache_key] = container

@@ -887,8 +887,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-list-ul me-3"></i>
-                    Inventory Management
+                    <span class="hero-icon me-3"><i class="fas fa-list-ul"></i></span>Inventory Management
                 </h1>
                 <p class="hero-subtitle">
                     Comprehensive software and operating system inventory tracking with real-time data from Azure
@@ -1315,20 +1314,24 @@
 <!-- Import modular JavaScript -->
 <script type="module">
     // Import state management
-    import { state, saveViewState, tryRestoreViewState, updateCurrentPage, setCurrentInventory, setFilteredInventory } from '/static/js/inventory-state.js';
+    import { state, saveViewState, tryRestoreViewState, updateCurrentPage, setCurrentInventory, setFilteredInventory } from '/static/js/inventory-state.js?v=2';
     
     // Import display functions
-    import { displayInventory, displayInventoryWithPagination, goToPage, previousPage, nextPage } from '/static/js/inventory-display.js';
+    import { displayInventory, displayInventoryWithPagination, goToPage, previousPage, nextPage } from '/static/js/inventory-display.js?v=4';
     
     // Import Azure helpers
-    import { getAzurePortalLink, getComputerTypeBadge, escapeHtml } from '/static/js/azure-helpers.js';
+    import { getAzurePortalLink, getComputerTypeBadge, escapeHtml } from '/static/js/azure-helpers.js?v=6';
     
     // Import filter and sort functions
-    import { initializeSorting, filterInventory, applyFilters, clearAllFilters, changePageSize, sortTable, resetSort } from '/static/js/inventory-filters.js';
+    import { initializeSorting, filterInventory, applyFilters, clearAllFilters, changePageSize, sortTable, resetSort } from '/static/js/inventory-filters.js?v=2';
 
     // Template variables (injected by Jinja2)
     const SUBSCRIPTION_ID = '{{ subscription_id }}' || '';
     const RESOURCE_GROUP = '{{ resource_group }}' || '';
+
+    function renderInventoryWithEOL(data) {
+        return displayInventoryWithPagination(data, checkEOLInPlace, null);
+    }
 
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize page
@@ -1341,11 +1344,11 @@
         window.inventoryFunctions = {
             checkEOLInPlace,
             handleManualEOLCheck,
-            filterInventory: () => filterInventory(displayInventory, updateSummary),
-            applyFilters: () => applyFilters(displayInventory, updateSummary),
-            clearAllFilters: () => clearAllFilters(() => applyFilters(displayInventory, updateSummary)),
-            changePageSize: (id) => changePageSize(id, displayInventory, updateSummary),
-            sortTable: (col) => sortTable(col, () => filterInventory(displayInventory, updateSummary)),
+            filterInventory: () => filterInventory(renderInventoryWithEOL, null),
+            applyFilters: () => applyFilters(renderInventoryWithEOL, null),
+            clearAllFilters: () => clearAllFilters(() => applyFilters(renderInventoryWithEOL, null)),
+            changePageSize: (id) => changePageSize(id, renderInventoryWithEOL, null),
+            sortTable: (col) => sortTable(col, () => filterInventory(renderInventoryWithEOL, null)),
             resetSort: () => resetSort(loadInventory),
             loadInventory,
             refreshInventory,
@@ -1357,13 +1360,46 @@
         
         // Expose pagination globally
         window.inventoryPagination = {
-            goToPage: (page) => goToPage(page, displayInventory),
-            previousPage: () => previousPage(displayInventory),
-            nextPage: () => nextPage(displayInventory)
+            goToPage: (page) => goToPage(page, renderInventoryWithEOL),
+            previousPage: () => previousPage(renderInventoryWithEOL),
+            nextPage: () => nextPage(renderInventoryWithEOL)
         };
     });
 
     // Core functions that remain in template (due to template variables and API calls)
+
+    // Small helper to guard against slow/failed EOL calls
+    async function fetchEOLWithTimeout(payload, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch('/api/search/eol', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                if (parseError && parseError.name === 'AbortError') {
+                    return { response: null, data: null, timeout: true };
+                }
+                console.warn('Unable to parse EOL response JSON', parseError);
+            }
+
+            return { response, data };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { response: null, data: null, timeout: true };
+            }
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
 
     async function checkEOLInPlace(name, version, itemId, softwareType = '') {
         const statusElement = document.getElementById(`eol-status-${itemId}`);
@@ -1414,7 +1450,8 @@
 
             // Build request payload for enhanced search endpoint
             const searchData = {
-                software_name: finalName
+                software_name: finalName,
+                search_include_internet: true
             };
 
             if (finalVersion) {
@@ -1431,19 +1468,31 @@
                 software_name: finalName
             };
 
-            let response = await fetch('/api/search/eol', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(nameOnlySearchData)
-            });
+            let { response, data, timeout } = await fetchEOLWithTimeout(nameOnlySearchData);
 
-            let data = await response.json();
+            if (timeout || (response && response.status === 504)) {
+                statusElement.innerHTML = `
+                <span class="badge bg-warning text-dark" title="EOL service timed out">
+                    <i class="fas fa-clock me-1"></i>
+                    Timeout
+                </span>
+            `;
+                return;
+            }
+
+            if (!response || !response.ok) {
+                statusElement.innerHTML = `
+                <span class="badge bg-warning text-dark" title="EOL service error${response ? ` (${response.status})` : ''}">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    Service error
+                </span>
+            `;
+                return;
+            }
 
             // Check if Stage 1 found valid EOL data
             // API returns: { result: { success: true, data: { software_name, eol_date, ... } } }
-            if (response.ok && data.result && data.result.success && data.result.data) {
+            if (data && data.result && data.result.success && data.result.data) {
                 const resultData = data.result.data;
                 if (resultData.software_name && hasValidEOLData(resultData)) {
                     eolInfo = resultData;
@@ -1460,17 +1509,29 @@
                     software_version: finalVersion
                 };
 
-                response = await fetch('/api/search/eol', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(nameVersionSearchData)
-                });
+                ({ response, data, timeout } = await fetchEOLWithTimeout(nameVersionSearchData));
 
-                data = await response.json();
+                if (timeout || (response && response.status === 504)) {
+                    statusElement.innerHTML = `
+                    <span class="badge bg-warning text-dark" title="EOL service timed out">
+                        <i class="fas fa-clock me-1"></i>
+                        Timeout
+                    </span>
+                `;
+                    return;
+                }
 
-                if (response.ok && data.result && data.result.success && data.result.data) {
+                if (!response || !response.ok) {
+                    statusElement.innerHTML = `
+                    <span class="badge bg-warning text-dark" title="EOL service error${response ? ` (${response.status})` : ''}">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        Service error
+                    </span>
+                `;
+                    return;
+                }
+
+                if (data && data.result && data.result.success && data.result.data) {
                     const resultData = data.result.data;
                     if (resultData.software_name) {
                         eolInfo = resultData;
@@ -2184,7 +2245,20 @@
                 // console.log('Sample OS item:', osInventory[0]);
 
                 updateCurrentPage(1); // Reset to first page using state module
-                displayInventoryWithPagination(combinedInventory); // Pass combined data
+                renderInventoryWithEOL(combinedInventory);
+
+                // Fallback: trigger EOL checks after render (in case auto-check is skipped)
+                setTimeout(() => {
+                    combinedInventory.forEach(item => {
+                        const softwareType = (item.software_type || '').toLowerCase();
+                        if (!item.id) {
+                            item.id = `${Math.random().toString(36).substr(2, 9)}`;
+                        }
+                        if (softwareType === 'application' || softwareType === 'operating system') {
+                            checkEOLInPlace(item.name || '', item.version || '', item.id, item.software_type || '');
+                        }
+                    });
+                }, 300);
 
                 // Update summary text to show results
                 const summaryTextEl = document.getElementById('summary-text');
@@ -2307,7 +2381,9 @@
     // Expose functions to global scope for inline event handlers
     window.loadInventory = loadInventory;
     window.refreshInventory = refreshInventory;
-    window.applyFilters = () => applyFilters(displayInventory, updateSummary);
+    window.applyFilters = () => applyFilters(renderInventoryWithEOL, null);
+    window.checkEOLInPlace = checkEOLInPlace;
+    window.handleManualEOLCheck = handleManualEOLCheck;
 
     async function clearInventoryCache(forceRefresh = false) {
         try {

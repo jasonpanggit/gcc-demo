@@ -1,7 +1,9 @@
 """
 Centralized configuration management for the EOL Multi-Agent App
 """
+import json
 import os
+from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -15,6 +17,7 @@ class AzureConfig:
     
     # Azure Log Analytics
     log_analytics_workspace_id: str
+    tenant_id: str
     subscription_id: str
     resource_group_name: str
     
@@ -50,17 +53,52 @@ class ConfigManager:
         self._azure_config: Optional[AzureConfig] = None
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
+        self._appsettings_cache: Optional[Dict[str, Any]] = None
+
+    def _load_appsettings(self) -> Dict[str, Any]:
+        if self._appsettings_cache is not None:
+            return self._appsettings_cache
+
+        settings_path = os.getenv("APPSETTINGS_PATH")
+        if not settings_path:
+            settings_path = str(Path(__file__).resolve().parents[1] / "deploy" / "appsettings.json")
+
+        try:
+            if Path(settings_path).is_file():
+                with open(settings_path, "r", encoding="utf-8") as handle:
+                    self._appsettings_cache = json.load(handle)
+            else:
+                self._appsettings_cache = {}
+        except Exception:
+            self._appsettings_cache = {}
+
+        return self._appsettings_cache
+
+    def _get_appsettings_value(self, *keys: str) -> Optional[str]:
+        data: Any = self._load_appsettings()
+        for key in keys:
+            if not isinstance(data, dict):
+                return None
+            data = data.get(key)
+        if data is None:
+            return None
+        return str(data)
     
     @property
     def azure(self) -> AzureConfig:
         """Get Azure configuration"""
         if self._azure_config is None:
+            app_subscription = self._get_appsettings_value("Azure", "SubscriptionId")
+            app_tenant = self._get_appsettings_value("Azure", "TenantId")
+            app_resource_group = self._get_appsettings_value("Azure", "ResourceGroup")
+
             self._azure_config = AzureConfig(
                 aoai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
                 aoai_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
                 log_analytics_workspace_id=os.getenv("LOG_ANALYTICS_WORKSPACE_ID", ""),
-                subscription_id=os.getenv("SUBSCRIPTION_ID", ""),
-                resource_group_name=os.getenv("RESOURCE_GROUP_NAME", ""),
+                tenant_id=os.getenv("AZURE_TENANT_ID", os.getenv("TENANT_ID", app_tenant or "")),
+                subscription_id=os.getenv("SUBSCRIPTION_ID", app_subscription or ""),
+                resource_group_name=os.getenv("RESOURCE_GROUP_NAME", app_resource_group or ""),
                 cosmos_endpoint=os.getenv("AZURE_COSMOS_DB_ENDPOINT", ""),
                 cosmos_database=os.getenv("AZURE_COSMOS_DB_DATABASE", ""),
                 cosmos_container=os.getenv("AZURE_COSMOS_DB_CONTAINER", "")

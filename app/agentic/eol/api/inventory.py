@@ -174,7 +174,41 @@ async def get_os(days: int = 90):
             "count": 1
         }
     """
-    return await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
+    result = await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
+    if result.get("success") and isinstance(result.get("data"), list):
+        try:
+            import re
+
+            orchestrator = _get_eol_orchestrator()
+            for item in result["data"]:
+                if item.get("eol_date"):
+                    continue
+
+                lookup_name = item.get("os_name") or item.get("name") or ""
+                lookup_version = item.get("os_version") or item.get("version")
+
+                eol_result = await orchestrator.get_autonomous_eol_data(
+                    lookup_name,
+                    lookup_version,
+                    item_type="os",
+                )
+   
+                if not eol_result or not eol_result.get("success"):
+                    continue
+
+                data_block = eol_result.get("data") if isinstance(eol_result, dict) else None
+                if not isinstance(data_block, dict):
+                    continue
+
+                if data_block.get("eol_date"):
+                    item["eol_date"] = data_block.get("eol_date")
+                if data_block.get("support_end_date") or data_block.get("support"):
+                    item["support_end_date"] = data_block.get("support_end_date") or data_block.get("support")
+                item["eol_source"] = data_block.get("source") or data_block.get("agent_used")
+                item["eol_confidence"] = data_block.get("confidence")
+        except Exception:
+            pass
+    return result
 
 
 @router.get("/api/os/summary", response_model=StandardResponse)

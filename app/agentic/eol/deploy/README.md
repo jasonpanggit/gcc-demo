@@ -55,9 +55,10 @@ The script maps Terraform outputs to application settings:
 
 ### Deployment Scripts
 
-- `deploy-app.sh` - Quick deployment without package building (legacy)
-- `deploy-app-with-build.sh` - Deployment with proper Python package installation (recommended)
-- `update_mcp_tool_metadata.py` - Refreshes cached Azure MCP tool metadata for offline documentation
+- `deploy-container.sh` - Build and push the Docker image, then update Azure Container Apps
+- `generate-appsettings.sh` - Emit appsettings from Terraform outputs (writes `appsettings.json`)
+- `show-logs.sh` - Stream logs from Container Apps or App Service based on appsettings
+- `update_mcp_tool_metadata.py` - Refresh cached Azure MCP tool metadata used by the UI
 
 Run the metadata refresh script inside the project virtual environment so it picks up BeautifulSoup and other crawler dependencies:
 
@@ -70,33 +71,29 @@ The script writes to `../static/data/azure_mcp_tool_metadata.json`, which the we
 
 ### App Settings Configuration
 
-- `appsettings.json` - Default app settings
-- `appsettings.production.json` - Production environment settings
-- `appsettings.development.json` - Development environment settings
+- `appsettings.json` - Primary settings consumed by deployment scripts
+- `appsettings.production.json` / `appsettings.development.json` - Optional overlays for convenience
 
-#### Build Configuration
-- `SCM_DO_BUILD_DURING_DEPLOYMENT=true` - Enables building Python packages during deployment
-- `ENABLE_ORYX_BUILD=true` - Enables Azure's Oryx build system for Python
-- `WEBSITE_RUN_FROM_PACKAGE=0` - Disables package mode to allow package installation
-
-#### Runtime Configuration
-- `WEBSITES_PORT=8000` - Port for the web application
-- `PYTHONUNBUFFERED=1` - Enables real-time Python logging
-- `PYTHON_ENABLE_GUNICORN_MULTIWORKERS=true` - Enables multiple workers (production only)
-- `WEBSITES_ENABLE_APP_SERVICE_STORAGE=false` - Disables persistent storage
+Key runtime settings baked by the container script:
+- `WEBSITES_PORT=8000`
+- `PYTHONUNBUFFERED=1`
+- `CONTAINER_MODE=true`
+- `ENVIRONMENT=production`
 
 ### Usage
 
-#### Deploy to Production
+#### Build and deploy to Azure Container Apps
 ```bash
-./deploy-app-with-build.sh production
-# or simply
-./deploy-app-with-build.sh
-```
+# 1) Generate settings from Terraform outputs (run from deploy/)
+./generate-appsettings.sh appsettings.json
 
-#### Deploy to Development
-```bash
-./deploy-app-with-build.sh development
+# 2) Build, push, and deploy the container (from deploy/)
+./deploy-container.sh               # auto-tag from git SHA
+# optional: ./deploy-container.sh v1.2.3  # manual tag
+# optional: ./deploy-container.sh "" true # build-only, no deploy
+
+# 3) Stream logs (uses appsettings.json to resolve RG/app name)
+./show-logs.sh
 ```
 
 ### Key Benefits of File-Based Configuration
@@ -113,33 +110,51 @@ The script writes to `../static/data/azure_mcp_tool_metadata.json`, which the we
 app/agentic/eol/
 ├── main.py                    # FastAPI application
 ├── requirements.txt           # Python dependencies
-├── Dockerfile                # Container configuration
-├── .python-version           # Python version specification
-├── deploy-agentic-eol.sh     # Automated deployment script
-├── cleanup-agentic-eol.sh    # Resource cleanup script
-└── README.md                 # This file
+├── deploy/                    # Deployment assets (this folder)
+│   ├── Dockerfile             # Container build for Azure Container Apps
+│   ├── generate-appsettings.sh# Produce appsettings from Terraform outputs
+│   ├── deploy-container.sh    # Build/push image and update Container Apps
+│   ├── show-logs.sh           # Stream logs (Container Apps/App Service)
+│   └── update_mcp_tool_metadata.py # Refresh cached MCP metadata
+├── .python-version            # Python version specification
+└── README.md                  # Platform overview
 ```
 
 ## 🛠 Quick Deployment
 
-### Automated Deployment (Recommended)
+### Automated Deployment (Container Apps)
 
-Use the automated deployment script for a complete end-to-end deployment:
+Use the container pipeline for end-to-end deployment:
 
 ```bash
-# Navigate to the app directory
-cd app/agentic/eol/
+# From repo root
+cp demos/agentic/eol-agentic-demo.tfvars terraform.tfvars
+terraform init && terraform apply -auto-approve
 
-# Run the deployment script
-./deploy-agentic-eol.sh
+# Generate settings (writes deploy/appsettings.json)
+cd app/agentic/eol/deploy
+./generate-appsettings.sh appsettings.json
+
+# Build/push image and update Container Apps
+./deploy-container.sh
+
+# Stream logs after deploy
+./show-logs.sh
 ```
 
-The script will:
-1. Deploy Azure infrastructure (25-35 minutes)
-2. Set up Azure OpenAI model deployment
-3. Deploy the FastAPI application
-4. Configure environment variables
-5. Verify deployment and provide endpoints
+What it does:
+1. Uses Terraform outputs to populate appsettings
+2. Builds and pushes the container to ACR with the current git SHA tag
+3. Updates the Azure Container App revision with required env vars
+4. Streams logs for quick validation
+
+Post-deploy checks:
+- Application URL from `Deployment.ContainerApp.Url` in appsettings.json
+- `https://<app>/healthz` for liveness
+- `https://<app>/api/eol-cache-stats` and `/api/eol-latency` for cache/latency telemetry
+- `https://<app>/healthz` for liveness
+- `https://<app>/docs` for API docs
+- `https://<app>/api/eol-cache-stats` and `/api/eol-latency` for cache/latency telemetry
 
 ### Manual Setup
 

@@ -16,7 +16,11 @@ const manuallyCheckedItems = new Set();
  * Display inventory with pagination (handles both array and dict formats)
  * @param {Array|Object} inventoryData - Inventory data (array or {success: bool, data: array})
  */
-export function displayInventoryWithPagination(inventoryData) {
+export function displayInventoryWithPagination(
+    inventoryData,
+    checkEOLCallback = null,
+    updateSummaryCallback = null
+) {
     // Handle both old array format and new dict format
     let inventory;
     if (Array.isArray(inventoryData)) {
@@ -41,7 +45,7 @@ export function displayInventoryWithPagination(inventoryData) {
     }
 
     // Use the existing display function
-    displayInventory(inventory);
+    displayInventory(inventory, checkEOLCallback, updateSummaryCallback);
 }
 
 /**
@@ -94,11 +98,15 @@ export function displayInventory(inventory, checkEOLCallback = null, updateSumma
     togglePaginationContainers(true);
     updatePaginationNav();
 
-    // Render table rows
+    // Render table rows with DOM-safe IDs
     tbody.innerHTML = pageItems.map(item => {
-        const itemId = item.id || Math.random().toString(36).substr(2, 9);
-        item.id = itemId; // Store the ID for later use
-        return renderInventoryRow(item, itemId);
+        const rawId = item.id || Math.random().toString(36).substr(2, 9);
+        const domSafeId = `item-${rawId.toString().replace(/[^A-Za-z0-9_-]/g, '-')}`;
+        // Keep original for data/debug, but use dom-safe for rendering and callbacks
+        item.original_id = rawId;
+        item.id = domSafeId;
+        item.dom_id = domSafeId;
+        return renderInventoryRow(item, domSafeId);
     }).join('');
 
     // Clear any previous automatic EOL check timeout
@@ -126,6 +134,7 @@ export function displayInventory(inventory, checkEOLCallback = null, updateSumma
 function renderInventoryRow(item, itemId) {
     const isSearchable = (item.software_type || '').toLowerCase() === 'application' || 
                          (item.software_type || '').toLowerCase() === 'operating system';
+    const eolBadge = renderEolBadge(item);
     
     return `
         <tr>
@@ -166,10 +175,7 @@ function renderInventoryRow(item, itemId) {
                 <span class="badge bg-info text-dark">${escapeHtml(item.software_type || 'Application')}</span>
             </td>
             <td id="eol-status-${itemId}">
-                <span class="badge bg-secondary text-light">
-                    <i class="fas fa-clock me-1"></i>
-                    Checking...
-                </span>
+                ${eolBadge}
             </td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
@@ -178,6 +184,84 @@ function renderInventoryRow(item, itemId) {
                 </button>
             </td>
         </tr>
+    `;
+}
+
+function renderEolBadge(item) {
+    if (!item) {
+        return `
+            <span class="badge bg-secondary text-light">
+                <i class="fas fa-clock me-1"></i>
+                Checking...
+            </span>
+        `;
+    }
+
+    const eolDate = item.eol_date || item.support_end_date;
+    const eolStatus = (item.eol_status || '').toLowerCase();
+
+    if (!eolDate && !eolStatus) {
+        return `
+            <span class="badge bg-secondary text-light">
+                <i class="fas fa-clock me-1"></i>
+                Checking...
+            </span>
+        `;
+    }
+
+    if (eolStatus && !eolDate) {
+        return `
+            <span class="badge bg-secondary text-light">
+                <i class="fas fa-info-circle me-1"></i>
+                ${escapeHtml(item.eol_status)}
+            </span>
+        `;
+    }
+
+    const parsed = new Date(eolDate);
+    if (Number.isNaN(parsed.getTime())) {
+        return `
+            <span class="badge bg-secondary text-light">
+                <i class="fas fa-question me-1"></i>
+                Unknown
+            </span>
+        `;
+    }
+
+    const now = new Date();
+    const daysDiff = Math.ceil((parsed - now) / (1000 * 60 * 60 * 24));
+    const formattedDate = eolDate.includes('-') ? eolDate : parsed.toISOString().split('T')[0];
+
+    if (daysDiff < 0) {
+        return `
+            <span class="badge bg-danger text-light">
+                <i class="fas fa-times-circle me-1"></i>
+                EOL (${formattedDate})
+            </span>
+        `;
+    }
+    if (daysDiff <= 90) {
+        return `
+            <span class="badge bg-warning text-dark">
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                ${daysDiff}d (${formattedDate})
+            </span>
+        `;
+    }
+    if (daysDiff <= 365) {
+        return `
+            <span class="badge bg-info text-dark">
+                <i class="fas fa-clock me-1"></i>
+                ${Math.ceil(daysDiff / 30)}mo (${formattedDate})
+            </span>
+        `;
+    }
+
+    return `
+        <span class="badge bg-success text-light">
+            <i class="fas fa-check-circle me-1"></i>
+            OK (${formattedDate})
+        </span>
     `;
 }
 
@@ -200,9 +284,13 @@ function startAutomaticEOLChecks(inventory, checkEOLCallback) {
             // Only check EOL for applications and operating systems
             if (softwareType === 'application' || softwareType === 'operating system') {
                 // Skip automatic checking if item was manually checked
-                if (!manuallyCheckedItems.has(item.id)) {
+                if (!manuallyCheckedItems.has(item.id) && !manuallyCheckedItems.has(item.dom_id)) {
+                    if (item.eol_date || item.eol_status) {
+                        return;
+                    }
                     checkedCount++;
-                    checkEOLCallback(item.name, item.version || '', item.id, item.software_type || '');
+                    const targetId = item.dom_id || item.id;
+                    checkEOLCallback(item.name, item.version || '', targetId, item.software_type || '');
                 }
             } else {
                 // Set N/A status for other types

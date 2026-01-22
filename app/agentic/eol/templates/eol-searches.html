@@ -9,7 +9,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-history me-3"></i>EOL Search History
+                    <span class="hero-icon me-3"><i class="fas fa-history"></i></span>EOL Search History
                 </h1>
                 <p class="hero-subtitle">
                     Comprehensive history of all EOL searches from both Chat and EOL orchestrators. 
@@ -107,6 +107,16 @@
                     </select>
                 </div>
                 <div class="col-md-6">
+                    <label for="internetFilter" class="form-label">Internet Search Mode</label>
+                    <select class="form-select" id="internetFilter">
+                        <option value="">All Searches</option>
+                        <option value="include">Agents + Internet</option>
+                        <option value="internet_only">Internet Only</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row g-3 mt-2">
+                <div class="col-md-6">
                     <label for="sortBy" class="form-label">Sort By</label>
                     <select class="form-select" id="sortBy">
                         <option value="timestamp_desc">Newest First</option>
@@ -170,6 +180,7 @@
         document.getElementById('orchestratorFilter').addEventListener('change', applyFilters);
         document.getElementById('successFilter').addEventListener('change', applyFilters);
         document.getElementById('agentFilter').addEventListener('change', applyFilters);
+        document.getElementById('internetFilter').addEventListener('change', applyFilters);
         document.getElementById('sortBy').addEventListener('change', applyFilters);
     }
 
@@ -237,6 +248,7 @@
         const orchestratorFilter = document.getElementById('orchestratorFilter').value;
         const successFilter = document.getElementById('successFilter').value;
         const agentFilter = document.getElementById('agentFilter').value;
+        const internetFilter = document.getElementById('internetFilter').value;
         const sortBy = document.getElementById('sortBy').value;
 
         // Apply filters
@@ -261,6 +273,15 @@
 
             // Agent filter
             if (agentFilter && response.agent_name !== agentFilter) {
+                return false;
+            }
+
+            // Internet search mode filter
+            const isInternetOnly = Boolean(response.search_internet_only);
+            if (internetFilter === 'internet_only' && !isInternetOnly) {
+                return false;
+            }
+            if (internetFilter === 'include' && isInternetOnly) {
                 return false;
             }
 
@@ -321,6 +342,8 @@
         const orchestratorType = response.orchestrator_type || 'inventory_asst_orchestrator';
         const successClass = response.success ? 'success' : 'failure';
         const responseTimeClass = getResponseTimeClass(response.response_time);
+        const cacheBadge = buildCacheBadge(response);
+        const searchModeBadge = buildSearchModeBadge(response);
         
         // Format EOL data
         let eolContent = '';
@@ -371,6 +394,8 @@
                                 <small class="text-muted">Timestamp: ${timestamp}</small><br>
                                 <small class="response-time ${responseTimeClass}">Response Time: ${response.response_time.toFixed(2)}s</small><br>
                                 ${response.confidence ? `<small class="text-muted">Confidence: ${(response.confidence * 100).toFixed(1)}%</small>` : ''}
+                                ${cacheBadge}
+                                ${searchModeBadge}
                             </div>
                         </div>
                         ${eolContent}
@@ -437,6 +462,23 @@
         if (time < 1) return 'fast';
         if (time < 3) return 'medium';
         return 'slow';
+    }
+
+    function buildCacheBadge(response) {
+        if (!response.cached && response.cache_source !== 'cosmos_eol_table') {
+            return '';
+        }
+        const updated = response.cache_created_at ? new Date(response.cache_created_at).toLocaleString() : 'unknown';
+        return `<small class="badge bg-success ms-1">EOL Table</small><br><small class="text-muted">Cached: ${updated}</small>`;
+    }
+
+    function buildSearchModeBadge(response) {
+        const isInternetOnly = Boolean(response.search_internet_only);
+        if (isInternetOnly) {
+            return `<small class="badge bg-info ms-1">Internet Only</small>`;
+        }
+        // Explicitly show when internet search was included alongside agents
+        return `<small class="badge bg-secondary ms-1">Agents + Internet</small>`;
     }
 
     function isDateExpired(dateStr) {
@@ -544,8 +586,8 @@
         }
 
         const csvHeaders = [
-            'Timestamp', 'Software Name', 'Version', 'Agent Used', 'Orchestrator', 
-            'Success', 'Query Type', 'Response Time', 'Confidence', 'EOL Date', 'Support End'
+            'Timestamp', 'Software Name', 'Version', 'Agent Used', 'Orchestrator',
+            'Internet Only', 'Success', 'Query Type', 'Response Time', 'Confidence', 'EOL Date', 'Support End'
         ];
 
         const csvRows = filteredResponses.map(response => [
@@ -554,6 +596,7 @@
             response.software_version,
             response.agent_name,
             response.orchestrator_type || 'inventory_asst_orchestrator',
+            Boolean(response.search_internet_only),
             response.success,
             response.query_type,
             response.response_time,

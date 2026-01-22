@@ -1,7 +1,21 @@
 """
-EOL-specific caching built on top of the base Cosmos helper.
-Handles CachedEOLResponse dataclass, cache_response, get_cached_response,
-clear_cache, get_cache_stats and in-memory acceleration.
+EOL-specific caching - MEMORY-ONLY layer for short-term acceleration.
+
+CONSOLIDATION NOTE (January 2026):
+    This module now provides MEMORY-ONLY caching. Cosmos DB persistence has been
+    moved to `eol_inventory` which serves as the single source of truth for all
+    EOL data. The orchestrator (eol_orchestrator.py) handles reads from and writes
+    to eol_inventory.
+
+    Agent-level caching via cosmos_cache has been disabled across all specialized
+    agents (microsoft_agent, endoflife_agent, redhat_agent, etc.).
+
+    This module is retained for:
+    - In-memory acceleration of frequently accessed data
+    - Backward compatibility with existing code that imports eol_cache
+    - Cache statistics tracking
+
+For persistent EOL data management, use `utils.eol_inventory` instead.
 """
 import hashlib
 import asyncio
@@ -203,9 +217,7 @@ class EolMemoryCache:
             return None
 
     async def cache_response(self, software_name: str, version: Optional[str], agent_name: str, response_data: Dict[str, Any], verified: bool = False, source_url: Optional[str] = None, verification_status: Optional[str] = None):
-        self._ensure_container()
-        if not self.container:
-            return False
+        """Memory-only caching - Cosmos persistence moved to eol_inventory (single source of truth)"""
         try:
             # simple confidence extraction
             confidence = response_data.get('confidence') or response_data.get('confidence_level') or response_data.get('confidence_score') or 0
@@ -215,10 +227,6 @@ class EolMemoryCache:
                     confidence *= 100
             except Exception:
                 confidence = 0
-
-            # Cache all responses regardless of confidence for comprehensive statistics
-            # Removed: if not verified and confidence < self.min_confidence_threshold:
-            #     return False
 
             cache_key = self._generate_cache_key(software_name, version, agent_name)
             created = datetime.now(timezone.utc)
@@ -239,38 +247,7 @@ class EolMemoryCache:
                 marked_as_failed=(verification_status == 'failed')
             )
             
-            # Validate document before upserting
-            doc_dict = cached.to_dict()
-            
-            # Ensure required fields for Cosmos DB
-            if not doc_dict.get('id'):
-                logger.error("❌ Document missing required 'id' field")
-                return False
-                
-            if not doc_dict.get('cache_key'):
-                logger.error("❌ Document missing required 'cache_key' partition key")
-                return False
-            
-            # Clean any invalid characters that might cause BadRequest
-            if isinstance(doc_dict.get('id'), str):
-                # Remove any characters that are invalid for Cosmos DB document IDs
-                invalid_chars = ['/', '\\', '?', '#']
-                clean_id = doc_dict['id']
-                for char in invalid_chars:
-                    clean_id = clean_id.replace(char, '_')
-                doc_dict['id'] = clean_id
-                
-            # Log document structure for debugging
-            logger.debug(f"Upserting document with ID: {doc_dict['id']}, cache_key: {doc_dict['cache_key']}")
-            
-            try:
-                self.container.upsert_item(doc_dict)
-                logger.debug(f"✅ Successfully upserted document {doc_dict['id']}")
-            except Exception as upsert_error:
-                logger.error(f"❌ Cosmos DB upsert failed for document {doc_dict['id']}: {upsert_error}")
-                logger.error(f"📄 Document structure: {doc_dict}")
-                # Continue with memory cache even if Cosmos fails
-                
+            # Memory-only cache (Cosmos persistence handled by eol_inventory)
             try:
                 async with self.memory_lock:
                     self.memory_cache[cache_key] = cached
@@ -282,34 +259,26 @@ class EolMemoryCache:
             return False
 
     async def clear_cache(self, software_name: Optional[str] = None, agent_name: Optional[str] = None):
-        self._ensure_container()
-        if not self.container:
-            return {"success": False, "error": "Container not available"}
+        """Clear memory cache only - Cosmos cache managed via eol_inventory"""
         try:
-            query_parts = ["SELECT * FROM c WHERE 1=1"]
-            params = []
-            if software_name:
-                query_parts.append("AND c.software_name = @software_name")
-                params.append({"name": "@software_name", "value": software_name})
-            if agent_name:
-                query_parts.append("AND c.agent_name = @agent_name")
-                params.append({"name": "@agent_name", "value": agent_name})
-            query = " ".join(query_parts)
-            items = list(self.container.query_items(query=query, parameters=params, enable_cross_partition_query=True))
             deleted = 0
-            for it in items:
-                try:
-                    self.container.delete_item(item=it['id'], partition_key=it['cache_key'])
+            keys_to_remove = []
+            
+            async with self.memory_lock:
+                for cache_key, cached in list(self.memory_cache.items()):
+                    match = True
+                    if software_name and cached.software_name != software_name:
+                        match = False
+                    if agent_name and cached.agent_name != agent_name:
+                        match = False
+                    if match:
+                        keys_to_remove.append(cache_key)
+                
+                for key in keys_to_remove:
+                    self.memory_cache.pop(key, None)
                     deleted += 1
-                    try:
-                        async with self.memory_lock:
-                            self.memory_cache.pop(it.get('cache_key'), None)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-            # optionally return stats
-            return {"success": True, "deleted_count": deleted}
+            
+            return {"success": True, "deleted_count": deleted, "note": "Memory cache only - use eol_inventory for Cosmos cache management"}
         except Exception as e:
             logger.debug(f"EolMemoryCache clear_cache error: {e}")
             return {"success": False, "error": str(e)}

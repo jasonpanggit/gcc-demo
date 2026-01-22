@@ -6,7 +6,6 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import hashlib
 import asyncio
-from utils.eol_cache import eol_cache
 from .base_eol_agent import BaseEOLAgent
 try:
     from utils.logger import get_logger
@@ -36,8 +35,8 @@ class EndOfLifeAgent(BaseEOLAgent):
         self.base_url = "https://endoflife.date/api"
         self.timeout = 10
         
-        # Use shared EOL cache singleton
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cosmos_cache = None
 
     def get_urls(self):
         """Return empty list since URLs are dynamically generated from usage statistics"""
@@ -51,70 +50,19 @@ class EndOfLifeAgent(BaseEOLAgent):
         return hashlib.md5(cache_input.encode()).hexdigest()
 
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieve cached EOL data if available"""
-        try:
-            cached_result = await self.cosmos_cache.get_cached_response(software_name, version, self.agent_name)
-            
-            if cached_result:
-                logger.info(f"✅ Cache hit for EndOfLife.date {software_name} {version or 'latest'}")
-                return cached_result
-                
-            return None
-        except Exception as e:
-            logger.error(f"Cache retrieval error for EndOfLife.date {software_name}: {e}")
-            return None
+        """Agent-level caching disabled - orchestrator handles caching via eol_inventory"""
+        # Caching is now centralized in the orchestrator using eol_inventory
+        return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], confidence_level: int, source_url: Optional[str] = None) -> None:
-        """Cache EOL data regardless of confidence level for comprehensive statistics"""
-        try:
-            # Always cache data to ensure comprehensive statistics and tracking
-            data_to_cache = data.copy()
-            data_to_cache['confidence_level'] = confidence_level
-            
-            # Extract source_url from data if not provided explicitly
-            if not source_url and 'source_url' in data:
-                source_url = data['source_url']
-            
-            await self.cosmos_cache.cache_response(
-                software_name=software_name, 
-                version=version, 
-                agent_name=self.agent_name, 
-                response_data=data_to_cache,
-                source_url=source_url
-            )
-            logger.info(f"✅ Cached EndOfLife.date {software_name} {version or 'latest'} (confidence: {confidence_level}%) from {source_url or 'built-in database'}")
-        except Exception as e:
-            logger.error(f"Cache storage error for EndOfLife.date {software_name}: {e}")
+        """Agent-level caching disabled - orchestrator handles caching via eol_inventory"""
+        # Caching is now centralized in the orchestrator using eol_inventory
+        pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
-        """Purge cached EndOfLife.date EOL data"""
-        try:
-            if software_name:
-                # Purge specific software/version
-                cache_key = self._generate_cache_key(software_name, version)
-                result = await self.cosmos_cache.delete_cached_data(cache_key)
-                return {
-                    "status": "success",
-                    "action": "purged_specific",
-                    "software": software_name,
-                    "version": version,
-                    "result": result
-                }
-            else:
-                # Purge all EndOfLife.date cache entries
-                result = await self.cosmos_cache.purge_agent_cache("endoflife")
-                return {
-                    "status": "success", 
-                    "action": "purged_all",
-                    "agent": "endoflife",
-                    "result": result
-                }
-        except Exception as e:
-            return {
-                "status": "error",
-                "action": "purge_failed",
-                "error": str(e)
-            }
+        """Agent-level cache purge disabled - use eol_inventory for cache management"""
+        # Caching is now centralized in the orchestrator using eol_inventory
+        return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
 
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
@@ -224,6 +172,7 @@ class EndOfLifeAgent(BaseEOLAgent):
                 
                 data = response.json()
                 cycle_data = self._extract_cycle_data(data, version)
+                minor_versions = self._collect_minor_versions(data, version)
                 
                 if cycle_data:
                     logger.info(f"✅ Direct API hit for {software_name} -> {api_name}")
@@ -240,7 +189,8 @@ class EndOfLifeAgent(BaseEOLAgent):
                             "search_method": "direct_api",
                             "cycle": cycle_data.get('cycle'),
                             "lts": cycle_data.get('lts'),
-                            "latest": cycle_data.get('latest')
+                            "latest": cycle_data.get('latest'),
+                            "minor_versions": minor_versions,
                         }
                     )
             else:
@@ -275,6 +225,7 @@ class EndOfLifeAgent(BaseEOLAgent):
                     
                     data = response.json()
                     cycle_data = self._extract_cycle_data(data, version)
+                    minor_versions = self._collect_minor_versions(data, version)
                     
                     if cycle_data:
                         logger.info(f"✅ Variation match for {software_name} -> {api_name} (via {variation})")
@@ -292,7 +243,8 @@ class EndOfLifeAgent(BaseEOLAgent):
                                 "variation_used": variation,
                                 "cycle": cycle_data.get('cycle'),
                                 "lts": cycle_data.get('lts'),
-                                "latest": cycle_data.get('latest')
+                                "latest": cycle_data.get('latest'),
+                                "minor_versions": minor_versions,
                             }
                         )
                 else:
@@ -333,6 +285,7 @@ class EndOfLifeAgent(BaseEOLAgent):
                     
                     data = response.json()
                     cycle_data = self._extract_cycle_data(data, version)
+                    minor_versions = self._collect_minor_versions(data, version)
                     
                     if cycle_data:
                         logger.info(f"✅ Fuzzy match for {software_name} -> {product_name} (score: {match['score']:.2f})")
@@ -350,7 +303,8 @@ class EndOfLifeAgent(BaseEOLAgent):
                                 "match_score": match['score'],
                                 "cycle": cycle_data.get('cycle'),
                                 "lts": cycle_data.get('lts'),
-                                "latest": cycle_data.get('latest')
+                                "latest": cycle_data.get('latest'),
+                                "minor_versions": minor_versions,
                             }
                         )
                 else:
@@ -507,13 +461,48 @@ class EndOfLifeAgent(BaseEOLAgent):
         if isinstance(api_data, list):
             if not api_data:
                 return None
-            
-            # If version specified, find matching cycle
+
+            # If version specified, choose the best matching cycle (avoid latest patch drift)
             if version:
-                for cycle in api_data:
-                    if self._version_matches_cycle(version, cycle.get("cycle", "")):
-                        return cycle
-            
+                exact = self._find_exact_cycle_match(api_data, version)
+                if exact:
+                    return exact
+
+                version_parts = self._parse_semver_parts(version)
+                if version_parts:
+                    candidates = []
+                    for cycle in api_data:
+                        cycle_str = str(cycle.get("cycle", "")).strip()
+                        cycle_parts = self._parse_semver_parts(cycle_str)
+                        if not cycle_parts:
+                            continue
+
+                        if cycle_parts[0] != version_parts[0]:
+                            continue
+
+                        if len(version_parts) >= 2 and len(cycle_parts) >= 2:
+                            if cycle_parts[1] != version_parts[1]:
+                                continue
+
+                        if len(version_parts) >= 3 and len(cycle_parts) >= 3:
+                            if cycle_parts[2] != version_parts[2]:
+                                continue
+
+                        candidates.append(cycle)
+
+                    best_candidate = self._select_lowest_cycle(candidates)
+                    if best_candidate:
+                        return best_candidate
+
+                # Fallback: use the first semver-lowest among generic matches
+                generic_matches = [
+                    cycle for cycle in api_data
+                    if self._version_matches_cycle(version, cycle.get("cycle", ""))
+                ]
+                best_generic = self._select_lowest_cycle(generic_matches)
+                if best_generic:
+                    return best_generic
+
             # Return the first (latest) cycle
             return api_data[0]
         
@@ -522,6 +511,103 @@ class EndOfLifeAgent(BaseEOLAgent):
             return api_data
         
         return None
+
+    def _is_major_only_version(self, version: Optional[str]) -> bool:
+        if not version:
+            return False
+        return bool(re.fullmatch(r"\d+", str(version).strip()))
+
+    def _collect_minor_versions(self, api_data: Any, version: Optional[str]) -> list:
+        """Collect minor versions for a major-only query (e.g., 12 -> 12.0, 12.1)."""
+        if not self._is_major_only_version(version):
+            return []
+        if not isinstance(api_data, list):
+            return []
+
+        major = str(version).strip()
+        minor_versions = []
+        for cycle in api_data:
+            cycle_str = str(cycle.get("cycle", "")).strip()
+            if not cycle_str:
+                continue
+            if not self._version_matches_cycle(major, cycle_str):
+                continue
+            parts = self._extract_version_parts(cycle_str)
+            if parts and len(parts) >= 2:
+                minor_versions.append(cycle_str)
+
+        def sort_key(value: str):
+            parts = self._extract_version_parts(value)
+            padded = (parts + [0] * (3 - len(parts))) if parts else [0, 0, 0]
+            return tuple(padded[:3])
+
+        return sorted(set(minor_versions), key=sort_key)
+
+    def _find_exact_cycle_match(self, api_data: list, version: str) -> Optional[Dict[str, Any]]:
+        """Find an exact cycle match by normalized version string."""
+        version_str = str(version).strip()
+        if not version_str:
+            return None
+
+        for cycle in api_data:
+            cycle_str = str(cycle.get("cycle", "")).strip()
+            if not cycle_str:
+                continue
+            if cycle_str == version_str or cycle_str.lower() == version_str.lower():
+                return cycle
+
+        # Try normalized semver string match
+        version_norm = self._normalize_semver_string(version_str)
+        if not version_norm:
+            return None
+
+        for cycle in api_data:
+            cycle_str = str(cycle.get("cycle", "")).strip()
+            if not cycle_str:
+                continue
+            cycle_norm = self._normalize_semver_string(cycle_str)
+            if cycle_norm and cycle_norm == version_norm:
+                return cycle
+
+        return None
+
+    def _parse_semver_parts(self, value: str) -> Optional[list]:
+        """Parse numeric version parts (major.minor.patch) from a string."""
+        import re
+
+        if not value:
+            return None
+
+        match = re.search(r"\d+(?:\.\d+)*", str(value))
+        if not match:
+            return None
+
+        parts = match.group(0).split(".")
+        try:
+            return [int(p) for p in parts if p.isdigit()]
+        except ValueError:
+            return None
+
+    def _normalize_semver_string(self, value: str) -> Optional[str]:
+        """Normalize semver-like strings for comparison."""
+        parts = self._parse_semver_parts(value)
+        if not parts:
+            return None
+        return ".".join(str(p) for p in parts)
+
+    def _select_lowest_cycle(self, cycles: list) -> Optional[Dict[str, Any]]:
+        """Select the lowest semver cycle from candidates (prefers earliest patch)."""
+        if not cycles:
+            return None
+
+        def sort_key(cycle):
+            cycle_str = str(cycle.get("cycle", "")).strip()
+            parts = self._parse_semver_parts(cycle_str) or []
+            # Pad to 3 for consistent ordering
+            padded = parts + [0] * (3 - len(parts))
+            return tuple(padded[:3])
+
+        return sorted(cycles, key=sort_key)[0]
     
     def _transform_name_for_api(self, software_name: str) -> str:
         """Transform software name to endoflife.date API format with comprehensive mappings"""

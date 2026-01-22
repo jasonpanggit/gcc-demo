@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 import json
 import hashlib
 import asyncio
-from utils.eol_cache import eol_cache
 from .base_eol_agent import BaseEOLAgent
 
 try:
@@ -46,59 +45,59 @@ class ApacheEOLAgent(BaseEOLAgent):
             )
         }
 
-        # Use shared EOL cache singleton
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cosmos_cache = None
 
         # Apache product EOL URLs with metadata (single source of truth)
         self.eol_urls = {
-            "httpd": {
-                "url": "https://httpd.apache.org/download.cgi",
-                "description": "Apache HTTP Server Downloads",
-                "active": True,
-                "priority": 1
-            },
-            "tomcat": {
-                "url": "https://tomcat.apache.org/whichversion.html",
-                "description": "Apache Tomcat Version Information",
-                "active": True,
-                "priority": 2
-            },
-            "kafka": {
-                "url": "https://kafka.apache.org/downloads",
-                "description": "Apache Kafka Downloads",
-                "active": True,
-                "priority": 3
-            },
-            "spark": {
-                "url": "https://spark.apache.org/downloads.html",
-                "description": "Apache Spark Downloads",
-                "active": True,
-                "priority": 4
-            },
-            "maven": {
-                "url": "https://maven.apache.org/download.cgi",
-                "description": "Apache Maven Downloads",
-                "active": True,
-                "priority": 5
-            },
-            "ant": {
-                "url": "https://ant.apache.org/bindownload.cgi",
-                "description": "Apache Ant Downloads",
-                "active": True,
-                "priority": 6
-            },
-            "cassandra": {
-                "url": "https://cassandra.apache.org/download/",
-                "description": "Apache Cassandra Downloads",
-                "active": True,
-                "priority": 7
-            },
-            "solr": {
-                "url": "https://solr.apache.org/downloads.html",
-                "description": "Apache Solr Downloads",
-                "active": True,
-                "priority": 8
-            }
+            # "httpd": {
+            #     "url": "https://httpd.apache.org/download.cgi",
+            #     "description": "Apache HTTP Server Downloads",
+            #     "active": True,
+            #     "priority": 1
+            # },
+            # "tomcat": {
+            #     "url": "https://tomcat.apache.org/whichversion.html",
+            #     "description": "Apache Tomcat Version Information",
+            #     "active": True,
+            #     "priority": 2
+            # },
+            # "kafka": {
+            #     "url": "https://kafka.apache.org/downloads",
+            #     "description": "Apache Kafka Downloads",
+            #     "active": True,
+            #     "priority": 3
+            # },
+            # "spark": {
+            #     "url": "https://spark.apache.org/downloads.html",
+            #     "description": "Apache Spark Downloads",
+            #     "active": True,
+            #     "priority": 4
+            # },
+            # "maven": {
+            #     "url": "https://maven.apache.org/download.cgi",
+            #     "description": "Apache Maven Downloads",
+            #     "active": True,
+            #     "priority": 5
+            # },
+            # "ant": {
+            #     "url": "https://ant.apache.org/bindownload.cgi",
+            #     "description": "Apache Ant Downloads",
+            #     "active": True,
+            #     "priority": 6
+            # },
+            # "cassandra": {
+            #     "url": "https://cassandra.apache.org/download/",
+            #     "description": "Apache Cassandra Downloads",
+            #     "active": True,
+            #     "priority": 7
+            # },
+            # "solr": {
+            #     "url": "https://solr.apache.org/downloads.html",
+            #     "description": "Apache Solr Downloads",
+            #     "active": True,
+            #     "priority": 8
+            # }
         }
 
         # Static data for major Apache products
@@ -257,14 +256,9 @@ class ApacheEOLAgent(BaseEOLAgent):
     async def _get_cached_data(
         self, software_name: str, version: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Get cached EOL data from Cosmos DB"""
-        try:
-            return await self.cosmos_cache.get_cached_response(
-                software_name, version, self.agent_name
-            )
-        except Exception as e:
-            logger.error(f"Error retrieving cached data: {e}")
-            return None
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return None
 
     async def _cache_data(
         self,
@@ -273,46 +267,16 @@ class ApacheEOLAgent(BaseEOLAgent):
         data: Dict[str, Any],
         source_url: Optional[str] = None,
     ):
-        """Cache EOL data in Cosmos DB if confidence is high enough"""
-        try:
-            if not source_url:
-                # Determine source URL based on software type
-                software_lower = software_name.lower()
-                for product_type, url_data in self.eol_urls.items():
-                    if product_type in software_lower:
-                        source_url = url_data["url"]
-                        break
-
-                # Default to Apache HTTPD if no specific match
-                if not source_url:
-                    source_url = self.get_url("httpd") or "https://httpd.apache.org/download.cgi"
-
-            await self.cosmos_cache.cache_response(
-                software_name, version, self.agent_name, data, source_url=source_url
-            )
-        except Exception as e:
-            logger.error(f"Error caching data: {e}")
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        pass
 
     async def purge_cache(
         self, software_name: Optional[str] = None, version: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Purge cached data for specific software or all Apache cache"""
-        try:
-            if software_name:
-                cache_key = self._generate_cache_key(software_name, version)
-                return {
-                    "success": True,
-                    "deleted_count": 1,
-                    "message": f"Purged cache for {software_name}",
-                }
-            else:
-                return {
-                    "success": True,
-                    "deleted_count": 0,
-                    "message": "Bulk purge not implemented",
-                }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Agent-level caching disabled - use eol_inventory for cache management"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
 
     async def get_eol_data(
         self, software_name: str, version: Optional[str] = None

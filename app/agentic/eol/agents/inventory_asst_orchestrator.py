@@ -58,6 +58,7 @@ except ModuleNotFoundError:
 
 from utils import get_logger, config, QueryPatterns, extract_software_name_and_version
 from utils.cache_stats_manager import cache_stats_manager
+from utils.agent_framework_clients import build_chat_options, create_chat_client
 
 logger = get_logger(__name__)
 
@@ -77,6 +78,7 @@ Always respond using HTML markup:
 - Use <p> for narrative text, <ul><li> for bullet points, and include brief
    explanations alongside any metrics.
 - Avoid Markdown entirely and do not return raw JSON.
+- When citing data, reference the source (inventory cache, live query, or agent) or state when data is unavailable.
 
 Context:
 {context}
@@ -214,8 +216,16 @@ Guidelines:
             ]
 
             try:
+                chat_kwargs = build_chat_options(
+                    conversation_id=self.session_id,
+                    allow_multiple_tool_calls=False,
+                    store=False,
+                    temperature=float(os.getenv("INVENTORY_ASSISTANT_TEMPERATURE", "0.2")),
+                    max_tokens=int(os.getenv("INVENTORY_ASSISTANT_MAX_TOKENS", "900")),
+                )
+                self._log_chat_request(chat_kwargs, context="inventory_assistant")
                 response: ChatResponse = await asyncio.wait_for(
-                    self._chat_client.get_response(messages=messages),
+                    self._chat_client.get_response(messages=messages, **chat_kwargs),
                     timeout=timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -336,6 +346,17 @@ Guidelines:
         self._chat_client = self._create_chat_client()
         return self._chat_client is not None
 
+    def _log_chat_request(self, chat_kwargs: Dict[str, Any], *, context: str) -> None:
+        """Lightweight trace helper for Agent Framework calls."""
+        try:
+            logger.debug(
+                "AF chat request (%s): %s",
+                context,
+                {k: v for k, v in chat_kwargs.items() if k != "tools"},
+            )
+        except Exception:
+            logger.debug("AF chat request (%s) logging failed", context)
+
     def _create_chat_client(self) -> Optional[AzureOpenAIChatClientType]:
         """Create an AzureOpenAIChatClient using environment configuration."""
         if not _AGENT_FRAMEWORK_AVAILABLE or not _AGENT_FRAMEWORK_CHAT_AVAILABLE:
@@ -344,49 +365,12 @@ Guidelines:
             )
             return None
 
-        deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT"
-        )
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        api_version = os.getenv("AZURE_OPENAI_API_VERSION")
-
-        client_kwargs: Dict[str, Any] = {}
-        if deployment:
-            client_kwargs["deployment_name"] = deployment
-        if endpoint:
-            client_kwargs["endpoint"] = endpoint
-        if api_version:
-            client_kwargs["api_version"] = api_version
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        elif not _DEFAULT_CREDENTIAL_AVAILABLE or DefaultAzureCredential is None:
-            logger.warning(
-                "⚠️ azure-identity package not available; AzureOpenAIChatClient will require an API key"
-            )
+        client = create_chat_client()
+        if client:
+            logger.info("✅ AzureOpenAIChatClient ready (shared factory)")
         else:
-            try:
-                self._default_credential = DefaultAzureCredential(
-                    exclude_interactive_browser_credential=True,
-                    exclude_shared_token_cache_credential=True,
-                    exclude_visual_studio_code_credential=True,
-                    exclude_powershell_credential=True,
-                )
-                client_kwargs["credential"] = self._default_credential
-            except Exception as cred_error:  # pylint: disable=broad-except
-                logger.warning("⚠️ Unable to create DefaultAzureCredential: %s", cred_error)
-
-        try:
-            client = AzureOpenAIChatClient(**client_kwargs)
-            logger.info(
-                "✅ AzureOpenAIChatClient ready (deployment=%s, endpoint_configured=%s)",
-                deployment,
-                bool(endpoint),
-            )
-            return client
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("❌ Failed to initialize AzureOpenAIChatClient: %s", exc)
-            return None
+            logger.error("❌ Failed to initialize AzureOpenAIChatClient via shared factory")
+        return client
 
     async def _build_chat_context(self) -> str:
         now = time.time()
@@ -1591,8 +1575,8 @@ Guidelines:
         if target_computer:
             metadata["target_computer"] = target_computer
 
-        for step in plan:
-            if step == "inventory_summary":
+        async def run_step(step_name: str):
+            if step_name == "inventory_summary":
                 await self._execute_inventory_summary(
                     orchestrator,
                     metadata=metadata,
@@ -1600,7 +1584,7 @@ Guidelines:
                     agents_called=agents_called,
                     conversation_id=conversation_id,
                 )
-            elif step == "software_inventory_sample":
+            elif step_name == "software_inventory_sample":
                 await self._execute_software_inventory_sample(
                     orchestrator,
                     metadata=metadata,
@@ -1609,7 +1593,7 @@ Guidelines:
                     conversation_id=conversation_id,
                     target_computer=target_computer,
                 )
-            elif step == "os_summary":
+            elif step_name == "os_summary":
                 await self._execute_os_summary(
                     orchestrator,
                     metadata=metadata,
@@ -1617,7 +1601,7 @@ Guidelines:
                     agents_called=agents_called,
                     conversation_id=conversation_id,
                 )
-            elif step == "os_inventory_sample":
+            elif step_name == "os_inventory_sample":
                 await self._execute_os_inventory_sample(
                     orchestrator,
                     metadata=metadata,
@@ -1625,7 +1609,7 @@ Guidelines:
                     agents_called=agents_called,
                     conversation_id=conversation_id,
                 )
-            elif step == "os_inventory_eol_checks":
+            elif step_name == "os_inventory_eol_checks":
                 await self._execute_os_inventory_eol_checks(
                     orchestrator,
                     metadata=metadata,
@@ -1633,7 +1617,7 @@ Guidelines:
                     agents_called=agents_called,
                     conversation_id=conversation_id,
                 )
-            elif step == "eol_lookup":
+            elif step_name == "eol_lookup":
                 await self._execute_eol_lookup(
                     orchestrator,
                     user_message=user_message,
@@ -1642,6 +1626,11 @@ Guidelines:
                     agents_called=agents_called,
                     conversation_id=conversation_id,
                 )
+
+        # Run plan steps concurrently to reduce end-to-end latency
+        step_tasks = [asyncio.create_task(run_step(step)) for step in plan]
+        if step_tasks:
+            await asyncio.gather(*step_tasks, return_exceptions=True)
 
         unique_agents: List[str] = []
         for agent in agents_called:

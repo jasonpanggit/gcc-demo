@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import os
+import math
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -78,6 +80,158 @@ class OSInventoryAgent:
 
         self._logs_client: Optional[LogsQueryClient] = None
         self._cache_has_full_dataset: bool = False
+
+    async def _fetch_eol(self, os_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Resolve EOL for OS using Cosmos cache first, then agent orchestrator with confidence logic."""
+        if not os_name:
+            return None
+
+        normalized_name = os_name
+        normalized_version = version
+        os_lower = os_name.lower()
+        if "windows server" in os_lower:
+            year_match = re.search(r"(20\d{2}|19\d{2})", os_name)
+            if year_match:
+                normalized_name = "windows server"
+                normalized_version = year_match.group(1)
+
+        try:
+            from ..utils.eol_inventory import eol_inventory
+            cached = await eol_inventory.get(normalized_name, normalized_version)
+            if cached:
+                cached_data = cached.get("data") if isinstance(cached, dict) else None
+                if isinstance(cached_data, dict) and (
+                    cached_data.get("eol_date")
+                    or cached_data.get("support_end_date")
+                    or cached_data.get("support")
+                ):
+                    return cached
+        except Exception as exc:
+            logger.debug("OS EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+        try:
+            from ..main import get_eol_orchestrator
+
+            orchestrator = get_eol_orchestrator()
+            eol_result = await orchestrator.get_autonomous_eol_data(
+                normalized_name, normalized_version, item_type="os"
+            )
+            if eol_result and eol_result.get("success"):
+                data_block = eol_result.get("data") if isinstance(eol_result, dict) else None
+                has_dates = isinstance(data_block, dict) and (
+                    data_block.get("eol_date")
+                    or data_block.get("support_end_date")
+                    or data_block.get("support")
+                )
+                if has_dates:
+                    try:
+                        from ..utils.eol_inventory import eol_inventory
+                        await eol_inventory.upsert(normalized_name, normalized_version, eol_result)
+                    except Exception as exc:
+                        logger.debug("OS EOL cache upsert failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+                    return eol_result
+        except Exception as exc:
+            logger.debug("OS EOL agent lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+        if "windows server" in os_lower:
+            try:
+                from .microsoft_agent import MicrosoftEOLAgent
+
+                ms_agent = MicrosoftEOLAgent()
+                ms_result = await ms_agent.get_eol_data(normalized_name, normalized_version)
+                if ms_result and ms_result.get("success"):
+                    return ms_result
+            except Exception as exc:
+                logger.debug("OS EOL Microsoft fallback failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+            try:
+                from .microsoft_agent import MicrosoftEOLAgent
+
+                ms_agent = MicrosoftEOLAgent()
+                static_result = ms_agent._check_static_data(normalized_name, normalized_version)
+                if static_result:
+                    confidence = static_result.get("confidence", 90)
+                    if confidence and confidence > 1:
+                        confidence = confidence / 100.0
+                    return ms_agent.create_success_response(
+                        software_name=normalized_name,
+                        version=normalized_version or static_result.get("cycle"),
+                        eol_date=static_result.get("eol"),
+                        support_end_date=static_result.get("support"),
+                        release_date=static_result.get("releaseDate"),
+                        confidence=confidence or 0.9,
+                        source_url=ms_agent._get_scraping_url(normalized_name),
+                        additional_data={
+                            "cycle": static_result.get("cycle"),
+                            "extendedSupport": static_result.get("extendedSupport"),
+                            "source": static_result.get("source"),
+                        },
+                    )
+            except Exception as exc:
+                logger.debug("OS EOL Microsoft static fallback failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+        return None
+
+    async def _enrich_with_eol(self, items: List[Dict[str, Any]]) -> None:
+        """Populate EOL fields for OS inventory entries."""
+        if not items:
+            return
+
+        semaphore = asyncio.Semaphore(6)
+
+        def _key(name: Optional[str], version: Optional[str]) -> Optional[str]:
+            if not name:
+                return None
+            return f"{name.strip().lower()}::{(version or '').strip().lower()}"
+
+        unique_pairs: Dict[str, Dict[str, Optional[str]]] = {}
+        for item in items:
+            name = item.get("os_name") or item.get("name")
+            version = item.get("os_version") or item.get("version")
+            key = _key(name, version)
+            if key and key not in unique_pairs:
+                unique_pairs[key] = {"name": name, "version": version}
+
+        async def _fetch_pair(name: Optional[str], version: Optional[str]):
+            async with semaphore:
+                return await self._fetch_eol(name, version)
+
+        tasks = {
+            key: asyncio.create_task(_fetch_pair(pair["name"], pair["version"]))
+            for key, pair in unique_pairs.items()
+        }
+
+        results: Dict[str, Optional[Dict[str, Any]]] = {}
+        for key, task in tasks.items():
+            try:
+                results[key] = await task
+            except Exception:
+                results[key] = None
+
+        for item in items:
+            name = item.get("os_name") or item.get("name")
+            version = item.get("os_version") or item.get("version")
+            key = _key(name, version)
+            eol_data = results.get(key) if key else None
+            if not eol_data:
+                continue
+
+            payload = eol_data.get("data") if isinstance(eol_data, dict) else None
+            payload = payload if isinstance(payload, dict) else {}
+
+            item["eol_date"] = payload.get("eol_date")
+            item["support_end_date"] = payload.get("support_end_date") or payload.get("support")
+            item["eol_status"] = payload.get("status") or payload.get("support_status")
+            item["risk_level"] = payload.get("risk_level")
+            item["eol_confidence"] = payload.get("confidence") or eol_data.get("confidence")
+            item["eol_source"] = payload.get("source") or payload.get("agent_used") or eol_data.get("agent_used")
+
+            if item.get("eol_date"):
+                try:
+                    days = math.floor((datetime.fromisoformat(item["eol_date"]) - datetime.utcnow()).total_seconds() / 86400)
+                    item["days_until_eol"] = days
+                except Exception:
+                    item["days_until_eol"] = None
 
     async def clear_cache(self) -> Dict[str, Any]:
         """Clear cached OS inventory data"""
@@ -157,6 +311,14 @@ class OSInventoryAgent:
                 if isinstance(cached_data, list) and normalized_limit is not None:
                     cached_data = cached_data[:normalized_limit]
                 cached_timestamp = cache_result['timestamp']
+                cached_full_dataset = False
+                metadata = cache_result.get("metadata") if isinstance(cache_result, dict) else None
+                if isinstance(metadata, dict):
+                    cached_full_dataset = bool(metadata.get("full_dataset"))
+                elif normalized_limit is not None and len(cached_data) < normalized_limit:
+                    cached_full_dataset = True
+                if cached_full_dataset:
+                    self._cache_has_full_dataset = True
                 logger.info(f"🖥️ Using cached OS inventory data: {len(cached_data)} items (cached at {cached_timestamp})")
                 
                 # Record cache hit statistics
@@ -177,6 +339,7 @@ class OSInventoryAgent:
                     "query_params": query_params,
                     "cached_at": cached_timestamp,  # Use actual cache timestamp
                     "from_cache": True,
+                    "full_dataset": cached_full_dataset,
                     "source": "cosmos_cache"
                 }
             else:
@@ -233,6 +396,7 @@ class OSInventoryAgent:
                 OSName contains "Linux", "Various",
                 "Unknown"
             ),
+            ResourceGroup = tostring(extract(@"/resourceGroups/([^/]+)", 1, ResourceId)),
             ComputerType = case(
                 // Primary detection: ComputerEnvironment field
                 ComputerEnvironment =~ "Azure", "Azure VM",
@@ -246,7 +410,7 @@ class OSInventoryAgent:
                 // Default for unknown
                 "On-Premises"
             )
-        | project Computer, OSName, VersionString, OSType, Vendor, ComputerEnvironment, ComputerType, ResourceId, LastHeartbeat
+        | project Computer, OSName, VersionString, OSType, Vendor, ComputerEnvironment, ComputerType, ResourceGroup, ResourceId, LastHeartbeat
         {limit_clause}
         """
 
@@ -273,8 +437,9 @@ class OSInventoryAgent:
                     vendor = str(row[4]) if row[4] else "Unknown"
                     computer_environment = str(row[5]) if row[5] else "Unknown"
                     computer_type = str(row[6]) if row[6] else "Unknown"
-                    resource_id = str(row[7]) if row[7] else ""
-                    last_hb = row[8].isoformat() if row[8] else None
+                    resource_group = str(row[7]) if row[7] else ""
+                    resource_id = str(row[8]) if row[8] else ""
+                    last_hb = row[9].isoformat() if row[9] else None
                     
                     # Debug logging to diagnose computer_type detection
                     if computer_type == "?":
@@ -292,6 +457,7 @@ class OSInventoryAgent:
                         "vendor": vendor,
                         "computer_environment": computer_environment,
                         "computer_type": computer_type,
+                        "resource_group": resource_group,
                         "resource_id": resource_id,
                         "last_heartbeat": last_hb,
                         "source": "log_analytics_heartbeat",
@@ -306,6 +472,49 @@ class OSInventoryAgent:
                     continue
 
             logger.info(f"🖥️ Retrieved {len(results)} OS inventory items from LAW")
+
+            # Enrich with EOL data (Cosmos first, then agents with confidence logic)
+            await self._enrich_with_eol(results)
+
+            # Ensure Windows Server entries receive EOL data from static Microsoft mappings when missing
+            try:
+                from .microsoft_agent import MicrosoftEOLAgent
+
+                ms_agent = MicrosoftEOLAgent()
+                for item in results:
+                    if item.get("eol_date"):
+                        continue
+                    os_name = (item.get("os_name") or item.get("name") or "").lower()
+                    if "windows server" not in os_name:
+                        continue
+                    version_text = f"{item.get('os_name') or ''} {item.get('os_version') or ''}"
+                    match = re.search(r"(20\d{2}|19\d{2})", version_text)
+                    if not match:
+                        continue
+                    static_result = ms_agent._check_static_data("windows server", match.group(1))
+                    if not static_result:
+                        continue
+                    item["eol_date"] = static_result.get("eol")
+                    item["support_end_date"] = static_result.get("support")
+                    item["eol_source"] = static_result.get("source") or "microsoft_official"
+                    item["eol_confidence"] = static_result.get("confidence")
+                    if item.get("eol_date"):
+                        try:
+                            days = math.floor((datetime.fromisoformat(item["eol_date"]) - datetime.utcnow()).total_seconds() / 86400)
+                            item["days_until_eol"] = days
+                        except Exception:
+                            item["days_until_eol"] = None
+            except Exception as exc:
+                logger.debug("Windows Server static EOL enrichment failed: %s", exc)
+
+            # Track whether the returned data represents the full dataset so pagination can surface all records
+            retrieved_full_dataset = full_dataset_requested or (
+                normalized_limit is not None and len(results) < normalized_limit
+            )
+            if retrieved_full_dataset:
+                self._cache_has_full_dataset = True
+            elif not full_dataset_requested:
+                self._cache_has_full_dataset = False
             
             # Cache the results for future use
             if use_cache and results:
@@ -313,7 +522,11 @@ class OSInventoryAgent:
                 inventory_cache.store_cached_data(
                     cache_key=self.agent_name,
                     data=results,
-                    cache_type="os"
+                    cache_type="os",
+                    metadata={
+                        "full_dataset": retrieved_full_dataset,
+                        "query_params": query_params
+                    }
                 )
                 cache_end_time = datetime.utcnow()
                 
@@ -341,15 +554,6 @@ class OSInventoryAgent:
                     url=f"law://workspace/{self.workspace_id}/Heartbeat"
                 )
             
-            # Track whether the returned data represents the full dataset so pagination can surface all records
-            retrieved_full_dataset = full_dataset_requested or (
-                normalized_limit is not None and len(results) < normalized_limit
-            )
-            if retrieved_full_dataset:
-                self._cache_has_full_dataset = True
-            elif not full_dataset_requested:
-                self._cache_has_full_dataset = False
-
             return {
                 "success": True,
                 "data": results,

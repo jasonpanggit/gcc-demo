@@ -39,6 +39,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_eol_orchestrator():
+    """Lazy getter to avoid import cycles when pulling the EOL orchestrator."""
+    from main import get_eol_orchestrator
+
+    return get_eol_orchestrator()
+
+
 class DebugRequest(BaseModel):
     """Request model for debug endpoints"""
     query: str
@@ -419,6 +426,7 @@ async def validate_cache_system():
     try:
         from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
+        from utils.eol_inventory import eol_inventory
         validation_results["cache_modules"]["base_cosmos"] = {
             "status": "available",
             "initialized": getattr(base_cosmos, 'initialized', False),
@@ -428,6 +436,13 @@ async def validate_cache_system():
             "status": "available",
             "initialized": getattr(eol_cache, 'initialized', False),
             "memory_cache_size": len(getattr(eol_cache, 'memory_cache', {}))
+        }
+        validation_results["cache_modules"]["eol_inventory"] = {
+            "status": "available",
+            "initialized": getattr(eol_inventory, 'initialized', False),
+            "hits": eol_inventory.get_stats().get("hits", 0) if hasattr(eol_inventory, "get_stats") else 0,
+            "misses": eol_inventory.get_stats().get("misses", 0) if hasattr(eol_inventory, "get_stats") else 0,
+            "container": getattr(eol_inventory, 'container_id', 'eol_inventory')
         }
         cache_results['cosmos'] = True
     except Exception as e:
@@ -514,6 +529,107 @@ async def validate_cache_system():
     }
     
     return validation_results
+
+
+@router.get("/api/eol-cache-stats", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_cache_stats", timeout_seconds=15)
+async def get_eol_cache_stats():
+    """Expose hit/miss statistics for the Cosmos-backed EOL inventory and legacy cache."""
+    try:
+        from utils.eol_inventory import eol_inventory
+        from utils.eol_cache import eol_cache
+        table_stats = eol_inventory.get_stats() if hasattr(eol_inventory, "get_stats") else {"hits": 0, "misses": 0}
+
+        legacy_cache_size = len(getattr(eol_cache, "memory_cache", {})) if hasattr(eol_cache, "memory_cache") else 0
+        return {
+            "success": True,
+            "data": {
+                "eol_inventory": {
+                    "container": getattr(eol_inventory, "container_id", "eol_inventory"),
+                    "initialized": getattr(eol_inventory, "initialized", False),
+                    "hits": table_stats.get("hits", 0),
+                    "misses": table_stats.get("misses", 0),
+                },
+                "eol_cache_memory": {
+                    "initialized": getattr(eol_cache, "initialized", False),
+                    "memory_entries": legacy_cache_size,
+                },
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as exc:
+        logger.debug("EOL cache stats failed: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@router.get("/api/eol-latency", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_latency", timeout_seconds=15)
+async def get_eol_latency(limit: int = 20, agent: Optional[str] = None):
+    """Return recent orchestrator EOL timings for quick dashboarding."""
+    try:
+        orch = _get_eol_orchestrator()
+        responses = orch.get_eol_agent_responses() if orch else []
+
+        limit = max(1, min(limit, 100))
+        filtered = responses if not agent else [r for r in responses if r.get("agent_name") == agent]
+        trimmed = list(reversed(filtered[-limit:]))  # newest first
+
+        latencies = [r.get("response_time") for r in trimmed if isinstance(r.get("response_time"), (int, float))]
+        latencies_ms = [round(v * 1000, 2) for v in latencies]
+
+        def percentile(values, pct):
+            if not values:
+                return None
+            sorted_vals = sorted(values)
+            k = (len(sorted_vals) - 1) * (pct / 100)
+            f = int(k)
+            c = min(f + 1, len(sorted_vals) - 1)
+            if f == c:
+                return sorted_vals[f]
+            return sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f)
+
+        stats = {
+            "count": len(latencies_ms),
+            "avg_ms": round(sum(latencies_ms) / len(latencies_ms), 2) if latencies_ms else None,
+            "p50_ms": round(percentile(latencies_ms, 50), 2) if latencies_ms else None,
+            "p95_ms": round(percentile(latencies_ms, 95), 2) if latencies_ms else None,
+            "max_ms": max(latencies_ms) if latencies_ms else None,
+        }
+
+        recent = [
+            {
+                "timestamp": r.get("timestamp"),
+                "agent_name": r.get("agent_name"),
+                "software_name": r.get("software_name"),
+                "software_version": r.get("software_version"),
+                "query_type": r.get("query_type"),
+                "success": r.get("success"),
+                "response_time_ms": round(r.get("response_time") * 1000, 2) if isinstance(r.get("response_time"), (int, float)) else None,
+                "confidence": r.get("confidence"),
+            }
+            for r in trimmed
+        ]
+
+        return {
+            "success": True,
+            "data": {
+                "stats": stats,
+                "recent": recent,
+                "filter": {"agent": agent, "limit": limit},
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as exc:
+        logger.debug("EOL latency stats failed: %s", exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
 
 
 @router.get("/api/notifications/history", response_model=StandardResponse)

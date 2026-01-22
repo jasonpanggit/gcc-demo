@@ -3,10 +3,9 @@ EOL Orchestrator Agent - Streamlined and fully autonomous EOL data gathering for
 """
 import asyncio
 import uuid
-import re
 import logging
 import time
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
 from .endoflife_agent import EndOfLifeAgent
@@ -25,6 +24,9 @@ from .postgresql_agent import PostgreSQLEOLAgent
 from .php_agent import PHPEOLAgent
 from .python_agent import PythonEOLAgent
 from .playwright_agent import PlaywrightEOLAgent
+from .eolstatus_agent import EOLStatusAgent
+
+from utils.eol_inventory import eol_inventory
 
 # Import logger
 try:
@@ -145,7 +147,7 @@ class EOLOrchestratorAgent:
         # EOL Response Tracking - Track all agent responses for detailed history
         self.eol_agent_responses: List[Dict[str, Any]] = []
 
-        # Track lifecycle so orchestrator can release owned resources
+        # Track lifecycle so orchestrator can release ownedSS$ resources
         self._close_lock = asyncio.Lock()
         self._closed = False
         self._owns_agents = close_provided_agents or agents is None
@@ -164,6 +166,8 @@ class EOLOrchestratorAgent:
         # Cache for EOL results (in-memory for session)
         self.eol_cache: Dict[str, Any] = {}
         self.cache_ttl = 3600  # 1 hour cache
+        self.agent_timeout_seconds = 14  # fast-fail per agent to cut tail latency
+        self.high_confidence_threshold = 0.9
 
         logger.info(
             "🚀 Autonomous EOL Orchestrator initialized with %d agents",
@@ -216,6 +220,7 @@ class EOLOrchestratorAgent:
             "postgresql": PostgreSQLEOLAgent(),
             "php": PHPEOLAgent(),
             "python": PythonEOLAgent(),
+            "eolstatus": EOLStatusAgent(),
             "azure_ai": AzureAIAgentEOLAgent(),
             "playwright": PlaywrightEOLAgent(),  # Web search fallback agent
         }
@@ -292,6 +297,124 @@ class EOLOrchestratorAgent:
         except Exception as e:
             logger.error(f"Error logging communication: {str(e)}")
             # Don't append anything if there's an error
+
+    async def _invoke_agent(
+        self,
+        agent_name: str,
+        software_name: str,
+        version: Optional[str],
+        *,
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        """Run a single agent call with timeout and standardized logging."""
+        if agent_name not in self.agents:
+            return {
+                "agent_name": agent_name,
+                "result": None,
+                "confidence": 0.0,
+                "duration": 0.0,
+                "error": "agent_not_registered",
+            }
+
+        agent = self.agents[agent_name]
+        start_ts = time.time()
+
+        try:
+            await self.log_communication(agent_name, "get_eol_data", {
+                "software_name": software_name,
+                "version": version,
+            })
+
+            if hasattr(agent, "get_eol_data"):
+                coro = agent.get_eol_data(software_name, version)
+            elif hasattr(agent, "search_eol"):
+                coro = agent.search_eol(software_name, version)
+            else:
+                await self.log_communication(agent_name, "get_eol_data", {
+                    "software_name": software_name,
+                    "version": version,
+                }, {"error": "No compatible method found"})
+                return {
+                    "agent_name": agent_name,
+                    "result": None,
+                    "confidence": 0.0,
+                    "duration": time.time() - start_ts,
+                    "error": "no_compatible_method",
+                }
+
+            result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+
+            if result and result.get("success") and result.get("data"):
+                confidence = self._calculate_confidence(result, agent_name, software_name)
+                await self.log_communication(agent_name, "get_eol_data", {
+                    "software_name": software_name,
+                    "version": version,
+                }, {
+                    "success": True,
+                    "confidence": confidence,
+                    "data_found": True,
+                    "standardized": True,
+                    "response_time_ms": round((time.time() - start_ts) * 1000, 2),
+                })
+
+                return {
+                    "agent_name": agent_name,
+                    "result": result,
+                    "confidence": confidence,
+                    "duration": time.time() - start_ts,
+                    "error": None,
+                }
+
+            error_msg = result.get("error", {}).get("message", "No valid EOL data found") if result else "No response"
+            await self.log_communication(agent_name, "get_eol_data", {
+                "software_name": software_name,
+                "version": version,
+            }, {
+                "success": False,
+                "data_found": False,
+                "error": error_msg,
+                "standardized": bool(result),
+                "response_time_ms": round((time.time() - start_ts) * 1000, 2),
+            })
+
+            return {
+                "agent_name": agent_name,
+                "result": None,
+                "confidence": 0.0,
+                "duration": time.time() - start_ts,
+                "error": error_msg,
+            }
+
+        except asyncio.TimeoutError:
+            await self.log_communication(agent_name, "get_eol_data", {
+                "software_name": software_name,
+                "version": version,
+            }, {
+                "success": False,
+                "error": "timeout",
+                "response_time_ms": round((time.time() - start_ts) * 1000, 2),
+            })
+            logger.warning("⏱️ Agent %s timed out for %s", agent_name, software_name)
+            return {
+                "agent_name": agent_name,
+                "result": None,
+                "confidence": 0.0,
+                "duration": time.time() - start_ts,
+                "error": "timeout",
+            }
+        except Exception as exc:  # pylint: disable=broad-except
+            await self.log_communication(agent_name, "get_eol_data", {
+                "software_name": software_name,
+                "version": version,
+            }, {"error": str(exc)})
+            logger.warning("Agent %s failed for %s: %s", agent_name, software_name, str(exc))
+            return {
+                "agent_name": agent_name,
+                "result": None,
+                "confidence": 0.0,
+                "duration": time.time() - start_ts,
+                "error": str(exc),
+            }
 
     async def get_os_inventory_with_eol(self, days: int = 90):
         """
@@ -436,7 +559,16 @@ class EOLOrchestratorAgent:
             logger.error(f"Error analyzing OS item EOL: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def get_autonomous_eol_data(self, software_name, version=None, item_type="software", search_internet_only=False):
+    async def get_autonomous_eol_data(
+        self,
+        software_name,
+        version=None,
+        item_type="software",
+        search_internet_only=False,
+        search_include_internet=False,
+        search_ignore_cache=False,
+        search_agent_only=False,
+    ):
         """
         Autonomous EOL data retrieval with intelligent agent routing
         
@@ -445,121 +577,306 @@ class EOLOrchestratorAgent:
             version: Version of the software (optional)
             item_type: Type of item (software, os, etc.)
             search_internet_only: If True, skip all specialized agents and use only Playwright web search
+            search_include_internet: If True, include Playwright web search alongside the routed agents
+            search_agent_only: If True, run only vendor/endoflife agents and skip web search
         """
         try:
+            start_time_main = time.time()
+
+            # Basic input validation and normalization
+            software_name = (software_name or "").strip()
+            version = (version or None)
+            if version is not None:
+                version = version.strip() or None
+
+            if not software_name:
+                error_msg = "software_name is required"
+                logger.warning(f"❌ get_autonomous_eol_data missing software_name")
+                failure = {
+                    "success": False,
+                    "error": error_msg,
+                    "agent_used": "orchestrator",
+                    "communications": self.get_recent_communications(),
+                    "elapsed_seconds": time.time() - start_time_main,
+                }
+                return failure
+
             await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
                 "software_name": software_name,
                 "version": version,
                 "item_type": item_type,
-                "search_internet_only": search_internet_only
+                "search_internet_only": search_internet_only,
+                "search_include_internet": search_include_internet,
+                "search_ignore_cache": search_ignore_cache,
+                "search_agent_only": search_agent_only,
             })
+
+            # Keep cache checks enabled even when internet fallback is requested; only skip when explicitly asked
+            effective_ignore_cache = search_ignore_cache or search_internet_only
             
             software_name_lower = software_name.lower()
-            
-            # If search_internet_only is True, use ONLY the playwright agent
-            if search_internet_only:
-                logger.info(f"🌐 Internet-only search mode: Using Playwright agent exclusively for '{software_name}'")
-                target_agents = ["playwright"]
-                
-                await self.log_communication("eol_orchestrator", "agent_selection", {
-                    "software_name": software_name,
-                    "version": version,
-                    "selected_agents": target_agents,
-                    "selection_method": "internet_only_mode"
-                })
+
+            # Orchestrator-level Cosmos cache lookup (eol_inventory is single source of truth)
+            if not effective_ignore_cache:
+                cached_eol = await eol_inventory.get(software_name, version)
+                if cached_eol:
+                    cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
+                    cached_eol["cache_hit"] = True
+                    cached_eol["cache_source"] = "cosmos_eol_table"
+                    cached_eol["elapsed_seconds"] = time.time() - start_time_main
+                    cached_eol["communications"] = self.get_recent_communications()
+
+                    await self.log_communication("eol_orchestrator", "eol_inventory_cache_hit", {
+                        "software_name": software_name,
+                        "version": version,
+                    }, cached_eol)
+
+                    self._track_eol_agent_response(
+                        agent_name=cached_eol.get("agent_used", "eol_inventory"),
+                        software_name=software_name,
+                        software_version=version,
+                        eol_result=cached_eol,
+                        response_time=time.time() - start_time_main,
+                        query_type="cosmos_eol_table",
+                    )
+
+                    logger.info(
+                        "✅ EOL inventory cache hit for %s %s", software_name, version or "(any)"
+                    )
+                    return cached_eol
             else:
-                # Determine optimal agents for this software
-                target_agents = self._route_to_agents(software_name_lower, item_type)
-                
-                # add fallback agent (always include EndOfLifeAgent as fallback)
-                if "endoflife" not in target_agents:
-                    target_agents.append("endoflife")
-                
-                await self.log_communication("eol_orchestrator", "agent_selection", {
+                await self.log_communication("eol_orchestrator", "cache_skip", {
                     "software_name": software_name,
                     "version": version,
-                    "selected_agents": target_agents,
-                    "selection_method": "intelligent_routing"
+                    "reason": "search_ignore_cache" if search_ignore_cache else "internet_mode_forces_bypass",
                 })
-            
-            logger.debug(f"🎯 Routing '{software_name}' to agents: {target_agents}")
-            
-            # Execute searches in priority order with early termination
+                
+            # Helper to run a batch of agents and return best outcome + all outcomes
+            async def run_agent_batch(agent_names: List[str], allow_early_termination: bool, timeout_pad: int = 0):
+                local_outcomes: List[Dict[str, Any]] = []
+                local_best_result = None
+                local_best_conf = 0.0
+                local_best_agent = None
+                local_best_match_result = None
+                local_best_match_conf = 0.0
+                local_best_match_agent = None
+                local_best_exact_result = None
+                local_best_exact_conf = 0.0
+                local_best_exact_agent = None
+
+                if not agent_names:
+                    return local_best_result, local_best_conf, local_best_agent, local_outcomes
+
+                agent_timeout = self.agent_timeout_seconds + timeout_pad
+                tasks = [
+                    asyncio.create_task(
+                        self._invoke_agent(
+                            agent_name,
+                            software_name,
+                            version,
+                            timeout_seconds=agent_timeout,
+                        )
+                    )
+                    for agent_name in agent_names
+                    if agent_name in self.agents
+                ]
+
+                if not tasks:
+                    return local_best_result, local_best_conf, local_best_agent, local_outcomes
+
+                if allow_early_termination:
+                    pending_tasks = set(tasks)
+                    for task in asyncio.as_completed(tasks):
+                        outcome = await task
+                        pending_tasks.discard(task)
+
+                        if not outcome:
+                            continue
+                        local_outcomes.append(outcome)
+
+                        result = outcome.get("result")
+                        confidence = outcome.get("confidence", 0.0)
+                        agent_name = outcome.get("agent_name", "unknown")
+
+                        if result and self._version_matches_exact(result, version):
+                            if confidence > local_best_exact_conf:
+                                local_best_exact_result = result
+                                local_best_exact_conf = confidence
+                                local_best_exact_agent = agent_name
+
+                        if result and self._software_name_matches(result, software_name):
+                            if confidence > local_best_match_conf:
+                                local_best_match_result = result
+                                local_best_match_conf = confidence
+                                local_best_match_agent = agent_name
+
+                        if result and confidence > local_best_conf:
+                            local_best_result = result
+                            local_best_conf = confidence
+                            local_best_agent = agent_name
+
+                        if result and confidence >= self.high_confidence_threshold and agent_name != "endoflife":
+                            for pending in list(pending_tasks):
+                                pending.cancel()
+                            if pending_tasks:
+                                await asyncio.gather(*pending_tasks, return_exceptions=True)
+                            break
+
+                    if pending_tasks:
+                        await asyncio.gather(*pending_tasks, return_exceptions=True)
+                else:
+                    gathered = await asyncio.gather(*tasks, return_exceptions=True)
+                    for outcome in gathered:
+                        if isinstance(outcome, Exception) or not outcome:
+                            continue
+                        local_outcomes.append(outcome)
+                        result = outcome.get("result")
+                        confidence = outcome.get("confidence", 0.0)
+                        agent_name = outcome.get("agent_name", "unknown")
+                        if result and self._version_matches_exact(result, version):
+                            if confidence > local_best_exact_conf:
+                                local_best_exact_result = result
+                                local_best_exact_conf = confidence
+                                local_best_exact_agent = agent_name
+                        if result and self._software_name_matches(result, software_name):
+                            if confidence > local_best_match_conf:
+                                local_best_match_result = result
+                                local_best_match_conf = confidence
+                                local_best_match_agent = agent_name
+                        if result and confidence > local_best_conf:
+                            local_best_result = result
+                            local_best_conf = confidence
+                            local_best_agent = agent_name
+
+                if local_best_exact_result:
+                    return local_best_exact_result, local_best_exact_conf, local_best_exact_agent, local_outcomes
+
+                if local_best_match_result:
+                    return local_best_match_result, local_best_match_conf, local_best_match_agent, local_outcomes
+
+                return local_best_result, local_best_conf, local_best_agent, local_outcomes
+
+            # Default: combine vendor agents + endoflife; optionally add internet fallback
+            agent_outcomes: List[Dict[str, Any]] = []
+            target_agents: List[str] = []
             best_result = None
             best_confidence = 0.0
             best_agent_name = None
-            
-            for agent_name in target_agents:
-                if agent_name not in self.agents:
-                    continue
-                
-                try:
-                    agent = self.agents[agent_name]
-                    
-                    await self.log_communication(agent_name, "get_eol_data", {
+
+            include_internet = not search_agent_only
+
+            if search_internet_only:
+                selection_method = "internet_only"
+                target_agents = ["endoflife", "eolstatus", "playwright"]
+                include_internet = True
+                logger.info(
+                    "🌐 Internet-only search mode: Using endoflife, eolstatus, and playwright for '%s'",
+                    software_name,
+                )
+            else:
+                selection_method = "agents_only" if search_agent_only else "agents_plus_internet"
+                primary_agents = self._route_to_agents(software_name_lower, item_type)
+                target_agents.extend(primary_agents)
+                if not search_agent_only:
+                    if "endoflife" not in target_agents:
+                        target_agents.append("endoflife")
+                    if "eolstatus" not in target_agents:
+                        target_agents.append("eolstatus")
+                    if include_internet and "playwright" not in target_agents:
+                        target_agents.append("playwright")
+
+            await self.log_communication("eol_orchestrator", "agent_selection", {
+                "software_name": software_name,
+                "version": version,
+                "selected_agents": target_agents,
+                "selection_method": selection_method
+            })
+
+            logger.debug(f"🎯 Routing '{software_name}' to agents: {target_agents}")
+
+            # Run all selected agents (agents + internet together); no early termination when internet is present
+            best_result, best_confidence, best_agent_name, outcomes = await run_agent_batch(
+                target_agents,
+                allow_early_termination=search_internet_only is False and include_internet is False,
+                timeout_pad=6 if "playwright" in target_agents else 0,
+            )
+            agent_outcomes.extend(outcomes)
+
+            # Determine search mode label based on what ran
+            search_mode_label = selection_method
+
+            # Summarize agent outcomes for communications/flow visualization
+            if agent_outcomes:
+                summary_payload = [
+                    {
+                        "agent": outcome.get("agent_name", "unknown"),
+                        "confidence": outcome.get("confidence", 0.0),
+                        "duration": outcome.get("duration", 0.0),
+                        "error": outcome.get("error"),
+                        "data_found": bool(outcome.get("result")),
+                    }
+                    for outcome in agent_outcomes
+                    if isinstance(outcome, dict)
+                ]
+                await self.log_communication(
+                    "eol_orchestrator",
+                    "agent_outcomes",
+                    {
                         "software_name": software_name,
-                        "version": version
-                    })
-                    
-                    # Call appropriate method based on agent capabilities
-                    if hasattr(agent, 'get_eol_data'):
-                        result = await agent.get_eol_data(software_name, version)
-                    elif hasattr(agent, 'search_eol'):
-                        result = await agent.search_eol(software_name, version)
-                    else:
-                        await self.log_communication(agent_name, "get_eol_data", {
-                            "software_name": software_name,
-                            "version": version
-                        }, {"error": "No compatible method found"})
-                        continue
-                    
-                    # All agents now return standardized responses, no normalization needed
-                    
-                    # Check if the response indicates success
-                    if result and result.get("success") and result.get("data"):
-                        confidence = self._calculate_confidence(result, agent_name, software_name)
-                        
-                        await self.log_communication(agent_name, "get_eol_data", {
-                            "software_name": software_name,
-                            "version": version
-                        }, {
-                            "success": True,
-                            "confidence": confidence,
-                            "data_found": True,
-                            "standardized": True
-                        })
-                        
-                        if confidence > best_confidence:
-                            best_result = result
-                            best_confidence = confidence
-                            best_agent_name = agent_name
-                            
-                            # Early termination for high-confidence vendor-specific results
-                            if confidence >= 0.9 and agent_name != "endoflife":
-                                logger.debug(f"✅ Early termination: high confidence result from {agent_name}")
-                                break
-                    else:
-                        # Log failed attempt with more details
-                        error_msg = result.get("error", {}).get("message", "No valid EOL data found") if result else "No response"
-                        await self.log_communication(agent_name, "get_eol_data", {
-                            "software_name": software_name,
-                            "version": version
-                        }, {
-                            "success": False, 
-                            "data_found": False,
-                            "error": error_msg,
-                            "standardized": bool(result)
-                        })
-                
-                except Exception as e:
-                    logger.warning(f"Agent {agent_name} failed for {software_name}: {str(e)}")
-                    await self.log_communication(agent_name, "get_eol_data", {
-                        "software_name": software_name,
-                        "version": version
-                    }, {"error": str(e)})
-                    continue
+                        "version": version,
+                        "search_mode": search_mode_label,
+                    },
+                    {"agents": summary_payload},
+                )
             
             if best_result:
+                # Attach full per-agent results so UI can compare agent vs. internet outputs
+                comparison_results = []
+                for outcome in agent_outcomes:
+                    if not isinstance(outcome, dict):
+                        continue
+
+                    raw_result = outcome.get("result")
+
+                    # Avoid circular references by copying only the minimal, JSON-safe fields
+                    safe_result = None
+                    if isinstance(raw_result, dict):
+                        data_block = raw_result.get("data")
+                        safe_data = dict(data_block) if isinstance(data_block, dict) else None
+
+                        # Strip any nested comparison or communication blocks to keep payload small and non-recursive
+                        if isinstance(safe_data, dict):
+                            safe_data.pop("agent_comparisons", None)
+                            safe_data.pop("agents_considered", None)
+                            safe_data.pop("communications", None)
+
+                        safe_result = {
+                            "success": raw_result.get("success"),
+                            "agent_used": raw_result.get("agent_used")
+                                or raw_result.get("source")
+                                or (safe_data.get("agent_used") if isinstance(safe_data, dict) else None),
+                            "data": safe_data,
+                            "error": raw_result.get("error"),
+                            "source_url": safe_data.get("source_url") if isinstance(safe_data, dict) else raw_result.get("source_url"),
+                        }
+                    else:
+                        # Ensure Playwright or other agents with no structured result still show up
+                        safe_result = {
+                            "success": False,
+                            "agent_used": outcome.get("agent_name", "unknown"),
+                            "data": None,
+                            "error": outcome.get("error"),
+                            "source_url": None,
+                        }
+
+                    comparison_results.append({
+                        "agent": outcome.get("agent_name", "unknown"),
+                        "confidence": outcome.get("confidence", 0.0),
+                        "duration": outcome.get("duration", 0.0),
+                        "error": outcome.get("error"),
+                        "result": safe_result,
+                    })
+
                 # Ensure the result has proper success flag and data structure
                 if "success" not in best_result:
                     best_result["success"] = True
@@ -586,6 +903,39 @@ class EOLOrchestratorAgent:
                                 best_result["agent_used"] = agent_name
                                 break
                 
+                # Final search mode tagging based on the agent that won
+                if search_internet_only:
+                    search_mode = "internet_only"
+                elif search_agent_only:
+                    search_mode = "agents_only"
+                else:
+                    search_mode = "agents_plus_internet"
+
+                # Tag search mode on the result for UI/analytics
+                best_result["search_mode"] = search_mode
+                if "data" in best_result and isinstance(best_result["data"], dict):
+                    best_result["data"].setdefault("search_mode", search_mode)
+
+                # Attach agent comparisons for frontend visibility
+                if agent_outcomes:
+                    best_result.setdefault("agents_considered", [
+                        {
+                            "agent": outcome.get("agent_name", "unknown"),
+                            "confidence": outcome.get("confidence", 0.0),
+                            "duration": outcome.get("duration", 0.0),
+                            "error": outcome.get("error"),
+                            "data_found": bool(outcome.get("result")),
+                        }
+                        for outcome in agent_outcomes
+                        if isinstance(outcome, dict)
+                    ])
+
+                # Surface comparison data at both top-level and data-level for UI
+                if comparison_results:
+                    best_result["agent_comparisons"] = comparison_results
+                    if isinstance(best_result.get("data"), dict):
+                        best_result["data"].setdefault("agent_comparisons", comparison_results)
+
                 await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
                     "software_name": software_name,
                     "version": version
@@ -594,15 +944,16 @@ class EOLOrchestratorAgent:
                     "best_agent": best_result.get("source", "unknown"),
                     "agent_used": best_result.get("agent_used", "unknown"),
                     "confidence": best_confidence,
-                    "data_structure": "validated"
+                    "data_structure": "validated",
+                    "search_mode": search_mode
                 })
                 
                 # Include communication history in response for frontend display
                 best_result["communications"] = self.get_recent_communications()
+                best_result["elapsed_seconds"] = time.time() - start_time_main
                 
                 # Track the EOL agent response for history
-                start_time = time.time()
-                response_time = time.time() - start_time
+                response_time = time.time() - start_time_main
                 self._track_eol_agent_response(
                     agent_name=best_result.get("agent_used", "unknown"),
                     software_name=software_name,
@@ -611,6 +962,38 @@ class EOLOrchestratorAgent:
                     response_time=response_time,
                     query_type="autonomous_search"
                 )
+
+                # Only persist to Cosmos when we have high confidence results
+                confidence_threshold = self.high_confidence_threshold
+                persist_to_cosmos = (
+                    best_confidence >= confidence_threshold
+                    and best_result.get("success")
+                    and best_result.get("data")
+                    and not search_ignore_cache  # honor cache skip for reads but still avoid writes when requested
+                )
+
+                if persist_to_cosmos:
+                    best_result.setdefault("cache_source", "cosmos_eol_table")
+                    best_result.setdefault("cached", False)
+                    try:
+                        upsert_ok = await eol_inventory.upsert(software_name, version, best_result)
+                        if not upsert_ok:
+                            logger.warning(
+                                "⚠️ EOL inventory upsert skipped or failed for %s %s (container ready: %s)",
+                                software_name,
+                                version or "(any)",
+                                getattr(eol_inventory, "initialized", False),
+                            )
+                    except Exception as exc:
+                        logger.debug("EOL inventory upsert skipped: %s", exc)
+                else:
+                    logger.info(
+                        "Skipping Cosmos save for %s %s due to low confidence %.2f (< %.2f)",
+                        software_name,
+                        version or "(any)",
+                        best_confidence,
+                        confidence_threshold,
+                    )
                 
                 logger.info(f"✅ EOL data found for {software_name} (confidence: {best_confidence:.2f}, agent: {best_result.get('agent_used', 'unknown')})")
                 return best_result
@@ -620,8 +1003,8 @@ class EOLOrchestratorAgent:
                 error_message = "No EOL data found via internet search (Playwright)"
                 logger.warning(f"❌ Internet-only search failed for {software_name}")
             else:
-                error_message = "No EOL data found from any source including Playwright fallback"
-                logger.warning(f"❌ All agents failed to find EOL data for {software_name}")
+                error_message = "No EOL data found from agents or internet search"
+                logger.warning(f"❌ Agents + internet search failed for {software_name}")
             
             await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
                 "software_name": software_name,
@@ -632,13 +1015,14 @@ class EOLOrchestratorAgent:
                 "success": False, 
                 "error": error_message,
                 "agent_used": "playwright" if search_internet_only else "orchestrator",
-                "search_mode": "internet_only" if search_internet_only else "intelligent_routing",
-                "communications": self.get_recent_communications()
+                "search_mode": search_mode_label,
+                "communications": self.get_recent_communications(),
+                "elapsed_seconds": time.time() - start_time_main,
+                "search_ignore_cache": search_ignore_cache,
             }
             
             # Track the failed search for history
-            start_time = time.time()
-            response_time = time.time() - start_time
+            response_time = time.time() - start_time_main
             self._track_eol_agent_response(
                 agent_name="orchestrator",
                 software_name=software_name,
@@ -661,7 +1045,8 @@ class EOLOrchestratorAgent:
                 "success": False, 
                 "error": str(e),
                 "agent_used": "orchestrator",
-                "communications": self.get_recent_communications()
+                "communications": self.get_recent_communications(),
+                "elapsed_seconds": time.time() - start_time_main
             }
             return error_response
 
@@ -696,27 +1081,109 @@ class EOLOrchestratorAgent:
         return unique_agents
 
     def _calculate_confidence(self, result, agent_name, software_name):
-        """
-        Calculate confidence score for EOL result
-        """
-        base_confidence = 0.5
-        
-        # Vendor-specific agents get higher confidence for their products
+        """Evidence-weighted confidence tuned for accuracy vs. coverage."""
+        software_lower = software_name.lower()
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+
+        # Use agent-reported confidence when available, otherwise fall back to heuristics
+        reported_conf = data.get("confidence") or result.get("confidence")
+        normalized_conf: Optional[float] = None
+        if reported_conf is not None:
+            try:
+                normalized_conf = float(reported_conf)
+                # Handle percentage-style values (e.g., 95 or "95")
+                if normalized_conf > 1.0:
+                    normalized_conf = normalized_conf / 100.0
+            except (TypeError, ValueError):
+                normalized_conf = None
+
+        confidence = normalized_conf if normalized_conf is not None else 0.3
+
+        # Vendor fit: strong boost when agent matches vendor keyword; moderate otherwise
         if agent_name in self.vendor_routing:
             keywords = self.vendor_routing[agent_name]
-            if any(keyword in software_name.lower() for keyword in keywords):
-                base_confidence = 0.9
-        
-        # Boost confidence based on data quality
-        data = result.get("data", {})
+            if any(keyword in software_lower for keyword in keywords):
+                confidence += 0.35
+            else:
+                confidence += 0.15
+
+        # Evidence boosts
         if data.get("eol_date"):
-            base_confidence += 0.2
+            confidence += 0.25
+        if data.get("support_end_date"):
+            confidence += 0.15
         if data.get("support_status"):
-            base_confidence += 0.1
+            confidence += 0.10
         if data.get("release_date"):
-            base_confidence += 0.1
-        
-        return min(base_confidence, 1.0)
+            confidence += 0.05
+        if data.get("source_url"):
+            confidence += 0.05
+
+        # Cap Playwright to 95% to align with agent payloads
+        max_conf_cap = 0.95 if agent_name == "playwright" else 0.98
+
+        confidence = max(0.05, min(confidence, max_conf_cap))
+        return round(confidence, 2)
+
+    def _software_name_matches(self, result: Dict[str, Any], software_name: str) -> bool:
+        """Check if result software name matches the query name."""
+        if not result or not software_name:
+            return False
+
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        result_name = data.get("software_name") or result.get("software_name")
+        if not result_name:
+            return False
+
+        query_norm = self._normalize_software_name(software_name)
+        result_norm = self._normalize_software_name(str(result_name))
+
+        if not query_norm or not result_norm:
+            return False
+
+        if query_norm == result_norm:
+            return True
+
+        if query_norm in result_norm or result_norm in query_norm:
+            return True
+
+        query_tokens = set(query_norm.split())
+        result_tokens = set(result_norm.split())
+        if not query_tokens or not result_tokens:
+            return False
+
+        overlap = query_tokens.intersection(result_tokens)
+        union = query_tokens.union(result_tokens)
+        return (len(overlap) / len(union)) >= 0.6
+
+    def _version_matches_exact(self, result: Dict[str, Any], version: Optional[str]) -> bool:
+        """Check if result version exactly matches the requested version (normalized)."""
+        if not result or not version:
+            return False
+
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        result_version = data.get("version") or result.get("version")
+        if not result_version:
+            return False
+
+        query_norm = self._normalize_version(str(version))
+        result_norm = self._normalize_version(str(result_version))
+        return bool(query_norm and result_norm and query_norm == result_norm)
+
+    def _normalize_version(self, value: str) -> str:
+        """Normalize version strings for comparison."""
+        import re
+
+        cleaned = value.strip().lower()
+        cleaned = re.sub(r"[^a-z0-9\.]+", "", cleaned)
+        return cleaned
+
+    def _normalize_software_name(self, name: str) -> str:
+        """Normalize software name for comparison."""
+        import re
+
+        cleaned = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+        return re.sub(r"\s+", " ", cleaned)
 
     def _process_eol_data(self, raw_data, software_name, version):
         """
@@ -726,6 +1193,7 @@ class EOLOrchestratorAgent:
             "software_name": software_name,
             "version": version,
             "eol_date": self._extract_eol_date(raw_data),
+            "support_end_date": self._extract_support_end_date(raw_data),
             "status": "Unknown",
             "support_status": raw_data.get("support_status", "Unknown"),
             "risk_level": "unknown",
@@ -733,6 +1201,10 @@ class EOLOrchestratorAgent:
             "source": raw_data.get("source", "Unknown"),
             "confidence": raw_data.get("confidence", 0.5)
         }
+
+        # If EOL is missing but we have support end, treat support end as primary lifecycle date
+        if not processed["eol_date"] and processed["support_end_date"]:
+            processed["eol_date"] = processed["support_end_date"]
         
         # Calculate risk level and days until EOL
         if processed["eol_date"]:
@@ -769,7 +1241,16 @@ class EOLOrchestratorAgent:
         Extract EOL date from various data formats
         """
         # Common EOL date field names
-        date_fields = ["eol_date", "end_of_life", "eol", "support_end", "end_date", "retirement_date"]
+        date_fields = [
+            "eol_date",
+            "end_of_life",
+            "eol",
+            "support_end",
+            "support_end_date",
+            "support",
+            "end_date",
+            "retirement_date",
+        ]
         
         for field in date_fields:
             if field in data and data[field]:
@@ -779,6 +1260,26 @@ class EOLOrchestratorAgent:
                 elif isinstance(date_value, datetime):
                     return date_value.isoformat()
         
+        return None
+
+    def _extract_support_end_date(self, data):
+        """Extract support end date from known fields."""
+        support_fields = [
+            "support_end_date",
+            "support_end",
+            "support",
+            "extended_support_end",
+            "extended_support",
+        ]
+
+        for field in support_fields:
+            if field in data and data[field]:
+                value = data[field]
+                if isinstance(value, str):
+                    return value
+                if isinstance(value, datetime):
+                    return value.isoformat()
+
         return None
 
     # Legacy compatibility methods for existing API endpoints
@@ -1062,6 +1563,10 @@ class EOLOrchestratorAgent:
     def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
         """Track EOL agent responses for comprehensive history tracking"""
         try:
+            data_field = eol_result.get("data", {}) if isinstance(eol_result, dict) else {}
+            if not isinstance(data_field, dict):
+                data_field = {}
+
             # Create comprehensive response tracking entry
             response_entry = {
                 "timestamp": datetime.now().isoformat(),
@@ -1071,13 +1576,17 @@ class EOLOrchestratorAgent:
                 "query_type": query_type,
                 "response_time": response_time,
                 "success": eol_result.get("success", False),
-                "eol_data": eol_result.get("data", {}),
+                "eol_data": data_field,
                 "error": eol_result.get("error", {}),
-                "confidence": eol_result.get("data", {}).get("confidence", 0),
-                "source_url": eol_result.get("data", {}).get("source_url", ""),
-                "agent_used": eol_result.get("data", {}).get("agent_used", agent_name),
+                "confidence": data_field.get("confidence", 0),
+                "source_url": data_field.get("source_url", ""),
+                "agent_used": data_field.get("agent_used", agent_name),
                 "session_id": self.session_id,
-                "orchestrator_type": "eol_orchestrator"
+                "orchestrator_type": "eol_orchestrator",
+                "cache_source": eol_result.get("cache_source"),
+                "cached": bool(eol_result.get("cached")),
+                "cache_created_at": eol_result.get("cache_created_at"),
+                "cache_expires_at": eol_result.get("expires_at"),
             }
             
             # Add to tracking list
@@ -1102,7 +1611,7 @@ class EOLOrchestratorAgent:
         self.eol_agent_responses.clear()
         logger.info("🧹 [EOL Orchestrator] Cleared EOL agent response tracking history")
     
-    async def search_software_eol(self, software_name: str, software_version: str = None, search_hints: str = None):
+    async def search_software_eol(self, software_name: str, software_version: str = None, search_hints: str = None, search_include_internet: bool = False, search_ignore_cache: bool = False, search_agent_only: bool = False):
         """
         Search for software EOL information using multi-agent orchestration.
         This is a wrapper around get_autonomous_eol_data for API compatibility.
@@ -1119,10 +1628,13 @@ class EOLOrchestratorAgent:
             software_name=software_name,
             version=software_version,
             item_type="software",
-            search_internet_only=False
+            search_internet_only=False,
+            search_include_internet=search_include_internet,
+            search_ignore_cache=search_ignore_cache,
+            search_agent_only=search_agent_only,
         )
     
-    async def search_software_eol_internet(self, software_name: str, software_version: str = None, search_hints: str = None):
+    async def search_software_eol_internet(self, software_name: str, software_version: str = None, search_hints: str = None, search_ignore_cache: bool = False):
         """
         Search for software EOL information using internet-only search (Playwright).
         This is a wrapper around get_autonomous_eol_data with search_internet_only=True.
@@ -1139,7 +1651,8 @@ class EOLOrchestratorAgent:
             software_name=software_name,
             version=software_version,
             item_type="software",
-            search_internet_only=True
+            search_internet_only=True,
+            search_ignore_cache=search_ignore_cache,
         )
 
 # Backward compatibility alias

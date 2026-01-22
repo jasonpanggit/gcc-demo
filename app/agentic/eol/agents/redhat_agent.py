@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import os
 import hashlib
 import asyncio
-from utils.eol_cache import eol_cache
 from .base_eol_agent import BaseEOLAgent
 
 try:
@@ -44,8 +43,8 @@ class RedHatEOLAgent(BaseEOLAgent):
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # Initialize Cosmos DB cache (use shared singleton)
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cosmos_cache = None
 
         # Cache configuration
         self.cache_duration_hours = 24  # Re-enable caching
@@ -148,40 +147,19 @@ class RedHatEOLAgent(BaseEOLAgent):
         return hashlib.md5(key_data.encode()).hexdigest()
     
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Get cached EOL data from Cosmos DB"""
-        try:
-            return await self.cosmos_cache.get_cached_response(software_name, version, self.agent_name)
-        except Exception as e:
-            logger.error(f"Error retrieving cached data: {e}")
-            return None
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], source_url: Optional[str] = None):
-        """Cache EOL data in Cosmos DB if confidence is high enough"""
-        try:
-            if not source_url:
-                # Determine source URL based on software type
-                software_lower = software_name.lower()
-                if "centos" in software_lower:
-                    source_url = self.eol_urls.get("centos")
-                elif "fedora" in software_lower:
-                    source_url = self.eol_urls.get("fedora")
-                else:
-                    source_url = self.eol_urls.get("rhel", "https://access.redhat.com/support/policy/updates/errata/")
-            
-            await self.cosmos_cache.cache_response(software_name, version, self.agent_name, data, source_url=source_url)
-        except Exception as e:
-            logger.error(f"Error caching data: {e}")
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
-        """Purge cached data for specific software or all Red Hat cache"""
-        try:
-            if software_name:
-                cache_key = self._generate_cache_key(software_name, version)
-                return {"success": True, "deleted_count": 1, "message": f"Purged cache for {software_name}"}
-            else:
-                return {"success": True, "deleted_count": 0, "message": "Bulk purge not implemented"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Agent-level caching disabled - use eol_inventory for cache management"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
     
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get Red Hat EOL data through web scraping and static data with caching"""

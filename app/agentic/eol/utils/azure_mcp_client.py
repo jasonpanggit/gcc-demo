@@ -35,6 +35,23 @@ class AzureMCPClient:
         self._stdio_context = None
         self._session_context = None
         self._tool_name_map: Dict[str, str] = {}
+        self._auth_mode: Optional[str] = None
+
+    @staticmethod
+    def _resolve_auth_mode() -> str:
+        use_sp_flag = os.getenv("USE_SERVICE_PRINCIPAL")
+        sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
+        sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
+        tenant_id = os.getenv("AZURE_TENANT_ID")
+
+        if use_sp_flag is None:
+            use_sp = bool(sp_client_id and sp_client_secret and tenant_id)
+        else:
+            use_sp = use_sp_flag.lower() == "true"
+
+        if use_sp and sp_client_id and sp_client_secret and tenant_id:
+            return "service_principal"
+        return "managed_identity"
         
     async def initialize(self) -> bool:
         """
@@ -66,6 +83,7 @@ class AzureMCPClient:
                 use_sp = use_sp_flag.lower() == "true"
             
             if use_sp and sp_client_id and sp_client_secret and tenant_id:
+                self._auth_mode = "service_principal"
                 logger.info("🔐 Using Service Principal authentication for Azure MCP Server")
                 # Set Azure SDK environment variables for service principal auth
                 mcp_env["AZURE_CLIENT_ID"] = sp_client_id
@@ -79,6 +97,7 @@ class AzureMCPClient:
                         "Service Principal authentication requested but credentials are incomplete; "
                         "falling back to Managed Identity"
                     )
+                self._auth_mode = "managed_identity"
                 logger.info("🔐 Using Managed Identity authentication for Azure MCP Server")
                 # For Managed Identity, ensure CLIENT_ID is set if available
                 managed_identity_client_id = os.getenv("MANAGED_IDENTITY_CLIENT_ID")
@@ -180,6 +199,10 @@ class AzureMCPClient:
     def is_initialized(self) -> bool:
         """Check if the client is initialized."""
         return self._initialized
+
+    def get_auth_mode(self) -> str:
+        """Return the resolved authentication mode for the MCP server."""
+        return self._auth_mode or self._resolve_auth_mode()
     
     def get_available_tools(self) -> List[Dict[str, Any]]:
         """

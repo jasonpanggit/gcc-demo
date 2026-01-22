@@ -45,6 +45,7 @@ class UrlStats:
     request_count: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
+    records_extracted: int = 0
     total_response_time_ms: float = 0.0
     min_response_time_ms: float = float('inf')
     max_response_time_ms: float = 0.0
@@ -93,7 +94,7 @@ class AgentPerformanceStats:
         return self.total_response_time_ms / self.request_count
     
     def record_request(self, response_time_ms: float, was_cache_hit: bool = False, 
-                      had_error: bool = False, url: str = ""):
+                      had_error: bool = False, url: str = "", records_extracted: int = 0):
         """Record a request with its performance metrics"""
         self.request_count += 1
         self.total_response_time_ms += response_time_ms
@@ -116,6 +117,8 @@ class AgentPerformanceStats:
             
             url_stat = self.url_stats[url]
             url_stat.request_count += 1
+            if records_extracted:
+                url_stat.records_extracted += records_extracted
             url_stat.total_response_time_ms += response_time_ms
             url_stat.min_response_time_ms = min(url_stat.min_response_time_ms, response_time_ms)
             url_stat.max_response_time_ms = max(url_stat.max_response_time_ms, response_time_ms)
@@ -165,6 +168,7 @@ class CacheStatsManager:
             software_name = ""
             version = ""
             error_message = ""
+            records_extracted = 0
             
             # Handle different calling patterns
             if len(args) >= 1:
@@ -214,9 +218,20 @@ class CacheStatsManager:
                 version = kwargs['version']
             if 'error_message' in kwargs:
                 error_message = kwargs['error_message']
+            if 'records_extracted' in kwargs:
+                try:
+                    records_extracted = int(kwargs['records_extracted'])
+                except (TypeError, ValueError):
+                    records_extracted = 0
             
             # Update agent-specific stats
-            self.agent_stats[agent_name].record_request(response_time_ms, was_cache_hit, had_error, url)
+            self.agent_stats[agent_name].record_request(
+                response_time_ms,
+                was_cache_hit,
+                had_error,
+                url,
+                records_extracted,
+            )
             
             # Update global performance metrics
             self.performance_metrics["total_requests_served"] += 1
@@ -325,6 +340,7 @@ class CacheStatsManager:
                             "error_rate": url_stat.error_rate,
                             "cache_hits": url_stat.cache_hits,
                             "cache_misses": url_stat.cache_misses,
+                            "records_extracted": url_stat.records_extracted,
                             "error_count": url_stat.error_count,
                             "last_accessed": url_stat.last_accessed
                         } for url, url_stat in stats.url_stats.items()

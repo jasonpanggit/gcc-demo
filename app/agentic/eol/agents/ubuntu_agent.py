@@ -18,8 +18,6 @@ import os
 import hashlib
 
 try:
-    # Use the shared EOL cache singleton for agent-level caching
-    from utils.eol_cache import eol_cache
     from utils.logger import get_logger
     logger = get_logger(__name__)
 except ImportError:
@@ -35,10 +33,6 @@ except ImportError:
         def record_agent_request(self, agent_name, url, response_time=None, success=True, error_message=None):
             pass
     cache_stats_manager = DummyCacheStatsManager()
-except ImportError:
-    import logging
-    logger = logging.getLogger(__name__)
-    eol_cache = None
 
 
 class UbuntuEOLAgent(BaseEOLAgent):
@@ -54,65 +48,65 @@ class UbuntuEOLAgent(BaseEOLAgent):
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        # Cosmos caching enabled
-        self.cache_duration_hours = 24 * 30  # 30 days
-        # Per-instance reference to shared cache
-        self.cosmos_cache = eol_cache
+        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
+        self.cache_duration_hours = 24 * 30  # 30 days (reference only)
+        self.cosmos_cache = None
 
         # Ubuntu EOL URLs with metadata (single source of truth)
         self.eol_urls = {
             "ubuntu": {
-                "url": "https://wiki.ubuntu.com/Releases",
+                "url": "https://documentation.ubuntu.com/project/release-team/list-of-releases/",
                 "description": "Ubuntu Releases Wiki",
                 "active": True,
                 "priority": 1
             },
-            "ubuntu-releases": {
-                "url": "https://ubuntu.com/about/release-cycle",
-                "description": "Ubuntu Release Cycle",
-                "active": True,
-                "priority": 2
-            }
+            # "ubuntu-releases": {
+            #     "url": "https://ubuntu.com/about/release-cycle",
+            #     "description": "Ubuntu Release Cycle",
+            #     "active": True,
+            #     "priority": 2
+            # }
         }
 
         # Static EOL data for Ubuntu releases (subset)
+        # NOTE: Static data usage is disabled; using live release table instead.
         self.static_eol_data = {
-            "ubuntu-16.04": {
-                "cycle": "16.04 LTS",
-                "codename": "Xenial Xerus",
-                "releaseDate": "2016-04-21",
-                "eol": "2024-04-21",
-                "support": "2021-04-21",
-                "extendedSupport": "2026-04-21",
-                "lts": True,
-                "latest": "16.04.7",
-                "source": "ubuntu_official",
-                "confidence": 90.0
-            },
-            "ubuntu-18.04": {
-                "cycle": "18.04 LTS",
-                "codename": "Bionic Beaver",
-                "releaseDate": "2018-04-26",
-                "eol": "2028-04-26",
-                "support": "2023-04-26",
-                "extendedSupport": "2030-04-26",
-                "lts": True,
-                "latest": "18.04.6",
-                "source": "ubuntu_official",
-                "confidence": 90.0
-            },
-            "ubuntu-20.04": {
-                "cycle": "20.04 LTS",
-                "codename": "Focal Fossa",
-                "releaseDate": "2020-04-23",
-                "eol": "2030-04-23",
-                "support": "2025-04-23",
-                "extendedSupport": "2032-04-23",
-                "lts": True,
-                "latest": "20.04.6",
-                "source": "ubuntu_official",
-                "confidence": 90.0
-            }
+            # "ubuntu-16.04": {
+            #     "cycle": "16.04 LTS",
+            #     "codename": "Xenial Xerus",
+            #     "releaseDate": "2016-04-21",
+            #     "eol": "2024-04-21",
+            #     "support": "2021-04-21",
+            #     "extendedSupport": "2026-04-21",
+            #     "lts": True,
+            #     "latest": "16.04.7",
+            #     "source": "ubuntu_official",
+            #     "confidence": 90.0
+            # },
+            # "ubuntu-18.04": {
+            #     "cycle": "18.04 LTS",
+            #     "codename": "Bionic Beaver",
+            #     "releaseDate": "2018-04-26",
+            #     "eol": "2028-04-26",
+            #     "support": "2023-04-26",
+            #     "extendedSupport": "2030-04-26",
+            #     "lts": True,
+            #     "latest": "18.04.6",
+            #     "source": "ubuntu_official",
+            #     "confidence": 90.0
+            # },
+            # "ubuntu-20.04": {
+            #     "cycle": "20.04 LTS",
+            #     "codename": "Focal Fossa",
+            #     "releaseDate": "2020-04-23",
+            #     "eol": "2030-04-23",
+            #     "support": "2025-04-23",
+            #     "extendedSupport": "2032-04-23",
+            #     "lts": True,
+            #     "latest": "20.04.6",
+            #     "source": "ubuntu_official",
+            #     "confidence": 90.0
+            # }
         }
 
     @property
@@ -139,25 +133,75 @@ class UbuntuEOLAgent(BaseEOLAgent):
         return hashlib.md5(key_data.encode()).hexdigest()
 
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Get cached data from Cosmos DB if available"""
-        if self.cosmos_cache:
-            return await self.cosmos_cache.get_cached_response(software_name, version, self.agent_name)
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
         return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], source_url: Optional[str] = None):
-        """Cache data to Cosmos DB if confidence is high enough"""
-        if self.cosmos_cache and data:
-            if not source_url:
-                # Default to Ubuntu releases URL
-                source_url = self.eol_urls.get("ubuntu", "https://wiki.ubuntu.com/Releases")
-            
-            await self.cosmos_cache.cache_response(software_name, version, self.agent_name, data, source_url=source_url)
+        """Agent-level caching disabled - eol_inventory is the single source of truth"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
-        """Purge cached data for specific software or all Ubuntu cache"""
-        if self.cosmos_cache:
-            return await self.cosmos_cache.clear_cache(software_name=software_name, agent_name=self.agent_name)
-        return {"success": True, "deleted_count": 0, "message": "Caching not available"}
+        """Agent-level caching disabled - use eol_inventory for cache management"""
+        # Cosmos caching consolidated to orchestrator via eol_inventory
+        return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
+
+    async def fetch_all_from_url(self, url: str, software_hint: str, version: Optional[str] = None) -> list[Dict[str, Any]]:
+        """Download an Ubuntu releases page and extract all EOL rows from HTML."""
+        start_time = datetime.now()
+        try:
+            cache_stats_manager.record_agent_request(
+                agent_name="ubuntu",
+                url=url,
+                start_time=start_time,
+            )
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
+
+            soup = BeautifulSoup(response.content, "html.parser")
+            parsed_releases = self._parse_ubuntu_releases(soup)
+
+            records: list[Dict[str, Any]] = []
+            for release in parsed_releases:
+                records.append({
+                    "software_name": software_hint or "ubuntu",
+                    "version": release.get("cycle", "unknown"),
+                    "cycle": release.get("cycle", ""),
+                    "codename": release.get("codename", ""),
+                    "eol": release.get("eol"),
+                    "support": release.get("support"),
+                    "releaseDate": release.get("releaseDate"),
+                    "lts": release.get("lts", False),
+                    "confidence": 0.95,
+                    "source": "ubuntu_official_scraped",
+                })
+
+            cache_stats_manager.record_agent_request(
+                agent_name="ubuntu",
+                url=url,
+                response_time_ms=response_time_ms,
+                success=True,
+                status_code=response.status_code,
+                records_extracted=len(records),
+            )
+
+            return records
+
+        except Exception as exc:  # pragma: no cover - network errors
+            response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
+            cache_stats_manager.record_agent_request(
+                agent_name="ubuntu",
+                url=url,
+                response_time_ms=response_time_ms,
+                success=False,
+                error_message=str(exc),
+            )
+            logger.error(f"Failed to fetch Ubuntu EOL data from {url}: {exc}")
+            return []
 
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get Ubuntu EOL data through web scraping and static data with caching"""
@@ -171,46 +215,86 @@ class UbuntuEOLAgent(BaseEOLAgent):
         if cached_data:
             return cached_data
 
-        # Check static data first for accuracy and speed
-        static_result = self._check_static_data(software_name, version)
-        if static_result:
-            result = self.create_success_response(
-                software_name=software_name,
-                version=version or static_result.get("cycle", "unknown"),
-                eol_date=static_result.get("eol", ""),
-                support_end_date=static_result.get("support", ""),
-                confidence=static_result.get("confidence", 90) / 100.0,  # Convert to decimal
-                source_url=self.eol_urls["ubuntu"],
-                additional_data={
-                    "cycle": static_result.get("cycle", ""),
-                    "extended_support": static_result.get("extendedSupport", False),
-                    "agent": "ubuntu",
-                    "data_source": "ubuntu_static_data"
-                }
-            )
-            await self._cache_data(software_name, version, result, source_url=self.eol_urls["ubuntu"])
-            return result
+        # Static data usage disabled; rely on live release list
+        # static_result = self._check_static_data(software_name, version)
+        # if static_result:
+        #     result = self.create_success_response(
+        #         software_name=software_name,
+        #         version=version or static_result.get("cycle", "unknown"),
+        #         eol_date=static_result.get("eol", ""),
+        #         support_end_date=static_result.get("support", ""),
+        #         confidence=static_result.get("confidence", 90) / 100.0,  # Convert to decimal
+        #         source_url=self.eol_urls["ubuntu"],
+        #         additional_data={
+        #             "cycle": static_result.get("cycle", ""),
+        #             "extended_support": static_result.get("extendedSupport", False),
+        #             "agent": "ubuntu",
+        #             "data_source": "ubuntu_static_data"
+        #         }
+        #     )
+        #     await self._cache_data(software_name, version, result, source_url=self.eol_urls["ubuntu"])
+        #     return result
 
         # Try web scraping for latest information
-        scraped_result = await self._scrape_eol_data(software_name, version)
-        if scraped_result:
-            result = self.create_success_response(
-                software_name=software_name,
-                version=version or scraped_result.get("cycle", "unknown"),
-                eol_date=scraped_result.get("eol", ""),
-                support_end_date=scraped_result.get("support", ""),
-                confidence=0.75,  # Lower confidence for scraped data
-                source_url=self.eol_urls["ubuntu"],
-                additional_data={
-                    "cycle": scraped_result.get("cycle", ""),
-                    "extended_support": scraped_result.get("extendedSupport", False),
+        scraped_results = await self._scrape_eol_data(software_name, version)
+        if scraped_results:
+            # If no version specified, return all releases for vendor parsing
+            if not version:
+                # Return all releases as a list response
+                all_releases_response = []
+                for release in scraped_results:
+                    release_entry = self.create_success_response(
+                        software_name=software_name,
+                        version=release.get("cycle", "unknown"),
+                        eol_date=release.get("eol", ""),
+                        support_end_date=release.get("support", ""),
+                        release_date=release.get("releaseDate", ""),
+                        confidence=0.85,
+                        source_url=self.eol_urls["ubuntu"],
+                        additional_data={
+                            "cycle": release.get("cycle", ""),
+                            "codename": release.get("codename", ""),
+                            "lts": release.get("lts", False),
+                            "agent": "ubuntu",
+                            "data_source": "ubuntu_scraped",
+                        }
+                    )
+                    all_releases_response.append(release_entry)
+                
+                # Return as multi-result response
+                return {
+                    "success": True,
+                    "software_name": software_name,
+                    "version": "all",
+                    "results": all_releases_response,
+                    "total_count": len(all_releases_response),
                     "agent": "ubuntu",
-                    "data_source": "ubuntu_scraped"
+                    "data_source": "ubuntu_scraped",
                 }
-            )
-            # Cache the web scraping result
-            await self._cache_data(software_name, version, result, source_url=self.eol_urls["ubuntu"])
-            return result
+            
+            # If version specified, return single matched release
+            matched = self._select_release(scraped_results, version)
+            if matched:
+                result = self.create_success_response(
+                    software_name=software_name,
+                    version=matched.get("cycle") or version or "unknown",
+                    eol_date=matched.get("eol", ""),
+                    support_end_date=matched.get("support", ""),
+                    release_date=matched.get("releaseDate", ""),
+                    confidence=0.85,  # Scraped data from official source
+                    source_url=self.eol_urls["ubuntu"],
+                    additional_data={
+                        "cycle": matched.get("cycle", ""),
+                        "codename": matched.get("codename", ""),
+                        "extended_support": matched.get("extendedSupport", False),
+                        "agent": "ubuntu",
+                        "data_source": "ubuntu_scraped",
+                        "all_releases": scraped_results,
+                    }
+                )
+                # Cache the web scraping result
+                await self._cache_data(software_name, version, result, source_url=self.eol_urls["ubuntu"])
+                return result
 
         return self.create_failure_response(
             f"No EOL information found for {software_name}" + (f" version {version}" if version else ""),
@@ -343,7 +427,7 @@ class UbuntuEOLAgent(BaseEOLAgent):
             cache_stats_manager.record_agent_request("ubuntu", url, response_time, success=True)
 
             soup = BeautifulSoup(response.content, 'html.parser')
-            return self._parse_ubuntu_releases(soup, version)
+            return self._parse_ubuntu_releases(soup)
 
         except Exception as e:
             # Record failed request for statistics tracking
@@ -355,11 +439,13 @@ class UbuntuEOLAgent(BaseEOLAgent):
             logger.debug(f"Error scraping Ubuntu EOL data: {e}")
             return None
 
-    def _parse_ubuntu_releases(self, soup: BeautifulSoup, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def _parse_ubuntu_releases(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """Parse Ubuntu releases information from wiki"""
         try:
             # Look for tables containing release information
             tables = soup.find_all('table')
+
+            releases: List[Dict[str, Any]] = []
 
             for table in tables:
                 # Check if this table contains release information
@@ -371,60 +457,87 @@ class UbuntuEOLAgent(BaseEOLAgent):
 
                 for row in rows:
                     cells = row.find_all(['td', 'th'])
-                    if len(cells) >= 4:
-                        # Look for version information
-                        version_cell = cells[0].get_text().strip()
+                    if len(cells) < 5:
+                        continue
 
-                        if version:
-                            version_normalized = self._normalize_version(version)
-                            if version_normalized not in version_cell:
-                                continue
+                    version_cell = cells[0].get_text().strip()
+                    if not version_cell or version_cell.lower() == "version":
+                        continue
+                    
+                    # Remove "Ubuntu" prefix from version
+                    version_cell = version_cell.replace("Ubuntu", "").strip()
 
-                        # Extract information from cells
-                        codename = cells[1].get_text().strip() if len(cells) > 1 else ""
-                        release_date = cells[2].get_text().strip() if len(cells) > 2 else ""
-                        eol_date = cells[3].get_text().strip() if len(cells) > 3 else ""
+                    codename = cells[1].get_text().strip() if len(cells) > 1 else ""
+                    release_date = cells[2].get_text().strip() if len(cells) > 2 else ""
+                    end_standard_support = cells[3].get_text().strip() if len(cells) > 3 else ""
+                    end_of_life = cells[4].get_text().strip() if len(cells) > 4 else ""
 
-                        # Parse dates
-                        release_date_iso = self._parse_date(release_date)
-                        eol_date_iso = self._parse_date(eol_date)
+                    release_date_iso = self._parse_date(release_date)
+                    support_date_iso = self._parse_date(end_standard_support)
+                    eol_date_iso = self._parse_date(end_of_life)
 
-                        if eol_date_iso:
-                            is_lts = "LTS" in version_cell
+                    is_lts = "LTS" in version_cell
 
-                            return {
-                                "cycle": version_cell,
-                                "codename": codename,
-                                "releaseDate": release_date_iso,
-                                "eol": eol_date_iso,
-                                "lts": is_lts,
-                                "source": "ubuntu_official_scraped"
-                            }
+                    releases.append({
+                        "cycle": version_cell,
+                        "codename": codename,
+                        "releaseDate": release_date_iso,
+                        "support": support_date_iso,
+                        "eol": eol_date_iso,
+                        "lts": is_lts,
+                        "source": "ubuntu_official_scraped",
+                    })
 
-            return None
+            return releases
 
         except Exception as e:
             logger.debug(f"Error parsing Ubuntu releases: {e}")
+            return []
+
+    def _select_release(self, releases: List[Dict[str, Any]], version: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not releases:
             return None
+
+        if version:
+            version_normalized = self._normalize_version(version)
+            for release in releases:
+                cycle = release.get("cycle", "")
+                if version_normalized and version_normalized in cycle:
+                    return release
+
+        # Default to latest by release date
+        def sort_key(item: Dict[str, Any]) -> str:
+            return item.get("releaseDate") or ""
+
+        sorted_releases = sorted(releases, key=sort_key, reverse=True)
+        return sorted_releases[0] if sorted_releases else None
 
     def _parse_date(self, date_str: str) -> Optional[str]:
         """Parse various date formats to ISO format"""
-        if not date_str or date_str.lower() in ['tbd', 'unknown', '-', '']:
+        if not date_str or date_str.lower() in ['tbd', 'unknown', '-', '', 'n/a']:
             return None
 
         try:
+            date_str = date_str.strip()
+            
+            # Handle year-only format (e.g., "2025") - assume January 1st
+            if re.match(r'^\d{4}$', date_str):
+                return f"{date_str}-01-01"
+            
             # Handle different date formats
             date_patterns = [
                 '%Y-%m-%d',      # 2024-04-25
                 '%d %B %Y',      # 25 April 2024
                 '%B %d, %Y',     # April 25, 2024
                 '%Y/%m/%d',      # 2024/04/25
-                '%d/%m/%Y'       # 25/04/2024
+                '%d/%m/%Y',      # 25/04/2024
+                '%b %Y',         # Oct 2024
+                '%B %Y',         # October 2024
             ]
 
             for pattern in date_patterns:
                 try:
-                    date_obj = datetime.strptime(date_str.strip(), pattern)
+                    date_obj = datetime.strptime(date_str, pattern)
                     return date_obj.strftime('%Y-%m-%d')
                 except ValueError:
                     continue

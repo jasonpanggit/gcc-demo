@@ -36,6 +36,30 @@ The application uses a sophisticated multi-agent architecture:
 - **`EOLOrchestratorAgent`**: Coordinates EOL data gathering from specialized agents
    - Constructor now accepts injected `agents`, optional `vendor_routing`, and a `close_provided_agents` flag for precise test control.
    - Implements async `aclose()` plus context manager support so FastAPI and tests can release owned resources deterministically.
+   - Uses shared Agent Framework client factory and ChatOptions defaults so both MCP and inventory assistants align on temperature, max tokens, and tool-call behavior.
+- **`MCPOrchestratorAgent`**: Builds on the Microsoft Agent Framework with Azure MCP tools (Azure, CLI, OS/Inventory MCP). Uses shared chat client factory, unified ChatOptions (multi-tool calls enabled), and lightweight request logging for diagnostics.
+
+##### How the Microsoft Agent Framework is used per orchestrator
+- **AgentFrameworkChatOrchestrator (inventory assistant)**: Runs on the Microsoft Agent Framework chat client (AzureOpenAIChatClient) with shared ChatOptions defaults (temperature/max tokens/tool-call allowance). It dispatches MCP tools and inventory tools via built-in tool-calling, keeping conversational state and response formatting inside the framework’s turn pipeline.
+- **MCPOrchestratorAgent (multi-tool orchestration)**: Also uses the Microsoft Agent Framework chat client and the same ChatOptions builder. It exposes MCP tool sets (Azure, CLI, OS/Inventory) to the framework, allowing multi-tool calls in a single turn; request logging is captured through the shared client factory for observability.
+- **EOLOrchestratorAgent (EOL search)**: Uses the classic in-process agent runner for vendor/Playwright calls and does not invoke the Microsoft Agent Framework chat client. It still benefits from the shared config patterns (timeouts, routing, cache) but runs agents directly for speed and deterministic merging of EOL results.
+
+##### Orchestrator execution flow
+- **AgentFrameworkChatOrchestrator (inventory assistant):**
+   1) Receive chat turn ➜ build ChatOptions (temperature/max tokens, allow multiple tool calls) via shared factory.
+   2) Route user intent through the Microsoft Agent Framework ➜ tool-calling resolves to inventory and MCP-exposed tools.
+   3) Framework executes tool calls (e.g., inventory lookups) and streams responses; chat client manages turn state and formatting.
+   4) Return composed answer plus tool outputs; lightweight request logging flows through the shared client factory.
+- **MCPOrchestratorAgent (multi-tool MCP orchestration):**
+   1) Start with the same ChatOptions and chat client; register MCP servers/tools (Azure, CLI, OS/Inventory) with tool-calling enabled.
+   2) Framework selects and calls one or many MCP tools in a turn; outputs are collated by the framework.
+   3) Logs/telemetry captured via the shared client factory; responses streamed back in the chat format the framework provides.
+- **EOLOrchestratorAgent (agent fan-out for EOL search):**
+   1) Normalize input → check caches (Cosmos) unless bypassed by internet or ignore-cache flags.
+   2) Route to vendor-specific agents; optionally include Playwright for internet search or run internet-only.
+   3) Fan out async to agents with timeouts; in agents+internet mode wait for all (including Playwright), then score/select best by confidence.
+   4) Attach per-agent outcomes (`agents_considered` and `agent_comparisons`), communications log, elapsed time; persist to Cosmos when confidence is high and cache writes allowed.
+   5) Return unified result for the UI to show both the selected agent and the side-by-side comparisons.
 
 #### Inventory Agents
 - **`InventoryAgent`**: Provides summary and coordination for inventory data
@@ -74,7 +98,7 @@ The system uses intelligent agent routing based on:
 - **FastAPI 0.112.x**: High-performance async web framework
 - **Python 3.11+**: Core runtime environment
 - **Azure SDK**: Integration with Azure services (Identity, Monitor Query, Cosmos DB)
-- **Microsoft Agent Framework 1.0.0b251112**: Preview multi-agent conversation framework
+- **Microsoft Agent Framework 1.0.0b260107**: Preview multi-agent conversation framework
 - **Pydantic 2.x**: Data validation and serialization
 
 ### AI & Web Automation
@@ -88,6 +112,11 @@ The system uses intelligent agent routing based on:
 - **Multi-level Caching**: In-memory + Cosmos DB with intelligent cache management
 - **Cache Statistics Manager**: Real-time performance monitoring and metrics
 - **Alert Manager**: EOL alert configuration and SMTP notifications
+
+#### Cache Precedence & Observability
+- Cache order: Cosmos `eol_table` ➜ in-process session cache ➜ agents (Playwright fallback last)
+- TTL-aware: `eol_table` container enforces TTL at creation; entries expire server-side
+- Metrics endpoints: `/api/eol-cache-stats` (hits/misses, memory cache) and `/api/eol-latency` (p50/p95/avg agent timing with recent samples)
 
 ### Frontend
 - **Jinja2 Templates**: Server-side rendering with dynamic data
@@ -178,6 +207,10 @@ app/agentic/eol/
 - ✅ Improved code organization and maintainability
 - ✅ Enhanced testability with isolated modules
 - ✅ Maintained 100% backward compatibility
+- ✅ Unified Agent Framework client creation via `utils/agent_framework_clients.py` (shared AzureOpenAIChatClient factory and ChatOptions builder)
+- ✅ MCP and inventory assistant orchestrators now use shared chat options (allow_multiple_tool_calls toggle, temperature/max token defaults) with lightweight request logging
+- ✅ FastAPI app now uses lifespan context instead of deprecated on_event hooks
+- ✅ Template rendering updated to new Jinja2 request-first signature
 
 ## ⚡ Quick Start
 
@@ -237,6 +270,11 @@ AZURE_OPENAI_API_KEY=your-openai-key              # Required
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4                # GPT-4 deployment name
 AZURE_OPENAI_MODEL=gpt-4                          # Model version
+AGENT_FRAMEWORK_TEMPERATURE=0.2                   # Optional default for Agent Framework chat
+AGENT_FRAMEWORK_MAX_TOKENS=900                    # Optional default max tokens for Agent Framework chat
+INVENTORY_ASSISTANT_TEMPERATURE=0.2               # Optional override for inventory assistant
+INVENTORY_ASSISTANT_MAX_TOKENS=900                # Optional override for inventory assistant
+MCP_AGENT_MAX_TOKENS=900                          # Optional override for MCP orchestrator
 
 # Azure Cosmos DB (Optional - for persistent caching and communications)
 COSMOS_ENDPOINT=your-cosmos-endpoint
@@ -335,6 +373,13 @@ EOL_SEARCH_TIMEOUT=15
 CACHE_TTL_SECONDS=3600
 MAX_CACHE_SIZE=1000
 
+# Agent Framework chat defaults (shared)
+AGENT_FRAMEWORK_TEMPERATURE=0.2
+AGENT_FRAMEWORK_MAX_TOKENS=900
+MCP_AGENT_MAX_TOKENS=900
+INVENTORY_ASSISTANT_TEMPERATURE=0.2
+INVENTORY_ASSISTANT_MAX_TOKENS=900
+
 # Concurrency Limits
 MAX_CONCURRENT_AGENTS=10
 MAX_PARALLEL_REQUESTS=5
@@ -348,6 +393,7 @@ The intelligent EOL search system supports:
 - **Early Termination**: High-confidence results stop additional searches
 - **Agent Prioritization**: Vendor-specific agents prioritized over generic ones
 - **Fallback Strategies**: Multiple search strategies for comprehensive coverage
+- **Shared Chat Defaults**: Both inventory assistant and MCP orchestrator use the same ChatOptions builder for consistent temperature, max tokens, and tool-call settings
 
 ## 📊 API Endpoints
 

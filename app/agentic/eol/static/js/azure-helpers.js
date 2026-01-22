@@ -83,25 +83,37 @@ export function getAzurePortalLink(item, subscriptionId = '', resourceGroup = ''
  * @returns {string} HTML string for badge
  */
 export function getComputerTypeBadge(item) {
-    const computerType = item.computer_type || 'Unknown';
-    const resourceId = item.resource_id || '';
-    const computerEnvironment = item.computer_environment || 'Unknown';
+    const rawType = item.computer_type || 'Unknown';
+    const rawEnv = item.computer_environment || 'Unknown';
+    const rawResourceId = item.resource_id || '';
+    const rawName = item.computer || '';
 
-    switch (computerEnvironment) {
-        case 'Azure':
-            return `<span class="badge bg-primary text-light" title="Azure Virtual Machine">
-                    <i class="fas fa-cloud me-1"></i>Azure VM
-                </span>`;
-        case 'Non-Azure':
-            return `<span class="badge bg-success text-light" title="Arc-enabled Server">
-                    <i class="fas fa-server me-1"></i>Non-Azure VM
-                </span>`;
-        default:
-            // Fallback for unknown types
-            return `<span class="badge bg-secondary text-light" title="Unknown Computer Type">
-                    <i class="fas fa-question me-1"></i>Unknown
+    const computerType = rawType.toLowerCase();
+    const computerEnvironment = rawEnv.toLowerCase();
+    const resourceId = rawResourceId.toLowerCase();
+    const computerName = rawName.toLowerCase();
+    
+    const isArcByResource = resourceId.includes('/microsoft.hybridcompute/machines/');
+    const isAzureVmByResource = resourceId.includes('/microsoft.compute/virtualmachines/');
+
+    const isArc = isArcByResource
+    const isAzureVm = isAzureVmByResource
+
+    if (isArcByResource) {
+        return `<span class="badge bg-success text-light">
+                    <i class="fas fa-server me-1"></i>Arc-enabled
                 </span>`;
     }
+
+    else {
+        return `<span class="badge bg-primary text-light">
+                    <i class="fas fa-cloud me-1"></i>Azure VM
+                </span>`;
+    }
+
+    return `<span class="badge bg-secondary text-light">
+                <i class="fas fa-question me-1"></i>Unknown
+            </span>`;
 }
 
 /**

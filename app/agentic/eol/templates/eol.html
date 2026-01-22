@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Software EOL Search - Azure Agentic Platform{% endblock %}
+{% block title %}EOL Date Search Assistant - Azure Agentic Platform{% endblock %}
 
 {% block extra_head %}
 <!-- Note: agent-config.js is already included in base.html -->
@@ -30,12 +30,11 @@ Legacy format handling has been removed as all agents now use the standardized f
 {% block content %}
 <!-- Hero Section -->
 <div class="hero-section">
-    <div class="hero-section::before"></div>
     <div class="hero-content">
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-search me-3"></i>Software End-of-Life Search
+                    <span class="hero-icon me-3"><i class="fas fa-search"></i></span>EOL Date Search Assistant
                 </h1>
                 <p class="hero-subtitle">
                     Discover software end-of-life information using our intelligent orchestrator system.
@@ -621,17 +620,49 @@ Legacy format handling has been removed as all agents now use the standardized f
                                 <div class="form-text">&nbsp;</div>
                             </div>
 
-                            <!-- Search Internet Only Option -->
+                            <!-- Search Mode Options -->
                             <div class="col-12 mt-3">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="searchInternetOnly" style="cursor: pointer;">
-                                    <label class="form-check-label" for="searchInternetOnly" style="cursor: pointer;">
-                                        <i class="fas fa-globe me-1"></i>
-                                        <strong>Search Internet Only</strong>
-                                        <small class="text-muted d-block ms-4">
-                                            Use web search to find EOL information (bypasses specialized agents)
-                                        </small>
-                                    </label>
+                                <div class="d-flex flex-column flex-md-row flex-wrap align-items-start gap-3">
+                                    <div class="form-check form-switch me-md-3">
+                                        <input class="form-check-input" type="checkbox" id="searchAgentsOnly" style="cursor: pointer;">
+                                        <label class="form-check-label" for="searchAgentsOnly" style="cursor: pointer;">
+                                            <i class="fas fa-robot me-1"></i>
+                                            <strong>Agents Only</strong>
+                                            <small class="text-muted d-block ms-4">
+                                                Use specialized agents only (fastest)
+                                            </small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch me-md-3">
+                                        <input class="form-check-input" type="checkbox" id="searchIncludeInternet" style="cursor: pointer;" checked>
+                                        <label class="form-check-label" for="searchIncludeInternet" style="cursor: pointer;">
+                                            <i class="fas fa-globe-asia me-1"></i>
+                                            <strong>Agents + Web Search (default)</strong>
+                                            <small class="text-muted d-block ms-4">
+                                                Use agents and web search together, show all results found and provide the best (slowest)
+                                            </small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch me-md-3">
+                                        <input class="form-check-input" type="checkbox" id="searchInternetOnly" style="cursor: pointer;">
+                                        <label class="form-check-label" for="searchInternetOnly" style="cursor: pointer;">
+                                            <i class="fas fa-globe me-1"></i>
+                                            <strong>Web Search Only</strong>
+                                            <small class="text-muted d-block ms-4">
+                                                Use web search only (slow)
+                                            </small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch me-md-3">
+                                        <input class="form-check-input" type="checkbox" id="searchIgnoreCache" style="cursor: pointer;">
+                                        <label class="form-check-label" for="searchIgnoreCache" style="cursor: pointer;">
+                                            <i class="fas fa-ban me-1"></i>
+                                            <strong>Ignore Cache</strong>
+                                            <small class="text-muted d-block ms-4">
+                                                Bypass cached results and query sources fresh
+                                            </small>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 
@@ -908,6 +939,14 @@ Legacy format handling has been removed as all agents now use the standardized f
                     const agentIcon = getAgentIcon(agentUsed);
                     const agentColor = getAgentColor(agentUsed);
                     const responseTime = search.response_time ? Math.round(search.response_time * 1000) : 0;
+                    const internetOnlyFlag = search.search_internet_only || search.searchInternetOnly || search.search_mode === 'internet_only';
+                    const includeInternetFlag = search.search_include_internet || search.searchIncludeInternet || search.search_mode === 'agents_plus_internet';
+                    const agentOnlyFlag = search.search_agent_only || search.searchAgentOnly || search.search_mode === 'agent_only' || (!internetOnlyFlag && !includeInternetFlag);
+                    const searchModeBadge = internetOnlyFlag ?
+                        '<span class="badge bg-info text-dark ms-2" style="font-size: 0.7em;">Internet Only</span>' :
+                        (includeInternetFlag ? '<span class="badge bg-primary text-light ms-2" style="font-size: 0.7em;">Agents + Internet</span>' : '<span class="badge bg-secondary text-light ms-2" style="font-size: 0.7em;">Agents Only</span>');
+
+                    const ignoreCacheBadge = search.search_ignore_cache ? '<span class="badge bg-dark text-light ms-2" style="font-size: 0.7em;">Ignore Cache</span>' : '';
 
                     // Truncate long software names for better display
                     const displayName = search.software_name.length > 30 ?
@@ -928,6 +967,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                                                 `<span class="badge bg-secondary text-light me-2" style="font-size: 0.7em;">${search.software_version}</span>` :
                                                 ''
                                             }
+                                            ${searchModeBadge}
+                                            ${ignoreCacheBadge}
                                             ${fromInventory ?
                                                 '<span class="badge bg-info text-dark" style="font-size: 0.7em;" title="Searched from inventory page"><i class="fas fa-list me-1"></i>Inventory</span>' :
                                                 ''
@@ -945,7 +986,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                                             '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>No data</span>'
                                         }
                                         <button class="btn btn-sm btn-outline-primary" 
-                                                onclick="repeatSearch('${search.software_name.replace(/'/g, "\\'")}', '${(search.software_version || '').replace(/'/g, "\\'")}')" 
+                                                onclick="repeatSearch('${search.software_name.replace(/'/g, "\\'")}', '${(search.software_version || '').replace(/'/g, "\\'")}', ${internetOnlyFlag ? 'true' : 'false'}, ${includeInternetFlag ? 'true' : 'false'}, ${agentOnlyFlag ? 'true' : 'false'}, ${search.search_ignore_cache ? 'true' : 'false'})" 
                                                 title="Repeat this search">
                                             <i class="fas fa-redo"></i>
                                         </button>
@@ -1529,10 +1570,31 @@ Legacy format handling has been removed as all agents now use the standardized f
                 searchData.software_version = softwareVersion;
             }
 
-            // Add search_internet_only flag if checkbox is checked
+            // Add search mode flags based on toggles
             const searchInternetOnlyCheckbox = document.getElementById('searchInternetOnly');
+            const searchIncludeInternetCheckbox = document.getElementById('searchIncludeInternet');
+            const searchAgentsOnlyCheckbox = document.getElementById('searchAgentsOnly');
+            const searchIgnoreCacheCheckbox = document.getElementById('searchIgnoreCache');
+
             if (searchInternetOnlyCheckbox && searchInternetOnlyCheckbox.checked) {
                 searchData.search_internet_only = true;
+            }
+
+            if (searchIncludeInternetCheckbox && searchIncludeInternetCheckbox.checked) {
+                searchData.search_include_internet = true;
+            }
+
+            // Explicitly mark agent-only when chosen (default)
+            const agentOnlySelected = searchAgentsOnlyCheckbox && searchAgentsOnlyCheckbox.checked &&
+                !(searchIncludeInternetCheckbox && searchIncludeInternetCheckbox.checked) &&
+                !(searchInternetOnlyCheckbox && searchInternetOnlyCheckbox.checked);
+
+            if (agentOnlySelected) {
+                searchData.search_agent_only = true;
+            }
+
+            if (searchIgnoreCacheCheckbox && searchIgnoreCacheCheckbox.checked) {
+                searchData.search_ignore_cache = true;
             }
 
             return searchData;
@@ -1667,6 +1729,33 @@ Legacy format handling has been removed as all agents now use the standardized f
                     </div>
                 `;
             }
+        }
+
+        // Summarize an agent comparison entry for side-by-side display
+        function summarizeAgentComparison(entry) {
+            if (!entry || typeof entry !== 'object') return null;
+            const payload = entry.result || {};
+            const dataBlock = payload.data && typeof payload.data === 'object' ? payload.data : payload;
+            const eolDate = dataBlock.eol_date || dataBlock.eol || null;
+            const supportEnd = dataBlock.support_end_date || dataBlock.support || null;
+            const agent = entry.agent || dataBlock.agent_used || dataBlock.source || 'unknown';
+            const softwareName = dataBlock.software_name || null;
+            const softwareVersion = dataBlock.version || null;
+            const confRaw = entry.confidence !== undefined ? entry.confidence : dataBlock.confidence;
+            const confidencePct = confRaw !== undefined ? (confRaw > 1 ? confRaw : Math.round(confRaw * 100)) : null;
+            const sourceUrl = extractSourceUrl(dataBlock.source_url) || extractSourceUrl(payload.source_url);
+
+            return {
+                agent,
+                softwareName,
+                softwareVersion,
+                confidencePct,
+                eolDate,
+                supportEnd,
+                sourceUrl,
+                error: entry.error || dataBlock.error,
+                duration: entry.duration,
+            };
         }
 
         // Display error in search results
@@ -1906,6 +1995,9 @@ Legacy format handling has been removed as all agents now use the standardized f
                 const releaseDate = result.release_date;
                 const status = result.status;
                 const riskLevel = result.risk_level;
+                const requestedVersion = searchData.software_version || '';
+                const requestedMajorOnly = requestedVersion && !requestedVersion.includes('.') && !requestedVersion.includes('-');
+                const minorVersions = Array.isArray(result.minor_versions) ? result.minor_versions : [];
                 // Handle confidence - could be decimal (0.95) or percentage (95)
                 let confidence = result.confidence;
                 if (!confidence || isNaN(confidence)) {
@@ -1958,6 +2050,23 @@ Legacy format handling has been removed as all agents now use the standardized f
                     </div>
                 </div>
                 <div class="card-body">
+                    <div class="mb-3">
+                        <small class="text-muted d-block">Matched Product (from response)</small>
+                        <strong>${result.software_name || 'Unknown'}${result.version && result.version !== 'unknown' ? ` ${result.version}` : ''}</strong>
+                        ${requestedMajorOnly && result.version && result.version !== 'unknown' && result.version !== requestedVersion ? `
+                            <div class="mt-1">
+                                <small class="text-muted">Requested version: ${requestedVersion} (showing ${result.version})</small>
+                            </div>
+                        ` : ''}
+                        ${requestedMajorOnly && minorVersions.length > 0 ? `
+                            <div class="mt-2">
+                                <small class="text-muted d-block">Other minor versions:</small>
+                                <div class="d-flex flex-wrap gap-2 mt-1">
+                                    ${minorVersions.map(v => `<span class="badge bg-light text-dark border">${v}</span>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
                     <div class="row">
                         <div class="col-md-3">
                             <div class="mb-2">
@@ -2054,6 +2163,79 @@ Legacy format handling has been removed as all agents now use the standardized f
                     html += generateAlternativeSourcesSection(result.all_sources, result.agent_used);
                 }
 
+                // Show per-agent comparisons when available (e.g., agents + internet)
+                const internetOnlyFlag = searchData.search_internet_only || searchData.searchInternetOnly || orchestratorResult.search_mode === 'internet_only' || searchData.search_mode === 'internet_only';
+                const includeInternetFlag = searchData.search_include_internet || searchData.searchIncludeInternet || orchestratorResult.search_mode === 'agents_plus_internet' || searchData.search_mode === 'agents_plus_internet';
+                const agentOnlyFlag = searchData.search_agent_only || searchData.searchAgentOnly || orchestratorResult.search_mode === 'agent_only' || searchData.search_mode === 'agent_only' || (!internetOnlyFlag && !includeInternetFlag);
+
+                const comparisonRaw = agentOnlyFlag ? [] : (Array.isArray(result.agent_comparisons)
+                    ? result.agent_comparisons
+                    : (Array.isArray(orchestratorResult.agent_comparisons)
+                        ? orchestratorResult.agent_comparisons
+                        : []));
+
+                const comparisonSummaries = comparisonRaw
+                    .map(summarizeAgentComparison)
+                    .filter(Boolean);
+
+                if (comparisonSummaries.length > 0) {
+                    const comparisonRows = comparisonSummaries.map(entry => {
+                        const nameText = entry.softwareName ? entry.softwareName : '<span class="text-muted">Unknown</span>';
+                        const versionText = entry.softwareVersion ? entry.softwareVersion : '<span class="text-muted">N/A</span>';
+                        const eolText = entry.eolDate || '<span class="text-muted">Not found</span>';
+                        const supportText = entry.supportEnd || '<span class="text-muted">Not found</span>';
+                        const confText = entry.confidencePct !== null && entry.confidencePct !== undefined
+                            ? `${Math.round(entry.confidencePct)}%`
+                            : 'N/A';
+                        const sourceLink = entry.sourceUrl
+                            ? `<a href="${entry.sourceUrl}" target="_blank" class="text-decoration-none">Link</a>`
+                            : '<span class="text-muted">None</span>';
+                        const errorText = entry.error ? `<span class="text-danger">${entry.error}</span>` : '';
+                        return `
+                            <tr>
+                                <td>${getAgentBadge(entry.agent)}</td>
+                                <td>${nameText}</td>
+                                <td>${versionText}</td>
+                                <td>${confText}</td>
+                                <td>${eolText}</td>
+                                <td>${supportText}</td>
+                                <td>${sourceLink}</td>
+                                <td>${errorText}</td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="fas fa-balance-scale"></i> Agent vs. Web Search Results</h6>
+                                <small class="text-muted">Compare all agent outputs considered for this query</small>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive mb-0">
+                                    <table class="table table-sm mb-0 align-middle">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 12%">Agent</th>
+                                                <th style="width: 18%">Software</th>
+                                                <th style="width: 10%">Version</th>
+                                                <th style="width: 10%">Confidence</th>
+                                                <th style="width: 16%">EOL Date</th>
+                                                <th style="width: 16%">Support End</th>
+                                                <th style="width: 10%">Source</th>
+                                                <th style="width: 18%">Notes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${comparisonRows}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
             } else {
                 // No data found case with enhanced suggestions
                 html += `
@@ -2121,7 +2303,8 @@ Legacy format handling has been removed as all agents now use the standardized f
         function calculateResultConfidence(result, searchData) {
             // Use standardized confidence field directly
             if (result.confidence && typeof result.confidence === 'number') {
-                return result.confidence / 100; // Convert percentage to decimal
+                // Accept both decimal (0.99) and percentage (99) forms
+                return result.confidence > 1 ? result.confidence / 100 : result.confidence;
             }
 
             // Fallback to search hints confidence
@@ -2588,6 +2771,12 @@ Legacy format handling has been removed as all agents now use the standardized f
             const responseTime = data.response_time || 0;
             const queryType = data.query_type || 'unknown';
             const eolData = data.eol_data || data.result || {};
+            const searchMode = data.search_mode || data.result?.search_mode || null;
+            const searchInternetOnly = searchMode === 'internet_only';
+            const searchIncludeInternet = searchMode === 'agents_plus_internet';
+            const searchAgentOnly = searchMode === 'agent_only' || (!searchInternetOnly && !searchIncludeInternet);
+            const searchIgnoreCache = data.search_ignore_cache || data.result?.search_ignore_cache || false;
+            const normalizedSearchMode = searchMode || (searchAgentOnly ? 'agent_only' : (searchInternetOnly ? 'internet_only' : (searchIncludeInternet ? 'agents_plus_internet' : null)));
 
             const searchEntry = {
                 timestamp: new Date().toISOString(),
@@ -2601,7 +2790,12 @@ Legacy format handling has been removed as all agents now use the standardized f
                 query_type: queryType,
                 eol_data: eolData,
                 success: !data.error && (data.result || eolData.success),
-                error_message: data.error || (eolData.error ? eolData.error.message : null)
+                error_message: data.error || (eolData.error ? eolData.error.message : null),
+                search_mode: normalizedSearchMode,
+                search_internet_only: searchInternetOnly,
+                search_include_internet: searchIncludeInternet,
+                search_agent_only: searchAgentOnly,
+                search_ignore_cache: searchIgnoreCache
             };
 
             searchHistory.unshift(searchEntry);
@@ -2613,10 +2807,103 @@ Legacy format handling has been removed as all agents now use the standardized f
             displaySearchHistory();
         }
 
-        function repeatSearch(softwareName, softwareVersion) {
+        function repeatSearch(softwareName, softwareVersion, internetOnly = false, includeInternet = false, agentOnly = true, ignoreCache = false) {
             $('#softwareSearchName').val(softwareName);
             $('#softwareSearchVersion').val(softwareVersion || '');
+
+            // Restore internet search mode state when repeating a search
+            const internetOnlyToggle = document.getElementById('searchInternetOnly');
+            const includeInternetToggle = document.getElementById('searchIncludeInternet');
+            const agentsOnlyToggle = document.getElementById('searchAgentsOnly');
+            const ignoreCacheToggle = document.getElementById('searchIgnoreCache');
+
+            if (internetOnlyToggle) {
+                internetOnlyToggle.checked = Boolean(internetOnly);
+            }
+            if (includeInternetToggle) {
+                includeInternetToggle.checked = Boolean(includeInternet);
+            }
+            if (agentsOnlyToggle) {
+                agentsOnlyToggle.checked = Boolean(agentOnly) && !internetOnly && !includeInternet;
+            }
+            if (ignoreCacheToggle) {
+                ignoreCacheToggle.checked = Boolean(ignoreCache);
+            }
+
+            // Keep toggles mutually exclusive after restoring state
+            setupInternetSearchToggles();
+
             searchSoftwareEOL();
+        }
+
+        let internetToggleHandlersBound = false;
+
+        // Ensure search mode toggles remain mutually exclusive
+        function setupInternetSearchToggles() {
+            const includeToggle = document.getElementById('searchIncludeInternet');
+            const onlyToggle = document.getElementById('searchInternetOnly');
+            const agentsOnlyToggle = document.getElementById('searchAgentsOnly');
+            // Ignore cache is independent; it should not toggle off other modes
+
+            if (!includeToggle || !onlyToggle || !agentsOnlyToggle) {
+                return;
+            }
+
+            const syncToggles = () => {
+                // Enforce single-selection behavior across three switches
+                if (onlyToggle.checked) {
+                    includeToggle.checked = false;
+                    agentsOnlyToggle.checked = false;
+                } else if (includeToggle.checked) {
+                    onlyToggle.checked = false;
+                    agentsOnlyToggle.checked = false;
+                } else if (agentsOnlyToggle.checked) {
+                    onlyToggle.checked = false;
+                    includeToggle.checked = false;
+                }
+
+                // Default back to agents-only if nothing is selected
+                if (!onlyToggle.checked && !includeToggle.checked && !agentsOnlyToggle.checked) {
+                    agentsOnlyToggle.checked = true;
+                }
+            };
+
+            if (!internetToggleHandlersBound) {
+                includeToggle.addEventListener('change', () => {
+                    if (includeToggle.checked) {
+                        onlyToggle.checked = false;
+                        agentsOnlyToggle.checked = false;
+                    }
+                    if (!includeToggle.checked && !onlyToggle.checked) {
+                        agentsOnlyToggle.checked = true;
+                    }
+                });
+
+                onlyToggle.addEventListener('change', () => {
+                    if (onlyToggle.checked) {
+                        includeToggle.checked = false;
+                        agentsOnlyToggle.checked = false;
+                    }
+                    if (!includeToggle.checked && !onlyToggle.checked) {
+                        agentsOnlyToggle.checked = true;
+                    }
+                });
+
+                agentsOnlyToggle.addEventListener('change', () => {
+                    if (agentsOnlyToggle.checked) {
+                        includeToggle.checked = false;
+                        onlyToggle.checked = false;
+                    }
+                    if (!agentsOnlyToggle.checked && !includeToggle.checked && !onlyToggle.checked) {
+                        agentsOnlyToggle.checked = true;
+                    }
+                });
+
+                internetToggleHandlersBound = true;
+            }
+
+            // Initial sync in case persisted state exists
+            syncToggles();
         }
 
         function clearSearchHistory() {
@@ -2689,6 +2976,9 @@ Legacy format handling has been removed as all agents now use the standardized f
                     quickSearch(software, version);
                 }
             });
+
+            // Wire up internet search toggle exclusivity
+            setupInternetSearchToggles();
 
             // Setup collapsible toggle functionality
             const orchestratorContent = document.getElementById('orchestratorLogicContent');

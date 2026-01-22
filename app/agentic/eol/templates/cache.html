@@ -173,8 +173,7 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <i class="fas fa-database me-3"></i>
-                    Cache Management
+                    <span class="hero-icon me-3"><i class="fas fa-database"></i></span>Cache Management
                 </h1>
                 <p class="hero-subtitle">
                     Monitor and optimize agent cache performance for faster responses and improved efficiency.
@@ -1445,38 +1444,59 @@
         const confirmed = await showConfirmation('Clear Cosmos DB Cache',
             'This will remove all cached EOL responses from Cosmos DB. This action cannot be undone.');
 
-        if (confirmed) {
-            try {
-                const response = await fetch('/api/cache/cosmos/clear', { method: 'POST' });
-                const result = await response.json();
+        if (!confirmed) {
+            return;
+        }
 
-                if (result.success) {
-                    showAlert(`Cosmos DB cache cleared: ${result.deleted_count} items removed`, 'success');
+        try {
+            const response = await fetch('/api/cache/cosmos/clear', { method: 'POST' });
 
-                    // If backend returned updated stats, use them to update the display immediately
-                    if (result.stats) {
-                        try {
-                            displayCosmosStats(result.stats);
+            if (!response.ok) {
+                const message = `HTTP ${response.status}: ${response.statusText}`;
+                showAlert(`Failed to clear cache: ${message}`, 'error');
+                return;
+            }
 
-                            // Update overview counts using the stats where possible
-                            // Trigger a lightweight overview update (recalculate totals)
-                            await updateOverviewWithRealData();
-                        } catch (e) {
-                            // Fallback to full refresh if something goes wrong
-                            console.warn('Failed to apply returned stats:', e);
-                            await refreshCosmosCache();
-                        }
-                    } else {
-                        // No stats returned; fall back to refreshing from server
+            const result = await response.json();
+
+            if (result.success) {
+                showAlert(`Cosmos DB cache cleared: ${result.deleted_count} items removed`, 'success');
+
+                // Immediately reflect cleared state in UI before any async refresh finishes
+                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
+                const statsContainer = document.getElementById('cosmos-cache-stats');
+                if (statsContainer) {
+                    statsContainer.innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Cosmos DB cache is empty. Run an EOL search or refresh to repopulate.
+                        </div>
+                    `;
+                }
+
+                // If backend returned updated stats, use them to update the display immediately
+                if (result.stats) {
+                    try {
+                        displayCosmosStats(result.stats);
+
+                        // Update overview counts using the stats where possible
+                        // Trigger a lightweight overview update (recalculate totals)
+                        await updateOverviewWithRealData();
+                    } catch (e) {
+                        // Fallback to full refresh if something goes wrong
+                        console.warn('Failed to apply returned stats:', e);
                         await refreshCosmosCache();
                     }
                 } else {
-                    showAlert(`Failed to clear cache: ${result.error}`, 'error');
+                    // No stats returned; fall back to refreshing from server
+                    await refreshCosmosCache();
                 }
-            } catch (error) {
-                showAlert('Error clearing Cosmos DB cache', 'error');
-                console.error('Error:', error);
+            } else {
+                showAlert(`Failed to clear cache: ${result.error}`, 'error');
             }
+        } catch (error) {
+            showAlert('Error clearing Cosmos DB cache', 'error');
+            console.error('Error:', error);
         }
     }
 
@@ -1964,7 +1984,7 @@
                 }
 
                 // Refresh the agent caches display
-                refreshAgentCaches();
+                await refreshAgentCaches();
             } catch (error) {
                 showAlert(`Error clearing ${agentKey} agent cache: ${error.message}`, 'error');
                 console.error('Error:', error);
@@ -1979,6 +1999,7 @@
         if (confirmed) {
             try {
                 showAlert('Clearing all agent caches...', 'info');
+                updateHealthIndicator('agents-health', 'unavailable', 'Clearing');
                 const response = await fetch('/api/cache/purge', { method: 'POST' });
 
                 if (!response.ok) {
@@ -1992,16 +2013,25 @@
                     let clearedCount = 0;
                     let errorCount = 0;
 
-                    for (const [agentName, agentResult] of Object.entries(result.results || {})) {
-                        if (agentResult && !agentResult.error) {
-                            clearedCount++;
-                        } else {
-                            errorCount++;
+                    if (result.results && Object.keys(result.results).length > 0) {
+                        for (const [, agentResult] of Object.entries(result.results)) {
+                            if (agentResult && !agentResult.error) {
+                                clearedCount++;
+                            } else {
+                                errorCount++;
+                            }
                         }
+                    } else {
+                        // Treat missing results as a successful purge for optimistic UX
+                        clearedCount = 1;
                     }
 
                     if (clearedCount > 0) {
-                        showAlert(`Successfully cleared ${clearedCount} agent cache(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`, 'success');
+                        showAlert(`Successfully cleared agent cache${clearedCount > 1 ? 's' : ''}${errorCount > 0 ? `, ${errorCount} failed` : ''}`, 'success');
+                        // Immediately clear the UI so the user sees the purge effect without waiting on refresh
+                        updateAgentCachesDisplay({});
+                        setOverviewClearedState();
+                        updateHealthIndicator('agents-health', 'unavailable', 'Cleared');
                     } else {
                         showAlert(`No agent caches were cleared (${errorCount} errors)`, 'warning');
                     }
@@ -2010,7 +2040,7 @@
                 }
 
                 // Refresh the agent caches display
-                refreshAgentCaches();
+                await refreshAgentCaches();
             } catch (error) {
                 showAlert(`Error clearing agent caches: ${error.message}`, 'error');
                 console.error('Error:', error);
@@ -3024,25 +3054,99 @@
         }
     }
 
+    // Reset the overview tiles when everything is cleared
+    function setOverviewClearedState() {
+        safeSetTextContent('total-cache-items', '0');
+        safeSetTextContent('active-agents', '0');
+        safeSetTextContent('cache-hit-rate', 'N/A');
+        safeSetTextContent('total-errors', '0');
+    }
+
     async function clearAllCaches() {
         const confirmed = await showConfirmation('Clear All Caches',
             'This will clear ALL cache data across the entire system. This action cannot be undone and may impact performance temporarily.');
 
-        if (confirmed) {
-            try {
-                await Promise.all([
-                    fetch('/api/cache/clear', { method: 'POST' }),
-                    fetch('/api/cache/purge', { method: 'POST' }),
-                    fetch('/api/cache/cosmos/clear', { method: 'POST' })
-                ]);
+        if (!confirmed) {
+            return;
+        }
 
-                showAlert('All caches cleared successfully', 'success');
-                refreshAllCaches();
-            } catch (error) {
-                showAlert('Error clearing caches', 'error');
-                console.error('Error:', error);
+        showAlert('Clearing all caches...', 'info');
+
+        // Optimistically reflect a cleared state in the UI
+        updateHealthIndicator('agents-health', 'unavailable', 'Clearing');
+        updateHealthIndicator('cosmos-health', 'unavailable', 'Clearing');
+        updateHealthIndicator('inventory-health', 'unavailable', 'Clearing');
+        setOverviewClearedState();
+        updateAgentCachesDisplay({});
+
+        const cosmosStatsContainer = document.getElementById('cosmos-cache-stats');
+        if (cosmosStatsContainer) {
+            cosmosStatsContainer.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-broom me-2"></i>Clearing Cosmos DB cache...
+                </div>
+            `;
+        }
+
+        const inventoryStatsContainer = document.getElementById('inventory-cache-stats');
+        if (inventoryStatsContainer) {
+            inventoryStatsContainer.innerHTML = `
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-broom me-2"></i>Clearing inventory cache...
+                </div>
+            `;
+        }
+
+        const errors = [];
+
+        async function postAndParse(url, label) {
+            try {
+                const response = await fetch(url, { method: 'POST' });
+                if (!response.ok) {
+                    errors.push(`${label}: HTTP ${response.status}`);
+                    return null;
+                }
+                return await response.json().catch(() => null);
+            } catch (err) {
+                errors.push(`${label}: ${err.message}`);
+                return null;
             }
         }
+
+        const [, , cosmosResult] = await Promise.all([
+            postAndParse('/api/cache/clear', 'App cache'),
+            postAndParse('/api/cache/purge', 'Agent caches'),
+            postAndParse('/api/cache/cosmos/clear', 'Cosmos cache')
+        ]);
+
+        // Apply Cosmos stats if returned, otherwise keep the cleared placeholder
+        if (cosmosResult && cosmosResult.stats) {
+            try {
+                displayCosmosStats(cosmosResult.stats);
+                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
+            } catch (err) {
+                console.warn('Failed to render returned Cosmos stats, keeping cleared placeholder', err);
+                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
+            }
+        } else {
+            updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
+        }
+
+        // Make sure agent panel shows empty state immediately
+        updateAgentCachesDisplay({});
+        updateHealthIndicator('agents-health', 'unavailable', 'Cleared');
+
+        // Inventory panel stays in cleared placeholder until refresh
+        updateHealthIndicator('inventory-health', 'unavailable', 'Cleared');
+
+        if (errors.length === 0) {
+            showAlert('All caches cleared successfully', 'success');
+        } else {
+            showAlert(`Caches cleared with issues: ${errors.join('; ')}`, 'warning');
+        }
+
+        // Reload live data so tiles and charts reflect the new state
+        await refreshAllCaches();
     }
 
     // Note: showAlert function is defined at the top of this script for availability to all functions

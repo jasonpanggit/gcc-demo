@@ -223,51 +223,62 @@ async def clear_cache():
 @write_endpoint(agent_name="cache_purge", timeout_seconds=30)
 async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[str] = None, version: Optional[str] = None):
     """
-    Purge web scraping cache for specific agent or all agents.
-    
-    This endpoint allows selective clearing of EOL agent web scraping caches.
-    Unlike /api/cache/clear which clears inventory caches, this purges
-    cached web scraping results from EOL specialist agents.
-    
+    Purge EOL agent caches (Cosmos + in-memory) for a specific agent or all agents.
+
+    - Agent caches live in Cosmos via utils.eol_cache and an in-memory layer on the orchestrator.
+    - This endpoint clears both layers and resets cache statistics for agents.
+
     Args:
-        agent_type: Type of agent to purge cache for (e.g., "microsoft", "endoflife", "python")
-        software_name: Specific software name to purge from cache
-        version: Specific version to purge from cache
-    
-    Returns:
-        StandardResponse with purge results including number of items removed.
-    
-    Example Response:
-        {
-            "success": true,
-            "data": {
-                "purged_count": 15,
-                "agent_type": "microsoft",
-                "software_name": "Windows Server",
-                "timestamp": "2025-10-15T10:30:00Z"
-            }
-        }
-    
-    Usage Examples:
-        - Purge all caches: POST /api/cache/purge
-        - Purge Microsoft agent: POST /api/cache/purge?agent_type=microsoft
-        - Purge specific software: POST /api/cache/purge?software_name=Windows Server 2016
+        agent_type: Agent key to target (e.g., "microsoft", "endoflife", "python"). If omitted, purge all.
+        software_name: Optional software name filter to narrow the purge scope.
+        version: Optional version filter to narrow the purge scope.
     """
     from main import get_eol_orchestrator
-    
-    # Note: purge_web_scraping_cache method doesn't exist on EOLOrchestratorAgent
-    # For now, return a placeholder response
-    # TODO: Implement proper cache purging on the orchestrator
-    
-    return {
-        "success": True,
-        "data": [{
-            "message": "Cache purge not yet implemented",
-            "agent_type": agent_type,
+    from utils.eol_cache import eol_cache
+    try:
+        from utils.cache_stats_manager import cache_stats_manager
+    except Exception:
+        cache_stats_manager = None
+
+    # Purge orchestrator in-memory cache
+    orchestrator = get_eol_orchestrator()
+    memory_cleared = len(orchestrator.eol_cache)
+    orchestrator.eol_cache.clear()
+
+    # Purge Cosmos + in-memory shared cache
+    cosmos_result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_type)
+    deleted_count = cosmos_result.get("deleted_count", 0) if isinstance(cosmos_result, dict) else 0
+
+    # Reset statistics so UI reflects fresh state
+    if cache_stats_manager:
+        try:
+            cache_stats_manager.reset_statistics()
+        except Exception:
+            pass
+
+    results = {
+        agent_type or "all_agents": {
+            "deleted_count": deleted_count,
+            "memory_cleared": memory_cleared,
             "software_name": software_name,
             "version": version,
+        }
+    }
+
+    return {
+        "success": bool(cosmos_result.get("success", True) if isinstance(cosmos_result, dict) else True),
+        "results": results,
+        "data": [{
+            "message": "Agent caches cleared",
+            "agent_type": agent_type or "all",
+            "software_name": software_name,
+            "version": version,
+            "deleted_count": deleted_count,
+            "memory_cleared": memory_cleared,
             "timestamp": datetime.utcnow().isoformat()
-        }]
+        }],
+        "deleted_count": deleted_count,
+        "memory_cleared": memory_cleared
     }
 
 

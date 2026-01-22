@@ -1,0 +1,696 @@
+{% extends "base.html" %}
+{% block title %}EOL Dates Database{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="row align-items-center">
+            <div class="col-lg-9">
+                <h1 class="hero-title">
+                    <span class="hero-icon me-3"><i class="fas fa-table"></i></span>EOL Dates Database
+                </h1>
+                <p class="hero-subtitle mb-0">
+                    Cached EOL records (high confidence) stored in the Cosmos-backed EOL inventory. Filter by software/version and inspect source, agent, and cache freshness.
+                </p>
+            </div>
+            <div class="col-lg-3 d-flex justify-content-lg-end mt-3 mt-lg-0 gap-2">
+                <button id="refreshBtn" class="btn btn-outline-light">
+                    <i class="fas fa-rotate me-2"></i>Refresh
+                </button>
+                <button id="applyFilters" class="btn btn-light">
+                    <i class="fas fa-filter me-2"></i>Apply Filters
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid px-0">
+    <div class="content-container">
+        <div class="modern-card fade-in mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Filters</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label for="softwareFilter" class="form-label">Software</label>
+                        <input id="softwareFilter" type="text" class="form-control" placeholder="e.g. windows server">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="versionFilter" class="form-label">Version</label>
+                        <input id="versionFilter" type="text" class="form-control" placeholder="e.g. 2012 R2">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="limitSelect" class="form-label">Max rows</label>
+                        <select id="limitSelect" class="form-select">
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="200">200</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button id="applyFiltersSecondary" class="btn btn-primary w-100"><i class="fas fa-filter me-2"></i>Apply</button>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-3 mt-3 small text-muted align-items-center">
+                    <span id="loadStatus" class="badge bg-secondary">Idle</span>
+                    <span>Last updated: <strong id="lastUpdated">Never</strong></span>
+                    <span>Showing <strong id="tableCount">0</strong> record(s)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="modern-card fade-in">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-database me-2"></i>List of EOL Records</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <button id="deleteSelectedBtn" class="btn btn-outline-danger btn-sm" disabled>
+                        <i class="fas fa-trash me-2"></i>Delete Selected
+                    </button>
+                    <span class="badge bg-primary" id="tableCountBadge">0</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <i class="fas fa-box-open"></i>
+                    <h5>No Records Found</h5>
+                    <p>Adjust filters or refresh to load the latest Cosmos entries.</p>
+                </div>
+
+                <div id="tableWrapper" class="table-responsive" style="display: none;">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 42px;"><input type="checkbox" id="selectAllRows"></th>
+                                <th class="sortable" data-sort-key="software_name" data-sort-type="string" style="cursor: pointer;">Software <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="version" data-sort-type="string" style="cursor: pointer;">Version <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="eol_date" data-sort-type="date" style="cursor: pointer;">EOL Date <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="support_end_date" data-sort-type="date" style="cursor: pointer;">Support End <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="release_date" data-sort-type="date" style="cursor: pointer;">Release <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="risk_level" data-sort-type="risk" style="cursor: pointer;">Risk <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="confidence" data-sort-type="number" style="cursor: pointer;">Confidence <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="source" data-sort-type="string" style="cursor: pointer;">Source <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="agent_used" data-sort-type="string" style="cursor: pointer;">Agent <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="created_at" data-sort-type="date" style="cursor: pointer;">Created <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th class="sortable" data-sort-key="updated_at" data-sort-type="date" style="cursor: pointer;">Updated <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eolTableBody">
+                            <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                    <div id="paginationBar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-top" style="display: none;">
+                        <div class="text-muted small" id="pageInfo">Page 1 of 1</div>
+                        <div class="d-flex align-items-center gap-2">
+                            <label for="pageSizeSelect" class="form-label mb-0 small text-muted">Rows per page</label>
+                            <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto;">
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button id="prevPageBtn" class="btn btn-outline-secondary" type="button">Prev</button>
+                                <button id="nextPageBtn" class="btn btn-outline-secondary" type="button">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+    const recordIndex = {};
+    const tableBody = document.getElementById('eolTableBody');
+    const countEl = document.getElementById('tableCount');
+    const countBadge = document.getElementById('tableCountBadge');
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    const statusPill = document.getElementById('loadStatus');
+    const emptyState = document.getElementById('emptyState');
+    const tableWrapper = document.getElementById('tableWrapper');
+    const softwareInput = document.getElementById('softwareFilter');
+    const versionInput = document.getElementById('versionFilter');
+    const limitSelect = document.getElementById('limitSelect');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const applyBtn = document.getElementById('applyFilters');
+    const applyBtnSecondary = document.getElementById('applyFiltersSecondary');
+    const selectAllCheckbox = document.getElementById('selectAllRows');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const selectedRecords = new Set();
+    const paginationBar = document.getElementById('paginationBar');
+    const pageInfo = document.getElementById('pageInfo');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const sortableHeaders = document.querySelectorAll('th.sortable');
+
+    const pagingState = {
+        allItems: [],
+        currentPage: 1,
+        pageSize: 25,
+        sortKey: 'updated_at',
+        sortDir: 'desc'
+    };
+
+    async function loadTable() {
+        setStatus('Loading Cosmos records...', 'bg-secondary');
+        const params = new URLSearchParams();
+        params.append('limit', limitSelect.value || '100');
+        if (softwareInput.value.trim()) {
+            params.append('software_name', softwareInput.value.trim());
+        }
+        if (versionInput.value.trim()) {
+            params.append('version', versionInput.value.trim());
+        }
+
+        Object.keys(recordIndex).forEach((key) => delete recordIndex[key]);
+
+        try {
+            const response = await fetch(`/api/eol-inventory?${params.toString()}`);
+            const payload = await response.json();
+
+            if (!payload.success) {
+                showErrorRow(`Failed to load EOL table: ${payload.error || 'Unknown error'}`);
+                setStatus('Load failed', 'bg-danger');
+                updateCounts(0);
+                return;
+            }
+
+            const items = payload.data || [];
+            pagingState.allItems = items;
+            pagingState.currentPage = 1;
+            applySortAndRender();
+            const total = payload.count ?? items.length ?? 0;
+            updateCounts(total);
+            lastUpdatedEl.textContent = new Date().toLocaleString();
+            setStatus(`Loaded ${total} record(s) from Cosmos`, 'bg-success');
+        } catch (err) {
+            console.error('Error loading EOL table', err);
+            showErrorRow('Error loading EOL table. Check console for details.');
+            setStatus('Load failed', 'bg-danger');
+            updateCounts(0);
+        }
+    }
+
+    function renderRows(items, totalItems, totalPages) {
+        if (!items || items.length === 0) {
+            emptyState.style.display = 'block';
+            tableWrapper.style.display = 'none';
+            if (paginationBar) {
+                paginationBar.style.display = 'none';
+            }
+            selectedRecords.clear();
+            updateBulkActions();
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        tableWrapper.style.display = 'block';
+        if (paginationBar) {
+            paginationBar.style.display = 'flex';
+        }
+
+        const validIds = new Set(items.map((item) => item.id));
+        Array.from(selectedRecords).forEach((id) => {
+            if (!validIds.has(id)) {
+                selectedRecords.delete(id);
+            }
+        });
+
+        const rows = items.map((item) => {
+            recordIndex[item.id] = item;
+            const riskBadge = formatRisk(item.risk_level);
+            const confidence = formatConfidence(item.confidence);
+
+            let sourceUrl = item.source_url;
+            if (sourceUrl && typeof sourceUrl === 'object' && sourceUrl.url) {
+                sourceUrl = sourceUrl.url;
+            }
+            const sourceLink = sourceUrl
+                ? `<a href="${sourceUrl}" target="_blank">${item.source || 'source'}</a>`
+                : (item.source || '—');
+
+            const encodedId = encodeURIComponent(item.id);
+            const encodedPk = encodeURIComponent(item.software_key || item.software_name || '');
+            const isChecked = selectedRecords.has(item.id);
+
+            return `
+                <tr data-record-id="${encodedId}" data-software-key="${encodedPk}" data-editing="false">
+                    <td><input type="checkbox" class="row-select" data-record-id="${encodedId}" data-software-key="${encodedPk}" ${isChecked ? 'checked' : ''}></td>
+                    <td>${escapeHtml(item.software_name)}</td>
+                    <td>${escapeHtml(item.version || '')}</td>
+                    <td class="eol-date-cell">${formatDate(item.eol_date)}</td>
+                    <td class="support-end-cell">${formatDate(item.support_end_date)}</td>
+                    <td>${formatDate(item.release_date)}</td>
+                    <td>${riskBadge}</td>
+                    <td>${confidence}</td>
+                    <td>${sourceLink}</td>
+                    <td>${escapeHtml(item.agent_used || '')}</td>
+                    <td><small class="text-muted">${formatDateTime(item.created_at)}</small></td>
+                    <td><small class="text-muted">${formatDateTime(item.updated_at || item.cache_created_at || item.created_at)}</small></td>
+                    <td>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-outline-primary edit-btn" onclick="window.handleEdit('${encodedId}','${encodedPk}')">Edit</button>
+                            <button class="btn btn-outline-danger" onclick="window.handleDelete('${encodedId}','${encodedPk}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableBody.innerHTML = rows.join('');
+        syncSelectAllState();
+        updateBulkActions();
+        updatePagination(totalItems, totalPages);
+    }
+
+    function updatePagination(totalItems, totalPages) {
+        if (!paginationBar || !pageInfo) return;
+        const safeTotalPages = totalPages || 1;
+        const safeCurrent = Math.min(Math.max(1, pagingState.currentPage), safeTotalPages);
+        pagingState.currentPage = safeCurrent;
+        pageInfo.textContent = `Page ${safeCurrent} of ${safeTotalPages} • ${totalItems} total`;
+        if (prevPageBtn) {
+            prevPageBtn.disabled = safeCurrent <= 1;
+        }
+        if (nextPageBtn) {
+            nextPageBtn.disabled = safeCurrent >= safeTotalPages;
+        }
+    }
+
+    function applySortAndRender() {
+        const items = Array.isArray(pagingState.allItems) ? [...pagingState.allItems] : [];
+        const totalItems = items.length;
+        const pageSize = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) || pagingState.pageSize : pagingState.pageSize;
+        pagingState.pageSize = pageSize;
+        const sorted = sortItems(items, pagingState.sortKey, pagingState.sortDir);
+        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+        if (pagingState.currentPage > totalPages) {
+            pagingState.currentPage = totalPages;
+        }
+        const startIndex = (pagingState.currentPage - 1) * pageSize;
+        const pageItems = sorted.slice(startIndex, startIndex + pageSize);
+        renderRows(pageItems, totalItems, totalPages);
+        updateSortIndicators();
+    }
+
+    function sortItems(items, key, direction) {
+        if (!key) return items;
+        const dir = direction === 'asc' ? 1 : -1;
+        const header = document.querySelector(`th.sortable[data-sort-key="${key}"]`);
+        const type = header ? header.getAttribute('data-sort-type') : 'string';
+
+        const riskRank = {
+            critical: 4,
+            high: 3,
+            medium: 2,
+            low: 1,
+            unknown: 0,
+            '': 0
+        };
+
+        return items.sort((a, b) => {
+            const aVal = a ? a[key] : null;
+            const bVal = b ? b[key] : null;
+
+            if (type === 'number') {
+                const aNum = Number(aVal);
+                const bNum = Number(bVal);
+                return (aNum - bNum) * dir;
+            }
+
+            if (type === 'date') {
+                const aTime = aVal ? new Date(aVal).getTime() : 0;
+                const bTime = bVal ? new Date(bVal).getTime() : 0;
+                return (aTime - bTime) * dir;
+            }
+
+            if (type === 'risk') {
+                const aRank = riskRank[(aVal || '').toString().toLowerCase()] ?? 0;
+                const bRank = riskRank[(bVal || '').toString().toLowerCase()] ?? 0;
+                return (aRank - bRank) * dir;
+            }
+
+            const aStr = (aVal || '').toString().toLowerCase();
+            const bStr = (bVal || '').toString().toLowerCase();
+            return aStr.localeCompare(bStr) * dir;
+        });
+    }
+
+    function updateSortIndicators() {
+        sortableHeaders.forEach((header) => {
+            const icon = header.querySelector('.sort-indicator');
+            if (!icon) return;
+            const key = header.getAttribute('data-sort-key');
+            if (key === pagingState.sortKey) {
+                const dir = pagingState.sortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down';
+                icon.className = `fas ${dir} ms-1 sort-indicator text-primary`;
+            } else {
+                icon.className = 'fas fa-sort ms-1 sort-indicator text-muted';
+            }
+        });
+    }
+
+    window.handleDelete = async (encodedId, encodedPk) => {
+        const recordId = decodeURIComponent(encodedId);
+        const softwareKey = decodeURIComponent(encodedPk || '');
+        if (!recordId || !softwareKey) {
+            alert('Missing record identifiers.');
+            return;
+        }
+        const confirmed = confirm(`Delete record ${recordId}?`);
+        if (!confirmed) return;
+        setStatus('Deleting record...', 'bg-warning');
+        try {
+            const resp = await fetch(`/api/eol-inventory/${encodeURIComponent(recordId)}?software_key=${encodeURIComponent(softwareKey)}`, {
+                method: 'DELETE'
+            });
+            const payload = await resp.json();
+            if (!payload.success) {
+                alert(payload.error || 'Delete failed');
+                setStatus('Delete failed', 'bg-danger');
+                return;
+            }
+            await loadTable();
+        } catch (err) {
+            console.error('Delete failed', err);
+            alert('Delete failed. Check console for details.');
+            setStatus('Delete failed', 'bg-danger');
+        }
+    };
+
+    async function bulkDelete() {
+        if (!selectedRecords.size) return;
+        const confirmed = confirm(`Delete ${selectedRecords.size} record(s)?`);
+        if (!confirmed) return;
+
+        const items = Array.from(selectedRecords).map((id) => {
+            const rec = recordIndex[id];
+            return {
+                record_id: id,
+                software_key: rec?.software_key || rec?.software_name || ''
+            };
+        }).filter((r) => r.record_id && r.software_key);
+
+        if (!items.length) {
+            alert('No valid records selected to delete.');
+            return;
+        }
+
+        setStatus('Deleting selected records...', 'bg-warning');
+        try {
+            const resp = await fetch('/api/eol-inventory/bulk-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+            const payload = await resp.json();
+            if (!payload.success) {
+                alert(payload.error || 'Bulk delete failed');
+                setStatus('Delete failed', 'bg-danger');
+                return;
+            }
+            selectedRecords.clear();
+            syncSelectAllState();
+            updateBulkActions();
+            await loadTable();
+        } catch (err) {
+            console.error('Bulk delete failed', err);
+            alert('Delete failed. Check console for details.');
+            setStatus('Delete failed', 'bg-danger');
+        }
+    }
+
+    function syncSelectAllState() {
+        if (!selectAllCheckbox) return;
+        const rowCheckboxes = tableBody.querySelectorAll('input.row-select');
+        const totalRows = rowCheckboxes.length;
+        const selectedCount = selectedRecords.size;
+        selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < totalRows;
+        selectAllCheckbox.checked = totalRows > 0 && selectedCount === totalRows;
+    }
+
+    function updateBulkActions() {
+        if (!deleteSelectedBtn) return;
+        deleteSelectedBtn.disabled = selectedRecords.size === 0;
+        deleteSelectedBtn.textContent = selectedRecords.size ? `Delete Selected (${selectedRecords.size})` : 'Delete Selected';
+    }
+
+    function exitInlineEdit(row, recordId) {
+        const record = recordIndex[recordId] || {};
+        const eolCell = row.querySelector('.eol-date-cell');
+        const supportCell = row.querySelector('.support-end-cell');
+        if (eolCell) {
+            eolCell.textContent = formatDate(record.eol_date);
+        }
+        if (supportCell) {
+            supportCell.textContent = formatDate(record.support_end_date);
+        }
+        const editBtn = row.querySelector('.edit-btn');
+        if (editBtn) {
+            editBtn.textContent = 'Edit';
+            editBtn.classList.add('btn-outline-primary');
+            editBtn.classList.remove('btn-primary');
+        }
+        row.dataset.editing = 'false';
+    }
+
+    window.handleEdit = async (encodedId, encodedPk) => {
+        const recordId = decodeURIComponent(encodedId);
+        const softwareKey = decodeURIComponent(encodedPk || '');
+        if (!recordId || !softwareKey) {
+            alert('Missing record identifiers.');
+            return;
+        }
+
+        const row = tableBody.querySelector(`tr[data-record-id="${encodedId}"]`);
+        if (!row) {
+            alert('Row not found.');
+            return;
+        }
+
+        const isEditing = row.dataset.editing === 'true';
+        const existing = recordIndex[recordId] || {};
+
+        if (!isEditing) {
+            row.dataset.editing = 'true';
+            const eolCell = row.querySelector('.eol-date-cell');
+            const supportCell = row.querySelector('.support-end-cell');
+            if (eolCell) {
+                eolCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.eol_date || '')}" placeholder="YYYY-MM-DD">`;
+            }
+            if (supportCell) {
+                supportCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.support_end_date || '')}" placeholder="YYYY-MM-DD">`;
+            }
+            const editBtn = row.querySelector('.edit-btn');
+            if (editBtn) {
+                editBtn.textContent = 'Save';
+                editBtn.classList.remove('btn-outline-primary');
+                editBtn.classList.add('btn-primary');
+            }
+            setStatus('Editing inline fields...', 'bg-info');
+            return;
+        }
+
+        const eolInput = row.querySelector('.eol-date-cell input');
+        const supportInput = row.querySelector('.support-end-cell input');
+        const newEol = eolInput ? eolInput.value.trim() : '';
+        const newSupport = supportInput ? supportInput.value.trim() : '';
+
+        const updates = {};
+        if (newEol !== (existing.eol_date || '')) {
+            updates.eol_date = newEol || null;
+        }
+        if (newSupport !== (existing.support_end_date || '')) {
+            updates.support_end_date = newSupport || null;
+        }
+
+        if (Object.keys(updates).length === 0) {
+            exitInlineEdit(row, recordId);
+            setStatus('No changes applied', 'bg-secondary');
+            return;
+        }
+
+        setStatus('Updating record...', 'bg-warning');
+        try {
+            const resp = await fetch(`/api/eol-inventory/${encodeURIComponent(recordId)}?software_key=${encodeURIComponent(softwareKey)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            });
+            const payload = await resp.json();
+            if (!payload.success) {
+                alert(payload.error || 'Update failed');
+                setStatus('Update failed', 'bg-danger');
+                return;
+            }
+            setStatus('Record updated', 'bg-success');
+            await loadTable();
+        } catch (err) {
+            console.error('Update failed', err);
+            alert('Update failed. Check console for details.');
+            setStatus('Update failed', 'bg-danger');
+        }
+    };
+
+    function setStatus(text, badgeClass) {
+        statusPill.textContent = text;
+        statusPill.className = `badge ${badgeClass}`;
+    }
+
+    function updateCounts(total) {
+        const value = total || 0;
+        countEl.textContent = value;
+        if (countBadge) {
+            countBadge.textContent = value;
+        }
+    }
+
+    function showErrorRow(message) {
+        emptyState.style.display = 'none';
+        tableWrapper.style.display = 'block';
+        tableBody.innerHTML = `<tr><td colspan="13" class="text-center text-danger py-4">${message}</td></tr>`;
+        if (paginationBar) {
+            paginationBar.style.display = 'none';
+        }
+    }
+
+    function formatRisk(risk) {
+        if (!risk) return '<span class="badge bg-secondary">unknown</span>';
+        const riskLower = (risk || '').toLowerCase();
+        const map = {
+            critical: 'bg-danger',
+            high: 'bg-danger',
+            medium: 'bg-warning text-dark',
+            low: 'bg-success',
+        };
+        const cls = map[riskLower] || 'bg-secondary';
+        return `<span class="badge ${cls}">${riskLower}</span>`;
+    }
+
+    function formatConfidence(conf) {
+        if (typeof conf === 'number') {
+            return `${(conf * 100).toFixed(1)}%`;
+        }
+        return '—';
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '—';
+        return dateStr;
+    }
+
+    function formatDateTime(dateStr) {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleString();
+        } catch (e) {
+            return dateStr;
+        }
+    }
+
+    function escapeHtml(value) {
+        if (!value) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    refreshBtn.addEventListener('click', loadTable);
+    applyBtn.addEventListener('click', loadTable);
+    if (applyBtnSecondary) {
+        applyBtnSecondary.addEventListener('click', loadTable);
+    }
+
+    if (tableBody) {
+        tableBody.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!target.classList.contains('row-select')) return;
+            const encodedId = target.getAttribute('data-record-id');
+            const decodedId = decodeURIComponent(encodedId || '');
+            if (!decodedId) return;
+
+            if (target.checked) {
+                selectedRecords.add(decodedId);
+            } else {
+                selectedRecords.delete(decodedId);
+            }
+            syncSelectAllState();
+            updateBulkActions();
+        });
+    }
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            const rowCheckboxes = tableBody.querySelectorAll('input.row-select');
+            rowCheckboxes.forEach((cb) => {
+                cb.checked = selectAllCheckbox.checked;
+                const encodedId = cb.getAttribute('data-record-id');
+                const decodedId = decodeURIComponent(encodedId || '');
+                if (!decodedId) return;
+                if (selectAllCheckbox.checked) {
+                    selectedRecords.add(decodedId);
+                } else {
+                    selectedRecords.delete(decodedId);
+                }
+            });
+            syncSelectAllState();
+            updateBulkActions();
+        });
+    }
+
+    if (deleteSelectedBtn) {
+        deleteSelectedBtn.addEventListener('click', bulkDelete);
+    }
+
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', () => {
+            pagingState.currentPage = 1;
+            applySortAndRender();
+        });
+    }
+
+    if (prevPageBtn) {
+        prevPageBtn.addEventListener('click', () => {
+            pagingState.currentPage = Math.max(1, pagingState.currentPage - 1);
+            applySortAndRender();
+        });
+    }
+
+    if (nextPageBtn) {
+        nextPageBtn.addEventListener('click', () => {
+            pagingState.currentPage += 1;
+            applySortAndRender();
+        });
+    }
+
+    sortableHeaders.forEach((header) => {
+        header.addEventListener('click', () => {
+            const key = header.getAttribute('data-sort-key');
+            if (!key) return;
+            if (pagingState.sortKey === key) {
+                pagingState.sortDir = pagingState.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                pagingState.sortKey = key;
+                pagingState.sortDir = 'asc';
+            }
+            applySortAndRender();
+        });
+    });
+
+    document.addEventListener('DOMContentLoaded', loadTable);
+})();
+</script>
+{% endblock %}

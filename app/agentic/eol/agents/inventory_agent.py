@@ -59,16 +59,19 @@ class InventoryAgent:
         try:
             start_time = time.time()
             
-            # Get summaries from both specialized agents
-            software_summary = await self.software_inventory_agent.get_software_summary(days=days)
-            os_summary = await self.os_inventory_agent.get_os_summary(days=days)
+            # Get summaries from both specialized agents concurrently
+            software_summary, os_summary = await asyncio.gather(
+                self.software_inventory_agent.get_software_summary(days=days),
+                self.os_inventory_agent.get_os_summary(days=days)
+            )
             
             # Record statistics
             response_time_ms = (time.time() - start_time) * 1000
+            was_cache_hit = bool(software_summary.get("from_cache")) and bool(os_summary.get("from_cache"))
             cache_stats_manager.record_agent_request(
                 agent_name=self.agent_name,
                 response_time_ms=response_time_ms,
-                was_cache_hit=False,  # Summary is always fresh
+                was_cache_hit=was_cache_hit,
                 had_error=False,
                 software_name="Inventory Summary",
                 version="",

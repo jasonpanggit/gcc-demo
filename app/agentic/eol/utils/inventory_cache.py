@@ -121,7 +121,8 @@ class InventoryRawCache:
                 # print(f"[InventoryRawCache] Memory cache HIT - {data_size} records")
                 return {
                     'data': memory_entry['data'],
-                    'timestamp': memory_entry['timestamp']
+                    'timestamp': memory_entry['timestamp'],
+                    'metadata': memory_entry.get('metadata')
                 }
             else:
                 # print(f"[InventoryRawCache] Memory cache EXPIRED - removing entry")
@@ -156,13 +157,15 @@ class InventoryRawCache:
                 # Update memory cache
                 self._memory_cache[memory_key] = {
                     'data': data,
-                    'timestamp': cache_doc.get('timestamp')
+                    'timestamp': cache_doc.get('timestamp'),
+                    'metadata': cache_doc.get('metadata')
                 }
                 # print(f"[InventoryRawCache] Updated memory cache with {data_size} records")
                 
                 return {
                     'data': data,
-                    'timestamp': cache_doc.get('timestamp')
+                    'timestamp': cache_doc.get('timestamp'),
+                    'metadata': cache_doc.get('metadata')
                 }
             else:
                 cosmos_time = time.time() - start_time
@@ -174,7 +177,7 @@ class InventoryRawCache:
             print(f"[InventoryRawCache] Cosmos DB error ({cosmos_time:.2f}s): {e}")
             return None
     
-    def store_cached_data(self, cache_key: str, data: List[Dict], cache_type: str = "software") -> bool:
+    def store_cached_data(self, cache_key: str, data: List[Dict], cache_type: str = "software", metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Store inventory data in both memory and Cosmos DB cache.
         
@@ -196,7 +199,8 @@ class InventoryRawCache:
         # Store in memory cache
         self._memory_cache[memory_key] = {
             'data': data,
-            'timestamp': timestamp
+            'timestamp': timestamp,
+            'metadata': metadata
         }
         # print(f"[InventoryRawCache] Memory cache updated with {data_size} records")
         
@@ -206,7 +210,8 @@ class InventoryRawCache:
             'cache_type': cache_type,
             'data': data,
             'timestamp': timestamp,
-            'record_count': data_size
+            'record_count': data_size,
+            'metadata': metadata
         }
         
         # Check if Cosmos DB is available
