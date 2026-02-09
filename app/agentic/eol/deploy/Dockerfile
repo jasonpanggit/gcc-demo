@@ -40,7 +40,8 @@ COPY ../requirements.txt ./
 
 # Install Python packages
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+# Use legacy resolver to handle complex agent-framework dependencies
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt
 
 # Create playwright directory with correct permissions before installing browsers
 RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright

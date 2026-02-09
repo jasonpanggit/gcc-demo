@@ -62,6 +62,13 @@ from utils.agent_framework_clients import build_chat_options, create_chat_client
 
 logger = get_logger(__name__)
 
+# Configuration constants
+DEFAULT_CONTEXT_TTL_SECONDS = 1800  # 30 minutes context retention
+DEFAULT_TIMEOUT_SECONDS = 300  # 5 minute operation timeout
+DEFAULT_TEMPERATURE = 0.7  # Balanced creativity/consistency
+DEFAULT_MAX_TOKENS = 4096  # Maximum response length
+DEFAULT_PAGE_SIZE = 50  # Default pagination size
+
 
 class InventoryAssistantOrchestrator:
     """High-level inventory assistant orchestrator powered by Microsoft Agent Framework."""
@@ -98,13 +105,18 @@ Guidelines:
     )
 
     def __init__(self) -> None:
+        """Initialize the inventory assistant orchestrator.
+        
+        Sets up the Agent Framework chat client, initializes session state,
+        and prepares communication tracking.
+        """
         self.agent_name = "inventory_assistant"
         self.session_id = f"maf-inventory-asst-{uuid.uuid4()}"
         self.conversation_history: List[Dict[str, Any]] = []
         self.agent_interaction_logs: List[Dict[str, Any]] = []
         self.orchestrator_logs: List[Dict[str, Any]] = []
         self._context_cache: Dict[str, Any] = {"value": None, "timestamp": 0.0}
-        self._context_ttl_seconds = 60.0
+        self._context_ttl_seconds = DEFAULT_CONTEXT_TTL_SECONDS
         self._lock = asyncio.Lock()
 
         self._default_credential: Optional[DefaultAzureCredentialType] = None
@@ -133,9 +145,19 @@ Guidelines:
         *,
         confirmed: bool = False,
         original_message: Optional[str] = None,
-        timeout_seconds: int = 120,
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> Dict[str, Any]:
-        """Process an inventory assistant request with optional confirmation semantics."""
+        """Process an inventory assistant request with optional confirmation semantics.
+        
+        Args:
+            message: User's message or confirmation response
+            confirmed: Whether user confirmed a previous action
+            original_message: Original message if this is a confirmation response
+            timeout_seconds: Maximum time to wait for response
+            
+        Returns:
+            Response dictionary with assistant's reply and metadata
+        """
 
         async with self._lock:
             if not confirmed and original_message is None:
@@ -220,8 +242,8 @@ Guidelines:
                     conversation_id=self.session_id,
                     allow_multiple_tool_calls=False,
                     store=False,
-                    temperature=float(os.getenv("INVENTORY_ASSISTANT_TEMPERATURE", "0.2")),
-                    max_tokens=int(os.getenv("INVENTORY_ASSISTANT_MAX_TOKENS", "900")),
+                    temperature=float(os.getenv("INVENTORY_ASSISTANT_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
+                    max_tokens=int(os.getenv("INVENTORY_ASSISTANT_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
                 )
                 self._log_chat_request(chat_kwargs, context="inventory_assistant")
                 response: ChatResponse = await asyncio.wait_for(
@@ -333,7 +355,7 @@ Guidelines:
             "cleared": cleared_count,
             "old_session_id": old_session,
             "new_session_id": self.session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     # ------------------------------------------------------------------
@@ -408,7 +430,8 @@ Guidelines:
             return None
 
         try:
-            summary = await inventory_agent.get_inventory_summary()
+            # Skip EOL enrichment for fast initial context loading
+            summary = await inventory_agent.get_inventory_summary(skip_eol_enrichment=True)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("Inventory summary retrieval for context failed: %s", exc)
             return None
@@ -588,7 +611,7 @@ Guidelines:
             paginated_rows = paginated_rows_meta.get("rows") if isinstance(paginated_rows_meta.get("rows"), list) else []
             page_size_value = paginated_rows_meta.get("page_size")
             total_pages_value = paginated_rows_meta.get("total_pages")
-            page_size = int(page_size_value) if isinstance(page_size_value, int) and page_size_value > 0 else 25
+            page_size = int(page_size_value) if isinstance(page_size_value, int) and page_size_value > 0 else DEFAULT_PAGE_SIZE
             total_pages = (
                 int(total_pages_value)
                 if isinstance(total_pages_value, int) and total_pages_value > 0
@@ -855,8 +878,9 @@ Guidelines:
             return
 
         try:
+            # Skip EOL enrichment for fast initial summary
             summary = await asyncio.wait_for(
-                inventory_agent.get_inventory_summary(),
+                inventory_agent.get_inventory_summary(skip_eol_enrichment=True),
                 timeout=20.0,
             )
         except Exception as exc:  # pylint: disable=broad-except
@@ -1476,7 +1500,7 @@ Guidelines:
         agents_called: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         conversation_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "conversation_id": conversation_id,
             "user_message": user_message,
             "response": response_text,
@@ -1496,7 +1520,7 @@ Guidelines:
         metadata_payload: Dict[str, Any] = {
             "orchestrator": "agent_framework",
             "confirmation_state": confirmation_state,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         if agent_metadata:
@@ -2105,7 +2129,7 @@ Guidelines:
         if not resolved_agent:
             resolved_agent = self.agent_name if role == "assistant" else "user"
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": self.session_id,
             "conversation_id": conversation_id,
             "role": role,
@@ -2119,7 +2143,7 @@ Guidelines:
 
     def _log_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         event = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "event": event_type,
             "payload": payload,
         }

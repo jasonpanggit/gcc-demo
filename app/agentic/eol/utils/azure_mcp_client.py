@@ -105,9 +105,19 @@ class AzureMCPClient:
                     mcp_env["AZURE_CLIENT_ID"] = managed_identity_client_id
                     logger.info(f"   Managed Identity Client ID: {managed_identity_client_id[:8]}...")
             
-            # Ensure subscription ID and tenant ID are available
-            if "SUBSCRIPTION_ID" in os.environ:
-                mcp_env["AZURE_SUBSCRIPTION_ID"] = os.environ["SUBSCRIPTION_ID"]
+            # Optional: Subscription ID (not required - tenant ID allows access to all subscriptions)
+            subscription_id = os.getenv("SUBSCRIPTION_ID")
+            if subscription_id:
+                mcp_env["AZURE_SUBSCRIPTION_ID"] = subscription_id
+                logger.info(f"   Subscription ID (optional): {subscription_id[:8]}...{subscription_id[-4:]}")
+            
+            # Ensure tenant ID is set (required - provides access to all subscriptions)
+            if "AZURE_TENANT_ID" not in mcp_env:
+                if tenant_id:
+                    mcp_env["AZURE_TENANT_ID"] = tenant_id
+                    logger.info(f"   Tenant ID (required): {tenant_id[:8]}...{tenant_id[-4:]}")
+                else:
+                    logger.warning("⚠️  AZURE_TENANT_ID not set - authentication may fail!")
             
             # MCP server configuration - wraps npx execution to filter non-JSON stdout
             wrapper_path = (
@@ -149,11 +159,11 @@ class AzureMCPClient:
                 original_name = tool.name
                 safe_name = self._get_safe_tool_name(original_name)
                 self._tool_name_map[safe_name] = original_name
-                logger.info(
-                    "🛠️ Registered Azure MCP tool: %s → %s",
-                    safe_name,
-                    original_name,
-                )
+                # logger.info(
+                #     "🛠️ Registered Azure MCP tool: %s → %s",
+                #     safe_name,
+                #     original_name,
+                # )
                 self.available_tools.append(
                     {
                         "type": "function",

@@ -506,6 +506,95 @@ variable "azure_ai_foundry_name" {
   default     = null
 }
 
+# ==============================================================================
+# CONTAINER APPS CONFIGURATION
+# ==============================================================================
+# Azure Container Apps for modern containerized workloads with MCP sidecar
+
+variable "deploy_container_apps" {
+  description = "Deploy Container Apps instead of App Service (mutually exclusive with deploy_agentic_app)"
+  type        = bool
+  default     = false
+}
+
+variable "container_apps_app_image" {
+  description = "Container image for the main application"
+  type        = string
+  default     = "your-acr.azurecr.io/eol-app:latest"
+}
+
+variable "container_apps_mcp_image" {
+  description = "Container image for Azure MCP Server sidecar"
+  type        = string
+  default     = "mcr.microsoft.com/azure-mcp:latest"
+}
+
+variable "container_apps_app_cpu" {
+  description = "CPU allocation for main app container"
+  type        = number
+  default     = 1.0
+}
+
+variable "container_apps_app_memory" {
+  description = "Memory allocation for main app container"
+  type        = string
+  default     = "2Gi"
+}
+
+variable "container_apps_mcp_cpu" {
+  description = "CPU allocation for MCP sidecar container"
+  type        = number
+  default     = 0.5
+}
+
+variable "container_apps_mcp_memory" {
+  description = "Memory allocation for MCP sidecar container"
+  type        = string
+  default     = "1Gi"
+}
+
+variable "container_apps_min_replicas" {
+  description = "Minimum number of container replicas"
+  type        = number
+  default     = 1
+}
+
+variable "container_apps_max_replicas" {
+  description = "Maximum number of container replicas"
+  type        = number
+  default     = 3
+}
+
+variable "container_apps_internal_lb_enabled" {
+  description = "Use internal load balancer for Container Apps"
+  type        = bool
+  default     = false
+}
+
+variable "container_apps_zone_redundancy_enabled" {
+  description = "Enable zone redundancy for Container Apps Environment"
+  type        = bool
+  default     = false
+}
+
+variable "aoai_deployment_name" {
+  description = "Azure OpenAI default deployment name"
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
+variable "aoai_model_name" {
+  description = "Azure OpenAI model name for deployment"
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
+variable "aoai_model_version" {
+  description = "Azure OpenAI model version"
+  type        = string
+  default     = "2024-07-18"
+}
+
 // variable "deploy_search" removed (Azure AI Search no longer used)
 
 variable "log_analytics_workspace_retention_days" {

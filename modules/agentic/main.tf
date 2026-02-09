@@ -1,5 +1,5 @@
 # ============================================================================
-# AGENTIC APP MODULE - App Service + AOAI with Private Endpoints
+# AGENTIC APP MODULE - Container App + AOAI with Private Endpoints
 # ============================================================================
 
 # terraform {
@@ -349,8 +349,8 @@ resource "azurerm_linux_web_app" "app" {
     vnet_route_all_enabled = true
     # Always enable HTTPS only and configure startup
     always_on = true
-  # Startup command for Python app with dependency installation (Search/Cosmos removed)
-  app_command_line = "python -m pip install --upgrade pip && python -m pip install uvicorn[standard]==0.30.6 fastapi==0.112.1 openai==1.51.0 azure-identity==1.17.1 azure-monitor-query==1.4.0 requests==2.32.3 msal==1.31.0 jinja2==3.1.4 python-multipart==0.0.9 httpx==0.27.0 agent-framework==1.0.0b260107 beautifulsoup4==4.12.3 lxml==5.3.0 asyncio==3.4.3 aiohttp==3.10.5 && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+  # Startup command for Python app - dependencies installed via SCM_DO_BUILD_DURING_DEPLOYMENT
+  app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8000"
   }
 
   identity {
@@ -367,9 +367,9 @@ resource "azurerm_linux_web_app" "app" {
     AZURE_OPENAI_ENDPOINT   = try(azurerm_cognitive_account.aoai[0].endpoint, "")
     AZURE_OPENAI_DEPLOYMENT = var.aoai_deployment_name
     # Azure Cosmos DB settings for EOL response caching
-    AZURE_COSMOS_ENDPOINT   = try(azurerm_cosmosdb_account.cosmos[0].endpoint, "")
-    AZURE_COSMOS_DATABASE   = var.cosmos_db_database_name
-    AZURE_COSMOS_CONTAINER  = var.cosmos_db_container_name
+    AZURE_COSMOS_DB_ENDPOINT   = try(azurerm_cosmosdb_account.cosmos[0].endpoint, "")
+    AZURE_COSMOS_DB_DATABASE   = var.cosmos_db_database_name
+    AZURE_COSMOS_DB_CONTAINER  = var.cosmos_db_container_name
     # Bing Search settings (using managed identity - no API key needed) - DEPRECATED
     BING_SEARCH_ENDPOINT    = try(azurerm_cognitive_account.bing_search[0].endpoint, "")
     # Azure AI Agent Service settings (Modern replacement for Bing Search)

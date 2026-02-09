@@ -161,8 +161,14 @@ class EOLStatusAgent(BaseEOLAgent):
 
         software_norm = self._normalize_for_slug(software_name)
         version_norm = self._normalize_version_for_slug(version)
+        
+        logger.info(
+            f"EOLStatus searching for: '{software_name}' v'{version}' -> normalized: '{software_norm}' v'{version_norm}'"
+        )
+        
         best_slug = None
         best_score = -1
+        match_details = []
 
         for slug in slugs:
             score = 0
@@ -178,9 +184,21 @@ class EOLStatusAgent(BaseEOLAgent):
             if score > best_score:
                 best_score = score
                 best_slug = slug
+                match_details = [(slug, score)]
+            elif score == best_score and score > 0:
+                match_details.append((slug, score))
 
         if best_score <= 0:
+            logger.warning(
+                f"EOLStatus: No matching slug found for '{software_name}' (normalized: '{software_norm}')"
+            )
             return None, "no_match"
+
+        logger.info(
+            f"EOLStatus best match: slug='{best_slug}' score={best_score} (query: '{software_name}' v'{version}')"
+        )
+        if len(match_details) > 1:
+            logger.debug(f"EOLStatus tied matches: {match_details[:5]}")
 
         match_method = "name" if not version_norm else "name_version"
         if version_norm and version_norm in (best_slug or ""):

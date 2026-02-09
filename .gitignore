@@ -39,6 +39,7 @@ terraform.rc
 
 # Environment-specific files
 .env
+.env.example
 .env.local
 .env.*.local
 
@@ -85,3 +86,6 @@ TODO.md
 appsettings*.json
 # except the example file which should remain tracked
 !appsettings.json.example
+
+# litellm
+litellm/

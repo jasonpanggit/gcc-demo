@@ -650,11 +650,11 @@ body {
     margin-bottom: var(--spacing-lg);
     line-height: 1.5;
     width: 100%;
-    max-width: 60ch;
+    max-width: none;
 }
 
 .hero-section .hero-subtitle {
-    max-width: 60ch;
+    max-width: none;
     width: 100%;
 }
 

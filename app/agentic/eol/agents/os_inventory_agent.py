@@ -28,12 +28,14 @@ try:
     from ..utils import get_logger, config
     from ..utils.inventory_cache import inventory_cache
     from ..utils.cache_stats_manager import cache_stats_manager
+    from ..utils.normalization import normalize_os_name_version
 except ImportError:  # pragma: no cover - support execution when run as script
     import sys
 
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
+    from utils.normalization import normalize_os_name_version
 
     try:
         from utils.cache_stats_manager import cache_stats_manager
@@ -81,19 +83,27 @@ class OSInventoryAgent:
         self._logs_client: Optional[LogsQueryClient] = None
         self._cache_has_full_dataset: bool = False
 
-    async def _fetch_eol(self, os_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
-        """Resolve EOL for OS using Cosmos cache first, then agent orchestrator with confidence logic."""
+    async def _fetch_eol(self, os_name: str, version: Optional[str], skip_enrichment: bool = False) -> Optional[Dict[str, Any]]:
+        """Resolve EOL for OS using Cosmos cache first, then agent orchestrator with confidence logic.
+        
+        Args:
+            os_name: Operating system name
+            version: OS version
+            skip_enrichment: If True, return None immediately (for fast initial load)
+        """
+        if skip_enrichment:
+            return None
         if not os_name:
             return None
 
-        normalized_name = os_name
-        normalized_version = version
-        os_lower = os_name.lower()
-        if "windows server" in os_lower:
-            year_match = re.search(r"(20\d{2}|19\d{2})", os_name)
-            if year_match:
-                normalized_name = "windows server"
-                normalized_version = year_match.group(1)
+        # Use centralized normalization for consistent cache keys
+        normalized_name, normalized_version = normalize_os_name_version(os_name, version)
+        
+        logger.debug(
+            f"Normalized OS: '{os_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
+        )
+
+        logger.debug(f"Looking up EOL cache for: {normalized_name} v{normalized_version}")
 
         try:
             from ..utils.eol_inventory import eol_inventory
@@ -105,9 +115,14 @@ class OSInventoryAgent:
                     or cached_data.get("support_end_date")
                     or cached_data.get("support")
                 ):
+                    logger.info(f"✅ EOL cache hit for {normalized_name} {normalized_version}")
                     return cached
+                else:
+                    logger.debug(f"Cache entry found but no EOL dates for {normalized_name} {normalized_version}")
         except Exception as exc:
             logger.debug("OS EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+        logger.info(f"🔍 EOL cache miss for {normalized_name} {normalized_version}, querying orchestrator...")
 
         try:
             from ..main import get_eol_orchestrator

@@ -156,6 +156,7 @@ PLAYWRIGHT_LLM_EXTRACTION=$(jq -r '.AppSettings.PlaywrightLLMExtraction // "fals
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
 AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
+GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
 
 # Determine authentication method
 if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
@@ -183,9 +184,6 @@ fi
 ENV_VARS="$ENV_VARS AZURE_OPENAI_ENDPOINT=$OPENAI_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_OPENAI_DEPLOYMENT=$OPENAI_DEPLOYMENT"
 ENV_VARS="$ENV_VARS AZURE_OPENAI_API_VERSION=$OPENAI_API_VERSION"
-ENV_VARS="$ENV_VARS AOAI_ENDPOINT=$OPENAI_ENDPOINT"
-ENV_VARS="$ENV_VARS AOAI_DEPLOYMENT=$OPENAI_DEPLOYMENT"
-ENV_VARS="$ENV_VARS AOAI_API_VERSION=$OPENAI_API_VERSION"
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_ENDPOINT=$COSMOSDB_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_DATABASE=$COSMOSDB_DATABASE"
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_CONTAINER=$COSMOSDB_CONTAINER"
@@ -209,6 +207,15 @@ ENV_VARS="$ENV_VARS ENVIRONMENT=production"
 ENV_VARS="$ENV_VARS PLAYWRIGHT_LLM_EXTRACTION=$PLAYWRIGHT_LLM_EXTRACTION"
 # Disable optional MCP servers that cause issues in ACA unless explicitly enabled
 ENV_VARS="$ENV_VARS AZURE_CLI_EXECUTOR_ENABLED=$AZURE_CLI_EXECUTOR_ENABLED"
+
+# Add GitHub token if configured (increases API rate limit from 60 to 5000 requests/hour)
+if [[ -n "$GITHUB_TOKEN" ]] && [[ "$GITHUB_TOKEN" != "_PLACEHOLDER_REPLACE_WITH_YOUR_TOKEN_" ]]; then
+    ENV_VARS="$ENV_VARS GITHUB_TOKEN=$GITHUB_TOKEN"
+    echo "✅ GitHub token configured for API access"
+else
+    echo "⚠️  No GitHub token configured - API rate limit is 60 requests/hour"
+    echo "   Add your token to appsettings.json > AppSettings > GITHUB_TOKEN to increase to 5000/hour"
+fi
 
 # Deploy to Container Apps
 echo "🚀 Deploying to Azure Container Apps..."

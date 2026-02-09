@@ -550,6 +550,10 @@ async def agent_communication_stream():
         try:
             orchestrator = await get_mcp_orchestrator()
             
+            # Ensure communication queue is initialized
+            if hasattr(orchestrator, '_ensure_communication_queue'):
+                orchestrator._ensure_communication_queue()
+            
             # Send initial connection message
             yield f"data: {json.dumps({'type': 'connected', 'message': 'Agent communication stream connected'})}\n\n"
             
@@ -625,7 +629,7 @@ async def agent_communication_stream():
         except asyncio.CancelledError:
             logger.info("Agent communication stream cancelled")
         except Exception as e:
-            logger.error(f"Error in agent communication stream: {e}")
+            logger.error(f"Error in agent communication stream: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(

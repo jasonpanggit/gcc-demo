@@ -27,12 +27,14 @@ try:
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
     from utils.cache_stats_manager import cache_stats_manager
+    from utils.normalization import normalize_software_name_version
 except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
+    from utils.normalization import normalize_software_name_version
     try:
         from utils.cache_stats_manager import cache_stats_manager
     except ImportError:
@@ -102,13 +104,23 @@ class SoftwareInventoryAgent:
         if not software_name:
             return None
 
+        # Use centralized normalization for consistent cache keys
+        normalized_name, normalized_version = normalize_software_name_version(software_name, version)
+        
+        logger.debug(
+            f"Software inventory normalized: '{software_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
+        )
+
         try:
             from utils.eol_inventory import eol_inventory
-            cached = await eol_inventory.get(software_name, version)
+            cached = await eol_inventory.get(normalized_name, normalized_version)
             if cached:
+                logger.info(f"✅ Software EOL cache hit for {normalized_name} {normalized_version}")
                 return cached
         except Exception as exc:
-            logger.debug("EOL cache lookup failed for %s %s: %s", software_name, version or "(any)", exc)
+            logger.debug("EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
+
+        logger.info(f"🔍 Software EOL cache miss for {normalized_name} {normalized_version}, querying orchestrator...")
 
         try:
             # Lazy import to avoid circular dependencies during app startup
@@ -116,23 +128,24 @@ class SoftwareInventoryAgent:
 
             orchestrator = get_eol_orchestrator()
             eol_result = await orchestrator.get_autonomous_eol_data(
-                software_name, version, item_type="software"
+                software_name, version, item_type="software"  # Pass original names; orchestrator handles normalization
             )
             if eol_result and eol_result.get("success"):
-                try:
-                    from utils.eol_inventory import eol_inventory
-                    await eol_inventory.upsert(software_name, version, eol_result)
-                except Exception as exc:
-                    logger.debug("EOL cache upsert failed for %s %s: %s", software_name, version or "(any)", exc)
+                # Orchestrator already saves to cache with normalized keys, no need to duplicate
                 return eol_result
         except Exception as exc:
             logger.debug("EOL agent lookup failed for %s %s: %s", software_name, version or "(any)", exc)
 
         return None
 
-    async def _enrich_with_eol(self, items: List[Dict[str, Any]]) -> None:
-        """Populate EOL fields on inventory items using cache-first then agent lookup."""
-        if not items:
+    async def _enrich_with_eol(self, items: List[Dict[str, Any]], skip_enrichment: bool = False) -> None:
+        """Populate EOL fields on inventory items using cache-first then agent lookup.
+        
+        Args:
+            items: List of inventory items to enrich
+            skip_enrichment: If True, skip EOL enrichment entirely (for fast initial load)
+        """
+        if not items or skip_enrichment:
             return
 
         semaphore = asyncio.Semaphore(6)
@@ -236,8 +249,13 @@ class SoftwareInventoryAgent:
         computer_filter: Optional[str] = None,
         limit: Optional[int] = 10000,
         use_cache: bool = True,
+        skip_eol_enrichment: bool = False,
     ) -> Dict[str, Any]:
-        """Retrieve software inventory from ConfigurationData table with caching."""
+        """Retrieve software inventory from ConfigurationData table with caching.
+        
+        Args:
+            skip_eol_enrichment: If True, skip EOL data enrichment for faster initial load
+        """
 
         full_dataset_requested = False
         normalized_limit: Optional[int]
@@ -474,7 +492,8 @@ class SoftwareInventoryAgent:
             )
 
             # Enrich with EOL data (Cosmos first, then agents with confidence logic)
-            await self._enrich_with_eol(results)
+            # Skip enrichment if requested for fast initial load
+            await self._enrich_with_eol(results, skip_enrichment=skip_eol_enrichment)
 
             result_data = {
                 "success": True,
@@ -588,9 +607,14 @@ class SoftwareInventoryAgent:
                 "target_computer": computer_filter,
             }
 
-    async def get_software_summary(self, days: int = 90) -> Dict[str, Any]:
-        """Get aggregated software inventory summary"""
-        inventory_result = await self.get_software_inventory(days=days)
+    async def get_software_summary(self, days: int = 90, skip_eol_enrichment: bool = False) -> Dict[str, Any]:
+        """Get aggregated software inventory summary.
+        
+        Args:
+            days: Number of days to look back
+            skip_eol_enrichment: If True, skip EOL data enrichment for faster response
+        """
+        inventory_result = await self.get_software_inventory(days=days, skip_eol_enrichment=skip_eol_enrichment)
         
         if not inventory_result.get("success"):
             return {

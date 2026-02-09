@@ -74,110 +74,94 @@ output "arc_service_principal_secret" {
   sensitive   = true
 }
 
-# Agentic App Configuration (if deployed)
+# ============================================================================
+# CONTAINER APPS OUTPUTS
+# ============================================================================
+
+# Application URL
 output "agentic_app_url" {
-  description = "Agentic application URL"
-  value       = var.deploy_agentic_app ? module.agentic[0].app_url : null
+  description = "Container App URL"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].app_url : null
 }
 
 output "agentic_app_chat_url" {
-  description = "Agentic application chat interface URL"
-  value       = var.deploy_agentic_app ? module.agentic[0].app_chat_url : null
+  description = "Container App chat interface URL"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].app_url : null
 }
 
 output "agentic_app_hostname" {
-  description = "Agentic application hostname"
-  value       = var.deploy_agentic_app ? module.agentic[0].app_hostname : null
+  description = "Container App hostname (FQDN)"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].fqdn : null
 }
 
 output "agentic_app_principal_id" {
-  description = "Agentic application managed identity principal ID"
-  value       = var.deploy_agentic_app ? module.agentic[0].app_principal_id : null
+  description = "Container App managed identity principal ID"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].app_principal_id : null
 }
 
+# Azure OpenAI Outputs
 output "agentic_aoai_endpoint" {
   description = "Azure OpenAI endpoint URL"
-  value       = var.deploy_agentic_app && var.deploy_aoai ? module.agentic[0].aoai_endpoint : null
+  value       = var.deploy_aoai && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].aoai_endpoint : null
 }
 
 output "agentic_aoai_deployment_name" {
   description = "Azure OpenAI deployment name"
-  value       = var.deploy_agentic_app && var.deploy_aoai ? module.agentic[0].aoai_deployment_name : null
+  value       = var.deploy_aoai && var.deploy_container_apps ? var.aoai_deployment_name : null
 }
 
 output "agentic_app_service_name" {
-  description = "Agentic application service name"
-  value       = var.deploy_agentic_app ? module.agentic[0].app_service_name : null
+  description = "Container App name"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].container_app_name : null
 }
 
+# Cosmos DB Outputs
 output "agentic_cosmos_db_endpoint" {
-  description = "Agentic Cosmos DB endpoint"
-  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_endpoint : null
+  description = "Cosmos DB endpoint"
+  value       = var.deploy_cosmos_db && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].cosmos_db_endpoint : null
 }
 
 output "agentic_cosmos_db_database_name" {
-  description = "Agentic Cosmos DB database name"
-  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_database_name : null
+  description = "Cosmos DB database name"
+  value       = var.deploy_cosmos_db && var.deploy_container_apps ? "eol_cache" : null
 }
 
 output "agentic_cosmos_db_container_name" {
-  description = "Agentic Cosmos DB container name"
-  value       = var.deploy_agentic_app && var.deploy_cosmos_db ? module.agentic[0].cosmos_db_container_name : null
+  description = "Cosmos DB container name"
+  value       = var.deploy_cosmos_db && var.deploy_container_apps ? "eol_responses" : null
 }
 
 # ============================================================================
-# AGENTIC ACR OUTPUTS
+# CONTAINER APPS SPECIFIC OUTPUTS
+# ============================================================================
+
+output "container_apps_environment_name" {
+  description = "Container Apps Environment name"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].container_app_environment_name : null
+}
+
+output "container_apps_fqdn" {
+  description = "Container Apps FQDN"
+  value       = var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].fqdn : null
+}
+
+# ============================================================================
+# AZURE CONTAINER REGISTRY OUTPUTS
 # ============================================================================
 
 output "agentic_acr_name" {
-  description = "Agentic Azure Container Registry name"
-  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_name : null
+  description = "Azure Container Registry name"
+  value       = var.deploy_acr && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].acr_name : null
 }
 
 output "agentic_acr_login_server" {
-  description = "Agentic Azure Container Registry login server URL"
-  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_login_server : null
+  description = "Azure Container Registry login server URL"
+  value       = var.deploy_acr && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].acr_login_server : null
 }
 
 output "agentic_acr_admin_username" {
-  description = "Agentic Azure Container Registry admin username"
-  value       = var.deploy_agentic_app && var.deploy_acr ? module.agentic[0].acr_admin_username : null
-}
-
-# ============================================================================
-# AGENTIC BING SEARCH OUTPUTS
-# ============================================================================
-
-output "agentic_bing_search_name" {
-  description = "Agentic Bing Search Cognitive Services account name"
-  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_name : null
-}
-
-output "agentic_bing_search_endpoint" {
-  description = "Agentic Bing Search Cognitive Services endpoint"
-  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_endpoint : null
-}
-
-output "agentic_bing_search_key1" {
-  description = "Agentic Bing Search Cognitive Services primary key"
-  value       = var.deploy_agentic_app && var.deploy_bing_search ? module.agentic[0].bing_search_key1 : null
-  sensitive   = true
-}
-
-# AGENTIC AZURE AI OUTPUTS
-output "agentic_azure_ai_foundry_name" {
-  description = "Agentic Azure AI Foundry name"
-  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_name : null
-}
-
-output "agentic_azure_ai_foundry_endpoint" {
-  description = "Agentic Azure AI Foundry endpoint"
-  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_endpoint : null
-}
-
-output "agentic_azure_ai_foundry_id" {
-  description = "Agentic Azure AI Foundry resource ID"
-  value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? module.agentic[0].azure_ai_foundry_id : null
+  description = "Azure Container Registry admin username"
+  value       = var.deploy_acr && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].acr_admin_username : null
 }
 
 # EOL Solution Configuration

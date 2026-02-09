@@ -100,6 +100,12 @@ class CacheEOLRequest(BaseModel):
     software_version: Optional[str] = None
 
 
+class BatchEOLRequest(BaseModel):
+    """Request model for batch EOL enrichment."""
+    items: List[Dict[str, str]]  # List of {"name": "...", "version": "..."}
+    max_concurrent: int = 10
+
+
 class MultiAgentResponse(BaseModel):
     """Response model for multi-agent operations."""
     session_id: str
@@ -1166,16 +1172,19 @@ async def list_eol_inventory_records(
 ):
     """Return recent Cosmos EOL table entries for UI browsing."""
     try:
-        items = await eol_inventory.list_recent(
+        # list_recent returns a tuple (records, total_count)
+        records, total_count = await eol_inventory.list_recent(
             limit=limit,
             software_name=software_name,
             version=version,
         )
 
         response = StandardResponse.success_response(
-            data=items,
+            data=records,
             metadata={
                 "limit": limit,
+                "total_count": total_count,
+                "returned_count": len(records) if isinstance(records, list) else 0,
                 "software_name": software_name,
                 "version": version,
             },
@@ -1185,7 +1194,6 @@ async def list_eol_inventory_records(
         logger.debug("EOL inventory list failed: %s", exc)
         response = StandardResponse.error_response(error=str(exc))
         return response.to_dict()
-
 
 @router.put("/api/eol-inventory/{record_id}", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_update", timeout_seconds=20)
@@ -1385,5 +1393,128 @@ async def clear_eol_agent_responses():
         "message": f"Cleared {total_cleared} EOL agent responses",
         "cleared_counts": cleared_counts,
         "total_cleared": total_cleared,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/api/eol/batch-enrich", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_batch_enrich", timeout_seconds=60)
+async def batch_enrich_eol(request: BatchEOLRequest):
+    """
+    Fetch EOL data for multiple software items in parallel.
+    
+    This endpoint is designed for UI-driven async enrichment after fast initial load.
+    Returns EOL data from cache first, then fetches missing items from agents.
+    
+    Args:
+        request: BatchEOLRequest with list of items and concurrency limit
+    
+    Returns:
+        StandardResponse with EOL data for each item
+        
+    Example Request:
+        {
+            "items": [
+                {"name": "Python", "version": "3.8"},
+                {"name": "Node.js", "version": "14.0"}
+            ],
+            "max_concurrent": 5
+        }
+    
+    Example Response:
+        {
+            "success": true,
+            "data": [
+                {
+                    "software_name": "Python",
+                    "version": "3.8",
+                    "eol_date": "2024-10-01",
+                    "source": "cache"
+                },
+                ...
+            ]
+        }
+    """
+    if not request.items:
+        return {"success": True, "data": [], "message": "No items to enrich"}
+    
+    if len(request.items) > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 100 items per batch request"
+        )
+    
+    orchestrator = _get_eol_orchestrator()
+    results = []
+    semaphore = asyncio.Semaphore(min(request.max_concurrent, 10))
+    
+    async def fetch_one(item: Dict[str, str]) -> Dict[str, Any]:
+        name = item.get("name") or item.get("software_name")
+        version = item.get("version") or item.get("software_version")
+        
+        if not name:
+            return {"error": "Missing software name"}
+        
+        async with semaphore:
+            # Try cache first
+            try:
+                cached = await eol_inventory.get(name, version)
+                if cached:
+                    return {
+                        "software_name": name,
+                        "version": version,
+                        "eol_date": cached.get("eol_date"),
+                        "support_end_date": cached.get("support_end_date"),
+                        "status": cached.get("status"),
+                        "risk_level": cached.get("risk_level"),
+                        "confidence": cached.get("confidence"),
+                        "source": "cache"
+                    }
+            except Exception as e:
+                logger.debug(f"Cache lookup failed for {name} {version}: {e}")
+            
+            # Fetch from agents
+            try:
+                result = await orchestrator.get_autonomous_eol_data(name, version)
+                if result and result.get("success"):
+                    data = result.get("data", {})
+                    return {
+                        "software_name": name,
+                        "version": version,
+                        "eol_date": data.get("eol_date"),
+                        "support_end_date": data.get("support_end_date"),
+                        "status": data.get("status"),
+                        "risk_level": data.get("risk_level"),
+                        "confidence": data.get("confidence"),
+                        "source": result.get("agent_used") or "agent"
+                    }
+            except Exception as e:
+                logger.warning(f"EOL lookup failed for {name} {version}: {e}")
+            
+            return {
+                "software_name": name,
+                "version": version,
+                "error": "EOL data not available"
+            }
+    
+    # Fetch all in parallel with semaphore limiting concurrency
+    tasks = [fetch_one(item) for item in request.items]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Convert exceptions to error dicts
+    clean_results = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            clean_results.append({
+                "software_name": request.items[i].get("name", "unknown"),
+                "error": str(result)
+            })
+        else:
+            clean_results.append(result)
+    
+    return {
+        "success": True,
+        "data": clean_results,
+        "total_items": len(clean_results),
         "timestamp": datetime.utcnow().isoformat()
     }

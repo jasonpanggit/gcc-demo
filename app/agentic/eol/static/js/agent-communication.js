@@ -3,8 +3,20 @@
 // Define the class in an IIFE and attach it to window to avoid temporal-dead-zone
 if (typeof window.AgentCommunicationHandler === 'undefined') {
     (function () {
+        /**
+         * AgentCommunicationHandler class for managing and displaying agent interactions.
+         * @class
+         */
         class AgentCommunicationHandler {
-            // options: { containerId: 'communicationsStream', showFlow: true, titles: { interactions, flow } }
+            /**
+             * Creates an instance of AgentCommunicationHandler.
+             * @param {Object} options - Configuration options
+             * @param {string} [options.containerId='communicationsStream'] - ID of the container element
+             * @param {boolean} [options.showFlow=true] - Whether to show the agent flow visualization
+             * @param {boolean} [options.autoExpand=true] - Whether to auto-expand interactions
+             * @param {boolean} [options.autoScroll=true] - Whether to auto-scroll to new content
+             * @param {Object} [options.titles] - Custom titles for sections
+             */
             constructor(options = {}) {
                 this.interactions = [];
                 this.agentFlow = [];
@@ -27,7 +39,10 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 this._initialized = false;
             }
 
-            // Initialize or reset the communication stream
+            /**
+             * Initialize or reset the communication stream.
+             * Skips initialization if already initialized to prevent duplicate setup.
+             */
             initialize() {
                 // try {
                 //     console.info('AgentComm: handler.initialize() called for', this.containerId, 'at', new Date().toISOString());
@@ -49,15 +64,23 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 this._initialized = true;
             }
 
-            // Add a new agent interaction
+            /**
+             * Add a new agent interaction to the communication stream.
+             * @param {string} agent - The name/identifier of the agent
+             * @param {string} content - The content of the interaction (can include HTML)
+             * @param {string} [type='text'] - Type of interaction (text, image, analytics, error, completion)
+             * @param {Object} [metadata={}] - Additional metadata (action, input, output, etc.)
+             * @returns {string} The unique ID of the created interaction
+             */
             addInteraction(agent, content, type = 'text', metadata = {}) {
                 // If content contains <pre class="json-display"> blocks, try to extract them
                 // and attach to metadata.input/output when metadata doesn't already include them.
                 try {
                     if ((!metadata || metadata.input === undefined || metadata.output === undefined) && content && typeof content === 'string') {
-                        const temp = document.createElement('div');
-                        temp.innerHTML = content;
-                        const pres = temp.querySelectorAll('pre.json-display');
+                        // Use DOMParser for safer HTML parsing
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(content, 'text/html');
+                        const pres = doc.querySelectorAll('pre.json-display');
                         if (pres && pres.length > 0) {
                             try {
                                 const txt0 = pres[0].textContent || pres[0].innerText || pres[0].innerHTML;
@@ -103,7 +126,10 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 return interaction.id;
             }
 
-            // Add task completion message
+            /**
+             * Add a task completion message to the communication stream.
+             * @param {number} elapsedTime - Elapsed time in milliseconds
+             */
             addCompletionMessage(elapsedTime) {
                 this.taskCompleted = true;
                 this.addInteraction(
@@ -113,7 +139,12 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 );
             }
 
-            // Add token usage summary
+            /**
+             * Add a token usage summary to the communication stream.
+             * @param {number} promptTokens - Number of prompt tokens used
+             * @param {number} completionTokens - Number of completion tokens used
+             * @param {number} elapsedTime - Elapsed time in milliseconds
+             */
             addTokenSummary(promptTokens, completionTokens, elapsedTime) {
                 if (promptTokens > 0 || completionTokens > 0) {
                     const totalTokens = promptTokens + completionTokens;
@@ -141,7 +172,10 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Update agent flow for visualization
+            /**
+             * Update the agent flow visualization with a new agent.
+             * @param {string} agent - The agent name to add to the flow
+             */
             updateAgentFlow(agent) {
                 const cleanAgent = this.cleanAgentName(agent);
 
@@ -152,7 +186,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Clean agent name for display
+            /**
+             * Clean agent name by removing emojis and common suffixes.
+             * @param {string} agent - The agent name to clean
+             * @returns {string} The cleaned agent name
+             */
             cleanAgentName(agent) {
                 return agent
                     // Remove all emoji icons used in agent display
@@ -163,7 +201,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                     .trim();
             }
 
-            // Format agent display with emojis
+            /**
+             * Format agent display name with appropriate emoji icons.
+             * @param {string} source - The source/agent identifier
+             * @returns {string} Formatted display name with emoji
+             */
             formatAgentDisplay(source) {
                 const sourceMapping = {
                     // User/Human agents
@@ -296,7 +338,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 return `🤖 ${source}`;
             }
 
-            // Get just the icon for an agent (without the name)
+            /**
+             * Get just the emoji icon for an agent (without the name).
+             * @param {string} source - The source/agent identifier
+             * @returns {string} The emoji icon for the agent
+             */
             getAgentIcon(source) {
                 const fullDisplay = this.formatAgentDisplay(source);
                 // Extract just the emoji part (first character or emoji sequence)
@@ -304,7 +350,12 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 return iconMatch ? iconMatch[0] : '🤖';
             }
 
-            // Utility: check whether a container is scrolled near the bottom
+            /**
+             * Check whether a container is scrolled near the bottom.
+             * @param {HTMLElement} elem - The element to check
+             * @param {number} [threshold=150] - Distance threshold in pixels
+             * @returns {boolean} True if near bottom, false otherwise
+             */
             isNearBottom(elem, threshold = 150) {
                 if (!elem) return true;
                 try {
@@ -315,7 +366,9 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Display all interactions in enhanced layout
+            /**
+             * Display all interactions in the container using enhanced layout.
+             */
             displayInteractions() {
                 const container = document.getElementById(this.containerId);
                 if (!container) {
@@ -329,7 +382,7 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
 
                 if (this.interactions.length === 0) {
                     console.log(`🚨 displayInteractions: No interactions to display, showing empty state`);
-                    container.innerHTML = '<div class="no-interactions">No agent interactions yet.</div>';
+                    this._setEmptyState(container);
                     return;
                 }
 
@@ -337,34 +390,18 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
 
                 // Two-column layout or compact single-column (chat-style)
                 if (this.showFlow) {
-                    container.innerHTML = `
-                <div class="agent-communications-container">
-                    <div class="interactions-column">
-                        <h5 class="section-title">${this.titles.interactions}</h5>
-                        <div id="${this.containerId}_interactionsContent" class="interactions-content"></div>
-                    </div>
-                    <div class="flow-column">
-                        <h5 class="section-title">${this.titles.flow}</h5>
-                        <div id="${this.containerId}_agentFlowContent" class="agent-flow-content"></div>
-                    </div>
-                </div>
-            `;
-
+                    this._createTwoColumnLayout(container);
                     this.renderInteractions();
                     this.renderAgentFlow();
                 } else {
-                    // Chat-style single column
-                    container.innerHTML = `
-                <div class="agent-communications-chat">
-                    <div id="${this.containerId}_interactionsContent" class="chat-interactions-content"></div>
-                </div>
-            `;
-
+                    this._createChatLayout(container);
                     this.renderInteractions();
                 }
             }
 
-            // Render individual interactions
+            /**
+             * Render individual interaction cards into the interactions content area.
+             */
             renderInteractions() {
                 const content = document.getElementById(`${this.containerId}_interactionsContent`);
                 if (!content) {
@@ -381,7 +418,10 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 const existingExpanded = this.expandedIds || new Set();
 
                 // console.log(`🎯 renderInteractions: Clearing content and building HTML...`);
-                content.innerHTML = '';
+                // Clear content efficiently by removing all children
+                while (content.firstChild) {
+                    content.removeChild(content.firstChild);
+                }
 
                 this.interactions.forEach((interaction, index) => {
                     // console.log(`🎯 renderInteractions: Processing interaction ${index}:`, {
@@ -476,7 +516,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 // }
             }
 
-            // Format interaction content based on type
+            /**
+             * Format interaction content based on its type.
+             * @param {Object} interaction - The interaction object to format
+             * @returns {string} Formatted HTML string for the interaction content
+             */
             formatInteractionContent(interaction) {
                 switch (interaction.type) {
                     case 'image':
@@ -536,7 +580,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Try parsing a string as JSON and pretty-printing it, otherwise return original string
+            /**
+             * Try parsing a string as JSON and pretty-printing it.
+             * @param {string} str - The string to parse
+             * @returns {string} Pretty-printed JSON or original string if parsing fails
+             */
             tryPrettyJson(str) {
                 if (!str) return '';
                 try {
@@ -547,7 +595,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Escape HTML entities to safely insert into pre/code blocks
+            /**
+             * Escape HTML entities for safe display in HTML content.
+             * @param {*} unsafe - The value to escape
+             * @returns {string} HTML-escaped string
+             */
             escapeHtml(unsafe) {
                 if (unsafe === undefined || unsafe === null) return '';
                 return String(unsafe)
@@ -558,7 +610,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                     .replace(/'/g, '&#039;');
             }
 
-            // Format text content with markdown-like styling
+            /**
+             * Format text content with markdown-like styling (bold, italic, code, line breaks).
+             * @param {string} content - The text content to format
+             * @returns {string} Formatted HTML string
+             */
             formatTextContent(content) {
                 return content
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -567,13 +623,19 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                     .replace(/\n/g, '<br>');
             }
 
-            // Render agent flow visualization
+            /**
+             * Render the agent flow visualization.
+             */
             renderAgentFlow() {
                 const flowContent = document.getElementById(`${this.containerId}_agentFlowContent`);
                 if (!flowContent) return;
 
                 if (this.agentFlow.length === 0) {
-                    flowContent.innerHTML = '<div class="no-flow">No agents active yet. Start a task to see the flow!</div>';
+                    const noFlowDiv = document.createElement('div');
+                    noFlowDiv.className = 'no-flow';
+                    noFlowDiv.textContent = 'No agents active yet. Start a task to see the flow!';
+                    flowContent.innerHTML = '';
+                    flowContent.appendChild(noFlowDiv);
                     return;
                 }
 
@@ -582,7 +644,10 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 flowContent.innerHTML = flowHtml;
             }
 
-            // Create visual flow diagram
+            /**
+             * Create a visual flow diagram showing agent progression.
+             * @returns {string} HTML string for the flow diagram
+             */
             createFlowDiagram() {
                 const agentColors = {
                     'User': '#e3f2fd',
@@ -629,8 +694,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 return flowHtml;
             }
 
-            // Expand a specific interaction
-            // force === true => expand, false => collapse, undefined => toggle (legacy)
+            /**
+             * Expand or collapse a specific interaction.
+             * @param {string} interactionId - The ID of the interaction to expand/collapse
+             * @param {boolean} [force] - Force expand (true), collapse (false), or toggle (undefined)
+             */
             expandInteraction(interactionId, force) {
                 const content = document.getElementById(`content_${interactionId}`);
                 const toggle = document.getElementById(`toggle_${interactionId}`);
@@ -663,20 +731,27 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 }
             }
 
-            // Clear the display
+            /**
+             * Clear the display and show empty state.
+             */
             clearDisplay() {
                 const container = document.getElementById(this.containerId);
                 if (container) {
-                    container.innerHTML = '<div class="no-interactions">No agent interactions yet.</div>';
+                    this._setEmptyState(container);
                 }
             }
 
-            // Get current interactions
+            /**
+             * Get a copy of current interactions array.
+             * @returns {Array} Copy of interactions array
+             */
             getInteractions() {
                 return [...this.interactions];
             }
 
-            // Clear all interactions
+            /**
+             * Clear all interactions and reset display.
+             */
             clearInteractions() {
                 this.interactions = [];
                 this.agentFlow = [];
@@ -684,7 +759,9 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 this.clearDisplay();
             }
 
-            // Comprehensive function to clear all interactions and agent flow data
+            /**
+             * Comprehensive function to clear all interactions, agent flow data, and reset state.
+             */
             clearAllCommunications() {
                 // Clearing all agent communications and flow data...
                 
@@ -709,9 +786,86 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 // Agent communications and flow data cleared successfully
             }
 
-            // Clear all communications and reset to fresh state (alias for convenience)
+            /**
+             * Clear all communications and reset to fresh state (alias for convenience).
+             */
             reset() {
                 this.clearAllCommunications();
+            }
+
+            /**
+             * Helper method to set empty state message in container.
+             * @private
+             * @param {HTMLElement} container - The container element
+             */
+            _setEmptyState(container) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'no-interactions';
+                emptyDiv.textContent = 'No agent interactions yet.';
+                container.innerHTML = '';
+                container.appendChild(emptyDiv);
+            }
+
+            /**
+             * Helper method to create two-column layout structure.
+             * @private
+             * @param {HTMLElement} container - The container element
+             */
+            _createTwoColumnLayout(container) {
+                const mainDiv = document.createElement('div');
+                mainDiv.className = 'agent-communications-container';
+
+                const interactionsCol = document.createElement('div');
+                interactionsCol.className = 'interactions-column';
+                
+                const interactionsTitle = document.createElement('h5');
+                interactionsTitle.className = 'section-title';
+                interactionsTitle.textContent = this.titles.interactions;
+                
+                const interactionsContent = document.createElement('div');
+                interactionsContent.id = `${this.containerId}_interactionsContent`;
+                interactionsContent.className = 'interactions-content';
+                
+                interactionsCol.appendChild(interactionsTitle);
+                interactionsCol.appendChild(interactionsContent);
+
+                const flowCol = document.createElement('div');
+                flowCol.className = 'flow-column';
+                
+                const flowTitle = document.createElement('h5');
+                flowTitle.className = 'section-title';
+                flowTitle.textContent = this.titles.flow;
+                
+                const flowContent = document.createElement('div');
+                flowContent.id = `${this.containerId}_agentFlowContent`;
+                flowContent.className = 'agent-flow-content';
+                
+                flowCol.appendChild(flowTitle);
+                flowCol.appendChild(flowContent);
+
+                mainDiv.appendChild(interactionsCol);
+                mainDiv.appendChild(flowCol);
+
+                container.innerHTML = '';
+                container.appendChild(mainDiv);
+            }
+
+            /**
+             * Helper method to create chat-style layout structure.
+             * @private
+             * @param {HTMLElement} container - The container element
+             */
+            _createChatLayout(container) {
+                const chatDiv = document.createElement('div');
+                chatDiv.className = 'agent-communications-chat';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.id = `${this.containerId}_interactionsContent`;
+                contentDiv.className = 'chat-interactions-content';
+                
+                chatDiv.appendChild(contentDiv);
+                container.innerHTML = '';
+                container.appendChild(chatDiv);
             }
         }
         // Attach the local class to the window object so subsequent code can use it
@@ -729,7 +883,11 @@ window.agentCommHandlers = window.agentCommHandlers || {};
 // Global defaults (can be overridden per-handler or per-call)
 window.agentCommDefaultOptions = window.agentCommDefaultOptions || { showFlow: true };
 
-// Lightweight noop handler factory to avoid runtime errors during load-order races.
+/**
+ * Lightweight noop handler factory to avoid runtime errors during load-order races.
+ * @param {string} containerId - The container ID for this noop handler
+ * @returns {Object} A noop handler with stub methods
+ */
 function makeNoopHandler(containerId) {
     return {
         __isAgentCommNoop: true,
@@ -748,6 +906,12 @@ function makeNoopHandler(containerId) {
     };
 }
 
+/**
+ * Create or retrieve an agent communication handler for a specific container.
+ * @param {string} containerId - The ID of the container element
+ * @param {Object} [opts={}] - Configuration options
+ * @returns {AgentCommunicationHandler|Object} The handler instance or noop handler
+ */
 function createAgentCommHandler(containerId, opts = {}) {
     const key = containerId || 'communicationsStream';
     // Ensure registry exists (defensive against load-order races)
@@ -830,7 +994,10 @@ try {
     console.warn('AgentComm: error replaying pending communications on global handler init', replayErr);
 }
 
-// Helper function for interaction toggling
+/**
+ * Helper function for toggling interaction expansion state.
+ * @param {string} interactionId - The ID of the interaction to toggle
+ */
 function toggleInteraction(interactionId) {
     // Try to expand interaction on all registered handlers (works for multi-container pages)
     Object.values(window.agentCommHandlers || {}).forEach(h => {
@@ -847,9 +1014,14 @@ function toggleInteraction(interactionId) {
 // Expose helper function globally
 window.toggleInteraction = toggleInteraction;
 
-// Enhanced display function using the new handler
+/**
+ * Enhanced display function for showing agent communications.
+ * @param {Array} communications - Array of communication objects
+ * @param {Object} [options={}] - Display options
+ * @param {string} [options.containerId='communicationsStream'] - Container ID
+ * @param {boolean} [options.showFlow=true] - Whether to show flow visualization
+ */
 function displayAgentCommunications(communications, options = {}) {
-    // options: { containerId, showFlow }
     const containerId = options.containerId || 'communicationsStream';
     const showFlow = typeof options.showFlow === 'boolean' ? options.showFlow : true;
 
@@ -1031,7 +1203,11 @@ function displayAgentCommunications(communications, options = {}) {
     }
 }
 
-// Helper Functions
+/**
+ * Format status string for display.
+ * @param {string} status - The status to format
+ * @returns {string} Formatted status string
+ */
 function formatStatus(status) {
     if (!status) return 'Unknown';
 
@@ -1047,6 +1223,11 @@ function formatStatus(status) {
     return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
+/**
+ * Format action description for display with support for markdown.
+ * @param {string} action - The action to format
+ * @returns {string} Formatted action description
+ */
 function formatActionDescription(action) {
     if (!action) return 'No description available';
 
@@ -1084,7 +1265,11 @@ function formatActionDescription(action) {
 window.formatStatus = formatStatus;
 window.formatActionDescription = formatActionDescription;
 
-// Robust helpers for normalizing communication payloads
+/**
+ * Parse a value that might be JSON string or already an object.
+ * @param {*} value - The value to parse
+ * @returns {*} Parsed object or original value
+ */
 function parseMaybeJson(value) {
     if (value === undefined || value === null) return value;
     if (typeof value === 'object') return value;
@@ -1100,6 +1285,11 @@ function parseMaybeJson(value) {
     }
 }
 
+/**
+ * Check if a value has meaningful content.
+ * @param {*} v - The value to check
+ * @returns {boolean} True if value has content, false otherwise
+ */
 function hasContent(v) {
     if (v === undefined || v === null) return false;
     if (typeof v === 'string') return v.trim().length > 0;
@@ -1109,6 +1299,11 @@ function hasContent(v) {
     return true;
 }
 
+/**
+ * Normalize a communication payload by extracting and parsing input/output data.
+ * @param {Object} comm - The communication object to normalize
+ * @returns {Object} The normalized communication object
+ */
 function normalizeCommPayload(comm) {
     // Normalize agent name aliases
     if (!comm.agent_name) comm.agent_name = comm.agent || comm.agentName || comm.name || '';

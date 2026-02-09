@@ -1,7 +1,7 @@
 # Multi-agent EOL analysis system
 
 from .eol_orchestrator import EOLOrchestratorAgent
-from .inventory_asst_orchestrator import InventoryAssistantOrchestrator
+from .inventory_orchestrator import InventoryAssistantOrchestrator
 from .endoflife_agent import EndOfLifeAgent
 from .microsoft_agent import MicrosoftEOLAgent
 from .redhat_agent import RedHatEOLAgent

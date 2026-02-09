@@ -26,18 +26,9 @@ resource "azurerm_container_registry" "acr" {
   # Public network access control
   public_network_access_enabled = !var.deploy_private_endpoints
   
-  # Network ACLs for private endpoint access
-  dynamic "network_rule_set" {
-    for_each = var.deploy_private_endpoints ? [1] : []
-    content {
-      default_action = "Deny"
-      virtual_network_rule {
-        action    = "Allow"
-        subnet_id = var.container_apps_subnet_id
-      }
-    }
-  }
-
+  # Network rules only apply to Premium SKU
+  # For Basic/Standard, use private endpoints only
+  
   tags = var.tags
 }
 
@@ -193,8 +184,9 @@ resource "azurerm_cognitive_account" "ai_project" {
   name                          = var.ai_project_name != null ? var.ai_project_name : "ai-foundry-${var.app_name}-${var.project_name}-${var.environment}"
   location                      = var.location
   resource_group_name           = var.resource_group_name
-  kind                          = "AIServices"
+  kind                          = "CognitiveServices"  # Multi-service account
   sku_name                      = "S0"
+  custom_subdomain_name         = var.ai_project_name != null ? var.ai_project_name : "ai-foundry-${var.app_name}-${var.project_name}-${var.environment}"
   public_network_access_enabled = !var.deploy_private_endpoints
   tags                          = var.tags
 
@@ -203,8 +195,11 @@ resource "azurerm_cognitive_account" "ai_project" {
     content {
       default_action = "Deny"
       ip_rules       = []
-      virtual_network_rules {
-        subnet_id = var.container_apps_subnet_id
+      dynamic "virtual_network_rules" {
+        for_each = [var.container_apps_subnet_id]
+        content {
+          subnet_id = virtual_network_rules.value
+        }
       }
     }
   }

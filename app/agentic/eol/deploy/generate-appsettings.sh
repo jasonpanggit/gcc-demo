@@ -110,22 +110,27 @@ generate_appsettings() {
     
     # Extract values with fallbacks
     local subscription_id=$(jq -r '.subscription_id.value // "NOT_SET"' "$tf_outputs")
+    local tenant_id=$(jq -r '.tenant_id.value // "NOT_SET"' "$tf_outputs")
     local resource_group_name=$(jq -r '.hub_resource_group_name.value // "NOT_SET"' "$tf_outputs")
     local app_name=$(jq -r '.agentic_app_hostname.value // "NOT_SET"' "$tf_outputs" | sed 's/\.azurewebsites\.net$//')
     local azure_openai_endpoint=$(jq -r '.agentic_aoai_endpoint.value // "NOT_SET"' "$tf_outputs")
+    local azure_openai_deployment=$(jq -r '.agentic_aoai_deployment_name.value // "NOT_SET"' "$tf_outputs")
+    local azure_openai_api_version="2024-08-01-preview"
     local log_analytics_workspace_id=$(jq -r '.log_analytics_workspace_guid.value // .log_analytics_workspace_id.value // "NOT_SET"' "$tf_outputs")
     local cosmos_db_endpoint=$(jq -r '(.agentic_cosmos_db_endpoint.value // .cosmos_db_endpoint.value) // "NOT_SET"' "$tf_outputs")
     local cosmos_db_database=$(jq -r '(.agentic_cosmos_db_database_name.value // .cosmos_db_database_name.value) // "NOT_SET"' "$tf_outputs")
     local cosmos_db_container=$(jq -r '(.agentic_cosmos_db_container_name.value // .cosmos_db_container_name.value) // "NOT_SET"' "$tf_outputs")
     local environment=$(jq -r '.environment.value // "production"' "$tf_outputs")
-    local aoai_deployment=$(jq -r '.agentic_aoai_deployment_name.value // "NOT_SET"' "$tf_outputs")
     
-    # Extract ACR values (keep existing ACR logic)
+    # Service Principal credentials (if configured)
+    local sp_client_id=$(jq -r '.service_principal_client_id.value // "NOT_SET"' "$tf_outputs")
+    local sp_client_secret=$(jq -r '.service_principal_client_secret.value // "NOT_SET"' "$tf_outputs")
+    
+    # Extract ACR values
     local acr_name=$(jq -r '.agentic_acr_name.value // "NOT_SET"' "$tf_outputs")
     local acr_login_server=$(jq -r '.agentic_acr_login_server.value // "NOT_SET"' "$tf_outputs")
     
-    # Azure AI Agent Service settings
-    # Extract from Terraform outputs when Azure AI Agent Service is deployed
+    # Azure AI Agent Service settings (optional)
     local azure_ai_project_name=$(jq -r '.agentic_azure_ai_foundry_name.value // "NOT_SET"' "$tf_outputs")
     local azure_ai_endpoint=$(jq -r '.agentic_azure_ai_foundry_endpoint.value // "NOT_SET"' "$tf_outputs")
     
@@ -156,10 +161,15 @@ generate_appsettings() {
   "DEBUG_MODE": "false",
   "ENVIRONMENT": "${environment}",
   "SUBSCRIPTION_ID": "${subscription_id}",
+  "AZURE_SUBSCRIPTION_ID": "${subscription_id}",
+  "TENANT_ID": "${tenant_id}",
+  "AZURE_TENANT_ID": "${tenant_id}",
   "RESOURCE_GROUP_NAME": "${resource_group_name}",
   "APP_NAME": "${app_name}",
   "AZURE_OPENAI_ENDPOINT": "${azure_openai_endpoint}",
-  "AZURE_OPENAI_DEPLOYMENT": "${aoai_deployment}",
+  "AZURE_OPENAI_DEPLOYMENT": "${azure_openai_deployment}",
+  "AZURE_OPENAI_CHAT_DEPLOYMENT_NAME": "${azure_openai_deployment}",
+  "AZURE_OPENAI_API_VERSION": "${azure_openai_api_version}",
   "LOG_ANALYTICS_WORKSPACE_ID": "${log_analytics_workspace_id}",
   "AZURE_COSMOS_DB_ENDPOINT": "${cosmos_db_endpoint}",
   "AZURE_COSMOS_DB_DATABASE": "${cosmos_db_database}",
@@ -168,7 +178,14 @@ generate_appsettings() {
   "IMAGE_NAME": "eol-app",
   "IMAGE_TAG": "latest",
   "AZURE_AI_PROJECT_NAME": "${azure_ai_project_name}",
-  "AZURE_AI_ENDPOINT": "${azure_ai_endpoint}"
+  "AZURE_AI_ENDPOINT": "${azure_ai_endpoint}",
+  "USE_SERVICE_PRINCIPAL": "$([[ \"${sp_client_id}\" != \"NOT_SET\" ]] && echo \"true\" || echo \"false\")",
+  "AZURE_SP_CLIENT_ID": "${sp_client_id}",
+  "AZURE_SP_CLIENT_SECRET": "${sp_client_secret}",
+  "MCP_AGENT_MAX_ITERATIONS": "50",
+  "MCP_AGENT_TEMPERATURE": "0.2",
+  "LOG_LEVEL": "INFO",
+  "DISABLE_MCP_ORCHESTRATOR": "false"
 }
 EOF
     

@@ -1241,11 +1241,16 @@
         padding: var(--spacing-lg);
     }
 
+    .parse-card .card-title {
+        margin-bottom: var(--spacing-md);
+    }
+
     .parse-form-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: var(--spacing-md);
         align-items: end;
+        margin-top: var(--spacing-lg);
     }
 
     .parse-form-grid .form-group {
@@ -1266,6 +1271,7 @@
     .parse-mode-note {
         font-size: 0.875rem;
         color: var(--gray-600);
+        margin-bottom: var(--spacing-lg);
     }
 
     .parse-result {
@@ -1284,6 +1290,56 @@
         gap: var(--spacing-md);
         flex-wrap: wrap;
         margin-bottom: var(--spacing-sm);
+    }
+
+    /* Parsing Results Pagination */
+    .parse-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: var(--spacing-md);
+        padding: var(--spacing-md);
+        background: var(--gray-50);
+        border-radius: var(--radius-lg);
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+    }
+
+    .parse-pagination-info {
+        font-size: 0.875rem;
+        color: var(--gray-600);
+    }
+
+    .parse-pagination-controls {
+        display: flex;
+        gap: var(--spacing-sm);
+        align-items: center;
+    }
+
+    .parse-pagination-controls select {
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--gray-200);
+        font-size: 0.875rem;
+    }
+
+    .parse-pagination-controls button {
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--gray-200);
+        background: white;
+        cursor: pointer;
+        font-size: 0.875rem;
+        transition: var(--transition);
+    }
+
+    .parse-pagination-controls button:hover:not(:disabled) {
+        background: var(--gray-100);
+    }
+
+    .parse-pagination-controls button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 </style>
 {% endblock %}
@@ -1561,6 +1617,12 @@
             this.testState = {
                 last: null
             };
+            this.parsingPagination = {
+                currentPage: 1,
+                pageSize: 100,
+                totalRecords: 0,
+                allRuns: []
+            };
             this.init();
         }
 
@@ -1761,7 +1823,41 @@
                 return;
             }
 
-            const rows = runs.map((run, index) => {
+            // Store all runs and metadata for pagination
+            this.parsingPagination.allRuns = runs;
+            this.parsingPagination.totalRecords = runs.length;
+            this.parsingPagination.currentPage = 1;
+            this.parsingPagination.vendor = vendor;
+            this.parsingPagination.mode = data?.mode;
+            this.parsingPagination.modeLabel = modeLabel;
+            this.parsingPagination.timestamp = timestamp;
+            this.parsingPagination.vendor_urls = data?.vendor_urls;
+            this.parsingPagination.successes = successes;
+
+            this.renderVendorParsingPage();
+        }
+
+        renderVendorParsingPage() {
+            const runs = this.parsingPagination.allRuns;
+            const pageSize = this.parsingPagination.pageSize;
+            const currentPage = this.parsingPagination.currentPage;
+            const totalRecords = this.parsingPagination.totalRecords;
+            const vendor = this.parsingPagination.vendor;
+            const modeLabel = this.parsingPagination.modeLabel || this.describeMode(this.parsingPagination.mode || 'agents_plus_internet');
+            const successes = this.parsingPagination.successes;
+
+            console.log(`Rendering page with pageSize=${pageSize}, currentPage=${currentPage}, totalRecords=${totalRecords}`);
+
+            // Calculate pagination
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, totalRecords);
+            const pagedRuns = runs.slice(startIdx, endIdx);
+            const totalPages = Math.ceil(totalRecords / pageSize);
+
+            console.log(`Showing records ${startIdx + 1}-${endIdx} (sliced ${pagedRuns.length} records)`);
+
+            const rows = pagedRuns.map((run, index) => {
+                const actualIndex = startIdx + index;
                 const eolDate = run?.eol_date || run?.support_end_date || 'n/a';
                 const version = run?.version || 'n/a';
                 const agent = run?.agent_used || 'n/a';
@@ -1782,7 +1878,7 @@
 
                 return `
                     <tr>
-                        <td>${index + 1}</td>
+                        <td>${actualIndex + 1}</td>
                         <td>${run?.software_name || 'n/a'}</td>
                         <td>${version}</td>
                         <td>${eolDate}</td>
@@ -1794,7 +1890,7 @@
                 `;
             }).join('');
 
-            const vendorUrls = (data?.vendor_urls || []).map((entry) => {
+            const vendorUrls = (this.parsingPagination.vendor_urls || []).map((entry) => {
                 if (!entry || !entry.url) return null;
                 const desc = entry.description ? ` - ${entry.description}` : '';
                 return `<li><a href="${entry.url}" target="_blank" rel="noopener">${entry.url}</a>${desc}</li>`;
@@ -1804,7 +1900,8 @@
                 <div class="mb-2">
                     <strong>Vendor:</strong> ${vendor}<br>
                     <strong>Mode:</strong> ${modeLabel}<br>
-                    <strong>Completed:</strong> ${successes}/${runs.length} successful
+                    <strong>Total Records:</strong> ${totalRecords.toLocaleString()}<br>
+                    <strong>Completed:</strong> ${successes}/${totalRecords} successful
                 </div>
                 <div class="mb-3">
                     <strong>Vendor URLs</strong>
@@ -1827,13 +1924,94 @@
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
-                <div class="mt-3">
-                    <strong>Raw Response</strong>
-                    <pre class="json-display" style="white-space: pre-wrap;">${JSON.stringify(data, null, 2)}</pre>
+                <div class="parse-pagination">
+                    <div class="parse-pagination-info">
+                        Showing ${startIdx + 1}-${endIdx} of ${totalRecords} records
+                    </div>
+                    <div class="parse-pagination-controls">
+                        <label>
+                            <span style="margin-right: 0.5rem;">Rows per page:</span>
+                            <select id="parsePageSize">
+                                <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+                                <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+                                <option value="250" ${pageSize === 250 ? 'selected' : ''}>250</option>
+                                <option value="500" ${pageSize === 500 ? 'selected' : ''}>500</option>
+                            </select>
+                        </label>
+                        <button onclick="agentManager.changeParsingPage(1)" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-angle-double-left"></i>
+                        </button>
+                        <button onclick="agentManager.changeParsingPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-angle-left"></i>
+                        </button>
+                        <span style="padding: 0 1rem;">Page ${currentPage} of ${totalPages}</span>
+                        <button onclick="agentManager.changeParsingPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>
+                            <i class="fas fa-angle-right"></i>
+                        </button>
+                        <button onclick="agentManager.changeParsingPage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''}>
+                            <i class="fas fa-angle-double-right"></i>
+                        </button>
+                    </div>
                 </div>
+                <details class="mt-3">
+                    <summary style="cursor: pointer;"><strong>View Raw Response (JSON)</strong></summary>
+                    <pre class="json-display" style="white-space: pre-wrap; margin-top: 0.5rem;">${JSON.stringify({
+                        vendor: vendor,
+                        mode: this.parsingPagination.mode,
+                        timestamp: this.parsingPagination.timestamp,
+                        total_runs: totalRecords,
+                        successes: successes,
+                        runs: runs
+                    }, null, 2)}</pre>
+                </details>
             `;
 
             this.setParsingResult(summary);
+            
+            // Attach event listener to page size selector (after HTML is inserted)
+            setTimeout(() => {
+                const pageSizeSelect = document.getElementById('parsePageSize');
+                if (pageSizeSelect) {
+                    pageSizeSelect.onchange = (e) => {
+                        console.log('Page size dropdown changed to:', e.target.value);
+                        this.changeParsingPageSize(e.target.value);
+                    };
+                }
+            }, 0);
+        }
+
+        changeParsingPage(page) {
+            if (!this.parsingPagination.allRuns.length) return;
+            
+            const totalPages = Math.ceil(this.parsingPagination.totalRecords / this.parsingPagination.pageSize);
+            if (page < 1 || page > totalPages) return;
+
+            this.parsingPagination.currentPage = page;
+            this.renderVendorParsingPage();
+        }
+
+        changeParsingPageSize(newSize) {
+            if (!this.parsingPagination.allRuns || !this.parsingPagination.allRuns.length) {
+                console.warn('No parsing data available for pagination');
+                return;
+            }
+            
+            const oldSize = this.parsingPagination.pageSize;
+            const parsedSize = parseInt(newSize, 10);
+            
+            console.log(`Page size change requested: ${newSize} (parsed as ${parsedSize})`);
+            console.log(`Current pagination state:`, {
+                totalRecords: this.parsingPagination.totalRecords,
+                oldSize: oldSize,
+                newSize: parsedSize,
+                currentPage: this.parsingPagination.currentPage
+            });
+            
+            this.parsingPagination.pageSize = parsedSize;
+            this.parsingPagination.currentPage = 1; // Reset to first page
+            
+            console.log(`Page size changed from ${oldSize} to ${this.parsingPagination.pageSize}`);
+            this.renderVendorParsingPage();
         }
 
         loadPersistedParsingResult() {
@@ -2878,35 +3056,35 @@
                     </div>
                 </div>
                 
-                <!-- URL Performance Metrics -->
+                <!-- URL Parsing Statistics -->
                 <div class="url-stats-grid">
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Queries:</div>
-                        <div class="url-stat-value" style="color: #0d6efd;">${(stats.query_count || 0).toLocaleString()}</div>
+                        <div class="url-stat-label">Records Extracted:</div>
+                        <div class="url-stat-value" style="color: #0d6efd; font-weight: 700;">${(stats.records_extracted || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Errors:</div>
-                        <div class="url-stat-value" style="color: #dc3545;">${(stats.error_count || 0).toLocaleString()}</div>
+                        <div class="url-stat-label">Parse Requests:</div>
+                        <div class="url-stat-value" style="color: #6610f2;">${(stats.query_count || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Success:</div>
-                        <div class="url-stat-value" style="color: #198754;">${(stats.success_count || 0).toLocaleString()}</div>
+                        <div class="url-stat-label">Success Rate:</div>
+                        <div class="url-stat-value" style="color: ${(stats.success_rate || 0) >= 90 ? '#198754' : (stats.success_rate || 0) >= 70 ? '#ffc107' : '#dc3545'};">${(stats.success_rate || 0).toFixed(1)}%</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Records:</div>
-                        <div class="url-stat-value" style="color: #0d6efd;">${(stats.records_extracted || 0).toLocaleString()}</div>
+                        <div class="url-stat-label">Cache Hit Rate:</div>
+                        <div class="url-stat-value" style="color: ${(stats.cache_hit_rate || 0) >= 80 ? '#198754' : (stats.cache_hit_rate || 0) >= 50 ? '#ffc107' : '#6c757d'};">${(stats.cache_hit_rate || 0).toFixed(1)}%</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Response:</div>
-                        <div class="url-stat-value" style="color: #6f42c1;">${(stats.avg_response_time || 0).toFixed(4)}ms</div>
+                        <div class="url-stat-label">Avg Response:</div>
+                        <div class="url-stat-value" style="color: #6f42c1;">${(stats.avg_response_time || 0).toFixed(2)}ms</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Uptime:</div>
-                        <div class="url-stat-value" style="color: #fd7e14;">${(stats.uptime_percentage || 0).toFixed(1)}%</div>
+                        <div class="url-stat-label">Parse Errors:</div>
+                        <div class="url-stat-value" style="color: ${(stats.error_count || 0) > 0 ? '#dc3545' : '#198754'};">${(stats.error_count || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
-                        <div class="url-stat-label">Last Used:</div>
-                        <div class="url-stat-value" style="color: #20c997;">${lastUsed}</div>
+                        <div class="url-stat-label">Last Parsed:</div>
+                        <div class="url-stat-value" style="color: #20c997; font-size: 0.75rem;">${lastUsed}</div>
                     </div>
                 </div>
             </div>

@@ -14,14 +14,14 @@
                 <p class="hero-subtitle">
                     Explore and manage Azure resources through the Azure Agentic Platform using Model Context Protocol tooling.
                 </p>
-                <div class="d-flex gap-3 justify-content-start flex-wrap">
+                <!-- <div class="d-flex gap-3 justify-content-start flex-wrap">
                     <button class="btn action-btn action-btn-primary" onclick="refreshStatus()">
                         <i class="fas fa-sync-alt me-2"></i>Refresh Status
                     </button>
                     <button class="btn action-btn action-btn-secondary" onclick="listTools()">
                         <i class="fas fa-tools me-2"></i>List Tools
                     </button>
-                </div>
+                </div> -->
             </div>
         </div>
     </div>
@@ -34,33 +34,44 @@
         <div class="col-12 mb-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Status & Tools</h5>
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>MCP Servers & Tools</h5>
                     <button class="btn btn-sm btn-outline-primary" onclick="toggleStatusTools()" id="toggle-status-btn">
                         <i class="fas fa-chevron-down me-1"></i>Collapse
                     </button>
                 </div>
                 <div class="card-body" id="status-tools-section">
                     <div class="row">
-                        <!-- Connection Status -->
-                        <div class="col-md-6 mb-3">
-                            <h6 class="mb-3"><i class="fas fa-signal me-2"></i>Connection Status</h6>
-                            <div id="status-container">
-                                <div class="text-center py-4">
-                                    <div class="spinner-border text-primary" role="status">
-                                        <span class="visually-hidden">Loading...</span>
-                                    </div>
-                                    <p class="mt-2">Checking status...</p>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Available Tools -->
-                        <div class="col-md-6 mb-3">
-                            <h6 class="mb-3"><i class="fas fa-tools me-2"></i>Available Tools</h6>
+                        <div class="col-12">
+                            <h6 class="mb-3"><i class="fas fa-tools me-2"></i>List of Tools</h6>
                             <div id="tools-container" style="max-height: 400px; overflow-y: auto;">
                                 <p class="text-muted">Click "List Tools" to view available Azure MCP tools</p>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Azure Monitor Community Resources -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Azure Monitor Community Resources</h5>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" onclick="loadMonitorResources()">
+                            <i class="fas fa-sync-alt me-1"></i>Load Resources
+                        </button>
+                        <button class="btn btn-sm btn-secondary" id="toggle-monitor-btn" onclick="toggleMonitorResources()">
+                            <i class="fas fa-chevron-down me-1"></i>Collapse
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body" id="monitor-resources-section">
+                    <div id="monitor-resources-container">
+                        <p class="text-muted">Click "Load Resources" to view available Azure Monitor Community workbooks, alerts, and queries</p>
                     </div>
                 </div>
             </div>
@@ -238,12 +249,257 @@
     document.addEventListener('DOMContentLoaded', async function() {
         await loadToolMetadata();
         await listTools();
+        await loadMonitorResources();
         refreshStatus();
     });
+
+    async function loadMonitorResources() {
+        const container = document.getElementById('monitor-resources-container');
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading Azure Monitor Community resources...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch('/api/monitor-community/resources');
+            const data = await response.json();
+
+            if (data.success && data.metadata) {
+                let html = '';
+                
+                // Summary card
+                if (data.metadata.summary) {
+                    const s = data.metadata.summary;
+                    html += `
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-info-circle me-2"></i>Repository Summary</h6>
+                            <div class="row mt-2">
+                                <div class="col-md-3"><strong>${s.total_categories}</strong> total categories</div>
+                                <div class="col-md-3"><strong>${s.total_workbooks}</strong> workbooks in ${s.workbook_categories} categories</div>
+                                <div class="col-md-3"><strong>${s.total_alerts}</strong> alerts in ${s.alert_categories} categories</div>
+                                <div class="col-md-3"><strong>${s.total_queries}</strong> queries in ${s.query_categories} categories</div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                html += '<div class="row">';
+                
+                // Workbooks
+                if (data.metadata.workbooks && data.metadata.workbooks.length > 0) {
+                    html += `
+                        <div class="col-12 mb-3">
+                            <div class="card">
+                                <div class="card-header bg-primary text-white">
+                                    <h6 class="mb-0"><i class="fas fa-book me-2"></i>Workbooks (${data.metadata.workbooks.length} categories)</h6>
+                                </div>
+                                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                                    <div class="accordion" id="workbooksAccordion">
+                    `;
+                    data.metadata.workbooks.forEach((wb, idx) => {
+                        const collapseId = `workbook-${idx}`;
+                        html += `
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                                        <strong>${escapeHtml(wb.category)}</strong>
+                                        <span class="badge bg-primary ms-2">${wb.count} file${wb.count !== 1 ? 's' : ''}</span>
+                                    </button>
+                                </h2>
+                                <div id="${collapseId}" class="accordion-collapse collapse" data-bs-parent="#workbooksAccordion">
+                                    <div class="accordion-body">
+                                        <ul class="list-unstyled mb-0">
+                        `;
+                        if (wb.files && wb.files.length > 0) {
+                            wb.files.forEach(file => {
+                                // Extract subfolder path from full path if it exists
+                                const pathParts = file.path ? file.path.split('/') : [];
+                                const folderHint = pathParts.length > 4 ? pathParts.slice(3, -1).join('/') : '';
+                                const displayName = file.display_name || file.name;
+                                const description = file.description;
+                                html += `
+                                    <li class="mb-3">
+                                        <i class="fas fa-file me-2"></i>
+                                        <a href="${escapeHtml(file.download_url)}" target="_blank"><strong>${escapeHtml(displayName)}</strong></a>
+                                        ${folderHint ? `<small class="text-muted ms-2">📁 ${escapeHtml(folderHint)}</small>` : ''}
+                                        ${description ? `<br><small class="text-muted ms-4 fst-italic">${escapeHtml(description)}</small>` : ''}
+                                    </li>
+                                `;
+                            });
+                        } else {
+                            html += '<li class="text-muted">No files</li>';
+                        }
+                        html += `
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += `
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Alerts
+                if (data.metadata.alerts && data.metadata.alerts.length > 0) {
+                    html += `
+                        <div class="col-12 mb-3">
+                            <div class="card">
+                                <div class="card-header bg-warning text-dark">
+                                    <h6 class="mb-0"><i class="fas fa-bell me-2"></i>Alerts (${data.metadata.alerts.length} categories)</h6>
+                                </div>
+                                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                                    <div class="accordion" id="alertsAccordion">
+                    `;
+                    data.metadata.alerts.forEach((alert, idx) => {
+                        const collapseId = `alert-${idx}`;
+                        html += `
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                                        <strong>${escapeHtml(alert.category)}</strong>
+                                        <span class="badge bg-warning ms-2">${alert.count} file${alert.count !== 1 ? 's' : ''}</span>
+                                    </button>
+                                </h2>
+                                <div id="${collapseId}" class="accordion-collapse collapse" data-bs-parent="#alertsAccordion">
+                                    <div class="accordion-body">
+                                        <ul class="list-unstyled mb-0">
+                        `;
+                        if (alert.files && alert.files.length > 0) {
+                            alert.files.forEach(file => {
+                                const pathParts = file.path ? file.path.split('/') : [];
+                                const folderHint = pathParts.length > 4 ? pathParts.slice(3, -1).join('/') : '';
+                                const displayName = file.display_name || file.name;
+                                const description = file.description;
+                                html += `
+                                    <li class="mb-3">
+                                        <i class="fas fa-file me-2"></i>
+                                        <a href="${escapeHtml(file.download_url)}" target="_blank"><strong>${escapeHtml(displayName)}</strong></a>
+                                        ${folderHint ? `<small class="text-muted ms-2">📁 ${escapeHtml(folderHint)}</small>` : ''}
+                                        ${description ? `<br><small class="text-muted ms-4 fst-italic">${escapeHtml(description)}</small>` : ''}
+                                    </li>
+                                `;
+                            });
+                        } else {
+                            html += '<li class="text-muted">No files</li>';
+                        }
+                        html += `
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += `
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Queries
+                if (data.metadata.queries && data.metadata.queries.length > 0) {
+                    html += `
+                        <div class="col-12 mb-3">
+                            <div class="card">
+                                <div class="card-header bg-success text-white">
+                                    <h6 class="mb-0"><i class="fas fa-code me-2"></i>Queries (${data.metadata.queries.length} categories)</h6>
+                                </div>
+                                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                                    <div class="accordion" id="queriesAccordion">
+                    `;
+                    data.metadata.queries.forEach((query, idx) => {
+                        const collapseId = `query-${idx}`;
+                        html += `
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                                        <strong>${escapeHtml(query.category)}</strong>
+                                        <span class="badge bg-success ms-2">${query.count} file${query.count !== 1 ? 's' : ''}</span>
+                                    </button>
+                                </h2>
+                                <div id="${collapseId}" class="accordion-collapse collapse" data-bs-parent="#queriesAccordion">
+                                    <div class="accordion-body">
+                                        <ul class="list-unstyled mb-0">
+                        `;
+                        if (query.files && query.files.length > 0) {
+                            query.files.forEach(file => {
+                                const pathParts = file.path ? file.path.split('/') : [];
+                                const folderHint = pathParts.length > 4 ? pathParts.slice(3, -1).join('/') : '';
+                                const displayName = file.display_name || file.name;
+                                const description = file.description;
+                                html += `
+                                    <li class="mb-3">
+                                        <i class="fas fa-file me-2"></i>
+                                        <a href="${escapeHtml(file.download_url)}" target="_blank"><strong>${escapeHtml(displayName)}</strong></a>
+                                        ${folderHint ? `<small class="text-muted ms-2">📁 ${escapeHtml(folderHint)}</small>` : ''}
+                                        ${description ? `<br><small class="text-muted ms-4 fst-italic">${escapeHtml(description)}</small>` : ''}
+                                    </li>
+                                `;
+                            });
+                        } else {
+                            html += '<li class="text-muted">No files</li>';
+                        }
+                        html += `
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += `
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+                
+                if (!data.metadata.workbooks?.length && !data.metadata.alerts?.length && !data.metadata.queries?.length) {
+                    html = '<div class="alert alert-warning">No Azure Monitor Community resources found</div>';
+                }
+
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No resources found</div>';
+            }
+        } catch (error) {
+            console.error('Error loading Azure Monitor Community resources:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <p class="mb-0">Failed to load resources: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
 
     function toggleStatusTools() {
         const section = document.getElementById('status-tools-section');
         const btn = document.getElementById('toggle-status-btn');
+        
+        if (section.style.display === 'none') {
+            section.style.display = 'block';
+            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Collapse';
+        } else {
+            section.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Expand';
+        }
+    }
+
+    function toggleMonitorResources() {
+        const section = document.getElementById('monitor-resources-section');
+        const btn = document.getElementById('toggle-monitor-btn');
         
         if (section.style.display === 'none') {
             section.style.display = 'block';
@@ -612,6 +868,7 @@
         inventory: 'Log Analytics Inventory',
         os_eol: 'Operating System EOL',
         azure_cli: 'Azure CLI Executor',
+        monitor: 'Azure Monitor Community Resources',
     };
 
     let runtimeAzureTools = [];
@@ -1699,8 +1956,13 @@
         if (metadata.strategy) {
             agentCommStats.strategy = metadata.strategy;
         }
-        if (phase === 'action' && metadata.toolName) {
-            agentCommStats.toolCalls++;
+        if (phase === 'action') {
+            // Count tools from array (new format) or single tool (legacy format)
+            if (metadata.toolDetails && Array.isArray(metadata.toolDetails)) {
+                agentCommStats.toolCalls += metadata.toolDetails.length;
+            } else if (metadata.toolName) {
+                agentCommStats.toolCalls++;
+            }
         }
         if (agentCommStartTime) {
             agentCommStats.duration = ((Date.now() - agentCommStartTime) / 1000).toFixed(1);
@@ -1716,7 +1978,7 @@
         
         let html = `
             <div class="agent-comm-header">
-                <div>
+                <div class="agent-comm-header-left">
                     <span class="agent-comm-phase phase-${phase}">${phase}</span>
                     ${iteration}
                 </div>
@@ -1726,13 +1988,36 @@
         `;
         
         // Add tool call details
-        if (phase === 'action' && metadata.toolName) {
-            html += `
-                <div class="tool-call">
-                    <div class="tool-name">🔧 ${escapeHtml(metadata.toolName)}</div>
-                    ${metadata.toolParams ? `<div class="tool-params">Parameters: ${escapeHtml(JSON.stringify(metadata.toolParams, null, 2))}</div>` : ''}
-                </div>
-            `;
+        if (phase === 'action') {
+            // Show detailed tool information if available
+            if (metadata.toolDetails && Array.isArray(metadata.toolDetails)) {
+                html += '<div class="tool-call-details">';
+                metadata.toolDetails.forEach(detail => {
+                    const isCliCommand = detail.includes('🔧');
+                    if (isCliCommand) {
+                        // CLI command - show in monospace with copy button
+                        const command = detail.split(': ').slice(1).join(': ').trim();
+                        html += `
+                            <div class="cli-command-display">
+                                <div class="cli-command-label">Command:</div>
+                                <code class="cli-command">${escapeHtml(command)}</code>
+                            </div>
+                        `;
+                    } else {
+                        // Other tool details
+                        html += `<div class="tool-detail">${escapeHtml(detail)}</div>`;
+                    }
+                });
+                html += '</div>';
+            } else if (metadata.toolName) {
+                // Fallback to legacy display
+                html += `
+                    <div class="tool-call">
+                        <div class="tool-name">🔧 ${escapeHtml(metadata.toolName)}</div>
+                        ${metadata.toolParams ? `<div class="tool-params">Parameters: ${escapeHtml(JSON.stringify(metadata.toolParams, null, 2))}</div>` : ''}
+                    </div>
+                `;
+            }
         }
         
         // Add tool result
@@ -1757,58 +2042,97 @@
 
     // Connect to agent communication stream (SSE)
     let agentEventSource = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const baseReconnectDelay = 2000; // 2 seconds
 
     function startAgentCommStream() {
         // Close existing connection if any
         if (agentEventSource) {
             agentEventSource.close();
+            agentEventSource = null;
         }
 
-        agentEventSource = new EventSource('/api/azure-mcp/agent-stream');
-        
-        agentEventSource.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'reasoning') {
-                    addAgentComm('reasoning', data.content, {
-                        iteration: data.iteration,
-                        strategy: data.strategy
-                    });
-                } else if (data.type === 'action') {
-                    addAgentComm('action', data.content, {
-                        iteration: data.iteration,
-                        toolName: data.tool_name,
-                        toolParams: data.tool_params
-                    });
-                } else if (data.type === 'observation') {
-                    addAgentComm('observation', data.content, {
-                        iteration: data.iteration,
-                        toolResult: data.tool_result,
-                        isError: data.is_error
-                    });
-                } else if (data.type === 'reflection') {
-                    addAgentComm('reflection', data.content, {
-                        iteration: data.iteration
-                    });
-                } else if (data.type === 'synthesis') {
-                    addAgentComm('synthesis', data.content, {
-                        iteration: data.iteration
-                    });
-                } else if (data.type === 'planning') {
-                    addAgentComm('planning', data.content, {
-                        strategy: data.strategy
-                    });
+        try {
+            agentEventSource = new EventSource('/api/azure-mcp/agent-stream');
+            
+            agentEventSource.onopen = function() {
+                console.log('✅ Agent communication stream connected');
+                reconnectAttempts = 0; // Reset counter on successful connection
+            };
+            
+            agentEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Handle different event types
+                    if (data.type === 'connected') {
+                        console.log('Agent stream:', data.message);
+                    } else if (data.type === 'error') {
+                        console.error('Agent stream error message:', data.message);
+                        addAgentComm('error', data.message, {});
+                    } else if (data.type === 'reasoning') {
+                        addAgentComm('reasoning', data.content, {
+                            iteration: data.iteration,
+                            strategy: data.strategy
+                        });
+                    } else if (data.type === 'action') {
+                        addAgentComm('action', data.content, {
+                            iteration: data.iteration,
+                            toolName: data.tool_name,
+                            toolParams: data.tool_params,
+                            toolDetails: data.tool_details  // CLI commands and detailed tool info
+                        });
+                    } else if (data.type === 'observation') {
+                        addAgentComm('observation', data.content, {
+                            iteration: data.iteration,
+                            toolResult: data.tool_result,
+                            isError: data.is_error
+                        });
+                    } else if (data.type === 'reflection') {
+                        addAgentComm('reflection', data.content, {
+                            iteration: data.iteration
+                        });
+                    } else if (data.type === 'synthesis') {
+                        addAgentComm('synthesis', data.content, {
+                            iteration: data.iteration
+                        });
+                    } else if (data.type === 'planning') {
+                        addAgentComm('planning', data.content, {
+                            strategy: data.strategy
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error parsing agent comm event:', error);
                 }
-            } catch (error) {
-                console.error('Error parsing agent comm event:', error);
-            }
-        };
-        
-        agentEventSource.onerror = function(error) {
-            console.error('Agent comm stream error:', error);
-            // Will automatically reconnect
-        };
+            };
+            
+            agentEventSource.onerror = function(error) {
+                console.error('Agent comm stream error:', error);
+                
+                // Close the failed connection
+                if (agentEventSource) {
+                    agentEventSource.close();
+                    agentEventSource = null;
+                }
+                
+                // Attempt to reconnect with exponential backoff
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts - 1);
+                    console.log(`Reconnecting agent stream (attempt ${reconnectAttempts}/${maxReconnectAttempts}) in ${delay/1000}s...`);
+                    
+                    setTimeout(() => {
+                        startAgentCommStream();
+                    }, delay);
+                } else {
+                    console.warn('Max reconnection attempts reached. Agent stream disabled.');
+                    addAgentComm('error', 'Agent communication stream unavailable after multiple reconnection attempts', {});
+                }
+            };
+        } catch (error) {
+            console.error('Failed to create EventSource:', error);
+        }
     }
 
     // Start stream on page load
@@ -2036,9 +2360,15 @@
     
     .agent-comm-header {
         display: flex;
-        justify-content: between;
+        justify-content: space-between;
         align-items: center;
         margin-bottom: 0.5rem;
+    }
+    
+    .agent-comm-header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
     
     .agent-comm-phase {
@@ -2096,6 +2426,49 @@
         border-radius: 3px;
         margin-top: 0.5rem;
         border-left: 3px solid #569cd6;
+    }
+    
+    .tool-call-details {
+        margin-top: 0.5rem;
+    }
+    
+    .cli-command-display {
+        background-color: #1e1e1e;
+        padding: 0.75rem;
+        border-radius: 4px;
+        margin-top: 0.5rem;
+        border-left: 3px solid #569cd6;
+    }
+    
+    .cli-command-label {
+        color: #4ec9b0;
+        font-size: 0.75rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+    }
+    
+    .cli-command {
+        display: block;
+        background-color: #2d2d2d;
+        color: #dcdcaa;
+        padding: 0.5rem;
+        border-radius: 3px;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.4;
+    }
+    
+    .tool-detail {
+        background-color: #1e3a5f;
+        padding: 0.5rem;
+        border-radius: 3px;
+        margin-top: 0.5rem;
+        border-left: 3px solid #569cd6;
+        color: #9cdcfe;
+        font-size: 0.85rem;
     }
     
     .tool-name {

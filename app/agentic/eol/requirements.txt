@@ -1,12 +1,28 @@
 fastapi==0.121.2  # Required by agent-framework-ag-ui prerelease
 uvicorn[standard]==0.38.0
 pydantic==2.12.4
-agent-framework==1.0.0b260107  # Preview build requires pip --pre
-agent-framework-ag-ui==1.0.0b260107
-agent-framework-chatkit==1.0.0b260107
+
+# OPTIONAL: Agent Framework (for workflow orchestrator only)
+# Only needed if USE_WORKFLOW_ORCHESTRATOR=true environment variable is set
+# Can be omitted for production deployments using legacy orchestrator
+agent-framework==1.0.0b260130  # Latest release (Jan 30, 2026)
+agent-framework-ag-ui==1.0.0b260130
+agent-framework-chatkit==1.0.0b260130
+# Constrain agent-framework sub-dependencies to avoid resolution issues
+microsoft-agents-copilotstudio-client>=0.5.0,<0.7.0
+microsoft-agents-hosting-core>=0.5.0,<0.7.0
+microsoft-agents-activity>=0.5.0,<0.7.0
+powerfx>=0.0.31,<0.1.0
+clr-loader>=0.2.7,<0.3.0
 azure-identity==1.17.1
 azure-core==1.36.0
 azure-monitor-query==1.4.0
+# Azure Management SDK for workflow orchestrator
+azure-mgmt-resource==23.1.1
+azure-mgmt-compute==33.0.0
+azure-mgmt-network==27.0.0
+azure-mgmt-monitor==6.0.2
+azure-mgmt-storage==21.2.1
 openai==2.7.1
 tiktoken==0.12.0
 a2a-sdk==0.3.12
@@ -16,6 +32,7 @@ httpx==0.28.1
 beautifulsoup4==4.12.3
 soupsieve==2.5
 lxml==5.3.0
+pdfplumber==0.11.4
 jinja2==3.1.4
 python-multipart==0.0.9
 pytest==8.3.2

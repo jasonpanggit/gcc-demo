@@ -54,14 +54,19 @@ class InventoryAgent:
 
         logger.info("📊 Inventory Agent initialized with specialized agents for coordination")
 
-    async def get_inventory_summary(self, days: int = 90) -> Dict[str, Any]:
-        """Get aggregated inventory summary from specialized agents"""
+    async def get_inventory_summary(self, days: int = 90, skip_eol_enrichment: bool = False) -> Dict[str, Any]:
+        """Get aggregated inventory summary from specialized agents.
+        
+        Args:
+            days: Number of days to look back
+            skip_eol_enrichment: If True, skip EOL data enrichment for faster initial load
+        """
         try:
             start_time = time.time()
             
             # Get summaries from both specialized agents concurrently
             software_summary, os_summary = await asyncio.gather(
-                self.software_inventory_agent.get_software_summary(days=days),
+                self.software_inventory_agent.get_software_summary(days=days, skip_eol_enrichment=skip_eol_enrichment),
                 self.os_inventory_agent.get_os_summary(days=days)
             )
             

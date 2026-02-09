@@ -87,7 +87,7 @@
                     <select class="form-select" id="orchestratorFilter">
                         <option value="">All Orchestrators</option>
                         <option value="eol_orchestrator">EOL Orchestrator</option>
-                        <option value="inventory_asst_orchestrator">Inventory Assistant Orchestrator</option>
+                        <option value="inventory_orchestrator">Inventory Orchestrator</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -260,7 +260,7 @@
 
             // Orchestrator filter
             if (orchestratorFilter) {
-                const orchestratorType = response.orchestrator_type || 'inventory_asst_orchestrator';
+                const orchestratorType = response.orchestrator_type || 'inventory_orchestrator';
                 if (orchestratorType !== orchestratorFilter) {
                     return false;
                 }
@@ -339,7 +339,7 @@
 
     function createResponseHTML(response) {
         const timestamp = new Date(response.timestamp).toLocaleString();
-        const orchestratorType = response.orchestrator_type || 'inventory_asst_orchestrator';
+        const orchestratorType = response.orchestrator_type || 'inventory_orchestrator';
         const successClass = response.success ? 'success' : 'failure';
         const responseTimeClass = getResponseTimeClass(response.response_time);
         const cacheBadge = buildCacheBadge(response);
@@ -417,11 +417,8 @@
     function formatOrchestratorType(type) {
         const types = {
             'eol_orchestrator': 'EOL Orchestrator',
-            // 'eol-orchestrator': 'EOL Orchestrator',
-            'inventory_asst_orchestrator': 'Inventory Assistant Orchestrator',
-            // 'chat-orchestrator': 'Chat Orchestrator',
+            'inventory_orchestrator': 'Inventory Orchestrator',
             'magentic_one': 'Magentic-One'
-            // 'magentic-one': 'Magentic-One'
         };
         return types[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
@@ -595,7 +592,7 @@
             response.software_name,
             response.software_version,
             response.agent_name,
-            response.orchestrator_type || 'inventory_asst_orchestrator',
+            response.orchestrator_type || 'inventory_orchestrator',
             Boolean(response.search_internet_only),
             response.success,
             response.query_type,

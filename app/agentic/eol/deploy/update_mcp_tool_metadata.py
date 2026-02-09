@@ -467,18 +467,30 @@ class MCPMetadataCrawler:
         self.headers = {"User-Agent": USER_AGENT}
 
     def fetch_html(self, url: str) -> BeautifulSoup:
+        print(f"📡 Fetching: {url}")
         req = request.Request(url, headers=self.headers)
         with request.urlopen(req, timeout=30.0) as response:
             html = response.read().decode("utf-8", errors="ignore")
         return BeautifulSoup(html, "lxml")
 
     def crawl(self) -> Dict[str, ToolMetadata]:
+        print("\n🔍 Starting Azure MCP tool metadata crawl...")
+        print(f"📖 Base URL: {BASE_URL}\n")
+        
         soup = self.fetch_html(BASE_URL)
+        print("\n📋 Parsing tool index...")
         tool_index = self._parse_index_tables(soup)
-        for slug, metadata in tool_index.items():
+        print(f"✅ Found {len(tool_index)} tools in index\n")
+        
+        print("📝 Fetching detailed documentation for each tool...")
+        for idx, (slug, metadata) in enumerate(tool_index.items(), 1):
+            print(f"   [{idx}/{len(tool_index)}] {metadata.display_name}")
             detail_soup = self.fetch_html(metadata.source_url)
             operations = self._parse_tool_detail(detail_soup, metadata)
             metadata.operations = operations
+            print(f"      → {len(operations)} operation(s) found")
+        
+        print(f"\n✅ Crawl complete: {len(tool_index)} tools processed\n")
         return tool_index
 
     def _parse_index_tables(self, soup: BeautifulSoup) -> Dict[str, ToolMetadata]:
@@ -933,13 +945,28 @@ def _manual_microsoft_learn_tools() -> Dict[str, ToolMetadata]:
 
     return {tool.slug: tool for tool in tools}
 def main() -> None:
+    print("="*60)
+    print("Azure MCP Tool Metadata Updater")
+    print("="*60)
+    
     crawler = MCPMetadataCrawler()
     metadata = crawler.crawl()
 
-    for slug, tool in _manual_microsoft_learn_tools().items():
+    print("📚 Adding manual Microsoft Learn tools...")
+    manual_tools = _manual_microsoft_learn_tools()
+    for slug, tool in manual_tools.items():
         if slug not in metadata:
             metadata[slug] = tool
+    print(f"   → Added {len(manual_tools)} manual tool(s)\n")
 
+    # Generate summary by category
+    categories = {}
+    for tool in metadata.values():
+        category = tool.category or "Uncategorized"
+        categories[category] = categories.get(category, 0) + 1
+    
+    total_operations = sum(len(tool.operations) for tool in metadata.values())
+    
     payload = {
         "tools": [tool.to_dict() for tool in metadata.values()],
         "source": BASE_URL,
@@ -947,7 +974,20 @@ def main() -> None:
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Wrote metadata for {len(metadata)} tools to {OUTPUT_PATH}")
+    
+    print("="*60)
+    print("📊 SUMMARY")
+    print("="*60)
+    print(f"Total tools: {len(metadata)}")
+    print(f"Total operations: {total_operations}")
+    print(f"\nTools by category:")
+    for category in sorted(categories.keys()):
+        print(f"   • {category}: {categories[category]} tool(s)")
+    print(f"\n💾 Output: {OUTPUT_PATH}")
+    print(f"📦 File size: {OUTPUT_PATH.stat().st_size / 1024:.1f} KB")
+    print("="*60)
+    print("✅ Metadata update complete!")
+    print("="*60)
 
 
 if __name__ == "__main__":

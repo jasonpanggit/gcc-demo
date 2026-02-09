@@ -51,6 +51,7 @@ from api.inventory_asst import router as inventory_asst_router
 from api.ui import router as ui_router
 from api.debug import router as debug_router
 from api.azure_mcp import router as azure_mcp_router
+from api.monitor_community import router as monitor_community_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -74,6 +75,7 @@ app.include_router(inventory_asst_router)
 app.include_router(ui_router)
 app.include_router(debug_router)
 app.include_router(azure_mcp_router)
+app.include_router(monitor_community_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -247,6 +249,26 @@ async def _run_startup_tasks():
     """Initialize services on startup"""
     try:
         logger.info(f"🚀 Starting {config.app.title} v{config.app.version}")
+        
+        # ===== CRITICAL: Set global environment variables for all MCP clients =====
+        # These must be set BEFORE any MCP client initialization to ensure proper authentication
+        # and prevent mock data from being used
+        subscription_id = config.azure.subscription_id
+        tenant_id = config.azure.tenant_id
+        
+        if subscription_id:
+            os.environ["SUBSCRIPTION_ID"] = subscription_id
+            os.environ["AZURE_SUBSCRIPTION_ID"] = subscription_id  # Some clients use this name
+            logger.info(f"✅ Global SUBSCRIPTION_ID set: {subscription_id[:8]}...{subscription_id[-4:]}")
+        else:
+            logger.warning("⚠️  SUBSCRIPTION_ID not configured - MCP clients may use mock data!")
+        
+        if tenant_id:
+            os.environ["AZURE_TENANT_ID"] = tenant_id
+            os.environ["TENANT_ID"] = tenant_id  # Some clients use this name
+            logger.info(f"✅ Global TENANT_ID set: {tenant_id[:8]}...{tenant_id[-4:]}")
+        else:
+            logger.warning("⚠️  TENANT_ID not configured - MCP clients may use mock data!")
         
         # Validate configuration
         validation = config.validate_config()

@@ -98,6 +98,7 @@ The system uses intelligent agent routing based on:
 - **FastAPI 0.112.x**: High-performance async web framework
 - **Python 3.11+**: Core runtime environment
 - **Azure SDK**: Integration with Azure services (Identity, Monitor Query, Cosmos DB)
+- **Azure Management SDK**: Native Azure resource management (Resource, Compute, Network, Monitor, Storage)
 - **Microsoft Agent Framework 1.0.0b260107**: Preview multi-agent conversation framework
 - **Pydantic 2.x**: Data validation and serialization
 
@@ -144,8 +145,9 @@ app/agentic/eol/
 │   └── debug.py                      # Debug utilities (3)
 ├── agents/                           # Multi-agent system
 │   ├── base_eol_agent.py             # Base class for all EOL agents
-│   ├── inventory_asst_orchestrator.py# Conversational AI orchestrator (Microsoft Agent Framework)
+│   ├── inventory_orchestrator.py     # Conversational AI orchestrator (Microsoft Agent Framework)
 │   ├── eol_orchestrator.py           # EOL analysis orchestrator
+│   ├── mcp_orchestrator.py           # MCP multi-tool orchestrator (legacy, sequential)
 │   ├── inventory_agent.py            # Inventory coordination
 │   ├── os_inventory_agent.py         # OS inventory from Log Analytics
 │   ├── software_inventory_agent.py   # Software inventory from Log Analytics

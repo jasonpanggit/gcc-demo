@@ -1,12 +1,14 @@
-"""
-EOL Orchestrator Agent - Streamlined and fully autonomous EOL data gathering for eol.html interface
+"""EOL Orchestrator Agent - Streamlined and fully autonomous EOL data gathering for eol.html interface.
+
+This orchestrator coordinates multiple specialized agents to gather End-of-Life information
+for software and operating systems, using intelligent routing, caching, and confidence scoring.
 """
 import asyncio
 import uuid
 import logging
 import time
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Set
+from datetime import datetime, timedelta, timezone
 
 from .endoflife_agent import EndOfLifeAgent
 from .microsoft_agent import MicrosoftEOLAgent
@@ -26,6 +28,12 @@ from .python_agent import PythonEOLAgent
 from .playwright_agent import PlaywrightEOLAgent
 from .eolstatus_agent import EOLStatusAgent
 
+try:
+    from utils.normalization import normalize_os_name_version, normalize_software_name_version
+except ImportError:
+    # Fallback for relative import
+    from ..utils.normalization import normalize_os_name_version, normalize_software_name_version
+
 from utils.eol_inventory import eol_inventory
 
 # Import logger
@@ -35,6 +43,18 @@ try:
 except ImportError:
     import logging
     logger = logging.getLogger(__name__)
+
+# Configuration constants
+DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
+DEFAULT_AGENT_TIMEOUT_SECONDS = 14  # Fast-fail per agent
+HIGH_CONFIDENCE_THRESHOLD = 0.9  # Threshold for early termination
+MAX_COMMS_LOG_SIZE = 100  # Maximum communication log entries
+MAX_EOL_RESPONSES_TRACKED = 50  # Maximum EOL responses to track
+MAX_CONCURRENT_EOL_ANALYSIS = 10  # Concurrency limit for EOL analysis
+RECENT_COMMS_DISPLAY_LIMIT = 20  # Number of recent communications to display
+PLAYWRIGHT_MAX_CONFIDENCE = 0.95  # Cap Playwright confidence
+GENERAL_MAX_CONFIDENCE = 0.98  # General max confidence
+NAME_MATCH_THRESHOLD = 0.6  # Threshold for fuzzy name matching
 
 
 DEFAULT_VENDOR_ROUTING: Dict[str, List[str]] = {
@@ -136,18 +156,26 @@ class EOLOrchestratorAgent:
         vendor_routing: Optional[Dict[str, List[str]]] = None,
         use_mock_data: Optional[bool] = None,
         close_provided_agents: bool = False,
-    ):
+    ) -> None:
+        """Initialize the EOL orchestrator with agents and configuration.
+        
+        Args:
+            agents: Optional dictionary of pre-initialized agents
+            vendor_routing: Optional custom vendor routing rules
+            use_mock_data: Whether to use mock agents for testing
+            close_provided_agents: Whether orchestrator owns the provided agents lifecycle
+        """
         self.session_id = str(uuid.uuid4())
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
-        # Replace Cosmos-backed comms with in-memory log (per process)
+        # In-memory communication log (per process)
         self._comms_log: List[Dict[str, Any]] = []
         self.agent_name = "eol_orchestrator"
 
-        # EOL Response Tracking - Track all agent responses for detailed history
+        # EOL Response Tracking for detailed history
         self.eol_agent_responses: List[Dict[str, Any]] = []
 
-        # Track lifecycle so orchestrator can release ownedSS$ resources
+        # Lifecycle tracking for resource cleanup
         self._close_lock = asyncio.Lock()
         self._closed = False
         self._owns_agents = close_provided_agents or agents is None
@@ -165,9 +193,9 @@ class EOLOrchestratorAgent:
 
         # Cache for EOL results (in-memory for session)
         self.eol_cache: Dict[str, Any] = {}
-        self.cache_ttl = 3600  # 1 hour cache
-        self.agent_timeout_seconds = 14  # fast-fail per agent to cut tail latency
-        self.high_confidence_threshold = 0.9
+        self.cache_ttl = DEFAULT_CACHE_TTL_SECONDS
+        self.agent_timeout_seconds = DEFAULT_AGENT_TIMEOUT_SECONDS
+        self.high_confidence_threshold = HIGH_CONFIDENCE_THRESHOLD
 
         logger.info(
             "🚀 Autonomous EOL Orchestrator initialized with %d agents",
@@ -227,7 +255,7 @@ class EOLOrchestratorAgent:
 
     def _iter_unique_agents(self):
         """Yield unique agent instances to avoid duplicate cleanup calls."""
-        seen: set[int] = set()
+        seen: Set[int] = set()
         for agent in self.agents.values():
             identity = id(agent)
             if identity in seen:
@@ -278,22 +306,29 @@ class EOLOrchestratorAgent:
     async def __aexit__(self, exc_type, exc, exc_tb) -> None:
         await self.aclose()
         
-    async def log_communication(self, agent_name: str, action: str, data: Dict[str, Any], result: Optional[Dict[str, Any]] = None):
-        """Log agent communication (in-memory only; Cosmos removed)"""
+    async def log_communication(self, agent_name: str, action: str, data: Dict[str, Any], result: Optional[Dict[str, Any]] = None) -> None:
+        """Log agent communication in memory.
+        
+        Args:
+            agent_name: Name of the agent
+            action: Action being performed
+            data: Input data for the action
+            result: Optional result from the action
+        """
         try:
             communication = {
                 "id": str(uuid.uuid4()),
                 "sessionId": self.session_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agentName": agent_name,
                 "action": action,
                 "input": data,
                 "output": result,
             }
-            # Keep last 100 entries
+            # Keep last MAX_COMMS_LOG_SIZE entries
             self._comms_log.append(communication)
-            if len(self._comms_log) > 100:
-                self._comms_log = self._comms_log[-100:]
+            if len(self._comms_log) > MAX_COMMS_LOG_SIZE:
+                self._comms_log = self._comms_log[-MAX_COMMS_LOG_SIZE:]
         except Exception as e:
             logger.error(f"Error logging communication: {str(e)}")
             # Don't append anything if there's an error
@@ -445,7 +480,7 @@ class EOLOrchestratorAgent:
                 eol_analysis_tasks.append(task)
             
             # Execute EOL analysis in parallel with concurrency limit
-            semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_EOL_ANALYSIS)  # Limit concurrent requests
             async def sem_task(task):
                 async with semaphore:
                     return await task
@@ -536,7 +571,8 @@ class EOLOrchestratorAgent:
             # Check cache first
             if cache_key in self.eol_cache:
                 cache_entry = self.eol_cache[cache_key]
-                if datetime.utcnow() - cache_entry["timestamp"] < timedelta(seconds=self.cache_ttl):
+                now = datetime.now(timezone.utc)
+                if now - cache_entry["timestamp"] < timedelta(seconds=self.cache_ttl):
                     return {"success": True, "eol_data": cache_entry["data"], "cache_hit": True}
             
             # Get EOL data using autonomous routing
@@ -548,7 +584,7 @@ class EOLOrchestratorAgent:
                 # Cache the result
                 self.eol_cache[cache_key] = {
                     "data": eol_data,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
                 
                 return {"success": True, "eol_data": eol_data, "cache_hit": False}
@@ -616,9 +652,19 @@ class EOLOrchestratorAgent:
             
             software_name_lower = software_name.lower()
 
+            # Normalize for consistent cache keys
+            if item_type == "os":
+                normalized_name, normalized_version = normalize_os_name_version(software_name, version)
+            else:
+                normalized_name, normalized_version = normalize_software_name_version(software_name, version)
+            
+            logger.debug(
+                f"EOL orchestrator normalized: '{software_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
+            )
+
             # Orchestrator-level Cosmos cache lookup (eol_inventory is single source of truth)
             if not effective_ignore_cache:
-                cached_eol = await eol_inventory.get(software_name, version)
+                cached_eol = await eol_inventory.get(normalized_name, normalized_version)
                 if cached_eol:
                     cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
                     cached_eol["cache_hit"] = True
@@ -672,8 +718,8 @@ class EOLOrchestratorAgent:
                     asyncio.create_task(
                         self._invoke_agent(
                             agent_name,
-                            software_name,
-                            version,
+                            software_name,  # Use ORIGINAL name for agent queries (agents do their own matching)
+                            version,  # Use ORIGINAL version
                             timeout_seconds=agent_timeout,
                         )
                     )
@@ -976,12 +1022,15 @@ class EOLOrchestratorAgent:
                     best_result.setdefault("cache_source", "cosmos_eol_table")
                     best_result.setdefault("cached", False)
                     try:
-                        upsert_ok = await eol_inventory.upsert(software_name, version, best_result)
+                        # Use normalized names for cache storage to ensure cache hits
+                        upsert_ok = await eol_inventory.upsert(normalized_name, normalized_version, best_result)
                         if not upsert_ok:
                             logger.warning(
-                                "⚠️ EOL inventory upsert skipped or failed for %s %s (container ready: %s)",
+                                "⚠️ EOL inventory upsert skipped or failed for %s %s (normalized: %s %s, container ready: %s)",
                                 software_name,
                                 version or "(any)",
+                                normalized_name,
+                                normalized_version or "(any)",
                                 getattr(eol_inventory, "initialized", False),
                             )
                     except Exception as exc:
@@ -1119,8 +1168,8 @@ class EOLOrchestratorAgent:
         if data.get("source_url"):
             confidence += 0.05
 
-        # Cap Playwright to 95% to align with agent payloads
-        max_conf_cap = 0.95 if agent_name == "playwright" else 0.98
+        # Cap confidence based on agent type
+        max_conf_cap = PLAYWRIGHT_MAX_CONFIDENCE if agent_name == "playwright" else GENERAL_MAX_CONFIDENCE
 
         confidence = max(0.05, min(confidence, max_conf_cap))
         return round(confidence, 2)
@@ -1154,7 +1203,7 @@ class EOLOrchestratorAgent:
 
         overlap = query_tokens.intersection(result_tokens)
         union = query_tokens.union(result_tokens)
-        return (len(overlap) / len(union)) >= 0.6
+        return (len(overlap) / len(union)) >= NAME_MATCH_THRESHOLD
 
     def _version_matches_exact(self, result: Dict[str, Any], version: Optional[str]) -> bool:
         """Check if result version exactly matches the requested version (normalized)."""
@@ -1210,7 +1259,7 @@ class EOLOrchestratorAgent:
         if processed["eol_date"]:
             try:
                 eol_date = datetime.fromisoformat(processed["eol_date"].replace('Z', '+00:00'))
-                now = datetime.utcnow().replace(tzinfo=eol_date.tzinfo)
+                now = datetime.now(timezone.utc)
                 days_diff = (eol_date - now).days
                 
                 processed["days_until_eol"] = days_diff
@@ -1340,7 +1389,7 @@ class EOLOrchestratorAgent:
             self.session_id = str(uuid.uuid4())
             
             # Reset start time
-            self.start_time = datetime.utcnow()
+            self.start_time = datetime.now(timezone.utc)
             
             logger.info(f"🧹 Communications cleared: {previous_count} communications, cache ({cache_size_before} items), session {old_session_id} -> {self.session_id}")
             
@@ -1352,7 +1401,7 @@ class EOLOrchestratorAgent:
                     "cache_items_cleared": cache_size_before,
                     "old_session_id": old_session_id,
                     "new_session_id": self.session_id,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             }
             
@@ -1377,15 +1426,16 @@ class EOLOrchestratorAgent:
                 self._comms_log = []
             
             # Convert internal log format to frontend format
-            for comm in reversed(self._comms_log[-20:]):  # Get last 20 communications
+            for comm in reversed(self._comms_log[-RECENT_COMMS_DISPLAY_LIMIT:]):  # Get recent communications
                 # Skip None or invalid communication entries
                 if comm is None or not isinstance(comm, dict):
                     continue
                 
                 # Extra safety check - ensure comm is not None before processing
                 try:
+                    now_iso = datetime.now(timezone.utc).isoformat()
                     communications.append({
-                        "timestamp": comm.get("timestamp", datetime.utcnow().isoformat()) if comm else datetime.utcnow().isoformat(),
+                        "timestamp": comm.get("timestamp", now_iso) if comm else now_iso,
                         "agent_name": comm.get("agentName", "unknown") if comm else "unknown",
                         "action": comm.get("action", "unknown") if comm else "unknown",
                         "status": "completed",  # Default status
@@ -1410,7 +1460,7 @@ class EOLOrchestratorAgent:
                     "output": {
                         "session_id": self.session_id,
                         "cache_size": len(self.eol_cache),
-                        "uptime_seconds": (datetime.utcnow() - self.start_time).total_seconds()
+                        "uptime_seconds": (datetime.now(timezone.utc) - self.start_time).total_seconds()
                     },
                     "message": f"🚀 EOL Orchestrator session started",
                     "type": "info"
@@ -1421,7 +1471,7 @@ class EOLOrchestratorAgent:
         except Exception as e:
             logger.error(f"Error getting recent communications: {str(e)}")
             return [{
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agent_name": "eol_orchestrator",
                 "action": "error",
                 "status": "failed",
@@ -1492,7 +1542,7 @@ class EOLOrchestratorAgent:
         Get cache status and statistics
         """
         try:
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
             
             # Calculate cache statistics
             total_items = len(self.eol_cache)
@@ -1592,9 +1642,9 @@ class EOLOrchestratorAgent:
             # Add to tracking list
             self.eol_agent_responses.append(response_entry)
             
-            # Keep only the last 50 responses to prevent memory issues
-            if len(self.eol_agent_responses) > 50:
-                self.eol_agent_responses = self.eol_agent_responses[-50:]
+            # Keep only the last MAX_EOL_RESPONSES_TRACKED to prevent memory issues
+            if len(self.eol_agent_responses) > MAX_EOL_RESPONSES_TRACKED:
+                self.eol_agent_responses = self.eol_agent_responses[-MAX_EOL_RESPONSES_TRACKED:]
                 
             # Log the tracking for debugging
             logger.info(f"📊 [EOL Orchestrator] Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")

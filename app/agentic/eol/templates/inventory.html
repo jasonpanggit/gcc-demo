@@ -136,6 +136,29 @@
         text-align: left;
         white-space: nowrap;
         border-bottom: 2px solid var(--gray-700);
+        position: relative;
+    }
+
+    /* Column resize handle */
+    .inventory-table th .resize-handle {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 5px;
+        height: 100%;
+        cursor: col-resize;
+        user-select: none;
+        z-index: 20;
+    }
+
+    .inventory-table th .resize-handle:hover {
+        background-color: var(--primary-color);
+        opacity: 0.5;
+    }
+
+    .inventory-table th.resizing {
+        user-select: none;
+        cursor: col-resize;
     }
 
     .inventory-table th:first-child {
@@ -1309,6 +1332,20 @@
     window.loadInventory = function() { console.warn('loadInventory not yet initialized'); };
     window.refreshInventory = function() { console.warn('refreshInventory not yet initialized'); };
     window.applyFilters = function() { console.warn('applyFilters not yet initialized'); };
+    window.sortTable = function(col) { 
+        if (window.inventoryFunctions?.sortTable) {
+            window.inventoryFunctions.sortTable(col);
+        } else {
+            console.warn('sortTable not yet initialized');
+        }
+    };
+    window.changePageSize = function() {
+        if (window.inventoryFunctions?.changePageSize) {
+            window.inventoryFunctions.changePageSize('page-size');
+        } else {
+            console.warn('changePageSize not yet initialized');
+        }
+    };
 </script>
 
 <!-- Import modular JavaScript -->
@@ -1339,6 +1376,9 @@
         loadInventoryStatus();
         initializeSorting();
         tryRestoreViewState();
+        
+        // Initialize column resizing
+        initializeColumnResizing();
         
         // Expose functions globally for onclick handlers
         window.inventoryFunctions = {
@@ -3350,6 +3390,57 @@
 
         // Update filter
         updateMultiSelectFilter(column);
+    }
+
+    // Column resizing functionality
+    function initializeColumnResizing() {
+        const table = document.getElementById('inventory-table');
+        if (!table) return;
+
+        const headers = table.querySelectorAll('thead th');
+        
+        headers.forEach((header, index) => {
+            // Don't add resize handle to the last column (Actions)
+            if (index === headers.length - 1) return;
+            
+            // Create resize handle
+            const resizeHandle = document.createElement('div');
+            resizeHandle.className = 'resize-handle';
+            header.appendChild(resizeHandle);
+            
+            let startX, startWidth;
+            
+            const onMouseDown = (e) => {
+                e.stopPropagation(); // Prevent sorting when clicking resize handle
+                startX = e.clientX;
+                startWidth = header.offsetWidth;
+                
+                header.classList.add('resizing');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+            
+            const onMouseMove = (e) => {
+                const diff = e.clientX - startX;
+                const newWidth = Math.max(50, startWidth + diff); // Min width 50px
+                header.style.width = newWidth + 'px';
+                header.style.minWidth = newWidth + 'px';
+            };
+            
+            const onMouseUp = () => {
+                header.classList.remove('resizing');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            resizeHandle.addEventListener('mousedown', onMouseDown);
+        });
     }
 
 </script>

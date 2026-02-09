@@ -340,59 +340,73 @@ module "monitoring" {
 }
 
 # ============================================================================
-# AGENTIC APP MODULE - EOL Agentic App
+# CONTAINER APPS MODULE - EOL Agentic Application
 # ============================================================================
+# Modern containerized deployment with multi-container architecture
 
-module "agentic" {
-  source = "./modules/agentic"
-  count  = var.deploy_agentic_app ? 1 : 0
+module "container_apps" {
+  source = "./modules/container_apps"
+  count  = var.deploy_container_apps ? 1 : 0
 
-  project_name                      = var.project_name
-  environment                       = var.environment
-  location                          = azurerm_resource_group.rg_hub.location
-  resource_group_name               = azurerm_resource_group.rg_hub.name
-  deploy_agentic_app                = var.deploy_agentic_app
-  agentic_app_name                  = var.agentic_app_name
-  deploy_nongen_vnet                = var.deploy_nongen_vnet
-  nongen_vnet_id                    = var.deploy_nongen_vnet ? module.networking[0].nongen_vnet_id : null
-  nongen_private_endpoint_subnet_id = var.deploy_nongen_vnet ? module.networking[0].nongen_private_endpoint_subnet_id : null
-  # Use unified naming for App Service VNet integration subnet
-  nongen_app_subnet_id  = var.deploy_nongen_vnet ? module.networking[0].nongen_appsvc_integration_subnet_id : null
-  workspace_resource_id = length(module.monitoring) > 0 ? module.monitoring[0].log_analytics_workspace_id : null
-  workspace_guid        = length(module.monitoring) > 0 ? module.monitoring[0].log_analytics_workspace_guid : null
-
-  # Private endpoints for services
-  deploy_aoai                      = var.deploy_aoai
-  deploy_agentic_private_endpoints = var.deploy_agentic_private_endpoints
-
-  # Cosmos DB configuration for EOL caching
-  deploy_cosmos_db             = var.deploy_cosmos_db
-  cosmos_db_serverless         = var.cosmos_db_serverless
-  cosmos_db_consistency_level  = var.cosmos_db_consistency_level
-  cosmos_db_throughput         = var.cosmos_db_throughput
-  cosmos_db_automatic_failover = var.cosmos_db_automatic_failover
-  cosmos_db_geo_location       = var.cosmos_db_geo_location
-
-  # Azure Container Registry configuration
-  deploy_acr       = var.deploy_acr
+  project_name        = var.project_name
+  environment         = var.environment
+  location            = azurerm_resource_group.rg_hub.location
+  resource_group_name = azurerm_resource_group.rg_hub.name
+  
+  deploy_container_apps = var.deploy_container_apps
+  app_name             = var.agentic_app_name
+  
+  # Networking
+  container_apps_subnet_id     = var.deploy_nongen_vnet ? module.networking[0].nongen_appsvc_integration_subnet_id : null
+  private_endpoint_subnet_id   = var.deploy_nongen_vnet ? module.networking[0].nongen_private_endpoint_subnet_id : null
+  internal_load_balancer_enabled = var.container_apps_internal_lb_enabled
+  zone_redundancy_enabled      = var.container_apps_zone_redundancy_enabled
+  
+  # Monitoring
+  create_log_analytics_workspace = false
+  workspace_resource_id         = length(module.monitoring) > 0 ? module.monitoring[0].log_analytics_workspace_id : null
+  workspace_guid                = length(module.monitoring) > 0 ? module.monitoring[0].log_analytics_workspace_guid : null
+  
+  # Container Configuration
+  app_container_image     = var.container_apps_app_image
+  mcp_container_image     = var.container_apps_mcp_image
+  app_container_cpu       = var.container_apps_app_cpu
+  app_container_memory    = var.container_apps_app_memory
+  mcp_container_cpu       = var.container_apps_mcp_cpu
+  mcp_container_memory    = var.container_apps_mcp_memory
+  
+  # Scaling
+  min_replicas = var.container_apps_min_replicas
+  max_replicas = var.container_apps_max_replicas
+  
+  # Azure Services
+  deploy_aoai              = var.deploy_aoai
+  deploy_cosmos_db         = var.deploy_cosmos_db
+  deploy_acr               = var.deploy_acr
+  deploy_ai_foundry        = var.deploy_azure_ai_agent
+  deploy_private_endpoints = var.deploy_agentic_private_endpoints
+  
+  # Cosmos DB Configuration
+  cosmos_db_serverless        = var.cosmos_db_serverless
+  cosmos_db_consistency_level = var.cosmos_db_consistency_level
+  cosmos_db_throughput        = var.cosmos_db_throughput
+  cosmos_db_database_name     = "eol_cache"
+  cosmos_db_container_name    = "eol_responses"
+  
+  # Azure OpenAI Configuration
+  aoai_deployment_name = var.aoai_deployment_name
+  aoai_model_name      = var.aoai_model_name
+  aoai_model_version   = var.aoai_model_version
+  
+  # ACR Configuration
   acr_sku          = var.acr_sku
   acr_admin_enabled = var.acr_admin_enabled
-
-  # Bing Search API configuration (DEPRECATED)
-  deploy_bing_search    = var.deploy_bing_search
-  bing_search_sku_name  = var.bing_search_sku_name
-
-  # Azure AI Agent Service configuration (Modern replacement)
-  deploy_azure_ai_agent        = var.deploy_azure_ai_agent
-  azure_ai_foundry_sku_name    = var.azure_ai_foundry_sku_name
-  azure_ai_foundry_name        = var.azure_ai_foundry_name
-
-  enable_teams_integration = false
-
+  
   tags = {
-    Environment = var.environment
-    Project     = var.project_name
-    Purpose     = "EOL Agentic App"
+    Environment  = var.environment
+    Project      = var.project_name
+    Purpose      = "EOL Agentic App - Container Apps"
+    Architecture = "Multi-Container with MCP Sidecar"
   }
 
   depends_on = [module.networking, module.firewall, module.monitoring]

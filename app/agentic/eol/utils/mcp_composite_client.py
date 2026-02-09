@@ -66,12 +66,12 @@ class CompositeMCPClient:
                 self._tool_map[final_name] = (client, original_name)
                 self._tool_sources[final_name] = label
                 self._tool_definitions.append(tool_definition)
-                logger.debug(
-                    "Registered MCP tool '%s' (original '%s') from client '%s'",
-                    final_name,
-                    original_name,
-                    label,
-                )
+                # logger.debug(
+                #     "Registered MCP tool '%s' (original '%s') from client '%s'",
+                #     final_name,
+                #     original_name,
+                #     label,
+                # )
 
         if self._tool_definitions:
             counts: Dict[str, int] = {}

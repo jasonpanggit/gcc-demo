@@ -7,6 +7,7 @@ This directory contains a comprehensive pytest-based test suite for the EOL Agen
 | File | Purpose |
 |------|---------|
 | `conftest.py` | Pytest configuration, fixtures (AsyncClient, mock data) |
+| `run_tests.sh` | **NEW:** Automated test runner using venv Python (recommended) |
 | `run_comprehensive_tests.py` | Intelligent test runner with category execution |
 | `mock_data.py` | Generates realistic mock data (500+ software items, 50 OS) |
 | `mock_agents.py` | Mock inventory agents for testing |
@@ -34,7 +35,40 @@ This directory contains a comprehensive pytest-based test suite for the EOL Agen
 
 ## 🚀 Quick Start
 
-### Run All Tests
+### Option 1: Using Test Runner Script (Recommended)
+
+The `run_tests.sh` script automatically uses the venv Python and provides clean output:
+
+```bash
+# From the tests directory
+cd app/agentic/eol/tests
+
+# Run all tests (local with mock data)
+./run_tests.sh
+
+# Run tests against Azure production deployment
+./run_tests.sh --remote
+
+# Run tests against custom URL
+./run_tests.sh --url http://localhost:5000
+
+# Run specific test file
+./run_tests.sh tests/test_health_endpoints.py
+
+# Run remote health tests
+./run_tests.sh --remote tests/test_health_endpoints.py
+
+# Run tests matching pattern
+./run_tests.sh tests/ -k test_mcp
+
+# Stop at first failure
+./run_tests.sh tests/ -x
+
+# Show help
+./run_tests.sh --help
+```
+
+### Option 2: Using Legacy Test Runner
 
 ```bash
 # From the eol directory

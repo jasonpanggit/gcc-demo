@@ -59,8 +59,13 @@ The script maps Terraform outputs to application settings:
 - `generate-appsettings.sh` - Emit appsettings from Terraform outputs (writes `appsettings.json`)
 - `show-logs.sh` - Stream logs from Container Apps or App Service based on appsettings
 - `update_mcp_tool_metadata.py` - Refresh cached Azure MCP tool metadata used by the UI
+- `update_monitor_community_metadata.py` - Scrape Azure Monitor Community repository and generate metadata
 
-Run the metadata refresh script inside the project virtual environment so it picks up BeautifulSoup and other crawler dependencies:
+### Metadata Generation Scripts
+
+#### Azure MCP Tool Metadata
+
+Run the metadata refresh script inside the project virtual environment to update Azure MCP tool documentation:
 
 ```bash
 source ../../../../.venv/bin/activate
@@ -68,6 +73,23 @@ python update_mcp_tool_metadata.py
 ```
 
 The script writes to `../static/data/azure_mcp_tool_metadata.json`, which the web app reads at runtime.
+
+#### Azure Monitor Community Metadata
+
+Generate metadata for Azure Monitor Community resources (workbooks, alerts, queries) by scraping the GitHub repository:
+
+```bash
+python update_monitor_community_metadata.py
+```
+
+The script:
+- **Uses HTML scraping** (no GitHub API token needed)
+- Scrapes all 64 Azure service categories
+- Recursively explores subdirectories to find all resources
+- Generates: `../static/data/azure_monitor_community_metadata.json`
+- Takes 3-5 minutes to complete (scrapes ~200+ HTTP requests)
+
+This metadata file can be used by the UI to load resources instantly without making API calls on every page load.
 
 ### App Settings Configuration
 
@@ -79,6 +101,8 @@ Key runtime settings baked by the container script:
 - `PYTHONUNBUFFERED=1`
 - `CONTAINER_MODE=true`
 - `ENVIRONMENT=production`
+
+**Note**: GitHub token configuration is no longer required. Azure Monitor Community resources now use HTML scraping instead of the GitHub API, eliminating rate limits and authentication requirements.
 
 ### Usage
 

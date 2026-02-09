@@ -133,70 +133,62 @@ window.eolUtils = window.eolUtils || {};
         const softwareNameLower = softwareName.toLowerCase();
         const selectedAgents = [];
 
-        // Microsoft products
-        const msKeywords = ['windows', 'microsoft', 'office', 'sql server', 'iis', 'visual studio', '.net'];
-        if (msKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+        // Agent configuration: keywords, name, type, icon, reason
+        const agentConfigs = [
+            {
+                keywords: ['windows', 'microsoft', 'office', 'sql server', 'iis', 'visual studio', '.net'],
                 name: 'Microsoft Agent',
                 type: 'microsoft',
                 icon: 'fab fa-microsoft',
                 reason: 'Microsoft product detected'
-            });
-        }
-
-        // Red Hat products
-        const rhKeywords = ['red hat', 'rhel', 'centos', 'fedora'];
-        if (rhKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+            },
+            {
+                keywords: ['red hat', 'rhel', 'centos', 'fedora'],
                 name: 'Red Hat Agent',
                 type: 'redhat',
                 icon: 'fab fa-redhat',
                 reason: 'Red Hat product detected'
-            });
-        }
-
-        // Ubuntu products
-        const ubuntuKeywords = ['ubuntu', 'canonical'];
-        if (ubuntuKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+            },
+            {
+                keywords: ['ubuntu', 'canonical'],
                 name: 'Ubuntu Agent',
                 type: 'ubuntu',
                 icon: 'fab fa-ubuntu',
                 reason: 'Ubuntu product detected'
-            });
-        }
-
-        // Python
-        const pythonKeywords = ['python', 'py'];
-        if (pythonKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+            },
+            {
+                keywords: ['python', 'py'],
                 name: 'Python Agent',
                 type: 'python',
                 icon: 'fab fa-python',
                 reason: 'Python detected'
-            });
-        }
-
-        // Node.js
-        const nodeKeywords = ['node', 'nodejs', 'node.js'];
-        if (nodeKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+            },
+            {
+                keywords: ['node', 'nodejs', 'node.js'],
                 name: 'Node.js Agent',
                 type: 'nodejs',
                 icon: 'fab fa-node-js',
                 reason: 'Node.js detected'
-            });
-        }
-
-        // PHP
-        const phpKeywords = ['php'];
-        if (phpKeywords.some(keyword => softwareNameLower.includes(keyword))) {
-            selectedAgents.push({
+            },
+            {
+                keywords: ['php'],
                 name: 'PHP Agent',
                 type: 'php',
                 icon: 'fab fa-php',
                 reason: 'PHP detected'
-            });
+            }
+        ];
+
+        // Check each agent configuration
+        for (const config of agentConfigs) {
+            if (config.keywords.some(keyword => softwareNameLower.includes(keyword))) {
+                selectedAgents.push({
+                    name: config.name,
+                    type: config.type,
+                    icon: config.icon,
+                    reason: config.reason
+                });
+            }
         }
 
         // Always include endoflife.date as fallback
@@ -212,32 +204,41 @@ window.eolUtils = window.eolUtils || {};
 
     /**
      * Format date consistently across the application
-     * @param {string} dateString - Date string to format
+     * @param {string|Date} dateString - Date string or Date object to format
      * @returns {string} Formatted date or 'N/A'
      */
     eolUtils.formatDate = function(dateString) {
         if (!dateString) return 'N/A';
         try {
             const date = new Date(dateString);
+            if (isNaN(date.getTime())) {
+                console.warn('Invalid date:', dateString);
+                return 'N/A';
+            }
             return date.toLocaleDateString('en-US', {
                 year: 'numeric',
                 month: 'short',
                 day: 'numeric'
             });
         } catch (e) {
-            return dateString;
+            console.error('Error formatting date:', e);
+            return 'N/A';
         }
     };
 
     /**
      * Format relative time (e.g., "5 minutes ago")
-     * @param {string} dateString - Date string to format
+     * @param {string|Date} dateString - Date string or Date object to format
      * @returns {string} Relative time string
      */
     eolUtils.formatRelativeTime = function(dateString) {
         if (!dateString) return 'Unknown';
         try {
             const date = new Date(dateString);
+            if (isNaN(date.getTime())) {
+                console.warn('Invalid date for relative time:', dateString);
+                return 'Unknown';
+            }
             const now = new Date();
             const diffInSeconds = Math.floor((now - date) / 1000);
 
@@ -248,6 +249,7 @@ window.eolUtils = window.eolUtils || {};
 
             return eolUtils.formatDate(dateString);
         } catch (e) {
+            console.error('Error formatting relative time:', e);
             return 'Unknown';
         }
     };
@@ -303,15 +305,23 @@ window.eolUtils = window.eolUtils || {};
         const toast = document.createElement('div');
         toast.className = `toast align-items-center text-white bg-${type} border-0`;
         toast.setAttribute('role', 'alert');
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">
-                    ${eolUtils.escapeHtml(message)}
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>
-        `;
-
+        
+        // Create structure using DOM methods to avoid XSS
+        const flexDiv = document.createElement('div');
+        flexDiv.className = 'd-flex';
+        
+        const bodyDiv = document.createElement('div');
+        bodyDiv.className = 'toast-body';
+        bodyDiv.textContent = message; // Safe: uses textContent
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close btn-close-white me-2 m-auto';
+        closeBtn.setAttribute('data-bs-dismiss', 'toast');
+        
+        flexDiv.appendChild(bodyDiv);
+        flexDiv.appendChild(closeBtn);
+        toast.appendChild(flexDiv);
         container.appendChild(toast);
 
         // Show toast
@@ -330,21 +340,34 @@ window.eolUtils = window.eolUtils || {};
      * @returns {Promise<boolean>} Success status
      */
     eolUtils.copyToClipboard = async function(text) {
+        if (!text) {
+            console.warn('copyToClipboard: No text provided');
+            return false;
+        }
+        
         try {
             await navigator.clipboard.writeText(text);
             eolUtils.showToast('Copied to clipboard!', 'success');
             return true;
         } catch (err) {
+            console.warn('Clipboard API failed, using fallback:', err);
             // Fallback for older browsers
             const textArea = document.createElement('textarea');
             textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
             document.body.appendChild(textArea);
             textArea.select();
             try {
-                document.execCommand('copy');
-                eolUtils.showToast('Copied to clipboard!', 'success');
-                return true;
+                const success = document.execCommand('copy');
+                if (success) {
+                    eolUtils.showToast('Copied to clipboard!', 'success');
+                    return true;
+                } else {
+                    throw new Error('execCommand failed');
+                }
             } catch (fallbackErr) {
+                console.error('Fallback copy failed:', fallbackErr);
                 eolUtils.showToast('Failed to copy to clipboard', 'danger');
                 return false;
             } finally {
@@ -355,25 +378,36 @@ window.eolUtils = window.eolUtils || {};
 
     /**
      * Calculate days until EOL
-     * @param {string} eolDate - EOL date string
+     * @param {string|Date} eolDate - EOL date string or Date object
      * @returns {number|null} Days until EOL or null if invalid
      */
     eolUtils.daysUntilEOL = function(eolDate) {
         if (!eolDate) return null;
         try {
             const eol = new Date(eolDate);
+            if (isNaN(eol.getTime())) {
+                console.warn('Invalid EOL date:', eolDate);
+                return null;
+            }
             const now = new Date();
             const diffTime = eol - now;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             return diffDays;
         } catch (e) {
+            console.error('Error calculating days until EOL:', e);
             return null;
         }
     };
 
     /**
      * Determine risk level based on days until EOL
-     * @param {number} daysUntilEOL - Days until EOL
+     * Risk levels:
+     * - critical: Already EOL or <= 90 days (3 months)
+     * - high: <= 365 days (1 year)
+     * - medium: <= 730 days (2 years)
+     * - low: > 730 days
+     * - unknown: Invalid/missing data
+     * @param {number|null} daysUntilEOL - Days until EOL
      * @returns {string} Risk level: critical, high, medium, low, unknown
      */
     eolUtils.getRiskLevel = function(daysUntilEOL) {
@@ -381,9 +415,7 @@ window.eolUtils = window.eolUtils || {};
             return 'unknown';
         }
         
-        if (daysUntilEOL < 0) {
-            return 'critical';
-        } else if (daysUntilEOL <= 90) {
+        if (daysUntilEOL < 0 || daysUntilEOL <= 90) {
             return 'critical';
         } else if (daysUntilEOL <= 365) {
             return 'high';
@@ -515,9 +547,14 @@ window.eolUtils = window.eolUtils || {};
         const bodyEl = document.createElement('div');
         bodyEl.className = 'modal-body';
         if (typeof body === 'string') {
-            bodyEl.innerHTML = body;
-        } else {
+            // For string content, use textContent for safety unless explicitly HTML
+            // If HTML is needed, caller should pass HTMLElement instead
+            bodyEl.textContent = body;
+        } else if (body instanceof HTMLElement) {
             bodyEl.appendChild(body);
+        } else {
+            console.warn('createModal: body must be string or HTMLElement');
+            bodyEl.textContent = String(body);
         }
         
         // Footer
@@ -621,8 +658,16 @@ window.eolUtils = window.eolUtils || {};
      * @param {string|HTMLElement} target - Target element or selector
      * @param {Function} loadCallback - Function to call when element is visible
      * @param {Object} options - Intersection Observer options
+     * @param {HTMLElement|null} options.root - Root element for intersection
+     * @param {string} options.rootMargin - Margin around root
+     * @param {number} options.threshold - Intersection threshold
      */
     eolUtils.lazyLoad = function(target, loadCallback, options = {}) {
+        if (!loadCallback || typeof loadCallback !== 'function') {
+            console.error('lazyLoad: loadCallback must be a function');
+            return;
+        }
+        
         const defaultOptions = {
             root: null,
             rootMargin: '50px',
@@ -639,6 +684,7 @@ window.eolUtils = window.eolUtils || {};
         
         // Mark as loading to prevent duplicate loads
         if (element.dataset.lazyLoading === 'true') {
+            console.debug('Element already loading:', element);
             return;
         }
         
@@ -652,6 +698,7 @@ window.eolUtils = window.eolUtils || {};
                         loadCallback(element);
                     } catch (err) {
                         console.error('Error in lazy load callback:', err);
+                        element.dataset.lazyLoadError = 'true';
                     }
                     
                     // Stop observing after loading

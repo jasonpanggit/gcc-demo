@@ -6,21 +6,21 @@
 <div class="hero-section fade-in">
     <div class="hero-content">
         <div class="row align-items-center">
-            <div class="col-lg-9">
+            <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <span class="hero-icon me-3"><i class="fas fa-table"></i></span>EOL Dates Database
+                    <span class="hero-icon me-3"><i class="fab fa-microsoft"></i></span></span>EOL Dates Database
                 </h1>
-                <p class="hero-subtitle mb-0">
+                <p class="hero-subtitle">
                     Cached EOL records (high confidence) stored in the Cosmos-backed EOL inventory. Filter by software/version and inspect source, agent, and cache freshness.
                 </p>
             </div>
-            <div class="col-lg-3 d-flex justify-content-lg-end mt-3 mt-lg-0 gap-2">
+            <div class="d-flex gap-3 justify-content-start flex-wrap">
                 <button id="refreshBtn" class="btn btn-outline-light">
                     <i class="fas fa-rotate me-2"></i>Refresh
                 </button>
-                <button id="applyFilters" class="btn btn-light">
+                <!-- <button id="applyFilters" class="btn btn-light">
                     <i class="fas fa-filter me-2"></i>Apply Filters
-                </button>
+                </button> -->
             </div>
         </div>
     </div>
@@ -42,16 +42,7 @@
                         <label for="versionFilter" class="form-label">Version</label>
                         <input id="versionFilter" type="text" class="form-control" placeholder="e.g. 2012 R2">
                     </div>
-                    <div class="col-md-2">
-                        <label for="limitSelect" class="form-label">Max rows</label>
-                        <select id="limitSelect" class="form-select">
-                            <option value="50">50</option>
-                            <option value="100" selected>100</option>
-                            <option value="200">200</option>
-                            <option value="500">500</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
+                    <div class="col-md-4 d-flex align-items-end">
                         <button id="applyFiltersSecondary" class="btn btn-primary w-100"><i class="fas fa-filter me-2"></i>Apply</button>
                     </div>
                 </div>
@@ -103,19 +94,43 @@
                             <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
                         </tbody>
                     </table>
-                    <div id="paginationBar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-top" style="display: none;">
-                        <div class="text-muted small" id="pageInfo">Page 1 of 1</div>
-                        <div class="d-flex align-items-center gap-2">
-                            <label for="pageSizeSelect" class="form-label mb-0 small text-muted">Rows per page</label>
-                            <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto;">
-                                <option value="10">10</option>
-                                <option value="25" selected>25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                            </select>
+                    <div id="paginationBar" class="d-flex flex-wrap justify-content-between align-items-center gap-3 p-3 border-top" style="display: none;">
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <div class="text-muted small" id="pageInfo">Page 1 of 1</div>
+                            <div class="d-flex align-items-center gap-2">
+                                <label for="pageSizeSelect" class="form-label mb-0 small text-muted">Rows per page</label>
+                                <select id="pageSizeSelect" class="form-select form-select-sm" style="width: auto;">
+                                    <option value="10">10</option>
+                                    <option value="25" selected>25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                    <option value="250">250</option>
+                                    <option value="500">500</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <div class="d-flex align-items-center gap-2">
+                                <label for="jumpToPageInput" class="form-label mb-0 small text-muted">Go to page</label>
+                                <input type="number" id="jumpToPageInput" class="form-control form-control-sm" style="width: 70px;" min="1" placeholder="1">
+                                <button id="jumpToPageBtn" class="btn btn-outline-secondary btn-sm" type="button">Go</button>
+                            </div>
                             <div class="btn-group btn-group-sm" role="group">
-                                <button id="prevPageBtn" class="btn btn-outline-secondary" type="button">Prev</button>
-                                <button id="nextPageBtn" class="btn btn-outline-secondary" type="button">Next</button>
+                                <button id="firstPageBtn" class="btn btn-outline-secondary" type="button" title="First page">
+                                    <i class="fas fa-angle-double-left"></i>
+                                </button>
+                                <button id="prevPageBtn" class="btn btn-outline-secondary" type="button">
+                                    <i class="fas fa-angle-left me-1"></i>Prev
+                                </button>
+                            </div>
+                            <div id="pageNumbersContainer" class="d-flex align-items-center gap-1"></div>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button id="nextPageBtn" class="btn btn-outline-secondary" type="button">
+                                    Next<i class="fas fa-angle-right ms-1"></i>
+                                </button>
+                                <button id="lastPageBtn" class="btn btn-outline-secondary" type="button" title="Last page">
+                                    <i class="fas fa-angle-double-right"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -139,7 +154,6 @@
     const tableWrapper = document.getElementById('tableWrapper');
     const softwareInput = document.getElementById('softwareFilter');
     const versionInput = document.getElementById('versionFilter');
-    const limitSelect = document.getElementById('limitSelect');
     const refreshBtn = document.getElementById('refreshBtn');
     const applyBtn = document.getElementById('applyFilters');
     const applyBtnSecondary = document.getElementById('applyFiltersSecondary');
@@ -151,12 +165,19 @@
     const pageSizeSelect = document.getElementById('pageSizeSelect');
     const prevPageBtn = document.getElementById('prevPageBtn');
     const nextPageBtn = document.getElementById('nextPageBtn');
+    const firstPageBtn = document.getElementById('firstPageBtn');
+    const lastPageBtn = document.getElementById('lastPageBtn');
+    const jumpToPageInput = document.getElementById('jumpToPageInput');
+    const jumpToPageBtn = document.getElementById('jumpToPageBtn');
+    const pageNumbersContainer = document.getElementById('pageNumbersContainer');
     const sortableHeaders = document.querySelectorAll('th.sortable');
 
     const pagingState = {
         allItems: [],
         currentPage: 1,
         pageSize: 25,
+        totalCount: 0,
+        totalPages: 1,
         sortKey: 'updated_at',
         sortDir: 'desc'
     };
@@ -164,7 +185,9 @@
     async function loadTable() {
         setStatus('Loading Cosmos records...', 'bg-secondary');
         const params = new URLSearchParams();
-        params.append('limit', limitSelect.value || '100');
+        // Server-side pagination
+        params.append('page', String(pagingState.currentPage));
+        params.append('page_size', String(pagingState.pageSize));
         if (softwareInput.value.trim()) {
             params.append('software_name', softwareInput.value.trim());
         }
@@ -186,13 +209,19 @@
             }
 
             const items = payload.data || [];
+            const total = payload.count ?? 0;
+            const totalPages = payload.metadata?.total_pages ?? 1;
+            
+            // Store for current page rendering
             pagingState.allItems = items;
-            pagingState.currentPage = 1;
-            applySortAndRender();
-            const total = payload.count ?? items.length ?? 0;
+            pagingState.totalCount = total;
+            pagingState.totalPages = totalPages;
+            
+            renderRows(items, total, totalPages);
+            updatePagination(total, totalPages);
             updateCounts(total);
             lastUpdatedEl.textContent = new Date().toLocaleString();
-            setStatus(`Loaded ${total} record(s) from Cosmos`, 'bg-success');
+            setStatus(`Loaded ${total} total record(s) from Cosmos (showing page ${pagingState.currentPage} of ${totalPages})`, 'bg-success');
         } catch (err) {
             console.error('Error loading EOL table', err);
             showErrorRow('Error loading EOL table. Check console for details.');
@@ -247,7 +276,7 @@
                 <tr data-record-id="${encodedId}" data-software-key="${encodedPk}" data-editing="false">
                     <td><input type="checkbox" class="row-select" data-record-id="${encodedId}" data-software-key="${encodedPk}" ${isChecked ? 'checked' : ''}></td>
                     <td>${escapeHtml(item.software_name)}</td>
-                    <td>${escapeHtml(item.version || '')}</td>
+                    <td class="version-cell">${escapeHtml(item.version || '')}</td>
                     <td class="eol-date-cell">${formatDate(item.eol_date)}</td>
                     <td class="support-end-cell">${formatDate(item.support_end_date)}</td>
                     <td>${formatDate(item.release_date)}</td>
@@ -279,27 +308,117 @@
         const safeCurrent = Math.min(Math.max(1, pagingState.currentPage), safeTotalPages);
         pagingState.currentPage = safeCurrent;
         pageInfo.textContent = `Page ${safeCurrent} of ${safeTotalPages} • ${totalItems} total`;
+        
+        // Update navigation buttons
         if (prevPageBtn) {
             prevPageBtn.disabled = safeCurrent <= 1;
         }
         if (nextPageBtn) {
             nextPageBtn.disabled = safeCurrent >= safeTotalPages;
         }
+        if (firstPageBtn) {
+            firstPageBtn.disabled = safeCurrent <= 1;
+        }
+        if (lastPageBtn) {
+            lastPageBtn.disabled = safeCurrent >= safeTotalPages;
+        }
+        
+        // Update jump to page input
+        if (jumpToPageInput) {
+            jumpToPageInput.max = safeTotalPages;
+            jumpToPageInput.placeholder = String(safeCurrent);
+        }
+        
+        // Render page number buttons
+        renderPageNumbers(safeCurrent, safeTotalPages);
+    }
+    
+    function renderPageNumbers(currentPage, totalPages) {
+        if (!pageNumbersContainer) return;
+        
+        // Clear existing page numbers
+        pageNumbersContainer.innerHTML = '';
+        
+        // Don't show page numbers if only 1 page
+        if (totalPages <= 1) return;
+        
+        const maxVisiblePages = 5; // Maximum number of page buttons to show at once
+        let startPage, endPage;
+        
+        if (totalPages <= maxVisiblePages) {
+            // Show all pages
+            startPage = 1;
+            endPage = totalPages;
+        } else {
+            // Calculate range around current page
+            const halfVisible = Math.floor(maxVisiblePages / 2);
+            
+            if (currentPage <= halfVisible + 1) {
+                startPage = 1;
+                endPage = maxVisiblePages;
+            } else if (currentPage >= totalPages - halfVisible) {
+                startPage = totalPages - maxVisiblePages + 1;
+                endPage = totalPages;
+            } else {
+                startPage = currentPage - halfVisible;
+                endPage = currentPage + halfVisible;
+            }
+        }
+        
+        // Add first page and ellipsis if needed
+        if (startPage > 1) {
+            addPageButton(1);
+            if (startPage > 2) {
+                addEllipsis();
+            }
+        }
+        
+        // Add page number buttons
+        for (let i = startPage; i <= endPage; i++) {
+            addPageButton(i, i === currentPage);
+        }
+        
+        // Add ellipsis and last page if needed
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                addEllipsis();
+            }
+            addPageButton(totalPages);
+        }
+    }
+    
+    function addPageButton(pageNum, isActive = false) {
+        const btn = document.createElement('button');
+        btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'}`;
+        btn.textContent = String(pageNum);
+        btn.type = 'button';
+        
+        if (!isActive) {
+            btn.addEventListener('click', () => {
+                pagingState.currentPage = pageNum;
+                loadTable();
+            });
+        } else {
+            btn.disabled = true;
+        }
+        
+        pageNumbersContainer.appendChild(btn);
+    }
+    
+    function addEllipsis() {
+        const span = document.createElement('span');
+        span.className = 'px-2 text-muted';
+        span.textContent = '…';
+        pageNumbersContainer.appendChild(span);
     }
 
     function applySortAndRender() {
+        // With server-side pagination, we only sort the current page's items
+        // For full sorting, we'd need to add sort params to API and reload
         const items = Array.isArray(pagingState.allItems) ? [...pagingState.allItems] : [];
-        const totalItems = items.length;
-        const pageSize = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) || pagingState.pageSize : pagingState.pageSize;
-        pagingState.pageSize = pageSize;
         const sorted = sortItems(items, pagingState.sortKey, pagingState.sortDir);
-        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-        if (pagingState.currentPage > totalPages) {
-            pagingState.currentPage = totalPages;
-        }
-        const startIndex = (pagingState.currentPage - 1) * pageSize;
-        const pageItems = sorted.slice(startIndex, startIndex + pageSize);
-        renderRows(pageItems, totalItems, totalPages);
+        renderRows(sorted, pagingState.totalCount, pagingState.totalPages);
+        updatePagination(pagingState.totalCount, pagingState.totalPages);
         updateSortIndicators();
     }
 
@@ -447,8 +566,12 @@
 
     function exitInlineEdit(row, recordId) {
         const record = recordIndex[recordId] || {};
+        const versionCell = row.querySelector('.version-cell');
         const eolCell = row.querySelector('.eol-date-cell');
         const supportCell = row.querySelector('.support-end-cell');
+        if (versionCell) {
+            versionCell.textContent = escapeHtml(record.version || '');
+        }
         if (eolCell) {
             eolCell.textContent = formatDate(record.eol_date);
         }
@@ -483,8 +606,12 @@
 
         if (!isEditing) {
             row.dataset.editing = 'true';
+            const versionCell = row.querySelector('.version-cell');
             const eolCell = row.querySelector('.eol-date-cell');
             const supportCell = row.querySelector('.support-end-cell');
+            if (versionCell) {
+                versionCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.version || '')}" placeholder="Version">`;
+            }
             if (eolCell) {
                 eolCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.eol_date || '')}" placeholder="YYYY-MM-DD">`;
             }
@@ -501,12 +628,17 @@
             return;
         }
 
+        const versionInput = row.querySelector('.version-cell input');
         const eolInput = row.querySelector('.eol-date-cell input');
         const supportInput = row.querySelector('.support-end-cell input');
+        const newVersion = versionInput ? versionInput.value.trim() : '';
         const newEol = eolInput ? eolInput.value.trim() : '';
         const newSupport = supportInput ? supportInput.value.trim() : '';
 
         const updates = {};
+        if (newVersion !== (existing.version || '')) {
+            updates.version = newVersion || null;
+        }
         if (newEol !== (existing.eol_date || '')) {
             updates.eol_date = newEol || null;
         }
@@ -609,7 +741,9 @@
     }
 
     refreshBtn.addEventListener('click', loadTable);
-    applyBtn.addEventListener('click', loadTable);
+    if (applyBtn) {
+        applyBtn.addEventListener('click', loadTable);
+    }
     if (applyBtnSecondary) {
         applyBtnSecondary.addEventListener('click', loadTable);
     }
@@ -657,22 +791,67 @@
 
     if (pageSizeSelect) {
         pageSizeSelect.addEventListener('change', () => {
+            pagingState.pageSize = parseInt(pageSizeSelect.value, 10);
             pagingState.currentPage = 1;
-            applySortAndRender();
+            loadTable();
         });
     }
 
     if (prevPageBtn) {
         prevPageBtn.addEventListener('click', () => {
-            pagingState.currentPage = Math.max(1, pagingState.currentPage - 1);
-            applySortAndRender();
+            if (pagingState.currentPage > 1) {
+                pagingState.currentPage--;
+                loadTable();
+            }
         });
     }
 
     if (nextPageBtn) {
         nextPageBtn.addEventListener('click', () => {
-            pagingState.currentPage += 1;
-            applySortAndRender();
+            if (pagingState.currentPage < pagingState.totalPages) {
+                pagingState.currentPage++;
+                loadTable();
+            }
+        });
+    }
+
+    if (firstPageBtn) {
+        firstPageBtn.addEventListener('click', () => {
+            if (pagingState.currentPage > 1) {
+                pagingState.currentPage = 1;
+                loadTable();
+            }
+        });
+    }
+
+    if (lastPageBtn) {
+        lastPageBtn.addEventListener('click', () => {
+            if (pagingState.currentPage < pagingState.totalPages) {
+                pagingState.currentPage = pagingState.totalPages;
+                loadTable();
+            }
+        });
+    }
+
+    if (jumpToPageBtn && jumpToPageInput) {
+        const jumpToPage = () => {
+            const targetPage = parseInt(jumpToPageInput.value, 10);
+            if (isNaN(targetPage) || targetPage < 1 || targetPage > pagingState.totalPages) {
+                alert(`Please enter a valid page number between 1 and ${pagingState.totalPages}`);
+                return;
+            }
+            pagingState.currentPage = targetPage;
+            jumpToPageInput.value = ''; // Clear the input
+            loadTable();
+        };
+        
+        jumpToPageBtn.addEventListener('click', jumpToPage);
+        
+        // Allow Enter key to trigger jump
+        jumpToPageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                jumpToPage();
+            }
         });
     }
 
@@ -686,6 +865,10 @@
                 pagingState.sortKey = key;
                 pagingState.sortDir = 'asc';
             }
+            updateSortIndicators();
+            pagingState.currentPage = 1;
+            // Note: Full server-side sorting could be implemented by passing sort params to API
+            // For now, re-sort current page only
             applySortAndRender();
         });
     });
