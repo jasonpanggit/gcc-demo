@@ -4,6 +4,15 @@
 # Builds Docker image and deploys EOL application to Azure Container Apps
 # Reads configuration from appsettings.json
 
+# To rebuild and deploy:
+#   ./deploy-container.sh [version] [build-only] [force-rebuild]
+# Parameters:
+#   version: Optional version/tag for the Docker image (default: git commit or timestamp)
+#   build-only: If "true", only build and push the Docker image without deploying (default: false)
+#   force-rebuild: If "true", forces Docker to rebuild the image without cache (default: false)
+# Example:
+#   ./deploy-container.sh "" false true
+
 set -e
 
 # Parse parameters
@@ -110,7 +119,8 @@ az acr login --name "$ACR_NAME"
 # Build and push Docker image
 echo "🏗️  Building Docker image..."
 echo "Image: $FULL_IMAGE_NAME"
-cd "$DEPLOYMENT_DIR"
+echo "Build context: $APP_DIR"
+echo "Dockerfile: $DEPLOYMENT_DIR/Dockerfile"
 
 if [[ "$FORCE_REBUILD" == "true" ]]; then
     echo "Forcing Docker build without cache..."
@@ -120,14 +130,14 @@ BUILD_COMMAND=(
     docker buildx build
     --platform linux/amd64
     -t "$FULL_IMAGE_NAME"
-    -f Dockerfile
+    -f "$DEPLOYMENT_DIR/Dockerfile"
 )
 
 if [[ "$FORCE_REBUILD" == "true" ]]; then
     BUILD_COMMAND+=(--no-cache)
 fi
 
-BUILD_COMMAND+=(".." "--push")
+BUILD_COMMAND+=("$APP_DIR" "--push")
 
 "${BUILD_COMMAND[@]}"
 
@@ -157,6 +167,9 @@ KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTIN
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
 AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
 GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
+TEAMS_WEBHOOK_URL=$(jq -r '.Teams.WebhookUrl // empty' "$APPSETTINGS_FILE")
+TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
+TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
 
 # Determine authentication method
 if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
@@ -208,13 +221,21 @@ ENV_VARS="$ENV_VARS PLAYWRIGHT_LLM_EXTRACTION=$PLAYWRIGHT_LLM_EXTRACTION"
 # Disable optional MCP servers that cause issues in ACA unless explicitly enabled
 ENV_VARS="$ENV_VARS AZURE_CLI_EXECUTOR_ENABLED=$AZURE_CLI_EXECUTOR_ENABLED"
 
-# Add GitHub token if configured (increases API rate limit from 60 to 5000 requests/hour)
-if [[ -n "$GITHUB_TOKEN" ]] && [[ "$GITHUB_TOKEN" != "_PLACEHOLDER_REPLACE_WITH_YOUR_TOKEN_" ]]; then
-    ENV_VARS="$ENV_VARS GITHUB_TOKEN=$GITHUB_TOKEN"
-    echo "✅ GitHub token configured for API access"
-else
-    echo "⚠️  No GitHub token configured - API rate limit is 60 requests/hour"
-    echo "   Add your token to appsettings.json > AppSettings > GITHUB_TOKEN to increase to 5000/hour"
+# Add Teams webhook URL if configured
+if [[ -n "$TEAMS_WEBHOOK_URL" ]] && [[ "$TEAMS_WEBHOOK_URL" != "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_WEBHOOK_URL_" ]] && [[ "$TEAMS_WEBHOOK_URL" != "null" ]]; then
+    ENV_VARS="$ENV_VARS TEAMS_WEBHOOK_URL=$TEAMS_WEBHOOK_URL"
+    echo "✅ Teams webhook URL configured"
+fi
+
+# Add Teams Bot credentials if configured
+if [[ -n "$TEAMS_BOT_APP_ID" ]] && [[ "$TEAMS_BOT_APP_ID" != "null" ]] && [[ "$TEAMS_BOT_APP_ID" != "empty" ]]; then
+    ENV_VARS="$ENV_VARS TEAMS_BOT_APP_ID=$TEAMS_BOT_APP_ID"
+    echo "✅ Teams Bot App ID configured"
+fi
+
+if [[ -n "$TEAMS_BOT_APP_PASSWORD" ]] && [[ "$TEAMS_BOT_APP_PASSWORD" != "null" ]] && [[ "$TEAMS_BOT_APP_PASSWORD" != "empty" ]]; then
+    ENV_VARS="$ENV_VARS TEAMS_BOT_APP_PASSWORD=$TEAMS_BOT_APP_PASSWORD"
+    echo "✅ Teams Bot App Password configured"
 fi
 
 # Deploy to Container Apps

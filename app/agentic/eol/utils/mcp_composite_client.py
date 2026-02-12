@@ -12,6 +12,170 @@ logger = logging.getLogger(__name__)
 ToolDefinition = Dict[str, Any]
 ClientEntry = Tuple[str, Any]
 
+# Source-level routing guidance appended to every tool description so the
+# LLM can autonomously select the right tool without a giant system prompt.
+_SOURCE_GUIDANCE: Dict[str, str] = {
+    "azure": (
+        " [Azure MCP Server] For Azure resource management: subscriptions, resource groups, "
+        "VMs, storage, networking, etc. NOT for Container Apps."
+    ),
+    "azure_cli": (
+        " [Azure CLI Executor] Run any 'az' command for services without a dedicated tool: "
+        "Container Apps, AVD, saved searches, scheduled query alerts, etc. "
+        "For destructive operations, present the plan and wait for user confirmation."
+    ),
+    "os_eol": (
+        " [OS EOL Server] Check End-of-Life dates and support status for operating systems. "
+        "Use os_eol_bulk_lookup after retrieving inventory to cross-reference EOL status."
+    ),
+    "inventory": (
+        " [Inventory Server] Query OS and software inventory from Log Analytics. "
+        "Use these tools to find WHAT is installed. To check if it's end-of-life, "
+        "pass results to os_eol tools. To manage the workspace itself, use Azure MCP Server."
+    ),
+    "monitor": (
+        " [Azure Monitor Community] Discover and deploy workbooks, alerts, and KQL queries. "
+        "Start with get_service_monitor_resources(keyword) to find ALL resources for a service in one call. "
+        "Then deploy: workbooks via deploy_workbook, queries/alerts via get_resource_content then CLI."
+    ),
+    "sre": (
+        " [Azure SRE Agent] For site reliability operations: resource health checks, incident triage, "
+        "diagnostics, performance monitoring, and safe remediation actions. "
+        "Use check_resource_health for availability status (requires full resource ID). "
+        "For troubleshooting, use triage_incident, get_diagnostic_logs, and identify_bottlenecks. "
+        "NEVER use the 'speech' tool for SRE operations - call SRE tools directly."
+    ),
+}
+
+# Per-tool disambiguation: extra text appended to specific tools that the LLM
+# frequently confuses with other Azure services.  Keyed by tool name substring.
+_TOOL_DISAMBIGUATION: Dict[str, str] = {
+    # === Container Services Disambiguation ===
+    "container_registries": (
+        " ⚠️ This is for Azure Container REGISTRY (ACR), NOT Azure Container Apps. "
+        "For Container Apps use azure_cli_execute_command with 'az containerapp'."
+    ),
+    "app_service": (
+        " ⚠️ This is for Azure App SERVICE (Web Apps), NOT Azure Container Apps."
+    ),
+    "app_configuration": (
+        " ⚠️ This is for Azure App CONFIGURATION stores, NOT Azure Container Apps."
+    ),
+    "function_app": (
+        " ⚠️ This is for Azure FUNCTION Apps, NOT Azure Container Apps."
+    ),
+
+    # === Resource Health & Monitoring Disambiguation ===
+    "resourcehealth": (
+        " [Azure Resource Health API] Basic resource availability status from Azure platform. "
+        "For deeper SRE operations (diagnostics, incident triage, performance analysis, remediation), "
+        "use SRE tools: check_resource_health, triage_incident, get_diagnostic_logs, etc."
+    ),
+    "check_resource_health": (
+        " [SRE Deep Health Check] Comprehensive resource health with diagnostics and remediation planning. "
+        "For basic platform health status only, you can also use 'resourcehealth' (Azure MCP). "
+        "This SRE tool is preferred when you need actionable insights or follow-up diagnostics."
+    ),
+    "monitor": (
+        " [Azure Monitor Configuration] This Azure MCP tool is for configuring Azure Monitor resources. "
+        "For Azure Monitor Community workbooks/alerts/queries, use monitor_agent or get_service_monitor_resources. "
+        "For performance metrics and diagnostics, use SRE tools: get_performance_metrics, get_diagnostic_logs."
+    ),
+    "applicationinsights": (
+        " [Application Insights Configuration] This is for configuring Application Insights resources. "
+        "For retrieving diagnostic logs or performance data, use SRE tools: get_diagnostic_logs, get_performance_metrics."
+    ),
+
+    # === Search Disambiguation ===
+    "search": (
+        " ⚠️ This is Azure COGNITIVE SEARCH service management, NOT general search functionality. "
+        "For searching logs: use search_logs_by_error (SRE tool). "
+        "For searching Azure Monitor community resources: use search_categories (Monitor MCP)."
+    ),
+    "search_categories": (
+        " [Monitor Community Search] Search Azure Monitor Community categories for workbooks/alerts/queries. "
+        "NOT for Azure Cognitive Search or log searching."
+    ),
+    "search_logs_by_error": (
+        " [SRE Log Search] Search Azure diagnostic logs for specific error messages. "
+        "NOT for Azure Cognitive Search or Monitor Community resources."
+    ),
+
+    # === Speech & AI Services Disambiguation ===
+    "speech": (
+        " ⚠️ CRITICAL: This is Azure AI Services SPEECH tool (speech-to-text, text-to-speech, audio processing). "
+        "This is NOT for Azure resource health, diagnostics, SRE operations, or any infrastructure management! "
+        "For resource health: use check_resource_health (SRE) or resourcehealth (Azure MCP). "
+        "For AI services management: use 'foundry' (Azure AI Foundry). "
+        "NEVER route resource operations through 'speech'."
+    ),
+    "foundry": (
+        " [Azure AI Foundry] For Azure AI Foundry project management and AI services. "
+        "NOT for Azure AI Speech Services (use 'speech' tool for that)."
+    ),
+
+    # === Storage Disambiguation ===
+    "storage": (
+        " [Azure Storage Accounts] General Azure Storage account operations. "
+        "For specific file share operations: use 'fileshares'. "
+        "For Azure File Sync: use 'storagesync'."
+    ),
+    "fileshares": (
+        " [Azure File Shares] Specific to Azure Files (SMB/NFS file shares). "
+        "For general storage accounts: use 'storage'. "
+        "For sync operations: use 'storagesync'."
+    ),
+    "storagesync": (
+        " [Azure File Sync] For Azure File Sync service (hybrid cloud sync). "
+        "For file share management: use 'fileshares'. "
+        "For storage accounts: use 'storage'."
+    ),
+
+    # === Database Services Disambiguation ===
+    "cosmos": (
+        " [Azure Cosmos DB] For Cosmos DB (NoSQL) operations. "
+        "For relational databases: use 'sql' (Azure SQL), 'mysql', or 'postgres'."
+    ),
+    "sql": (
+        " [Azure SQL Database] For Azure SQL (relational DB). "
+        "For Cosmos DB (NoSQL): use 'cosmos'. "
+        "For MySQL: use 'mysql'. For PostgreSQL: use 'postgres'."
+    ),
+    "mysql": (
+        " [Azure MySQL] For MySQL database service. "
+        "For Azure SQL: use 'sql'. For Cosmos DB: use 'cosmos'. For PostgreSQL: use 'postgres'."
+    ),
+    "postgres": (
+        " [Azure PostgreSQL] For PostgreSQL database service. "
+        "For Azure SQL: use 'sql'. For Cosmos DB: use 'cosmos'. For MySQL: use 'mysql'."
+    ),
+
+    # === Cache Services Disambiguation ===
+    "redis": (
+        " [Azure Redis Cache] For Azure Cache for Redis service management. "
+        "For clearing application caches: use clear_cache (SRE tool)."
+    ),
+    "clear_cache": (
+        " [SRE Cache Clear] For clearing application-level caches (requires user approval). "
+        "For Azure Redis Cache service management: use 'redis' (Azure MCP)."
+    ),
+
+    # === Deprecated Monitor Community Tools ===
+    "list_resource_types": (
+        " ⚠️ DEPRECATED: This only returns 3 generic type names (workbooks, alerts, queries). "
+        "Use get_service_monitor_resources(keyword) to get ACTUAL resources for a service."
+    ),
+    "list_workbook_categories": (
+        " ⚠️ DEPRECATED: Use list_categories(resource_type='workbooks') instead."
+    ),
+    "list_workbooks": (
+        " ⚠️ DEPRECATED: Use list_resources(resource_type='workbooks', category=...) instead."
+    ),
+    "get_workbook_details": (
+        " ⚠️ DEPRECATED: Use get_resource_content(download_url, resource_type='workbooks') instead."
+    ),
+}
+
 
 class CompositeMCPClient:
     """Aggregates multiple MCP clients behind a single interface."""
@@ -63,6 +227,19 @@ class CompositeMCPClient:
                 metadata_block.setdefault("source", label)
                 metadata_block.setdefault("original_name", original_name)
 
+                # Enrich tool description with source-aware routing guidance
+                guidance = _SOURCE_GUIDANCE.get(label, "")
+                if guidance:
+                    existing_desc = tool_definition["function"].get("description", "")
+                    tool_definition["function"]["description"] = (existing_desc + guidance).strip()
+
+                # Add per-tool disambiguation for commonly confused tools
+                lower_name = final_name.lower()
+                for pattern, disambiguation in _TOOL_DISAMBIGUATION.items():
+                    if pattern in lower_name:
+                        tool_definition["function"]["description"] += disambiguation
+                        break
+
                 self._tool_map[final_name] = (client, original_name)
                 self._tool_sources[final_name] = label
                 self._tool_definitions.append(tool_definition)
@@ -88,6 +265,22 @@ class CompositeMCPClient:
 
     def get_available_tools(self) -> List[ToolDefinition]:
         return deepcopy(self._tool_definitions)
+
+    def get_tools_by_sources(self, sources: Sequence[str]) -> List[ToolDefinition]:
+        """Return tool definitions filtered to only tools from the given source labels."""
+        allowed = set(sources)
+        return deepcopy([
+            td for td in self._tool_definitions
+            if self._tool_sources.get(td.get("function", {}).get("name", "")) in allowed
+        ])
+
+    def get_tools_excluding_sources(self, sources: Sequence[str]) -> List[ToolDefinition]:
+        """Return tool definitions excluding tools from the given source labels."""
+        excluded = set(sources)
+        return deepcopy([
+            td for td in self._tool_definitions
+            if self._tool_sources.get(td.get("function", {}).get("name", "")) not in excluded
+        ])
 
     def get_tool_sources(self) -> Dict[str, str]:
         return dict(self._tool_sources)

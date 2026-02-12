@@ -197,9 +197,17 @@ async def _ensure_login() -> None:
 @_server.tool(
     name="azure_cli_execute_command",
     description=(
-        "Execute an Azure CLI command using the configured service principal. "
-        "The command must start with 'az'. The tool returns JSON with stdout, stderr, "
-        "exit code, duration, and the executed command."
+        "Execute any Azure CLI ('az') command. Use this for Azure services that have "
+        "no dedicated tool, such as: Container Apps ('az containerapp'), "
+        "AVD ('az desktopvirtualization'), deploying saved searches "
+        "('az monitor log-analytics workspace saved-search create'), and "
+        "scheduled query alerts ('az monitor scheduled-query create'). "
+        "⚠️ IMPORTANT: For Log Analytics KQL queries, use --analytics-query (NOT --query) parameter. "
+        "Example: az monitor log-analytics query --workspace <id> --analytics-query '<KQL>'. "
+        "The --query parameter is for JMESPath filtering of JSON output only. "
+        "Returns JSON with stdout, stderr, exit code, and duration. "
+        "For destructive operations (create/update/delete), present the plan "
+        "to the user and wait for confirmation BEFORE executing."
     ),
 )
 async def execute_azure_cli_command(

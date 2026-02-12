@@ -102,7 +102,12 @@ def _normalise_tabular_result(
 
 @_server.tool(
     name="law_get_os_inventory",
-    description="Load operating system inventory records from Azure Log Analytics.",
+    description=(
+        "Get raw OS inventory records from Log Analytics — one row per computer. "
+        "Returns: computer name, OS name, OS version, environment, IP address, last seen date. "
+        "Use this to get the full machine-level list. "
+        "For aggregated views, use law_get_os_summary or law_get_os_environment_breakdown instead."
+    ),
 )
 async def law_get_os_inventory(
     context: Context,  # noqa: ARG001 - unused but required by FastMCP
@@ -129,7 +134,11 @@ async def law_get_os_inventory(
 
 @_server.tool(
     name="law_get_os_summary",
-    description="Summarize operating system coverage from Log Analytics data.",
+    description=(
+        "Get a summary of OS types and version counts from Log Analytics. "
+        "Returns: OS name, version, and how many computers run each combination. "
+        "Use this for a quick overview of what operating systems are deployed."
+    ),
 )
 async def law_get_os_summary(
     context: Context,  # noqa: ARG001 - unused
@@ -154,7 +163,12 @@ async def law_get_os_summary(
 
 @_server.tool(
     name="law_get_software_inventory",
-    description="Load software inventory records from Azure Log Analytics ConfigurationData.",
+    description=(
+        "Get raw software inventory records from Log Analytics ConfigurationData. "
+        "Returns: computer name, software name, publisher, version, install date. "
+        "Use software_filter to search for specific software (e.g., 'SQL Server', 'Java'). "
+        "For aggregated views, use law_get_software_publisher_summary or law_get_top_software_packages."
+    ),
 )
 async def law_get_software_inventory(
     context: Context,  # noqa: ARG001 - unused
@@ -203,7 +217,11 @@ async def law_get_software_inventory(
 
 @_server.tool(
     name="law_get_os_environment_breakdown",
-    description="Summarize operating system inventory by environment and computer type from Azure Log Analytics.",
+    description=(
+        "Break down OS inventory by environment (Production, Dev, Staging, etc.) and computer type. "
+        "Returns: environment, computer type, OS name, and count. "
+        "Use this when the user wants to see OS distribution across environments."
+    ),
 )
 async def law_get_os_environment_breakdown(
     context: Context,  # noqa: ARG001 - unused
@@ -233,7 +251,11 @@ async def law_get_os_environment_breakdown(
 
 @_server.tool(
     name="law_get_os_vendor_summary",
-    description="Summarize operating system inventory by detected vendor and OS type from Azure Log Analytics.",
+    description=(
+        "Summarize OS inventory by vendor (Microsoft, Red Hat, Canonical, etc.) and OS type. "
+        "Returns: vendor, OS type, and count. "
+        "Use this to understand the OS vendor distribution in the environment."
+    ),
 )
 async def law_get_os_vendor_summary(
     context: Context,  # noqa: ARG001 - unused
@@ -263,7 +285,11 @@ async def law_get_os_vendor_summary(
 
 @_server.tool(
     name="law_get_software_publisher_summary",
-    description="Summarize software inventory by publisher using Azure Log Analytics ConfigurationData.",
+    description=(
+        "Summarize software inventory by publisher — shows top publishers and how many "
+        "distinct software packages each has installed. "
+        "Use this for a high-level view of software vendors in the environment."
+    ),
 )
 async def law_get_software_publisher_summary(
     context: Context,  # noqa: ARG001 - unused
@@ -293,7 +319,11 @@ async def law_get_software_publisher_summary(
 
 @_server.tool(
     name="law_get_top_software_packages",
-    description="Return the most common software packages across computers from Azure Log Analytics ConfigurationData.",
+    description=(
+        "List the most commonly installed software packages across all computers. "
+        "Returns: software name, version (optional), publisher, and install count. "
+        "Use this to identify the most prevalent software in the environment."
+    ),
 )
 async def law_get_top_software_packages(
     context: Context,  # noqa: ARG001 - unused

@@ -1,70 +1,59 @@
 # 🔄 EOL Agentic Platform
 
-An advanced End-of-Life (EOL) analysis platform built on Azure App Service, Cosmos DB, FastAPI, and OpenAI with the Microsoft Agent Framework preview. This intelligent agentic system pulls real-time inventory data (captured by Azure Arc inventory features) from Log Analytics Workspace to provide comprehensive software lifecycle insights and proactive management capabilities.
+An advanced End-of-Life (EOL) analysis and Azure operations platform built on Azure Container Apps, FastAPI, and Azure OpenAI. The system uses a **hybrid orchestrator + sub-agent architecture** with 5 MCP (Model Context Protocol) servers to provide real-time Azure resource management, inventory analysis, and Azure Monitor Community resource discovery and deployment.
 
 ## 🚀 Overview
 
-The EOL Agentic Platform orchestrates multi-agent workflows to automatically discover, analyze, and report on software end-of-life status across your IT infrastructure. It combines Azure Log Analytics inventory data with specialized AI agents for accurate lifecycle information and intelligent decision-making.
+The EOL Agentic Platform combines a central MCP orchestrator with a specialized Monitor sub-agent to deliver:
+- **Azure resource management** via Azure MCP Server (~85 tools)
+- **OS/software inventory analysis** from Log Analytics with EOL cross-referencing
+- **Azure Monitor resource discovery and deployment** (workbooks, alerts, KQL queries)
+- **Azure CLI execution** for services without dedicated MCP tools
 
-**Live Demo Statistics** (from actual deployment):
-- 🤖 **6 Active Agents**: orchestrator, os_inventory, software_inventory, inventory, microsoft, endoflife
-- 💾 **84 Cached Items**: Across agent caches, inventory, and Cosmos DB
-- 🎯 **188 AI Sessions**: Total requests served with 43% cache hit rate
-- 🗄️ **3 Database Operations**: Cosmos DB cached queries
-- ⚡ **638ms Avg Response**: With intelligent caching and parallel processing
+The orchestrator uses a **ReAct (Reasoning + Acting) loop** with Azure OpenAI (GPT-4o-mini) and delegates monitor-specific tasks to a focused sub-agent, reducing tool confusion and improving deployment reliability.
+
+**Architecture Highlights:**
+- 🏗️ **Hybrid Model**: Orchestrator handles general Azure ops; MonitorAgent handles monitor resources autonomously
+- 🔧 **5 MCP Servers**: azure, azure_cli, os_eol, inventory, monitor (100+ tools total)
+- 🤖 **ReAct Loop**: Up to 50 reasoning iterations with hallucination guard
+- 📡 **SSE Streaming**: Real-time communication events (reasoning → action → observation → synthesis)
+- 🚀 **Deploy Tools**: Dedicated deploy_workbook, deploy_query, deploy_alert (no manual CLI construction)
 
 ### Key Features
 
 - **🔍 Intelligent Inventory Discovery**: Real-time software and OS inventory from Azure Log Analytics (Azure Arc enabled)
-- **🤖 Multi-Agent EOL Analysis**: Specialized agents for different software vendors (Microsoft, Red Hat, Ubuntu, Oracle, etc.)
-- **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4) with the Microsoft Agent Framework (preview)
-- **📊 Real-time Risk Assessment**: Automatic categorization of EOL risks (Critical, High, Medium, Low)
+- **🤖 Hybrid Orchestrator Architecture**: Central orchestrator with specialized MonitorAgent sub-agent
+- **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4o-mini) with ReAct reasoning loop
+- **📊 Azure Monitor Resource Management**: Discover, view, and deploy workbooks, alerts, and KQL queries from the Azure Monitor Community repository
 - **🔔 Intelligent Alert Management**: Configurable EOL alerts with SMTP email notifications
 - **🎯 Smart EOL Search**: Confidence scoring, early termination, and comprehensive EOL history tracking
-- **⚡ Performance Optimized**: Multi-level caching (in-memory, Cosmos DB), parallel processing, and performance monitoring
+- **⚡ Performance Optimized**: Multi-level caching (in-memory, Cosmos DB), parallel tool execution, and hallucination guard
 - **📈 Advanced Analytics**: Real-time statistics dashboard with agent performance metrics and cache analytics
-- **🌐 Web Scraping Capabilities**: Playwright and Azure AI Agent Service for automated web data extraction
+- **🌐 MCP Protocol**: 5 MCP servers aggregated via CompositeMCPClient with source-aware routing
 
 ## 🏗️ Architecture
 
-### Multi-Agent System
+### Hybrid Orchestrator + Sub-Agent Architecture
 
-The application uses a sophisticated multi-agent architecture:
+The application uses a hybrid architecture where a central orchestrator delegates domain-specific tasks to specialized sub-agents:
+
+```
+User → FastAPI (SSE) → MCPOrchestratorAgent
+                          ├── Direct: Azure MCP tools (~85 tools)
+                          ├── Direct: Azure CLI Executor (1 tool)
+                          ├── Direct: OS EOL Server (2 tools)
+                          ├── Direct: Inventory Server (7 tools)
+                          └── Delegate: monitor_agent meta-tool → MonitorAgent
+                                ├── get_service_monitor_resources
+                                ├── search_categories / list_resources
+                                ├── get_resource_content
+                                ├── deploy_workbook / deploy_query / deploy_alert
+```
 
 #### Core Orchestrators
-- **`AgentFrameworkChatOrchestrator`**: Manages conversational AI interactions using the Microsoft Agent Framework preview
-- **`EOLOrchestratorAgent`**: Coordinates EOL data gathering from specialized agents
-   - Constructor now accepts injected `agents`, optional `vendor_routing`, and a `close_provided_agents` flag for precise test control.
-   - Implements async `aclose()` plus context manager support so FastAPI and tests can release owned resources deterministically.
-   - Uses shared Agent Framework client factory and ChatOptions defaults so both MCP and inventory assistants align on temperature, max tokens, and tool-call behavior.
-- **`MCPOrchestratorAgent`**: Builds on the Microsoft Agent Framework with Azure MCP tools (Azure, CLI, OS/Inventory MCP). Uses shared chat client factory, unified ChatOptions (multi-tool calls enabled), and lightweight request logging for diagnostics.
-
-##### How the Microsoft Agent Framework is used per orchestrator
-- **AgentFrameworkChatOrchestrator (inventory assistant)**: Runs on the Microsoft Agent Framework chat client (AzureOpenAIChatClient) with shared ChatOptions defaults (temperature/max tokens/tool-call allowance). It dispatches MCP tools and inventory tools via built-in tool-calling, keeping conversational state and response formatting inside the framework’s turn pipeline.
-- **MCPOrchestratorAgent (multi-tool orchestration)**: Also uses the Microsoft Agent Framework chat client and the same ChatOptions builder. It exposes MCP tool sets (Azure, CLI, OS/Inventory) to the framework, allowing multi-tool calls in a single turn; request logging is captured through the shared client factory for observability.
-- **EOLOrchestratorAgent (EOL search)**: Uses the classic in-process agent runner for vendor/Playwright calls and does not invoke the Microsoft Agent Framework chat client. It still benefits from the shared config patterns (timeouts, routing, cache) but runs agents directly for speed and deterministic merging of EOL results.
-
-##### Orchestrator execution flow
-- **AgentFrameworkChatOrchestrator (inventory assistant):**
-   1) Receive chat turn ➜ build ChatOptions (temperature/max tokens, allow multiple tool calls) via shared factory.
-   2) Route user intent through the Microsoft Agent Framework ➜ tool-calling resolves to inventory and MCP-exposed tools.
-   3) Framework executes tool calls (e.g., inventory lookups) and streams responses; chat client manages turn state and formatting.
-   4) Return composed answer plus tool outputs; lightweight request logging flows through the shared client factory.
-- **MCPOrchestratorAgent (multi-tool MCP orchestration):**
-   1) Start with the same ChatOptions and chat client; register MCP servers/tools (Azure, CLI, OS/Inventory) with tool-calling enabled.
-   2) Framework selects and calls one or many MCP tools in a turn; outputs are collated by the framework.
-   3) Logs/telemetry captured via the shared client factory; responses streamed back in the chat format the framework provides.
-- **EOLOrchestratorAgent (agent fan-out for EOL search):**
-   1) Normalize input → check caches (Cosmos) unless bypassed by internet or ignore-cache flags.
-   2) Route to vendor-specific agents; optionally include Playwright for internet search or run internet-only.
-   3) Fan out async to agents with timeouts; in agents+internet mode wait for all (including Playwright), then score/select best by confidence.
-   4) Attach per-agent outcomes (`agents_considered` and `agent_comparisons`), communications log, elapsed time; persist to Cosmos when confidence is high and cache writes allowed.
-   5) Return unified result for the UI to show both the selected agent and the side-by-side comparisons.
-
-#### Inventory Agents
-- **`InventoryAgent`**: Provides summary and coordination for inventory data
-- **`OSInventoryAgent`**: Retrieves operating system inventory from Azure Log Analytics
-- **`SoftwareInventoryAgent`**: Retrieves software inventory from Azure Log Analytics
+- **`MCPOrchestratorAgent`**: Main orchestrator with ReAct loop (AsyncAzureOpenAI SDK). Manages 100+ tools via CompositeMCPClient. Delegates monitor tasks to MonitorAgent. Includes hallucination guard, conversation summarization, and SSE streaming.
+- **`MonitorAgent`**: Focused sub-agent for Azure Monitor Community resources. Own system prompt, ~12 tools, 15-iteration ReAct loop, stateless per invocation.
+- **`EOLOrchestratorAgent`**: Coordinates EOL data gathering from specialized vendor agents with async fan-out, confidence scoring, and early termination.
 
 #### EOL Agents
 - **`MicrosoftEOLAgent`**: Windows, SQL Server, Office, .NET lifecycle data
@@ -84,27 +73,20 @@ The application uses a sophisticated multi-agent architecture:
 - **`AzureAIAgent`**: Azure AI Agent Service for intelligent web data extraction
 - **`PlaywrightAgent`**: Automated browser-based web scraping
 
-### Intelligent Routing
-
-The system uses intelligent agent routing based on:
-- **Software Vendor Detection**: Automatically routes queries to the most appropriate agents
-- **Confidence Scoring**: Each agent provides confidence scores for their results
-- **Early Termination**: High-confidence results (≥90%) terminate searches early for efficiency
-- **Fallback Mechanisms**: Multiple agents provide redundancy and coverage
-
 ## 🛠️ Technology Stack
 
 ### Backend
 - **FastAPI 0.112.x**: High-performance async web framework
 - **Python 3.11+**: Core runtime environment
+- **Azure OpenAI SDK**: GPT-4o-mini via AsyncAzureOpenAI with ReAct loop
 - **Azure SDK**: Integration with Azure services (Identity, Monitor Query, Cosmos DB)
-- **Azure Management SDK**: Native Azure resource management (Resource, Compute, Network, Monitor, Storage)
-- **Microsoft Agent Framework 1.0.0b260107**: Preview multi-agent conversation framework
+- **Azure Management SDK**: Native Azure resource management
+- **MCP SDK**: Model Context Protocol for tool server communication
 - **Pydantic 2.x**: Data validation and serialization
 
 ### AI & Web Automation
-- **Azure OpenAI**: GPT-4 powered conversational AI (OpenAI 1.51.0)
-- **Azure AI Agent Service**: Modern intelligent agent capabilities (replaces Bing Search)
+- **Azure OpenAI**: GPT-4o-mini powered conversational AI (AsyncAzureOpenAI SDK)
+- **Azure MCP Server**: `@azure/mcp@latest` for Azure resource management (~85 tools)
 - **Playwright 1.50.0**: Browser automation for web scraping
 - **Azure Log Analytics**: Real-time inventory data source
 
@@ -142,12 +124,14 @@ app/agentic/eol/
 │   ├── communications.py             # Communication history (6)
 │   ├── chat.py                       # AI chat interface (1)
 │   ├── ui.py                         # HTML page templates (8)
+│   ├── azure_mcp.py                  # Azure MCP co-pilot SSE chat (2)
 │   └── debug.py                      # Debug utilities (3)
-├── agents/                           # Multi-agent system
+├── agents/                           # Orchestrator and agent system
+│   ├── mcp_orchestrator.py           # Main MCP orchestrator (ReAct loop, AsyncAzureOpenAI)
+│   ├── monitor_agent.py              # Monitor sub-agent (hybrid delegation target)
 │   ├── base_eol_agent.py             # Base class for all EOL agents
-│   ├── inventory_orchestrator.py     # Conversational AI orchestrator (Microsoft Agent Framework)
+│   ├── inventory_orchestrator.py     # Conversational AI orchestrator
 │   ├── eol_orchestrator.py           # EOL analysis orchestrator
-│   ├── mcp_orchestrator.py           # MCP multi-tool orchestrator (legacy, sequential)
 │   ├── inventory_agent.py            # Inventory coordination
 │   ├── os_inventory_agent.py         # OS inventory from Log Analytics
 │   ├── software_inventory_agent.py   # Software inventory from Log Analytics
@@ -175,7 +159,8 @@ app/agentic/eol/
 │   ├── alerts.html                   # Alert management interface
 │   ├── cache.html                    # Cache statistics dashboard
 │   ├── agent-cache-details.html      # Detailed agent cache metrics
-│   └── agents.html                   # Agent status monitoring
+│   ├── agents.html                   # Agent status monitoring
+│   └── azure-mcp.html               # Azure MCP co-pilot chat interface (SSE)
 ├── static/                           # Static web assets (CSS, JS, images)
 ├── utils/                            # Utility modules
 │   ├── __init__.py                   # Utilities export
@@ -184,6 +169,13 @@ app/agentic/eol/
 │   ├── helpers.py                    # Helper functions
 │   ├── decorators.py                 # Endpoint decorators (timeout, stats)
 │   ├── cache_stats_manager.py        # Real-time performance monitoring
+│   ├── mcp_composite_client.py       # Aggregates MCP clients with source routing
+│   ├── response_formatter.py         # HTML formatting + deduplication
+│   ├── azure_mcp_client.py           # Azure MCP Server client wrapper
+│   ├── azure_cli_executor_client.py  # Azure CLI MCP client
+│   ├── os_eol_mcp_client.py          # OS EOL MCP client
+│   ├── inventory_mcp_client.py       # Inventory MCP client
+│   ├── monitor_mcp_client.py         # Monitor MCP client
 │   ├── cosmos_cache.py               # Cosmos DB base client
 │   ├── eol_cache.py                  # EOL results caching
 │   ├── inventory_cache.py            # Unified inventory cache
@@ -191,6 +183,11 @@ app/agentic/eol/
 │   ├── software_inventory_cache.py   # Software inventory cache
 │   ├── alert_manager.py              # EOL alert configuration & SMTP
 │   └── data/                         # Static data files (vendor mappings, etc.)
+├── mcp_servers/                      # Local MCP server implementations
+│   ├── monitor_mcp_server.py         # Azure Monitor Community (12 tools)
+│   ├── os_eol_mcp_server.py          # OS EOL lookup (2 tools)
+│   ├── inventory_mcp_server.py       # Inventory queries (7 tools)
+│   └── azure_cli_executor_server.py  # Azure CLI executor (1 tool)
 ├── deploy/                           # Deployment configuration
 │   ├── Dockerfile                    # Container image definition
 │   ├── deploy-container.sh           # Azure Container Registry deployment
@@ -209,8 +206,8 @@ app/agentic/eol/
 - ✅ Improved code organization and maintainability
 - ✅ Enhanced testability with isolated modules
 - ✅ Maintained 100% backward compatibility
-- ✅ Unified Agent Framework client creation via `utils/agent_framework_clients.py` (shared AzureOpenAIChatClient factory and ChatOptions builder)
-- ✅ MCP and inventory assistant orchestrators now use shared chat options (allow_multiple_tool_calls toggle, temperature/max token defaults) with lightweight request logging
+- ✅ Unified AsyncAzureOpenAI SDK for MCP orchestrator (replaces Agent Framework dependency)
+- ✅ MCP orchestrator uses ReAct loop with configurable temperature/max tokens and lightweight request logging
 - ✅ FastAPI app now uses lifespan context instead of deprecated on_event hooks
 - ✅ Template rendering updated to new Jinja2 request-first signature
 
@@ -272,8 +269,8 @@ AZURE_OPENAI_API_KEY=your-openai-key              # Required
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4                # GPT-4 deployment name
 AZURE_OPENAI_MODEL=gpt-4                          # Model version
-AGENT_FRAMEWORK_TEMPERATURE=0.2                   # Optional default for Agent Framework chat
-AGENT_FRAMEWORK_MAX_TOKENS=900                    # Optional default max tokens for Agent Framework chat
+MCP_AGENT_TEMPERATURE=0.2                          # Optional temperature for MCP orchestrator
+AZURE_OPENAI_CHAT_DEPLOYMENT_NAME=gpt-4o-mini     # Chat deployment for MCP orchestrator
 INVENTORY_ASSISTANT_TEMPERATURE=0.2               # Optional override for inventory assistant
 INVENTORY_ASSISTANT_MAX_TOKENS=900                # Optional override for inventory assistant
 MCP_AGENT_MAX_TOKENS=900                          # Optional override for MCP orchestrator
@@ -283,6 +280,15 @@ COSMOS_ENDPOINT=your-cosmos-endpoint
 COSMOS_KEY=your-cosmos-key
 COSMOS_DATABASE_NAME=eol-agentic                  # Default database name
 COSMOS_CONTAINER_NAME=communications              # Default container name
+
+# Azure SRE Agent Configuration
+SRE_ENABLED=true                                   # Enable/disable SRE MCP server
+SUBSCRIPTION_ID=your-subscription-id               # Required for SRE operations
+TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/...  # Primary Teams channel
+TEAMS_CRITICAL_WEBHOOK_URL=https://outlook.office.com/webhook/...  # Optional critical channel
+SRE_TEAMS_CHANNEL="SRE Incidents"                 # Teams channel name for reference
+SRE_AUTO_TRIAGE_ENABLED=true                      # Enable automatic incident triage
+SRE_MCP_LOG_LEVEL=INFO                            # Log level for SRE MCP server
 
 # Alert Configuration (Optional - for email notifications)
 SMTP_SERVER=smtp.office365.com
@@ -375,9 +381,9 @@ EOL_SEARCH_TIMEOUT=15
 CACHE_TTL_SECONDS=3600
 MAX_CACHE_SIZE=1000
 
-# Agent Framework chat defaults (shared)
-AGENT_FRAMEWORK_TEMPERATURE=0.2
-AGENT_FRAMEWORK_MAX_TOKENS=900
+# MCP Orchestrator defaults
+MCP_AGENT_TEMPERATURE=0.2
+MCP_AGENT_MAX_ITERATIONS=50
 MCP_AGENT_MAX_TOKENS=900
 INVENTORY_ASSISTANT_TEMPERATURE=0.2
 INVENTORY_ASSISTANT_MAX_TOKENS=900
@@ -496,26 +502,16 @@ All API endpoints follow the **StandardResponse** format for consistency:
 - `GET /api/cosmos/test` - Test Cosmos DB connectivity
 
 ### Inventory Assistant Endpoints
-- `POST /api/inventory-assistant` - AI-powered conversational interface powered by the Microsoft Agent Framework
-├── __init__.py              # API package initialization
-├── health.py                # Health check endpoints (3 endpoints)
-## ✅ Testing
-├── inventory.py             # Inventory operations (7 endpoints)
-├── eol.py                   # EOL analysis (5 endpoints)
-├── cosmos.py                # Cosmos DB operations (6 endpoints)
-├── agents.py                # Agent management (5 endpoints)
-├── alerts.py                # Alert configuration (6 endpoints)
-├── communications.py        # Communication history (6 endpoints)
-├── inventory_asst.py        # Inventory assistant interface (1 endpoint)
-├── ui.py                    # HTML page templates (8 endpoints)
-└── debug.py                 # Debug utilities (3 endpoints)
-```
+- `POST /api/inventory-assistant` - AI-powered conversational interface for inventory queries
 
-### Module Responsibilities
+### MCP Chat Endpoints
+- `GET /azure-mcp` - Azure MCP co-pilot web interface (SSE-based chat)
+- `POST /api/azure-mcp/chat` - MCP orchestrator chat endpoint (SSE streaming)
+
+## 📐 Module Responsibilities
 
 #### `api/health.py` - Health & Status
 **Purpose**: Application health monitoring and status reporting  
-| Orchestrator | 3 | `tests/test_eol_orchestrator.py` dependency injection & cleanup |
 **Endpoints**:
 - `GET /health` - Basic health check (fast, no dependencies)
 - `GET /api/health/detailed` - Comprehensive health with dependency checks
@@ -611,7 +607,7 @@ If `requirements-dev.txt` is not present, install `pytest` (and `pytest-asyncio`
 - `GET /api/debug/agent-communications` - Debug all communications
 
 #### `api/inventory_asst.py` - Inventory Assistant Interface
-**Purpose**: Microsoft Agent Framework powered inventory assistant orchestration  
+**Purpose**: AI-powered inventory assistant orchestration  
 **Endpoints**:
 - `POST /api/inventory-assistant` - AI-powered conversational queries
 
@@ -636,6 +632,7 @@ If `requirements-dev.txt` is not present, install `pytest` (and `pytest-asyncio`
 - `GET /cache` - Cache statistics dashboard
 - `GET /agent-cache-details` - Detailed agent metrics
 - `GET /agents` - Agent configuration UI
+- `GET /azure-mcp` - Azure MCP co-pilot chat interface
 
 #### `api/debug.py` - Debug Utilities
 **Purpose**: Development and troubleshooting tools  
@@ -643,6 +640,18 @@ If `requirements-dev.txt` is not present, install `pytest` (and `pytest-asyncio`
 - `POST /api/debug_tool_selection` - Test tool selection logic
 - `GET /api/debug/cache` - Cache debugging information
 - `GET /api/debug/config` - Configuration validation
+
+#### `api/azure_mcp.py` - Azure MCP Co-pilot
+**Purpose**: MCP orchestrator chat interface with SSE streaming  
+**Endpoints**:
+- `GET /azure-mcp` - Web-based chat UI for Azure MCP operations
+- `POST /api/azure-mcp/chat` - SSE-streaming chat endpoint (300s timeout, 10s keepalive)
+
+**Features**:
+- Real-time SSE events: reasoning, action, observation, synthesis, error, done
+- Hybrid orchestrator delegates monitor tasks to MonitorAgent sub-agent
+- Hallucination guard blocks fabricated data before tools are called
+- Conversation history with summarization for context window management
 
 ### Module Benefits
 
@@ -722,8 +731,8 @@ The application implements a sophisticated 3-strategy search approach:
 - **Agent Statistics**: Request counts, cache performance, URL-level metrics
 - **Load Management**: Intelligent request distribution and timeout handling
 
-### 6. Conversational AI (Microsoft Agent Framework Integration)
-- **Natural Language**: Ask questions about your software inventory using GPT-4
+### 6. Conversational AI (Azure OpenAI Integration)
+- **Natural Language**: Ask questions about your software inventory using GPT-4o-mini
 - **Multi-Agent Collaboration**: Specialized agents collaborate to provide insights
 - **Context Awareness**: Maintains conversation context and history
 - **Web Surfer Integration**: Dynamic web content retrieval for up-to-date information
@@ -816,7 +825,7 @@ az container create \
 Access comprehensive metrics at `/cache` and `/`:
 - **Active Agents**: Count of all registered agents
 - **Cached Items**: Total cached items across all caches
-- **AI Sessions**: Total Microsoft Agent Framework conversation sessions
+- **AI Sessions**: Total Azure OpenAI conversation sessions
 - **Database Items**: Cosmos DB operations count
 - **Cache Hit Rates**: Per-agent and global cache efficiency
 - **Response Times**: Average, min, max response times per agent
@@ -968,6 +977,43 @@ To add a new EOL agent:
 
 ## 🆕 Recent Updates
 
+### Hybrid Orchestrator Architecture (February 2026)
+Major architectural overhaul: introduced hybrid orchestrator + sub-agent pattern.
+
+**MonitorAgent Sub-Agent**:
+- Created `agents/monitor_agent.py` — focused sub-agent with own system prompt and ReAct loop
+- Only sees ~12 tools (monitor + CLI) vs 100+ in the orchestrator
+- Eliminates tool confusion (e.g., ACR vs Container Apps) for monitor operations
+- Streams events through orchestrator's SSE pipeline — frontend unchanged
+
+**Dedicated Deploy Tools**:
+- `deploy_query` — downloads .kql, strips comments, collapses newlines, deploys as saved search
+- `deploy_alert` — downloads alert template, extracts KQL, deploys as scheduled query rule
+- `deploy_workbook` — existing tool, deploys via ARM template
+- All use `subprocess_exec` with argument lists (no shell escaping issues)
+
+**CompositeMCPClient Enhancements**:
+- `get_tools_by_sources()` / `get_tools_excluding_sources()` for sub-agent initialization
+- In hybrid mode: monitor tools replaced with single `monitor_agent` meta-tool
+- `_SOURCE_GUIDANCE` slimmed ~60%, routing detail moved to tool descriptions
+- `_TOOL_DISAMBIGUATION` expanded (8 entries including deprecated tool redirects)
+
+**Tool Description Overhaul**:
+- All 19 local MCP tools updated with clear, actionable descriptions
+- 3 legacy monitor tools marked DEPRECATED with redirect instructions
+- Each tool description specifies when to use it, what it returns, and its parameters
+
+**Orchestrator Improvements**:
+- Unified to AsyncAzureOpenAI SDK (removed Microsoft Agent Framework dependency)
+- Conversation summarization with safe boundary detection (prevents orphaned tool messages)
+- Hallucination guard blocks fabricated data on first iteration
+- SSE keepalive reduced to 10s, chat timeout increased to 300s
+- Frontend: unlimited SSE reconnect retries, expanded HTML trust pattern, near-duplicate deduplication
+
+**ResponseFormatter** (`utils/response_formatter.py`):
+- Markdown → HTML conversion (tables, headers, lists, code blocks)
+- Near-duplicate content deduplication with substring matching
+
 ### Major Refactoring - API Standardization (October 2025)
 A comprehensive refactoring effort has modernized the codebase with significant improvements:
 
@@ -1026,10 +1072,10 @@ A comprehensive refactoring effort has modernized the codebase with significant 
 - **Web Scraping Cache**: Dedicated cache for Playwright and web surfer results
 - **Cache Management UI**: Visual interface for cache statistics and purging
 
-### Microsoft Agent Framework Preview Integration
-- **Modern Framework**: Migrated to Microsoft Agent Framework 1.0.0b251112 preview for chat orchestration
-- **Web Surfer Agent**: Dynamic web content retrieval for up-to-date EOL data
-- **Improved Chat Experience**: Better conversation handling and context management
+### Azure OpenAI + MCP Architecture
+- **AsyncAzureOpenAI SDK**: Direct OpenAI SDK integration for MCP orchestrator (replaced Agent Framework)
+- **Hybrid Architecture**: MCPOrchestratorAgent + MonitorAgent sub-agent for monitor resources
+- **ReAct Loop**: Reasoning + Acting loop with hallucination guard and confirmation workflows
 
 ### Azure AI Integration
 - **Azure AI Agent Service**: Modern replacement for deprecated Bing Search API

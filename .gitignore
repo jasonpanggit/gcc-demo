@@ -60,6 +60,7 @@ Thumbs.db
 
 # backup
 backup/
+*.backup
 
 # docs
 docs/
@@ -89,3 +90,10 @@ appsettings*.json
 
 # litellm
 litellm/
+
+# claude
+.claude/
+CLAUDE.md
+
+# github
+.github/

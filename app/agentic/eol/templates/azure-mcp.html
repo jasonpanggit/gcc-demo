@@ -29,55 +29,6 @@
 
 <!-- Main Content -->
 <div class="container-fluid mt-4">
-    <div class="row">
-        <!-- Status & Tools Card (Combined) -->
-        <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>MCP Servers & Tools</h5>
-                    <button class="btn btn-sm btn-outline-primary" onclick="toggleStatusTools()" id="toggle-status-btn">
-                        <i class="fas fa-chevron-down me-1"></i>Collapse
-                    </button>
-                </div>
-                <div class="card-body" id="status-tools-section">
-                    <div class="row">
-                        <!-- Available Tools -->
-                        <div class="col-12">
-                            <h6 class="mb-3"><i class="fas fa-tools me-2"></i>List of Tools</h6>
-                            <div id="tools-container" style="max-height: 400px; overflow-y: auto;">
-                                <p class="text-muted">Click "List Tools" to view available Azure MCP tools</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Azure Monitor Community Resources -->
-    <div class="row">
-        <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Azure Monitor Community Resources</h5>
-                    <div>
-                        <button class="btn btn-sm btn-primary me-2" onclick="loadMonitorResources()">
-                            <i class="fas fa-sync-alt me-1"></i>Load Resources
-                        </button>
-                        <button class="btn btn-sm btn-secondary" id="toggle-monitor-btn" onclick="toggleMonitorResources()">
-                            <i class="fas fa-chevron-down me-1"></i>Collapse
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body" id="monitor-resources-section">
-                    <div id="monitor-resources-container">
-                        <p class="text-muted">Click "Load Resources" to view available Azure Monitor Community workbooks, alerts, and queries</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- MCP Chat Interface -->
     <div class="row">
         <div class="col-12 mb-4">
@@ -96,17 +47,22 @@
                             <p>Ask me anything about your Azure resources!</p>
                         </div>
                     </div>
-                    
+
                     <!-- Quick Examples -->
                     <div class="mb-3">
                         <label class="form-label mb-2"><i class="fas fa-lightbulb me-1"></i>Quick Examples:</label>
                         <div class="row g-2">
-                            <div class="col-md-5">
-                                <select class="form-select" id="tool-selector" onchange="updateExamples()" disabled>
-                                    <option value="">Loading tools...</option>
+                            <div class="col-md-3">
+                                <select class="form-select" id="server-selector" onchange="updateToolsByServer()" disabled>
+                                    <option value="">Loading servers...</option>
                                 </select>
                             </div>
-                            <div class="col-md-7">
+                            <div class="col-md-4">
+                                <select class="form-select" id="tool-selector" onchange="updateExamples()" disabled>
+                                    <option value="">Select a server first...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
                                 <select class="form-select" id="example-selector" disabled>
                                     <option value="">Select a tool first...</option>
                                 </select>
@@ -115,10 +71,10 @@
                         <div class="mt-2 small" id="tool-doc-link"></div>
                         <div class="mt-2" id="tool-parameter-hints"></div>
                     </div>
-                    
+
                     <!-- Chat Input -->
                     <div class="input-group">
-                        <input type="text" class="form-control" id="chat-input" 
+                        <input type="text" class="form-control" id="chat-input"
                                placeholder="Type your question about Azure resources..."
                                onkeypress="if(event.key === 'Enter') sendMessage()">
                         <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
@@ -129,23 +85,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Resource Groups Section -->
-    <!-- <div class="row">
-        <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-folder me-2"></i>Azure Resource Groups</h5>
-                    <button class="btn btn-sm btn-primary" onclick="loadResourceGroups()">
-                        <i class="fas fa-sync-alt me-1"></i>Load Resource Groups
-                    </button>
-                </div>
-                <div class="card-body" id="resource-groups-container">
-                    <p class="text-muted">Click "Load Resource Groups" to view your Azure resource groups</p>
-                </div>
-            </div>
-        </div>
-    </div> -->
 
     <!-- Agent Communication Section -->
     <div class="row">
@@ -167,11 +106,11 @@
                 <div class="card-body" id="agent-comms-section" style="display: none;">
                     <div class="alert alert-info mb-3">
                         <i class="fas fa-info-circle me-2"></i>
-                        <strong>Real-time Agent Activity:</strong> This section shows the agentic orchestrator's reasoning process, 
-                        tool calls, and observations as they happen. Watch how the agent autonomously breaks down your questions 
+                        <strong>Real-time Agent Activity:</strong> This section shows the agentic orchestrator's reasoning process,
+                        tool calls, and observations as they happen. Watch how the agent autonomously breaks down your questions
                         and executes multi-step workflows.
                     </div>
-                    
+
                     <!-- Reasoning Summary Stats -->
                     <div class="row mb-3" id="reasoning-stats" style="display: none;">
                         <div class="col-md-3">
@@ -199,7 +138,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Agent Communication Stream -->
                     <div id="agent-comms-stream" class="agent-comms-container" style="height: 500px; overflow-y: auto; background-color: #1e1e1e; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.85rem;">
                         <div class="text-center text-muted py-5">
@@ -211,6 +150,76 @@
             </div>
         </div>
     </div>
+
+    <div class="row" id="status-tools-row">
+        <!-- Status & Tools Card (Combined) -->
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>MCP Servers & Tools</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="toggleStatusTools()" id="toggle-status-btn">
+                        <i class="fas fa-chevron-down me-1"></i>Expand
+                    </button>
+                </div>
+                <div class="card-body" id="status-tools-section" style="display: none;">
+                    <!-- MCP Connection Status -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div id="status-container">
+                                <p class="text-muted">Loading MCP status...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Available Tools -->
+                        <div class="col-12">
+                            <h6 class="mb-3"><i class="fas fa-tools me-2"></i>List of Tools</h6>
+                            <div id="tools-container" style="max-height: 400px; overflow-y: auto;">
+                                <p class="text-muted">Tools will load automatically on startup</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Azure Monitor Community Resources -->
+    <div class="row" id="monitor-resources-row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Azure Monitor Community Resources</h5>
+                    <button class="btn btn-sm btn-outline-primary" id="toggle-monitor-btn" onclick="toggleMonitorResources()">
+                        <i class="fas fa-chevron-down me-1"></i>Expand
+                    </button>
+                </div>
+                <div class="card-body" id="monitor-resources-section" style="display: none;">
+                    <div id="monitor-resources-container">
+                        <p class="text-muted">Resources will load automatically on startup</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resource Groups Section -->
+    <!-- <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-folder me-2"></i>Azure Resource Groups</h5>
+                    <button class="btn btn-sm btn-primary" onclick="loadResourceGroups()">
+                        <i class="fas fa-sync-alt me-1"></i>Load Resource Groups
+                    </button>
+                </div>
+                <div class="card-body" id="resource-groups-container">
+                    <p class="text-muted">Click "Load Resource Groups" to view your Azure resource groups</p>
+                </div>
+            </div>
+        </div>
+    </div> -->
 
     <!-- Azure Monitor Query Section -->
     <!-- <div class="row">
@@ -224,7 +233,7 @@
                         <label for="resource-query" class="form-label">KQL Query</label>
                         <textarea class="form-control font-monospace" id="resource-query" rows="4" placeholder="Heartbeat | take 10"></textarea>
                         <small class="form-text text-muted">
-                            Enter a KQL query to search Azure Monitor / Log Analytics workspace. 
+                            Enter a KQL query to search Azure Monitor / Log Analytics workspace.
                             <a href="https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-query-overview" target="_blank">Learn more about Azure Monitor KQL</a>
                         </small>
                     </div>
@@ -487,26 +496,26 @@
     function toggleStatusTools() {
         const section = document.getElementById('status-tools-section');
         const btn = document.getElementById('toggle-status-btn');
-        
+
         if (section.style.display === 'none') {
             section.style.display = 'block';
-            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Collapse';
+            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Collapse';
         } else {
             section.style.display = 'none';
-            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Expand';
+            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Expand';
         }
     }
 
     function toggleMonitorResources() {
         const section = document.getElementById('monitor-resources-section');
         const btn = document.getElementById('toggle-monitor-btn');
-        
+
         if (section.style.display === 'none') {
             section.style.display = 'block';
-            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Collapse';
+            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Collapse';
         } else {
             section.style.display = 'none';
-            btn.innerHTML = '<i class="fas fa-chevron-up me-1"></i>Expand';
+            btn.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Expand';
         }
     }
 
@@ -750,6 +759,9 @@
                 html += '</div>';
             }
 
+            // Refresh server selector after loading runtime tools
+            populateServerSelector();
+
             if (microsoftLearnTools.length > 0) {
                 html += '<h6 class="text-success fw-semibold">Microsoft Learn MCP Server Tools</h6>';
                 html += '<div class="list-group">';
@@ -869,6 +881,8 @@
         os_eol: 'Operating System EOL',
         azure_cli: 'Azure CLI Executor',
         monitor: 'Azure Monitor Community Resources',
+        sre: 'Azure SRE Agent',
+        microsoft_learn: 'Microsoft Learn',
     };
 
     let runtimeAzureTools = [];
@@ -918,6 +932,548 @@
                             label: 'List container apps',
                             prompt: 'execute cli command "az containerapp list --resource-group <resource-group> --query \"[].{name:name,location:location}\" --output table"'
                         }
+                    ]
+                }
+            ]
+        },
+        // ======================================================================
+        // Azure Monitor Community Resources
+        // ======================================================================
+        {
+            slug: 'monitor-get-service-resources',
+            display_name: 'Azure Monitor Community · Get service resources',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'get_service_monitor_resources',
+            description: 'Find ALL Azure Monitor resources (workbooks, alerts, queries) for a service in one call.',
+            operations: [
+                {
+                    title: 'Get service monitor resources',
+                    examples: [
+                        { label: 'Container Apps monitoring', prompt: 'Find all Azure Monitor resources for Container Apps' },
+                        { label: 'Virtual Machines monitoring', prompt: 'Show me workbooks and alerts for Virtual Machines' },
+                        { label: 'Storage monitoring', prompt: 'What Monitor Community resources exist for Azure Storage?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'monitor-search-categories',
+            display_name: 'Azure Monitor Community · Search categories',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'search_categories',
+            description: 'Search for Azure service categories by keyword.',
+            operations: [
+                {
+                    title: 'Search categories',
+                    examples: [
+                        { label: 'Search for SQL', prompt: 'Search Azure Monitor categories for SQL' },
+                        { label: 'Search for Kubernetes', prompt: 'Find Kubernetes-related Monitor Community categories' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'monitor-list-resources',
+            display_name: 'Azure Monitor Community · List resources',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'list_resources',
+            description: 'List specific resources (workbooks, alerts, queries) in a category.',
+            operations: [
+                {
+                    title: 'List resources',
+                    examples: [
+                        { label: 'List VM workbooks', prompt: 'List all workbooks in the Virtual Machines category' },
+                        { label: 'List Container Apps alerts', prompt: 'Show alerts available for Container Apps' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'monitor-deploy-workbook',
+            display_name: 'Azure Monitor Community · Deploy workbook',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'deploy_workbook',
+            description: 'Deploy an Azure Monitor Community workbook to Azure.',
+            operations: [
+                {
+                    title: 'Deploy workbook',
+                    examples: [
+                        { label: 'Deploy VM workbook', prompt: 'Deploy the Virtual Machines At-Scale workbook to my-rg in eastus' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'monitor-deploy-query',
+            display_name: 'Azure Monitor Community · Deploy query',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'deploy_query',
+            description: 'Deploy a KQL query as a saved search in Log Analytics.',
+            operations: [
+                {
+                    title: 'Deploy query',
+                    examples: [
+                        { label: 'Deploy Container Apps query', prompt: 'Deploy the Container Apps console logs query to my workspace' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'monitor-deploy-alert',
+            display_name: 'Azure Monitor Community · Deploy alert',
+            category: 'Azure Monitor Community Resources',
+            namespace: 'deploy_alert',
+            description: 'Deploy a KQL alert rule as a scheduled query alert.',
+            operations: [
+                {
+                    title: 'Deploy alert',
+                    examples: [
+                        { label: 'Deploy high CPU alert', prompt: 'Deploy the high CPU alert for Container Apps' }
+                    ]
+                }
+            ]
+        },
+        // ======================================================================
+        // Azure SRE Agent
+        // ======================================================================
+        {
+            slug: 'sre-capabilities',
+            display_name: 'Azure SRE · Capabilities',
+            category: 'Azure SRE Agent',
+            namespace: 'describe_capabilities',
+            description: 'Get comprehensive overview of SRE Agent capabilities and features.',
+            operations: [
+                {
+                    title: 'Describe capabilities',
+                    examples: [
+                        { label: 'What can you help with?', prompt: 'What can you help me with as an agent?' },
+                        { label: 'Show capabilities', prompt: 'What are your key capabilities?' },
+                        { label: 'Supported services', prompt: 'Which Azure services do you support?' },
+                        { label: 'Getting started', prompt: 'How do I get started with SRE Agent?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-prompt-examples',
+            display_name: 'Azure SRE · Prompt examples',
+            category: 'Azure SRE Agent',
+            namespace: 'get_prompt_examples',
+            description: 'Get example prompts for specific Azure service categories.',
+            operations: [
+                {
+                    title: 'Get prompt examples',
+                    examples: [
+                        { label: 'App Service examples', prompt: 'Show me example prompts for App Service' },
+                        { label: 'Container Apps examples', prompt: 'Show me example prompts for Container Apps' },
+                        { label: 'AKS examples', prompt: 'Show me example prompts for AKS' },
+                        { label: 'All examples', prompt: 'Show me all prompt examples' }
+                    ]
+                }
+            ]
+        },
+        // --- Resource Configuration Discovery ---
+        {
+            slug: 'sre-query-app-service',
+            display_name: 'Azure SRE · Query App Service',
+            category: 'Azure SRE Agent',
+            namespace: 'query_app_service_configuration',
+            description: 'Query App Service configuration across multiple web apps with filtering.',
+            operations: [
+                {
+                    title: 'Query App Services',
+                    examples: [
+                        { label: 'List all web apps', prompt: 'List all my web apps' },
+                        { label: 'Linux vs Windows', prompt: 'Which apps are hosted on Linux versus Windows in my environment?' },
+                        { label: 'Deprecated runtimes', prompt: 'Are any of my web apps still running on deprecated or unsupported runtime versions?' },
+                        { label: 'ARR affinity', prompt: 'Do any apps in my subscription have ARR affinity enabled?' },
+                        { label: 'Health checks', prompt: 'Which apps have health checks enabled, and what are their probe paths?' },
+                        { label: 'Diagnostic logging', prompt: 'Which apps have diagnostic logging turned on?' },
+                        { label: 'Specific runtime', prompt: 'Show me all web apps that use the .NET 6 runtime' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-query-container-apps',
+            display_name: 'Azure SRE · Query Container Apps',
+            category: 'Azure SRE Agent',
+            namespace: 'query_container_app_configuration',
+            description: 'Query Container Apps configuration with filtering by Dapr, ingress, autoscaling.',
+            operations: [
+                {
+                    title: 'Query Container Apps',
+                    examples: [
+                        { label: 'List all container apps', prompt: 'List all my container apps' },
+                        { label: 'Dapr enabled', prompt: 'Which apps have Dapr enabled?' },
+                        { label: 'Container images', prompt: 'What container images are used by each of my container apps?' },
+                        { label: 'Autoscaling', prompt: 'Which of my container apps has autoscaling enabled?' },
+                        { label: 'Public ingress', prompt: 'Show me all apps with public ingress enabled' },
+                        { label: 'Managed identities', prompt: 'Which of my container apps use managed identities?' },
+                        { label: 'Multiple revisions', prompt: 'Which apps use multiple revisions at once?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-query-aks',
+            display_name: 'Azure SRE · Query AKS',
+            category: 'Azure SRE Agent',
+            namespace: 'query_aks_configuration',
+            description: 'Query AKS cluster configuration with filtering by K8s version, autoscaling, RBAC.',
+            operations: [
+                {
+                    title: 'Query AKS Clusters',
+                    examples: [
+                        { label: 'K8s version', prompt: 'What version of Kubernetes is my cluster running?' },
+                        { label: 'Autoscaling', prompt: 'Which node pools are configured for my AKS cluster?' },
+                        { label: 'Pod count', prompt: 'How many pods are currently running in my cluster?' },
+                        { label: 'Failed workloads', prompt: 'Which workloads are in a crash loop or failed state?' },
+                        { label: 'Pending pods', prompt: 'Do I have any pending or unscheduled pods?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-query-apim',
+            display_name: 'Azure SRE · Query APIM',
+            category: 'Azure SRE Agent',
+            namespace: 'query_apim_configuration',
+            description: 'Query API Management configuration with filtering by SKU, VNet, managed identity.',
+            operations: [
+                {
+                    title: 'Query APIM Instances',
+                    examples: [
+                        { label: 'Show APIM instances', prompt: 'Can you show me my API Management instances?' },
+                        { label: 'VNet integration', prompt: 'Which APIM instances are connected to a virtual network?' },
+                        { label: 'Managed identities', prompt: 'Which APIM instances use managed identities?' }
+                    ]
+                }
+            ]
+        },
+        // --- Health Checks & Diagnostics ---
+        {
+            slug: 'sre-check-resource-health',
+            display_name: 'Azure SRE · Check resource health',
+            category: 'Azure SRE Agent',
+            namespace: 'check_resource_health',
+            description: 'Check health status of an Azure resource using Resource Health API.',
+            operations: [
+                {
+                    title: 'Check resource health',
+                    examples: [
+                        { label: 'Check VM health', prompt: 'What is the health status of my VM named web-vm-01?' },
+                        { label: 'Check SQL health', prompt: 'Check the health of my SQL database' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-check-container-app',
+            display_name: 'Azure SRE · Check Container App',
+            category: 'Azure SRE Agent',
+            namespace: 'check_container_app_health',
+            description: 'Check Container App health with replica status and ingress configuration.',
+            operations: [
+                {
+                    title: 'Check Container App',
+                    examples: [
+                        { label: 'Ingress config', prompt: 'What is the ingress configuration for my container app?' },
+                        { label: 'Active revision', prompt: 'Which revision of my container app is currently active?' },
+                        { label: 'Activation failed', prompt: 'My container app is stuck in an activation failed state. Investigate for me' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-check-aks-cluster',
+            display_name: 'Azure SRE · Check AKS Cluster',
+            category: 'Azure SRE Agent',
+            namespace: 'check_aks_cluster_health',
+            description: 'Check AKS cluster health with node and pod status analysis.',
+            operations: [
+                {
+                    title: 'Check AKS health',
+                    examples: [
+                        { label: 'OOM condition', prompt: 'Is an OOM condition in my deployment?' },
+                        { label: 'Resource limits', prompt: 'Analyze requests and limits in my namespace' },
+                        { label: 'Deployment down', prompt: 'Why is my deployment down?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-diagnose-app-service',
+            display_name: 'Azure SRE · Diagnose App Service',
+            category: 'Azure SRE Agent',
+            namespace: 'diagnose_app_service',
+            description: 'Comprehensive App Service diagnostics including deployment logs and HTTP errors.',
+            operations: [
+                {
+                    title: 'Diagnose App Service',
+                    examples: [
+                        { label: 'App availability', prompt: 'Can you analyze my app\'s availability over the last 24 hours?' },
+                        { label: 'Slow endpoints', prompt: 'Give me slow endpoints for my APIs' },
+                        { label: 'Timeouts', prompt: 'Why is my web app timed out?' },
+                        { label: '500 errors', prompt: 'Why is my web app throwing 500 errors?' },
+                        { label: 'App down', prompt: 'My web app is down. Can you analyze it?' },
+                        { label: 'Not loading', prompt: 'My web app is stuck and isn\'t loading. Investigate for me' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-diagnose-apim',
+            display_name: 'Azure SRE · Diagnose APIM',
+            category: 'Azure SRE Agent',
+            namespace: 'diagnose_apim',
+            description: 'Comprehensive APIM diagnostics including backend health and policy validation.',
+            operations: [
+                {
+                    title: 'Diagnose APIM',
+                    examples: [
+                        { label: '500 errors', prompt: 'Why am I getting 500 errors in my API Management instance?' },
+                        { label: 'API failures', prompt: 'Can you help me figure out why requests to our API are failing?' },
+                        { label: 'Recent changes', prompt: 'Show me recent changes to our API Management instance' },
+                        { label: 'Performance', prompt: 'Why is my API Management instance slow?' },
+                        { label: 'Failure logs', prompt: 'Can you show me the recent failure logs for my API Management instance?' },
+                        { label: 'Failure rate', prompt: 'What\'s the failure rate for my API operations in my API Management instance?' }
+                    ]
+                }
+            ]
+        },
+        // --- Incident Response ---
+        {
+            slug: 'sre-triage-incident',
+            display_name: 'Azure SRE · Triage incident',
+            category: 'Azure SRE Agent',
+            namespace: 'triage_incident',
+            description: 'Analyze an incident with log correlation and root cause investigation.',
+            operations: [
+                {
+                    title: 'Triage incident',
+                    examples: [
+                        { label: 'Container App down', prompt: 'My container app is down. Can you analyze it?' },
+                        { label: 'Timeout errors', prompt: 'Why is my container app timed out?' },
+                        { label: '500 errors', prompt: 'Why is my container app throwing 500 errors?' },
+                        { label: 'Not loading', prompt: 'My container app is stuck and isn\'t loading. Investigate for me' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-get-diagnostic-logs',
+            display_name: 'Azure SRE · Get diagnostic logs',
+            category: 'Azure SRE Agent',
+            namespace: 'get_diagnostic_logs',
+            description: 'Retrieve diagnostic logs from Log Analytics for a resource.',
+            operations: [
+                {
+                    title: 'Get diagnostic logs',
+                    examples: [
+                        { label: 'Get Container App logs', prompt: 'Show me the diagnostic logs for my Container App in the last 24 hours' },
+                        { label: 'Get error logs', prompt: 'Retrieve error logs from my resource for the past 6 hours' }
+                    ]
+                }
+            ]
+        },
+        // --- Performance Monitoring ---
+        {
+            slug: 'sre-get-performance-metrics',
+            display_name: 'Azure SRE · Get performance metrics',
+            category: 'Azure SRE Agent',
+            namespace: 'get_performance_metrics',
+            description: 'Retrieve performance metrics (CPU, memory, requests) for a resource.',
+            operations: [
+                {
+                    title: 'Get performance metrics',
+                    examples: [
+                        { label: 'CPU and memory', prompt: 'What\'s the CPU and memory utilization of my app?' },
+                        { label: 'Memory utilization', prompt: 'Show me a visualization of memory utilization percentage for my container app for last week' },
+                        { label: 'CPU utilization', prompt: 'Show me a visualization of CPU utilization percentage for my container app for last week' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-identify-bottlenecks',
+            display_name: 'Azure SRE · Identify bottlenecks',
+            category: 'Azure SRE Agent',
+            namespace: 'identify_bottlenecks',
+            description: 'Analyze performance metrics to identify resource bottlenecks.',
+            operations: [
+                {
+                    title: 'Identify bottlenecks',
+                    examples: [
+                        { label: 'Find bottlenecks', prompt: 'Analyze my Container App for performance bottlenecks' },
+                        { label: 'Why slow?', prompt: 'What is causing my app to be slow?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-search-logs-by-error',
+            display_name: 'Azure SRE · Search logs by error',
+            category: 'Azure SRE Agent',
+            namespace: 'search_logs_by_error',
+            description: 'Search diagnostic logs for specific error messages.',
+            operations: [
+                {
+                    title: 'Search logs',
+                    examples: [
+                        { label: 'Find OutOfMemory errors', prompt: 'Search logs for OutOfMemory errors in my Container App' },
+                        { label: 'Find 500 errors', prompt: 'Show me all HTTP 500 errors in the logs' }
+                    ]
+                }
+            ]
+        },
+        // --- Remediation & Notifications ---
+        {
+            slug: 'sre-plan-remediation',
+            display_name: 'Azure SRE · Plan remediation',
+            category: 'Azure SRE Agent',
+            namespace: 'plan_remediation',
+            description: 'Generate a remediation plan for resource issues.',
+            operations: [
+                {
+                    title: 'Plan remediation',
+                    examples: [
+                        { label: 'Plan restart', prompt: 'Create a plan to safely restart my Container App' },
+                        { label: 'Plan scaling', prompt: 'What is the best way to scale up my app?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'sre-send-teams-alert',
+            display_name: 'Azure SRE · Send Teams alert',
+            category: 'Azure SRE Agent',
+            namespace: 'send_teams_alert',
+            description: 'Send a critical incident alert to Microsoft Teams channel.',
+            operations: [
+                {
+                    title: 'Send Teams alert',
+                    examples: [
+                        { label: 'Alert on-call team', prompt: 'Send an alert to Teams about the critical Container App outage' }
+                    ]
+                }
+            ]
+        },
+        // ======================================================================
+        // Log Analytics Inventory
+        // ======================================================================
+        {
+            slug: 'inventory-get-os-summary',
+            display_name: 'Log Analytics Inventory · Get OS summary',
+            category: 'Log Analytics Inventory',
+            namespace: 'law_get_os_summary',
+            description: 'Get a summary of operating systems from Log Analytics inventory.',
+            operations: [
+                {
+                    title: 'Get OS summary',
+                    examples: [
+                        { label: 'Show OS distribution', prompt: 'What operating systems are in my environment?' },
+                        { label: 'Count by OS', prompt: 'Show me a summary of OS types and counts' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'inventory-get-os-vendor-summary',
+            display_name: 'Log Analytics Inventory · Get OS vendor summary',
+            category: 'Log Analytics Inventory',
+            namespace: 'law_get_os_vendor_summary',
+            description: 'Get OS inventory grouped by vendor (Microsoft, Red Hat, Ubuntu, etc.).',
+            operations: [
+                {
+                    title: 'Get vendor summary',
+                    examples: [
+                        { label: 'Group by vendor', prompt: 'Show me OS inventory grouped by vendor' },
+                        { label: 'Count Windows vs Linux', prompt: 'How many Windows vs Linux machines do I have?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'inventory-get-os-inventory',
+            display_name: 'Log Analytics Inventory · Get OS inventory',
+            category: 'Log Analytics Inventory',
+            namespace: 'law_get_os_inventory',
+            description: 'Get detailed OS inventory with computer names, versions, and editions.',
+            operations: [
+                {
+                    title: 'Get OS inventory',
+                    examples: [
+                        { label: 'List all machines', prompt: 'Show me all computers with OS details' },
+                        { label: 'Filter by OS type', prompt: 'List all Ubuntu machines in my inventory' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'inventory-get-software-inventory',
+            display_name: 'Log Analytics Inventory · Get software inventory',
+            category: 'Log Analytics Inventory',
+            namespace: 'law_get_software_inventory',
+            description: 'Get installed software inventory from Log Analytics.',
+            operations: [
+                {
+                    title: 'Get software inventory',
+                    examples: [
+                        { label: 'List installed software', prompt: 'What software is installed across my machines?' },
+                        { label: 'Find specific software', prompt: 'Which machines have SQL Server installed?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'inventory-get-top-software',
+            display_name: 'Log Analytics Inventory · Get top software',
+            category: 'Log Analytics Inventory',
+            namespace: 'law_get_top_software_packages',
+            description: 'Get the most commonly installed software packages.',
+            operations: [
+                {
+                    title: 'Get top software',
+                    examples: [
+                        { label: 'Most common software', prompt: 'What are the top 10 most installed software packages?' },
+                        { label: 'Popular applications', prompt: 'Show me the most common applications' }
+                    ]
+                }
+            ]
+        },
+        // ======================================================================
+        // Operating System EOL
+        // ======================================================================
+        {
+            slug: 'os-eol-lookup',
+            display_name: 'OS EOL · Lookup single OS',
+            category: 'Operating System EOL',
+            namespace: 'os_eol_lookup',
+            description: 'Check end-of-life status for a single operating system.',
+            operations: [
+                {
+                    title: 'Lookup OS EOL',
+                    examples: [
+                        { label: 'Check Windows Server 2016', prompt: 'What is the EOL date for Windows Server 2016?' },
+                        { label: 'Check Ubuntu 20.04', prompt: 'Is Ubuntu 20.04 still supported?' },
+                        { label: 'Check Red Hat 7', prompt: 'When does Red Hat Enterprise Linux 7 reach end of life?' }
+                    ]
+                }
+            ]
+        },
+        {
+            slug: 'os-eol-bulk-lookup',
+            display_name: 'OS EOL · Bulk lookup',
+            category: 'Operating System EOL',
+            namespace: 'os_eol_bulk_lookup',
+            description: 'Check EOL status for multiple operating systems at once.',
+            operations: [
+                {
+                    title: 'Bulk EOL lookup',
+                    examples: [
+                        { label: 'Check inventory for EOL', prompt: 'Check all OS in my inventory for end-of-life status' },
+                        { label: 'Bulk EOL analysis', prompt: 'Which operating systems in my environment are end-of-life?' }
                     ]
                 }
             ]
@@ -1117,8 +1673,10 @@
     // Tool metadata catalog populated from documentation crawler
     let metadataTools = [];
     let metadataBySlug = {};
+    let toolsByServer = {}; // Track tools by server source
 
     async function loadToolMetadata() {
+        const serverSelector = document.getElementById('server-selector');
         const selector = document.getElementById('tool-selector');
         const exampleSelector = document.getElementById('example-selector');
         try {
@@ -1126,11 +1684,21 @@
             const payload = await response.json();
             metadataTools = Array.isArray(payload.tools) ? payload.tools : [];
             metadataBySlug = {};
+            toolsByServer = {}; // Reset
+
             metadataTools.forEach(tool => {
                 if (tool && tool.slug) {
                     metadataBySlug[tool.slug] = tool;
+
+                    // Extract server source from namespace or category
+                    const source = getToolSource(tool);
+                    if (!toolsByServer[source]) {
+                        toolsByServer[source] = [];
+                    }
+                    toolsByServer[source].push(tool);
                 }
             });
+
             lazyLoadedToolMetadata.forEach(tool => {
                 if (!tool || !tool.slug) {
                     return;
@@ -1138,20 +1706,33 @@
                 if (!metadataBySlug[tool.slug]) {
                     metadataTools.push(tool);
                     metadataBySlug[tool.slug] = tool;
+
+                    const source = getToolSource(tool);
+                    if (!toolsByServer[source]) {
+                        toolsByServer[source] = [];
+                    }
+                    toolsByServer[source].push(tool);
                 }
             });
+
             microsoftLearnToolMetadata.forEach(tool => {
                 if (tool && tool.slug && !metadataBySlug[tool.slug]) {
                     metadataTools.push(tool);
                     metadataBySlug[tool.slug] = tool;
+
+                    const source = getToolSource(tool);
+                    if (!toolsByServer[source]) {
+                        toolsByServer[source] = [];
+                    }
+                    toolsByServer[source].push(tool);
                 }
             });
-            populateToolSelector();
+
+            populateServerSelector();
+
             if (selector) {
-                selector.disabled = metadataTools.length === 0;
-                if (!metadataTools.length) {
-                    selector.innerHTML = '<option value="">No tools available</option>';
-                }
+                selector.disabled = true;
+                selector.innerHTML = '<option value="">Select a server first...</option>';
             }
             if (exampleSelector) {
                 exampleSelector.disabled = true;
@@ -1159,6 +1740,10 @@
             }
         } catch (error) {
             console.error('Failed to load tool metadata:', error);
+            if (serverSelector) {
+                serverSelector.disabled = true;
+                serverSelector.innerHTML = '<option value="">Failed to load servers</option>';
+            }
             if (selector) {
                 selector.disabled = true;
                 selector.innerHTML = '<option value="">Failed to load tools</option>';
@@ -1166,19 +1751,157 @@
         }
     }
 
-    function populateToolSelector() {
+    function getToolSource(tool) {
+        // Determine server source from tool namespace or category
+        if (tool.namespace) {
+            if (tool.namespace.startsWith('azure_cli')) return 'azure_cli';
+            if (tool.namespace.startsWith('microsoft_learn')) return 'microsoft_learn';
+            if (tool.namespace.startsWith('inventory')) return 'inventory';
+            if (tool.namespace.startsWith('os_eol')) return 'os_eol';
+            if (tool.namespace.startsWith('monitor')) return 'monitor';
+            if (tool.namespace.startsWith('sre_') || tool.namespace.includes('sre')) return 'sre';
+        }
+
+        // Check tool name if namespace doesn't help
+        if (tool.name) {
+            if (tool.name.startsWith('sre_') || tool.name.includes('sre')) return 'sre';
+        }
+
+        // Check category
+        if (tool.category) {
+            if (tool.category.includes('Microsoft Learn')) return 'microsoft_learn';
+            if (tool.category.includes('Agentic Utilities')) return 'azure_cli';
+            if (tool.category.includes('Inventory')) return 'inventory';
+            if (tool.category.includes('Monitor')) return 'monitor';
+            if (tool.category.includes('SRE')) return 'sre';
+        }
+
+        // Default to azure
+        return 'azure';
+    }
+
+    function populateServerSelector() {
+        const serverSelector = document.getElementById('server-selector');
+        if (!serverSelector) {
+            return;
+        }
+
+        serverSelector.innerHTML = '<option value="">Select a server...</option>';
+
+        // Get all available servers (from toolsByServer and runtime tools)
+        const allServers = new Set(Object.keys(toolsByServer));
+
+        // Add servers from runtime tools
+        runtimeAzureTools.forEach(tool => {
+            const source = tool.source || 'azure';
+            allServers.add(source);
+        });
+
+        // Sort and create options with friendly names
+        const sortedServers = Array.from(allServers).sort((a, b) => {
+            const nameA = mcpSourceDisplayNames[a] || a;
+            const nameB = mcpSourceDisplayNames[b] || b;
+            return nameA.localeCompare(nameB);
+        });
+
+        sortedServers.forEach(server => {
+            const option = document.createElement('option');
+            option.value = server;
+            option.textContent = mcpSourceDisplayNames[server] || server.replace(/_/g, ' ');
+            serverSelector.appendChild(option);
+        });
+
+        serverSelector.disabled = sortedServers.length === 0;
+    }
+
+    function updateToolsByServer() {
+        const serverSelector = document.getElementById('server-selector');
+        const toolSelector = document.getElementById('tool-selector');
+        const exampleSelector = document.getElementById('example-selector');
+        const chatInput = document.getElementById('chat-input');
+        const docLink = document.getElementById('tool-doc-link');
+        const parameterHints = document.getElementById('tool-parameter-hints');
+
+        if (!serverSelector || !toolSelector) {
+            return;
+        }
+
+        const selectedServer = serverSelector.value;
+
+        // Reset tool selector
+        if (docLink) {
+            docLink.innerHTML = '';
+        }
+        if (parameterHints) {
+            parameterHints.innerHTML = '<div class="text-muted small">Select a server to see available tools.</div>';
+        }
+        if (exampleSelector) {
+            exampleSelector.disabled = true;
+            exampleSelector.innerHTML = '<option value="">Select a tool first...</option>';
+        }
+        if (chatInput) {
+            chatInput.value = '';
+        }
+
+        if (!selectedServer) {
+            toolSelector.disabled = true;
+            toolSelector.innerHTML = '<option value="">Select a server first...</option>';
+            return;
+        }
+
+        // Get tools for selected server (from metadata and runtime)
+        const serverTools = [];
+
+        // Add from metadata
+        if (toolsByServer[selectedServer]) {
+            serverTools.push(...toolsByServer[selectedServer]);
+        }
+
+        // Add from runtime tools (may have examples in metadata)
+        runtimeAzureTools.forEach(tool => {
+            const source = tool.source || 'azure';
+            if (source === selectedServer) {
+                // Check if we already have metadata for this tool
+                const hasMetadata = serverTools.some(t => t.namespace === tool.name);
+                if (!hasMetadata) {
+                    // Create basic metadata entry
+                    serverTools.push({
+                        slug: tool.name.replace(/_/g, '-'),
+                        display_name: tool.name.replace(/_/g, ' '),
+                        namespace: tool.name,
+                        description: tool.description || 'No description available',
+                        category: mcpSourceDisplayNames[source] || source
+                    });
+                }
+            }
+        });
+
+        if (serverTools.length === 0) {
+            toolSelector.disabled = true;
+            toolSelector.innerHTML = '<option value="">No tools available for this server</option>';
+            return;
+        }
+
+        // Populate tool selector
+        populateToolSelectorForServer(serverTools);
+    }
+
+    function populateToolSelectorForServer(tools) {
         const selector = document.getElementById('tool-selector');
         if (!selector) {
             return;
         }
+
         selector.innerHTML = '<option value="">Select a tool...</option>';
 
-        if (!metadataTools.length) {
+        if (!tools || tools.length === 0) {
+            selector.disabled = true;
             return;
         }
 
+        // Group by category
         const grouped = new Map();
-        metadataTools.forEach(tool => {
+        tools.forEach(tool => {
             const category = (tool.category || 'Other').trim() || 'Other';
             if (!grouped.has(category)) {
                 grouped.set(category, []);
@@ -1200,6 +1923,8 @@
                 });
             selector.appendChild(optgroup);
         });
+
+        selector.disabled = false;
     }
 
     function collectExamples(tool) {
@@ -1552,25 +2277,61 @@
     }
 
     function deduplicateSequentialContent(container) {
-        const normalise = value => value.replace(/\s+/g, ' ').trim();
+        const normalise = value => value.replace(/\s+/g, ' ').trim().toLowerCase();
+
+        // Collect all seen signatures across the entire container to catch
+        // non-consecutive duplicates as well as consecutive ones.
+        const seenSignatures = new Set();
 
         let lastTableSignature = null;
         container.querySelectorAll('table').forEach(table => {
             const signature = normalise(table.textContent || '');
-            if (signature && signature === lastTableSignature) {
+            if (signature && (signature === lastTableSignature || seenSignatures.has(signature))) {
                 table.remove();
-            } else {
+            } else if (signature) {
                 lastTableSignature = signature;
+                seenSignatures.add(signature);
             }
         });
 
-        let lastParagraphSignature = null;
-        container.querySelectorAll('p').forEach(paragraph => {
-            const signature = normalise(paragraph.textContent || '');
-            if (signature && signature === lastParagraphSignature) {
-                paragraph.remove();
-            } else {
-                lastParagraphSignature = signature;
+        // Deduplicate identical lists (ul/ol) — consecutive or not
+        let lastListSignature = null;
+        container.querySelectorAll('ul, ol').forEach(list => {
+            const signature = normalise(list.textContent || '');
+            if (signature && (signature === lastListSignature || seenSignatures.has(signature))) {
+                list.remove();
+            } else if (signature) {
+                lastListSignature = signature;
+                seenSignatures.add(signature);
+            }
+        });
+
+        // Deduplicate paragraphs, headings, divs — consecutive or not
+        // Also catch near-duplicates where one is a substring of the other
+        const paragraphSignatures = [];
+        container.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6').forEach(node => {
+            const signature = normalise(node.textContent || '');
+            if (!signature) return;
+            // Exact duplicate anywhere
+            if (seenSignatures.has(signature)) {
+                node.remove();
+                return;
+            }
+            // Near-duplicate: check if this text is ≥80% contained in a previous paragraph
+            let isNearDup = false;
+            for (const prev of paragraphSignatures) {
+                if (prev.includes(signature) || signature.includes(prev)) {
+                    // One is a substring of the other — keep the longer one
+                    if (signature.length <= prev.length) {
+                        node.remove();
+                        isNearDup = true;
+                    }
+                    break;
+                }
+            }
+            if (!isNearDup) {
+                seenSignatures.add(signature);
+                paragraphSignatures.push(signature);
             }
         });
     }
@@ -1842,7 +2603,7 @@
         }
 
         const containsHtml = /<\/?[a-z][\s\S]*>/i.test(trimmed);
-        const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol/.test(trimmed);
+        const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol|<p[\s>]|<strong|<em|<h[1-6][\s>]|<a\s/.test(trimmed);
 
         if (containsHtml && isTrustedHtml) {
             return {
@@ -2043,8 +2804,9 @@
     // Connect to agent communication stream (SSE)
     let agentEventSource = null;
     let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const baseReconnectDelay = 2000; // 2 seconds
+    const maxReconnectAttempts = 10;
+    const baseReconnectDelay = 1000; // 1 second
+    const maxReconnectDelay = 30000; // 30 seconds cap
 
     function startAgentCommStream() {
         // Close existing connection if any
@@ -2108,7 +2870,7 @@
             };
             
             agentEventSource.onerror = function(error) {
-                console.error('Agent comm stream error:', error);
+                console.warn('Agent comm stream disconnected (readyState=' + agentEventSource.readyState + ')');
                 
                 // Close the failed connection
                 if (agentEventSource) {
@@ -2116,22 +2878,19 @@
                     agentEventSource = null;
                 }
                 
-                // Attempt to reconnect with exponential backoff
-                if (reconnectAttempts < maxReconnectAttempts) {
-                    reconnectAttempts++;
-                    const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts - 1);
-                    console.log(`Reconnecting agent stream (attempt ${reconnectAttempts}/${maxReconnectAttempts}) in ${delay/1000}s...`);
-                    
-                    setTimeout(() => {
-                        startAgentCommStream();
-                    }, delay);
-                } else {
-                    console.warn('Max reconnection attempts reached. Agent stream disabled.');
-                    addAgentComm('error', 'Agent communication stream unavailable after multiple reconnection attempts', {});
-                }
+                // Always attempt to reconnect with exponential backoff (capped)
+                reconnectAttempts++;
+                const delay = Math.min(baseReconnectDelay * Math.pow(2, reconnectAttempts - 1), maxReconnectDelay);
+                console.log(`Reconnecting agent stream (attempt ${reconnectAttempts}) in ${delay/1000}s...`);
+                
+                setTimeout(() => {
+                    startAgentCommStream();
+                }, delay);
             };
         } catch (error) {
             console.error('Failed to create EventSource:', error);
+            // Retry after a delay
+            setTimeout(() => { startAgentCommStream(); }, 5000);
         }
     }
 

@@ -1,0 +1,32 @@
+{
+  "auto_triage_enabled": true,
+  "safe_remediation_enabled": true,
+  "teams_notification_channels": {
+    "critical": "https://outlook.office.com/webhook/...",
+    "warning": "https://outlook.office.com/webhook/...",
+    "info": "https://outlook.office.com/webhook/..."
+  },
+  "approval_required_actions": [
+    "restart",
+    "scale",
+    "remediation",
+    "clear_cache"
+  ],
+  "log_retention_hours": 24,
+  "performance_thresholds": {
+    "cpu_percent_high": 80,
+    "cpu_percent_critical": 95,
+    "memory_percent_high": 80,
+    "memory_percent_critical": 95
+  },
+  "incident_severity_mapping": {
+    "Unavailable": "critical",
+    "Degraded": "error",
+    "Unknown": "warning",
+    "Available": "info"
+  },
+  "default_analysis_hours": 24,
+  "max_affected_resources_display": 10,
+  "enable_automatic_notifications": true,
+  "notification_rate_limit_seconds": 300
+}

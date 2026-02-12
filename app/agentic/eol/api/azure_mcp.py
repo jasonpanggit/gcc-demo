@@ -430,7 +430,7 @@ class MCPChatRequest(BaseModel):
 
 
 @router.post("/api/azure-mcp/chat", response_model=StandardResponse)
-@write_endpoint(agent_name="mcp_chat", timeout_seconds=60)
+@write_endpoint(agent_name="mcp_chat", timeout_seconds=300)
 async def mcp_chat(request: MCPChatRequest):
     """
     Send a message to the MCP orchestrator and get a response.
@@ -545,6 +545,25 @@ async def agent_communication_stream():
     """
     from agents.mcp_orchestrator import get_mcp_orchestrator
     
+    def _format_event(comm: dict) -> dict:
+        """Extract standard SSE payload from a communication dict."""
+        event_data = {
+            'type': comm.get('type', 'unknown'),
+            'content': comm.get('content', ''),
+            'iteration': comm.get('iteration'),
+            'timestamp': comm.get('timestamp', '')
+        }
+        evt_type = comm.get('type')
+        if evt_type == 'action':
+            event_data['tool_name'] = comm.get('tool_name')
+            event_data['tool_params'] = comm.get('tool_params')
+        elif evt_type == 'observation':
+            event_data['tool_result'] = comm.get('tool_result')
+            event_data['is_error'] = comm.get('is_error', False)
+        elif evt_type in ('reasoning', 'planning'):
+            event_data['strategy'] = comm.get('strategy')
+        return event_data
+    
     async def event_generator():
         """Generate SSE events from agent communication queue."""
         try:
@@ -561,73 +580,39 @@ async def agent_communication_stream():
             if hasattr(orchestrator, 'communication_buffer') and orchestrator.communication_buffer:
                 logger.info(f"📤 Sending {len(orchestrator.communication_buffer)} buffered events to new SSE client")
                 for comm in orchestrator.communication_buffer:
-                    # Format and send buffered event
-                    event_data = {
-                        'type': comm.get('type', 'unknown'),
-                        'content': comm.get('content', ''),
-                        'iteration': comm.get('iteration'),
-                        'timestamp': comm.get('timestamp', '')
-                    }
-                    
-                    # Add type-specific fields
-                    if comm.get('type') == 'action':
-                        event_data['tool_name'] = comm.get('tool_name')
-                        event_data['tool_params'] = comm.get('tool_params')
-                    elif comm.get('type') == 'observation':
-                        event_data['tool_result'] = comm.get('tool_result')
-                        event_data['is_error'] = comm.get('is_error', False)
-                    elif comm.get('type') in ['reasoning', 'planning']:
-                        event_data['strategy'] = comm.get('strategy')
-                    
-                    yield f"data: {json.dumps(event_data)}\n\n"
+                    yield f"data: {json.dumps(_format_event(comm))}\n\n"
             
-            # Poll for agent communications with shorter intervals
+            # Poll for agent communications
+            # Use a short keepalive interval to prevent Azure Container Apps
+            # ingress (default 240s) and intermediate proxies from closing
+            # the connection due to inactivity.
             last_keepalive = asyncio.get_event_loop().time()
-            keepalive_interval = 15  # seconds
+            keepalive_interval = 10  # seconds — well under proxy timeouts
             
             while True:
-                # Check if there are any new communications
                 if hasattr(orchestrator, 'communication_queue'):
                     try:
-                        # Try to get a message with a short timeout
                         comm = await asyncio.wait_for(orchestrator.communication_queue.get(), timeout=0.5)
                         
-                        # Format communication event
-                        event_data = {
-                            'type': comm.get('type', 'unknown'),
-                            'content': comm.get('content', ''),
-                            'iteration': comm.get('iteration'),
-                            'timestamp': comm.get('timestamp', '')
-                        }
-                        
-                        # Add type-specific fields
-                        if comm.get('type') == 'action':
-                            event_data['tool_name'] = comm.get('tool_name')
-                            event_data['tool_params'] = comm.get('tool_params')
-                        elif comm.get('type') == 'observation':
-                            event_data['tool_result'] = comm.get('tool_result')
-                            event_data['is_error'] = comm.get('is_error', False)
-                        elif comm.get('type') in ['reasoning', 'planning']:
-                            event_data['strategy'] = comm.get('strategy')
-                        
-                        # Send SSE event immediately
-                        logger.info(f"📤 Sending SSE event: {event_data['type']}")
-                        yield f"data: {json.dumps(event_data)}\n\n"
+                        logger.info(f"📤 Sending SSE event: {comm.get('type', 'unknown')}")
+                        yield f"data: {json.dumps(_format_event(comm))}\n\n"
+                        last_keepalive = asyncio.get_event_loop().time()
                         
                     except asyncio.TimeoutError:
-                        # No messages in queue - check if we need to send keepalive
+                        # No messages — send keepalive comment if interval elapsed
                         current_time = asyncio.get_event_loop().time()
                         if current_time - last_keepalive >= keepalive_interval:
-                            yield f": keepalive\n\n"
+                            yield ": keepalive\n\n"
                             last_keepalive = current_time
                     except Exception as e:
                         logger.error(f"Error processing communication: {e}")
                 else:
-                    # No queue available yet, wait a bit
                     await asyncio.sleep(0.5)
                 
         except asyncio.CancelledError:
             logger.info("Agent communication stream cancelled")
+        except GeneratorExit:
+            logger.info("Agent communication stream generator closed by client")
         except Exception as e:
             logger.error(f"Error in agent communication stream: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -636,8 +621,10 @@ async def agent_communication_stream():
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
+            "X-Accel-Buffering": "no",      # Disable nginx buffering
+            "Content-Type": "text/event-stream",
+            "Transfer-Encoding": "chunked",  # Ensure chunked delivery
         }
     )

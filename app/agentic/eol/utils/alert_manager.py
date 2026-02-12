@@ -25,6 +25,14 @@ from pathlib import Path
 from utils import get_logger, config
 from utils.cosmos_cache import base_cosmos
 
+# Import Teams notification client
+try:
+    from utils.teams_notification_client import TeamsNotificationClient
+except ImportError:
+    TeamsNotificationClient = None
+    logger_module = get_logger(__name__)
+    logger_module.warning("TeamsNotificationClient not available - Teams notifications disabled")
+
 logger = get_logger(__name__)
 
 # # SECURITY NOTE: This is a placeholder - use environment variables in production
@@ -962,6 +970,161 @@ class AlertManager:
                 except Exception as e:
                     logger.warning(f"Error closing SMTP connection after email send: {str(e)}")
                     pass
+
+    async def send_alert_teams(self, alert_items: List[AlertPreviewItem], alert_level: str) -> tuple[bool, str]:
+        """
+        Send alert notification to Microsoft Teams.
+
+        Args:
+            alert_items: List of alert items to notify about
+            alert_level: Alert level ('critical', 'warning', 'info')
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            logger.info("=== SENDING TEAMS ALERT ===")
+            logger.info(f"Alert Level: {alert_level}")
+            logger.info(f"Alert Items Count: {len(alert_items)}")
+
+            if TeamsNotificationClient is None:
+                logger.warning("Teams notification client not available")
+                return False, "Teams notification client not available"
+
+            # Check if Teams webhook is configured
+            teams_client = TeamsNotificationClient()
+            if not teams_client.is_configured():
+                logger.warning("Teams webhook not configured (TEAMS_WEBHOOK_URL env var)")
+                return False, "Teams webhook not configured"
+
+            # Filter items by alert level
+            level_items = [item for item in alert_items if item.alert_level == alert_level]
+            if not level_items:
+                logger.info(f"No {alert_level} items to send")
+                return True, "No items to send"
+
+            # Prepare alert metadata
+            level_title = alert_level.capitalize()
+
+            # Sort by most urgent first
+            sorted_items = sorted(level_items, key=lambda x: x.days_until_eol)
+
+            # Build affected resources list (limit to top 10 for Teams card)
+            affected_resources = []
+            for item in sorted_items[:10]:
+                affected_resources.append(
+                    f"{item.computer} - {item.os_name} {item.version} (EOL: {item.eol_date.strftime('%Y-%m-%d')})"
+                )
+
+            # Build metadata dict
+            metadata = {
+                "Total Systems": str(len(level_items)),
+                "Alert Level": level_title,
+                "Generated": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+            }
+
+            # Add urgency info for most critical items
+            if sorted_items:
+                most_urgent = sorted_items[0]
+                metadata["Most Urgent"] = f"{most_urgent.computer} ({most_urgent.days_until_eol} days)"
+
+            # Prepare description with summary
+            description = f"""
+**{len(level_items)} systems** are approaching their End-of-Life dates and require attention.
+
+**Most Urgent Systems:**
+{chr(10).join(f"• {item.computer}: {item.days_until_eol} days until EOL" for item in sorted_items[:5])}
+
+Please review the full alert details and plan upgrade or migration activities.
+            """.strip()
+
+            # Map severity for Teams
+            severity_map = {
+                'critical': 'critical',
+                'warning': 'error',
+                'info': 'warning'
+            }
+
+            # Send to Teams
+            result = teams_client.send_incident_alert(
+                title=f"EOL {level_title} Alert - {len(level_items)} Systems",
+                severity=severity_map.get(alert_level, 'warning'),
+                description=description,
+                affected_resources=affected_resources,
+                metadata=metadata
+            )
+
+            if result.get("success"):
+                logger.info(f"✅ Teams alert sent successfully for {level_title}")
+                return True, "Teams alert sent successfully"
+            else:
+                error_msg = result.get("error", "Unknown error")
+                logger.error(f"❌ Teams alert failed: {error_msg}")
+                return False, f"Teams alert failed: {error_msg}"
+
+        except Exception as e:
+            error_msg = f"Error sending Teams alert: {str(e)}"
+            logger.error(f"=== TEAMS ALERT ERROR === {error_msg}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Full exception: {repr(e)}")
+            return False, error_msg
+
+    async def send_combined_alert(self, alert_items: List[AlertPreviewItem],
+                                  alert_level: str,
+                                  config: AlertConfiguration,
+                                  send_email: bool = True,
+                                  send_teams: bool = True) -> Dict[str, Any]:
+        """
+        Send alert via both email and Teams (if configured).
+
+        Args:
+            alert_items: List of alert items
+            alert_level: Alert level ('critical', 'warning', 'info')
+            config: Alert configuration
+            send_email: Whether to send email notification
+            send_teams: Whether to send Teams notification
+
+        Returns:
+            Dict with status of both channels
+        """
+        results = {
+            "email": {"sent": False, "message": "Not attempted"},
+            "teams": {"sent": False, "message": "Not attempted"},
+            "overall_success": False
+        }
+
+        # Send email if requested and configured
+        if send_email and config.smtp_settings.enabled and config.email_recipients:
+            try:
+                subject, html_content = self.create_alert_email(alert_items, alert_level)
+                email_success, email_msg = await self.send_alert_email(
+                    config.smtp_settings,
+                    config.email_recipients,
+                    subject,
+                    html_content
+                )
+                results["email"]["sent"] = email_success
+                results["email"]["message"] = email_msg
+            except Exception as e:
+                results["email"]["sent"] = False
+                results["email"]["message"] = f"Error: {str(e)}"
+                logger.error(f"Email alert failed: {e}")
+
+        # Send Teams notification if requested
+        if send_teams:
+            try:
+                teams_success, teams_msg = await self.send_alert_teams(alert_items, alert_level)
+                results["teams"]["sent"] = teams_success
+                results["teams"]["message"] = teams_msg
+            except Exception as e:
+                results["teams"]["sent"] = False
+                results["teams"]["message"] = f"Error: {str(e)}"
+                logger.error(f"Teams alert failed: {e}")
+
+        # Overall success if at least one channel succeeded
+        results["overall_success"] = results["email"]["sent"] or results["teams"]["sent"]
+
+        return results
 
     async def save_notification_record(self, notification: NotificationRecord) -> bool:
         """

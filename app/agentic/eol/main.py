@@ -52,16 +52,33 @@ from api.ui import router as ui_router
 from api.debug import router as debug_router
 from api.azure_mcp import router as azure_mcp_router
 from api.monitor_community import router as monitor_community_router
+from api.metrics import router as metrics_router
+from api.teams_bot import router as teams_bot_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
 INVENTORY_ASST_AVAILABLE = True  # Enable inventory assistant functionality with Microsoft Agent Framework orchestrator
 
 # Create FastAPI app
+# Register observability middleware and metrics
+from utils.middleware import RequestTrackingMiddleware
+from utils.metrics import metrics_collector
+
+# Add middleware BEFORE creating app to ensure it's registered early
 app = FastAPI(
     title=config.app.title,
     version=config.app.version
 )
+
+# Attach middleware
+app.add_middleware(RequestTrackingMiddleware)
+
+# Attach authentication middleware (controls via AUTH_MODE env var)
+from utils.auth import AuthMiddleware
+app.add_middleware(AuthMiddleware)
+
+# Expose metrics collector on app.state for use across modules
+app.state.metrics = metrics_collector
 
 # Include API routers
 app.include_router(health_router)
@@ -76,6 +93,8 @@ app.include_router(ui_router)
 app.include_router(debug_router)
 app.include_router(azure_mcp_router)
 app.include_router(monitor_community_router)
+app.include_router(metrics_router)
+app.include_router(teams_bot_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -308,18 +327,28 @@ async def _run_startup_tasks():
             await initialize_alert_manager()
         except Exception as e:
             logger.warning(f"Alert manager initialization warning: {e}")
-        
+
+        # Initialize Playwright pool (browser reuse + concurrency limit)
+        try:
+            from utils.playwright_pool import playwright_pool
+            max_pw_concurrency = int(os.getenv("MAX_PLAYWRIGHT_CONCURRENCY", "2"))
+            pw_browser = os.getenv("PLAYWRIGHT_BROWSER", "chromium")  # chromium or firefox
+            await playwright_pool.setup(max_concurrency=max_pw_concurrency, browser_type=pw_browser)
+            logger.info(f"✅ Playwright pool initialized (type={pw_browser}, concurrency={max_pw_concurrency})")
+        except Exception as e:
+            logger.warning(f"⚠️ Playwright pool initialization skipped: {e}")
+
         # Initialize Azure MCP client (stdio mode via npx)
         try:
             logger.info("🔧 Initializing Azure MCP Server via stdio...")
             from utils.azure_mcp_client import get_azure_mcp_client
-            
+
             await get_azure_mcp_client()
             logger.info("✅ Azure MCP Server client initialized")
         except Exception as e:
             logger.warning(f"⚠️ Azure MCP Server not available: {e}")
             logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
-        
+
         logger.info("✅ App startup completed")
     except Exception as e:
         logger.warning(f"⚠️ Startup warning: {e}")
@@ -360,7 +389,15 @@ async def _run_shutdown_tasks():
                 logger.info("✅ MCP orchestrator resources released")
         except Exception as e:
             logger.debug(f"MCP orchestrator cleanup: {e}")
-        
+
+        # Cleanup Playwright pool
+        try:
+            from utils.playwright_pool import playwright_pool
+            await playwright_pool.teardown()
+            logger.info("✅ Playwright pool torn down")
+        except Exception as e:
+            logger.debug(f"Playwright pool cleanup: {e}")
+
         logger.info("✅ Shutdown completed")
     except Exception as e:
         logger.warning(f"⚠️ Shutdown warning: {e}")

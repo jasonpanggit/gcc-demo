@@ -53,7 +53,12 @@ def _to_text_content(payload: Dict[str, Any]) -> List[TextContent]:
 
 @_server.tool(
     name="os_eol_lookup",
-    description="Retrieve end-of-life details for a single operating system using the EOL orchestrator.",
+    description=(
+        "Check the End-of-Life (EOL) date and support status for a single operating system. "
+        "Returns: EOL date, days until EOL, whether it is still supported, and lifecycle details. "
+        "Use this when the user asks about OS support timelines, lifecycle, or EOL dates. "
+        "For checking multiple OSes at once, use os_eol_bulk_lookup instead."
+    ),
 )
 async def os_eol_lookup(
     context: Context,  # noqa: ARG001 - unused but required by FastMCP
@@ -97,7 +102,13 @@ class BulkOSEntry:
 
 @_server.tool(
     name="os_eol_bulk_lookup",
-    description="Perform EOL lookup for multiple operating systems in a single call.",
+    description=(
+        "Check End-of-Life dates for multiple operating systems in one call. "
+        "Accepts a list of OS descriptors (name + optional version). "
+        "Returns EOL details for each OS. Use this after retrieving OS inventory "
+        "from the inventory tools (law_get_os_inventory) to cross-reference "
+        "which machines are running end-of-life operating systems."
+    ),
 )
 async def os_eol_bulk_lookup(
     context: Context,  # noqa: ARG001 - unused but required by FastMCP

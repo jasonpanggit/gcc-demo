@@ -1,0 +1,77 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "bd0f04dc-9706-4111-a4fc-54c4c11a58b6",
+  "packageName": "com.azure.mcporchestrator",
+  "developer": {
+    "name": "Azure MCP Orchestrator Bot",
+    "websiteUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
+    "privacyUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
+    "termsOfUseUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Azure MCP Orchestrator Bot",
+    "full": "Azure MCP Orchestrator Bot"
+  },
+  "description": {
+    "short": "Azure MCP Orchestrator for resource management",
+    "full": "AI-powered bot that helps you manage Azure resources, run queries, check health status, and perform SRE operations through natural language conversation."
+  },
+  "accentColor": "#0078D4",
+  "bots": [
+    {
+      "botId": "bd0f04dc-9706-4111-a4fc-54c4c11a58b6",
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal",
+            "team",
+            "groupchat"
+          ],
+          "commands": [
+            {
+              "title": "List resource groups",
+              "description": "List all resource groups in the subscription"
+            },
+            {
+              "title": "Show container apps",
+              "description": "Show all container apps"
+            },
+            {
+              "title": "Check health",
+              "description": "Check health of a resource"
+            },
+            {
+              "title": "Get metrics",
+              "description": "Get performance metrics for a resource"
+            },
+            {
+              "title": "Help",
+              "description": "Show available commands and capabilities"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
+    "*.azurecontainerapps.io"
+  ]
+}

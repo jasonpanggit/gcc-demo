@@ -14,6 +14,7 @@ Modules:
     agents: Agent configuration and management endpoints
     communications: Communication logs and agent interaction tracking endpoints
     debug: Debug, diagnostics, validation, and notification endpoints
+    teams_bot: Microsoft Teams Bot integration for chat interface
 """
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "alerts",
     "agents",
     "communications",
-    "debug"
+    "debug",
+    "teams_bot"
 ]

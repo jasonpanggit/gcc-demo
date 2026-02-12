@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Microsoft Agent Framework powered orchestrator for Azure MCP Server tools."""
+"""AsyncAzureOpenAI-powered orchestrator for Azure MCP Server tools."""
 
 from __future__ import annotations
 
@@ -17,9 +17,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 try:
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.cache_stats_manager import cache_stats_manager
+    from app.agentic.eol.utils.response_formatter import ResponseFormatter
 except ModuleNotFoundError:  # pragma: no cover - packaged runtime fallback
     from utils.logger import get_logger  # type: ignore[import-not-found]
     from utils.cache_stats_manager import cache_stats_manager  # type: ignore[import-not-found]
+    from utils.response_formatter import ResponseFormatter  # type: ignore[import-not-found]
 
 try:
     from app.agentic.eol.utils.azure_mcp_client import get_azure_mcp_client
@@ -82,6 +84,20 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         _workbook_mcp_import_error = fallback_exc
         get_workbook_mcp_client = None  # type: ignore[assignment]
 
+_sre_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.sre_mcp_client import get_sre_mcp_client, SREMCPDisabledError  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _sre_mcp_import_error = exc
+    try:
+        from utils.sre_mcp_client import get_sre_mcp_client, SREMCPDisabledError  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _sre_mcp_import_error = fallback_exc
+        get_sre_mcp_client = None  # type: ignore[assignment]
+
+        class SREMCPDisabledError(RuntimeError):  # type: ignore[override]
+            """Fallback disabled error when SRE MCP helper is unavailable."""
+
 try:
     from app.agentic.eol.utils.mcp_composite_client import CompositeMCPClient  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
@@ -90,42 +106,27 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     except ModuleNotFoundError:
         CompositeMCPClient = None  # type: ignore[assignment]
 
+try:
+    from app.agentic.eol.agents.monitor_agent import MonitorAgent  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from agents.monitor_agent import MonitorAgent  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        MonitorAgent = None  # type: ignore[assignment]
+
 
 if TYPE_CHECKING:  # pragma: no cover - typing support only
-    from agent_framework.azure import AzureOpenAIChatClient as AzureOpenAIChatClientType  # type: ignore[import-not-found]
     from azure.identity import DefaultAzureCredential as DefaultAzureCredentialType  # type: ignore[import-not-found]
 else:  # pragma: no cover - runtime branch
-    AzureOpenAIChatClientType = Any
     DefaultAzureCredentialType = Any
 
-# Agent Framework message classes - using fallbacks since they're not in the installed version
-_AGENT_FRAMEWORK_AVAILABLE = False
-_AGENT_FRAMEWORK_IMPORT_ERROR = None
-
-# We'll use our fallback classes defined below
-ChatMessage = None
-ChatResponse = None
-FunctionCallContent = None
-FunctionResultContent = None
-TextContent = None
-
-# Try to import ChatAgent - it's available in agent_framework root module
-_CHAT_AGENT_AVAILABLE = False
-_CHAT_AGENT_IMPORT_ERROR = None
-ChatAgent = None
-try:
-    from agent_framework import ChatAgent  # type: ignore[import-not-found]
-    _CHAT_AGENT_AVAILABLE = True
-except (ModuleNotFoundError, ImportError, AttributeError) as exc:
-    _CHAT_AGENT_IMPORT_ERROR = exc
-    ChatAgent = None  # type: ignore[assignment]
-
-# Always define fallback message classes - they're used even when ChatAgent is available
-# because agent_framework doesn't export these message classes in the installed version
-class TextContent:  # minimal fallback matching agent_framework interface
+# Internal message classes used as the common protocol between OpenAI SDK
+# responses and the ReAct loop.  These are lightweight data containers.
+class TextContent:
+    """Lightweight text content container."""
     def __init__(self, text: Optional[str] = None, **_: Any) -> None:
         self.text = text or ""
-        self.type = "text"  # Required by agent_framework
+        self.type = "text"
     
     def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
         result = {"type": self.type, "text": self.text}
@@ -133,12 +134,13 @@ class TextContent:  # minimal fallback matching agent_framework interface
             return {k: v for k, v in result.items() if v is not None}
         return result
 
-class FunctionCallContent:  # minimal fallback matching agent_framework interface
+class FunctionCallContent:
+    """Represents a tool/function call requested by the LLM."""
     def __init__(self, *, call_id: Optional[str] = None, name: str = "", arguments: Any = None, **_: Any) -> None:
         self.call_id = call_id or f"call_{uuid.uuid4().hex[:8]}"
         self.name = name
         self.arguments = arguments or {}
-        self.type = "function_call"  # Required by agent_framework
+        self.type = "function_call"
     
     def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
         result = {
@@ -151,11 +153,12 @@ class FunctionCallContent:  # minimal fallback matching agent_framework interfac
             return {k: v for k, v in result.items() if v is not None}
         return result
 
-class FunctionResultContent:  # minimal fallback matching agent_framework interface
+class FunctionResultContent:
+    """Represents the result returned by a tool/function call."""
     def __init__(self, *, call_id: str, result: Any = None, **_: Any) -> None:
         self.call_id = call_id
         self.result = result
-        self.type = "function_result"  # Required by agent_framework
+        self.type = "function_result"
     
     def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
         result_dict = {
@@ -167,7 +170,8 @@ class FunctionResultContent:  # minimal fallback matching agent_framework interf
             return {k: v for k, v in result_dict.items() if v is not None}
         return result_dict
 
-class ChatMessage:  # minimal fallback matching agent_framework interface
+class ChatMessage:
+    """Internal chat message container."""
     def __init__(
         self,
         *,
@@ -184,19 +188,13 @@ class ChatMessage:  # minimal fallback matching agent_framework interface
             base_contents.append(TextContent(text=text))
         self.contents = base_contents
         self.text = text or ""
-        self.author_name = author_name  # Required by agent_framework
-        self.additional_properties = additional_properties or {}  # Required by agent_framework
+        self.author_name = author_name
+        self.additional_properties = additional_properties or {}
 
-class ChatResponse:  # minimal fallback matching agent_framework interface
+class ChatResponse:
+    """Internal chat response wrapper."""
     def __init__(self, messages: Optional[Sequence[ChatMessage]] = None, **_: Any) -> None:
         self.messages = list(messages or [])
-
-try:
-    from agent_framework.azure import AzureOpenAIChatClient  # type: ignore[import]
-    _AGENT_FRAMEWORK_CHAT_AVAILABLE = True
-except (ModuleNotFoundError, ImportError):  # pragma: no cover - preview package not installed
-    AzureOpenAIChatClient = None  # type: ignore[assignment]
-    _AGENT_FRAMEWORK_CHAT_AVAILABLE = False
 
 try:
     from azure.identity import DefaultAzureCredential  # type: ignore[import]
@@ -205,302 +203,223 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     DefaultAzureCredential = None  # type: ignore[assignment]
     _DEFAULT_CREDENTIAL_AVAILABLE = False
 
+import html
+
 logger = get_logger(__name__, level=os.getenv("LOG_LEVEL", "DEBUG"))
+
+
+# Shared formatter instance
+_response_formatter = ResponseFormatter()
+
 
 # Log package availability at module load time
 logger.info(
-    "MCP Orchestrator dependencies: Chat Client=%s, Azure Identity=%s",
-    _AGENT_FRAMEWORK_CHAT_AVAILABLE,
+    "MCP Orchestrator dependencies: Azure Identity=%s",
     _DEFAULT_CREDENTIAL_AVAILABLE,
 )
 
-# Log ChatAgent import error if it failed (informational only - we don't use it)
-if not _CHAT_AGENT_AVAILABLE and _CHAT_AGENT_IMPORT_ERROR:
-    logger.debug("ChatAgent not available (we use CompositeMCPClient instead): %s", _CHAT_AGENT_IMPORT_ERROR)
-
 
 class MCPOrchestratorAgent:
-    """High-level Azure MCP orchestrator built on the Microsoft Agent Framework."""
+    """High-level Azure MCP orchestrator using AsyncAzureOpenAI with ReAct loop."""
 
     _SYSTEM_PROMPT = """You are the Azure modernization co-pilot for enterprise operations teams.
-You have access to Azure Model Context Protocol (MCP) tools that provide REAL-TIME data from Azure services.
+You have access to Azure MCP tools that provide REAL-TIME data from Azure services.
+Each tool's description tells you WHEN to use it — follow those descriptions to pick the right tool.
 
-🚨 CRITICAL REQUIREMENT - USER CONFIRMATION FOR DESTRUCTIVE OPERATIONS 🚨
-BEFORE executing ANY tool that creates, updates, deletes, or deploys resources, you MUST:
-1. Gather all necessary information FIRST (via tool calls or intelligent defaults)
-2. Present a COMPLETE plan to the user in ONE message showing:
-   - What action will be taken
-   - What resources will be affected
-   - What values/parameters will be used
-3. Ask for confirmation ONCE: "Do you want to proceed? Reply 'yes' to confirm."
-4. WAIT for user confirmation - DO NOT execute without approval
-5. DO NOT ask the same questions multiple times - gather info first, then ask for approval once
+CRITICAL RULE — NO FABRICATION:
+You MUST call a tool before presenting ANY Azure resource data.
+NEVER generate fake subscription IDs, resource names, or example data.
+If no tool exists for the request, say so — do NOT invent a response.
+If a tool call fails, report the error — do NOT substitute made-up data.
 
-Destructive operations include tools with names containing:
-- create, deploy, provision, add, insert, new
-- update, modify, change, edit, patch, set, configure
-- delete, remove, destroy, terminate, drop
+SAFETY — DESTRUCTIVE OPERATIONS:
+Before executing any tool that creates, updates, deletes, or deploys resources:
+1. Gather all required information first (via tool calls or intelligent defaults).
+2. Present a COMPLETE plan to the user in ONE message.
+3. Ask for confirmation ONCE and WAIT — do NOT execute without approval.
 
-Example: "I will deploy the 'Virtual Machine Overview' workbook with these settings:
-- Subscription: Production (12345-abcd)
-- Resource Group: monitoring-rg
-- Location: eastus
-Do you want to proceed? Reply 'yes' to confirm."
+WORKFLOW — READ OPERATIONS:
+1. Call the appropriate MCP tool(s) FIRST to fetch real data.
+2. Wait for tool results before responding.
+3. Format ONLY the data returned by tools into your response.
 
-🚨 CRITICAL REQUIREMENT - YOU MUST CALL TOOLS FIRST (for read operations) 🚨
-For READ-ONLY operations (list, get, show, describe, query), you are FORBIDDEN from responding without calling tools first.
-Your response process for read operations MUST be:
-1. FIRST: Call the appropriate MCP tool(s) to fetch real data
-2. THEN: Wait for the tool results
-3. ONLY AFTER receiving tool results: Format the data into an HTML response
+SRE OPERATIONS:
+When users ask about resource health, incidents, troubleshooting, performance issues, or remediation:
+→ Use Azure SRE Agent tools (31 tools available) for specialized SRE operations.
 
-DO NOT:
-- ❌ Say "I will call the tool" without actually calling it
-- ❌ Say "Calling the tool now..." and then respond with text
-- ❌ Generate mock, example, or placeholder data (no "Subscription A", "xxxx-xxxx-xxxx", etc.)
-- ❌ Create fake tables with sample data
-- ❌ Respond with any text before calling and receiving tool results FOR READ OPERATIONS
-- ❌ Execute destructive operations without user confirmation
+RESOURCE CONFIGURATION DISCOVERY:
+→ Bulk queries across resources: Use query_app_service_configuration, query_container_app_configuration, query_aks_configuration, query_apim_configuration
+→ Example prompts: "Which apps have Dapr enabled?", "Show me all web apps running .NET 6", "Which AKS clusters have autoscaling enabled?"
 
-Tool Usage Rules:
-- For questions about Azure resources (subscriptions, resource groups, workspaces, storage, VMs, etc.) → Call Azure MCP Server tools
-- For querying OS/software inventory DATA within a Log Analytics Workspace → Call Inventory Server tools (law_get_*)
-- For EOL (End of Life) queries → Call OS EOL tools
-- IMPORTANT: Log Analytics Workspace is an Azure resource - use Azure MCP Server to list/show workspaces
-- IMPORTANT: Different Azure compute services are NOT interchangeable:
-  * Virtual Machines (VMs) ≠ App Services ≠ Container Apps ≠ AKS ≠ Azure Virtual Desktop
-  * Container Apps are managed containerized applications (separate from App Services)
-  * Use the correct specific tool or Azure CLI command for each service type
-- When in doubt → Call Azure CLI Executor to run 'az' commands for any Azure service
+HEALTH CHECKS & DIAGNOSTICS:
+→ Resource health: Use check_resource_health (requires full resource ID). For Container Apps: use check_container_app_health. For AKS: use check_aks_cluster_health.
+→ Service-specific diagnostics: Use diagnose_app_service for App Service issues, diagnose_apim for APIM issues
+→ Diagnostic logs: Use get_diagnostic_logs (requires workspace_id and resource_id)
+→ Performance metrics: Use get_performance_metrics and identify_bottlenecks
 
-Formatting guidance (ONLY AFTER tool results received):
-- Return responses as raw HTML only (NO markdown code blocks, NO backticks, NO ```html)
-- Always include at least one HTML table in the final response using <table>, <thead>, and <tbody>
-- When an Azure MCP tool returns structured data, render it as a concise table with intuitive columns
-- Paginate large result sets by showing only the first few rows
-- After the table(s), add a brief <p> summary highlighting the most important findings
-- Your entire response should be valid HTML that can be inserted directly into a webpage
+INCIDENT RESPONSE:
+→ Automated triage: Use triage_incident for incident analysis, log correlation, and root cause investigation
+→ Log analysis: Use search_logs_by_error for pattern-based log search
+→ Alert correlation: Use correlate_alerts for temporal and resource-based correlation
+→ Incident reporting: Use generate_incident_summary for structured reports
 
-REMEMBER: Tool call FIRST, response SECOND. Never respond without calling tools."""
+SELF-DOCUMENTATION:
+→ If users ask "What can you help me with?" or "What are your capabilities?": Use describe_capabilities
+→ If users ask for example prompts: Use get_prompt_examples with category (app_service, container_apps, aks, apim, incident_response, performance, configuration, all)
 
-    @staticmethod
-    def _load_monitor_community_resources() -> str:
-        """Load Azure Monitor Community resources metadata and format for system prompt."""
-        try:
-            from pathlib import Path
-            import json
-            
-            # Load metadata file
-            metadata_file = Path(__file__).parent.parent / "static" / "data" / "azure_monitor_community_metadata.json"
-            
-            if not metadata_file.exists():
-                return ""
-            
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-            
-            summary = metadata.get("summary", {})
-            categories = metadata.get("categories", [])
-            
-            # Build resource catalog
-            resource_info = f"""
+REMEDIATION & NOTIFICATIONS:
+→ For destructive remediation actions (restart, scale, clear_cache), ALWAYS present a plan with plan_remediation and wait for approval.
+→ Use send_teams_notification or send_teams_alert to notify teams about critical incidents.
 
-AZURE MONITOR COMMUNITY RESOURCES (Available for Reference):
-- Total Resources Available: {summary.get('total_resources', 0)} across {summary.get('total_categories', 0)} Azure services
-- Workbooks: {summary.get('total_workbooks', 0)} across {summary.get('total_categories', 0)} categories
-- Alerts: {summary.get('total_alerts', 0)} 
-- Queries: {summary.get('total_queries', 0)} KQL queries for Log Analytics
+IMPORTANT AZURE CLI USAGE:
+→ When using azure_cli_execute_command for Log Analytics queries, use --analytics-query (NOT --query) for KQL queries.
+→ NEVER use the 'speech' tool for SRE operations - it's only for Azure AI Services Speech (speech-to-text).
 
-Top Categories with Resources:
-"""
-            # Show top 15 categories by total resources
-            categories_with_totals = []
-            for cat in categories:
-                total = cat.get("total_resources", 0)
-                if total > 0:
-                    categories_with_totals.append((cat["category"], total, 
-                                                   cat.get("workbooks", {}).get("count", 0),
-                                                   cat.get("alerts", {}).get("count", 0),
-                                                   cat.get("queries", {}).get("count", 0)))
-            
-            categories_with_totals.sort(key=lambda x: x[1], reverse=True)
-            
-            for cat_name, total, wb, alerts, queries in categories_with_totals[:15]:
-                resource_info += f"  • {cat_name}: {total} resources ({wb} workbooks, {alerts} alerts, {queries} queries)\n"
-            
-            if len(categories_with_totals) > 15:
-                resource_info += f"  ... and {len(categories_with_totals) - 15} more categories\n"
-            
-            resource_info += """
-When users ask about Azure monitoring, workbooks, alerts, or KQL queries:
-- Use search_categories to find categories by keyword (e.g., "gateway" → "Application gateways", "VPN Gateway")
-- Use list_resource_types to see available types
-- Use list_categories with 'workbooks', 'alerts', or 'queries' to browse all categories
-- Use list_resources to see specific items in a category
-- Recommend relevant queries from categories like Application Insights, Virtual machines, Storage accounts, etc.
+AZURE DIAGNOSTIC SETTINGS:
+When users ask to enable diagnostic settings or logging for Azure resources:
+→ ⚠️ Virtual Machines (Microsoft.Compute/virtualMachines) do NOT support diagnostic settings for platform logs/metrics.
+→ For VMs: Use Azure Monitor Agent (AMA) for guest OS metrics, logs, and performance counters instead of diagnostic settings.
+→ For other resources: Use 'az monitor diagnostic-settings list --resource <resource-id>' to discover supported log/metric categories BEFORE creating settings.
+→ Common resources supporting diagnostic settings: Storage Accounts, Key Vaults, App Services, Container Apps, AKS, SQL Databases, Network Security Groups.
+→ Always verify supported categories first - attempting to configure unsupported categories will fail with BadRequest error.
 
-IMPORTANT: When users ask about a specific Azure service (e.g., "app gateway", "storage", "VM"), 
-ALWAYS use search_categories first to find the exact category name before calling list_resources.
-"""
-            return resource_info
-            
-        except Exception as e:
-            # Silently fail if metadata not available
-            return ""
+FORMATTING:
+- Return responses as raw HTML (no markdown code blocks, no backticks).
+- Include at least one HTML <table> when presenting structured data.
+- After tables, add a brief <p> summary of key findings.
+- For utilization/performance data (CPU, memory, disk, network metrics):
+
+  CRITICAL: When you receive time-series data with multiple data points over time (timestamps with values), you MUST create ASCII/Unicode line charts.
+  DO NOT create summary tables showing Average/Current/Min/Max - users want to SEE the trend visually.
+
+  * **Current/snapshot metrics** (single point in time): Use HTML progress bars with gradient colors
+  * **Time-series/historical metrics** (multiple data points over time): MUST use ASCII/Unicode line charts to visualize trends
+
+- Example progress bar format for current resource utilization (single value):
+  <div style="margin: 10px 0;">
+    <strong>CPU Usage:</strong> 65%
+    <div style="background: #e0e0e0; border-radius: 4px; height: 20px; width: 100%; margin: 5px 0;">
+      <div style="background: linear-gradient(90deg, #4CAF50 0%, #FFC107 70%, #F44336 90%); height: 100%; width: 65%; border-radius: 4px;"></div>
+    </div>
+  </div>
+
+- Example line chart format for time-series utilization data (REQUIRED when you have timestamps):
+  <pre style="font-family: monospace; line-height: 1.2; background: #f5f5f5; padding: 10px; border-radius: 4px;">
+  CPU Usage Over Time (%)
+  100 │
+   90 │                    ╭─╮
+   80 │                ╭───╯ ╰─╮
+   70 │            ╭───╯       ╰──╮
+   60 │        ╭───╯              ╰──╮
+   50 │    ╭───╯                     ╰──╮
+   40 │╭───╯                            ╰──╮
+   30 ││                                   ╰──╮
+   20 ││                                      ╰─╮
+   10 ││                                        ╰─╮
+    0 ╰─────────────────────────────────────────╯
+      15:00  15:15  15:30  15:45  16:00  16:15
+
+  Memory Usage Over Time (%)
+  100 │                              ╭───╮
+   90 │                          ╭───╯   ╰─╮
+   80 │                      ╭───╯         ╰──╮
+   70 │                  ╭───╯                ╰──╮
+   60 │              ╭───╯                       ╰─╮
+   50 │          ╭───╯                             ╰─╮
+   40 │      ╭───╯                                   ╰─╮
+   30 │  ╭───╯                                         ╰─╮
+   20 │╭─╯                                              ╰─╮
+   10 ││                                                 ╰─╮
+    0 ╰─────────────────────────────────────────────────╯
+      15:00  15:15  15:30  15:45  16:00  16:15
+  </pre>
+
+- For line charts: Use Unicode box-drawing characters (│ ─ ╭ ╮ ╰ ╯) to create visual trend lines
+- Map each data point to the appropriate y-axis position based on its percentage value
+- Include timestamps on the x-axis showing the time range
+- Use color coding for progress bars: Green (0-60%), Yellow (60-80%), Red (80-100%)
+- NEVER use summary tables (Average/Current/Min/Max) for time-series metrics - always create line charts
+- Your entire response must be valid HTML insertable into a webpage."""
 
     @staticmethod
     def _build_dynamic_system_prompt(tool_definitions: List[Dict[str, Any]], tool_source_map: Dict[str, str]) -> str:
-        """Build a dynamic system prompt based on available tools."""
-        
-        # Group tools by source
-        tools_by_source: Dict[str, List[Dict[str, Any]]] = {}
+        """Build a dynamic system prompt with a concise tool catalog summary.
+
+        Tool routing logic now lives in each tool's description (set by
+        CompositeMCPClient), so this only adds a short inventory section.
+        """
+        base_prompt = MCPOrchestratorAgent._SYSTEM_PROMPT
+
+        if not tool_definitions:
+            return base_prompt
+
+        # Group tools by source for a compact summary
+        tools_by_source: Dict[str, int] = {}
         for tool in tool_definitions:
             tool_name = tool.get("function", {}).get("name", "")
             source = tool_source_map.get(tool_name, "unknown")
-            if source not in tools_by_source:
-                tools_by_source[source] = []
-            tools_by_source[source].append(tool)
-        
-        # MCP server descriptions
-        server_descriptions = {
-            "azure": "Azure MCP Server - Provides access to Azure resource management (subscriptions, resource groups, VMs, storage, networking, etc.)",
-            "azure_cli": "Azure CLI Executor - Executes any Azure CLI command for advanced operations not covered by other tools",
-            "os_eol": "OS EOL Server - Checks End-of-Life dates for operating systems",
-            "inventory": "Inventory Server - Queries Log Analytics Workspace for OS and software inventory data",
-            "monitor": "Azure Monitor Community - Discover, view, and deploy workbooks, alerts, and queries from https://github.com/microsoft/AzureMonitorCommunity"
+            tools_by_source[source] = tools_by_source.get(source, 0) + 1
+
+        source_labels = {
+            "azure": "Azure MCP Server",
+            "azure_cli": "Azure CLI Executor",
+            "os_eol": "OS EOL Server",
+            "inventory": "Inventory Server",
+            "monitor": "Azure Monitor Community",
+            "sre": "Azure SRE Agent",
         }
-        
-        tool_catalog = []
-        for source in ["azure", "azure_cli", "os_eol", "inventory", "monitor"]:
-            if source not in tools_by_source:
-                continue
-            
-            tools = tools_by_source[source]
-            tool_catalog.append(f"\n{server_descriptions.get(source, source)}:")
-            tool_catalog.append(f"  Available tools ({len(tools)}): {', '.join(t.get('function', {}).get('name', '') for t in tools[:10])}")
-            if len(tools) > 10:
-                tool_catalog.append(f"  ... and {len(tools) - 10} more")
-        
-        base_prompt = MCPOrchestratorAgent._SYSTEM_PROMPT
-        
-        if tool_catalog:
-            dynamic_section = f"""
 
-AVAILABLE MCP SERVERS AND TOOLS:
-{''.join(tool_catalog)}
+        catalog_lines = [f"  • {source_labels.get(src, src)}: {count} tools" for src, count in tools_by_source.items()]
+        catalog_section = "\n\nAVAILABLE TOOL SOURCES:\n" + "\n".join(catalog_lines)
 
-TOOL SELECTION STRATEGY:
-1. For Azure resource operations (list, show, create, delete workspaces, subscriptions, resource groups, storage, networking, VMs) → Use Azure MCP Server tools
-2. For querying OS/software inventory DATA inside a Log Analytics Workspace → Use Inventory Server tools (law_get_os_inventory, law_get_software_inventory)
-3. For EOL date checking → Use OS EOL Server tools
-4. For Azure Monitor resources (workbooks, alerts, queries) → Use Azure Monitor Community tools:
-   - list_resource_types → See available types (workbooks, alerts, queries)
-   - list_categories → Get categories for a resource type
-   - list_resources → List resources in a category
-   - get_resource_content → View content and parameters
-   - search_categories → Find categories by keyword (e.g., search for "gateway" to find Application gateways)
-   
-   AZURE MONITOR RECOMMENDATIONS:
-   When users ask about monitoring, observability, or insights for their Azure resources, you can:
-   - Determine and recommend appropriate Azure Monitor resources based on the resource type
-   - Use search_categories to find monitoring solutions for specific Azure services
-   - Discover pre-built workbooks, alert templates, and queries from Azure Monitor Community
-   - Recommend relevant monitoring best practices:
-     * Virtual Machines → VM Insights workbook, performance alerts, diagnostic logs
-     * Storage Accounts → Storage workbooks, capacity alerts, transaction metrics
-     * Application Gateway → Application gateway workbooks, health alerts, request metrics
-     * Container Apps → Container monitoring workbooks, resource consumption alerts
-   - Suggest Log Analytics queries and KQL patterns for specific resource types
-   - Proactively recommend diagnostic settings and Log Analytics Workspace integration
-   Example: User asks "How do I monitor my VMs?" → Search for VM categories, recommend VM Insights workbook, suggest performance alerts
+        # Disambiguation for commonly confused Azure services
+        disambiguation = (
+            "\n\nSERVICE DISAMBIGUATION (read carefully):"
+            "\n• 'Container Apps' (Azure Container Apps) → use azure_cli_execute_command with 'az containerapp list'. "
+            "Do NOT use ACR, App Service, App Config, or Function App tools."
+            "\n• 'Container Registry' (ACR) → use the acr/container_registries tools."
+            "\n• 'App Service' (Web Apps) → use the appservice tools."
+            "\n• 'App Configuration' → use the appconfig tools."
+            "\n• 'Function Apps' → use the functionapp tools."
+            "\n\n⚠️ CRITICAL TOOL ROUTING:"
+            "\n• The 'speech' tool is ONLY for Azure AI Services Speech (speech-to-text, text-to-speech)."
+            "\n• NEVER use 'speech' for resource health, diagnostics, SRE operations, or Azure resource management."
+            "\n• For resource health checks: use check_resource_health (SRE) or resourcehealth (Azure MCP)."
+            "\n• For SRE operations: use the sre_* tools (check_resource_health, triage_incident, get_diagnostic_logs, etc.)."
+            "\n\nMONITOR RESOURCES:"
+            "\nWhen the user asks about Azure Monitor resources, workbooks, alerts, queries, or monitoring for any service:"
+            "\n→ Call the monitor_agent tool with the user's full request. It handles discovery AND deployment."
+            "\n→ Do NOT try to call monitor tools directly — always delegate to monitor_agent."
+            "\n\nSRE OPERATIONS:"
+            "\nWhen the user asks about resource health, incidents, diagnostics, troubleshooting, performance issues, or remediation:"
+            "\n→ Use check_resource_health (SRE tool) for Azure resource availability and health status (requires full resource ID)."
+            "\n→ Use triage_incident for incident analysis, log correlation, and root cause investigation."
+            "\n→ Use get_performance_metrics and identify_bottlenecks for performance analysis."
+            "\n→ Use get_diagnostic_logs and search_logs_by_error for log analysis and error tracking."
+            "\n→ For remediation: plan_remediation (returns plan), execute_safe_restart, scale_resource (require approval)."
+            "\n→ Use send_teams_alert or send_teams_notification to notify on-call teams about critical incidents."
+            "\n→ ALWAYS require user confirmation before executing destructive SRE operations (restart, scale, remediation)."
+            "\n\nCOMMON SRE WORKFLOWS:"
+            "\n• Health check for Container Apps → First: azure_cli_execute_command('az containerapp list'), Then: check_resource_health(resource_id)"
+            "\n• Health check for any Azure resource → If you don't have the resource ID, list/search resources first, Then: check_resource_health(resource_id)"
+            "\n• Incident investigation → triage_incident (auto-gathers logs and correlates events), Then: get_diagnostic_logs for detailed analysis"
+            "\n• Performance issue → get_performance_metrics (last 24h by default), Then: identify_bottlenecks to analyze patterns"
+            "\n• Service restart → plan_remediation first (shows impact), Then: execute_safe_restart with user approval"
+        )
 
-5. For Azure services WITHOUT specific tools → Use Azure CLI Executor
-6. For complex operations or custom queries → Use Azure CLI Executor
-{MCPOrchestratorAgent._load_monitor_community_resources()}
-AZURE MONITOR COMMUNITY WORKFLOW:
-When user asks to deploy workbooks, alerts, or queries:
-1. FIRST: If user mentions a specific Azure service, use search_categories to find the exact category name
-   Example: User says "app gateway" → Call search_categories(keyword="gateway") → Find "Application gateways"
-2. THEN: Call list_resource_types to see what's available
-3. THEN: Call list_categories with the resource type (workbooks/alerts/queries) OR use search results from step 1
-4. THEN: Call list_resources to see items in a category (includes descriptions)
-5. THEN: Call get_resource_content to view full content and deployment parameters
-6. FOR WORKBOOKS DEPLOYMENT: Follow this EXACT workflow to avoid repeating questions:
-   Step A - Gather ALL Information First (via tools, NOT by asking user):
-   - Call subscription_list to get available subscriptions (pick first one if user didn't specify)
-   - Call resource_group_list to get available resource groups
-   - Use 'australiaeast' or region closest to user's resources as default location
-   - Call list_resources to get the workbook download_url (you'll need this for deployment)
-   - Optionally call get_resource_content to view parameters (but DON'T pass the content to deploy_workbook)
-   
-   Step B - Present Complete Plan ONCE and Ask for Confirmation:
-   - Create ONE message showing the COMPLETE deployment plan:
-     * Workbook name
-     * Subscription (with name and ID)
-     * Resource group: If user didn't specify one, format the question clearly:
-       "**Resource Group**: [Pick one by typing its name]
-        Available: rg-prod, rg-dev, rg-test"
-       OR if you can infer the right one (e.g., named resource group like 'main-rg'), use it as default:
-       "**Resource Group**: main-rg (change by typing a different name)"
-     * Location (with default and option to change)
-     * Any workbook-specific parameters
-   - End with clear call to action:
-     "Reply 'yes' to deploy, or type a different resource group name to change it."
-   - IMPORTANT: Make it clear the user should TYPE their response in the chat
-   - CRITICAL: After presenting this plan, STOP IMMEDIATELY. Do NOT make any more tool calls. Do NOT send another message. 
-     The conversation MUST end here until the user responds. Your response should contain ONLY the deployment plan.
-   - WAIT for user response (this means END YOUR TURN after presenting the plan)
-   
-   Step C - Handle User Response and Deploy:
-   - If user confirms ("yes", "proceed", "confirm", "deploy", etc.) → Call deploy_workbook with:
-     * download_url: The workbook's download URL from list_resources
-     * subscription_id, resource_group, workbook_name, location: As gathered/confirmed
-     * parameters: JSON string of parameter values if workbook requires them
-   - IMPORTANT: Pass the download_url, NOT the workbook content JSON
-   - If user provides a resource group name → Update the parameter and ask for confirmation again
-   - If user declines ("no", "cancel", "stop") → Acknowledge and stop
-   
-   CRITICAL DEPLOYMENT RULES:
-   - Present the deployment plan EXACTLY ONCE per user message
-   - After presenting the plan, END YOUR TURN immediately (no more tool calls, no more text)
-   - DO NOT repeat the plan in the same response
-   - DO NOT ask for parameters separately before showing the complete plan
-   - Wait for the user's explicit response before proceeding
-   
-7. FOR ALERTS/QUERIES: Display content for user review
-7. FOR SEARCH: When users ask "what resources for X service", use list_categories and list_resources
-
-AZURE CLI EXECUTOR USAGE:
-- This tool can execute ANY Azure CLI command (az ...) 
-- Use it as fallback when no specific tool exists
-- Use it for complex queries not covered by existing tools
-- Examples of services that may need Azure CLI:
-  * Container Apps: az containerapp list
-  * Azure Virtual Desktop: az desktopvirtualization
-  * Specific configurations not covered by generic tools
-- ⚠️ MANDATORY: Ask user for confirmation BEFORE executing any command that creates, modifies, or deletes resources
-- For Azure CLI destructive commands, describe impact and WAIT for explicit user approval
-
-CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor if:
-- No specific tool exists for the requested Azure service
-- You need to perform a complex operation not covered by existing tools
-- The user explicitly asks for Azure CLI commands"""
-            
-            return base_prompt + dynamic_section
-        
-        return base_prompt
+        return base_prompt + catalog_section + disambiguation
 
     def __init__(
         self,
         *,
-        chat_client: Optional[AzureOpenAIChatClientType] = None,
+        chat_client: Optional[Any] = None,
         mcp_client: Optional[Any] = None,
         tool_definitions: Optional[Sequence[Dict[str, Any]]] = None,
         max_reasoning_iterations: Optional[int] = None,
         default_temperature: Optional[float] = None,
     ) -> None:
         self.session_id = self._new_session_id()
-        self._chat_client: Optional[AzureOpenAIChatClientType] = chat_client
+        self._chat_client: Optional[Any] = chat_client
         self._default_credential: Optional[DefaultAzureCredentialType] = None
         self._mcp_client: Optional[Any] = mcp_client
         self._tool_definitions: List[Dict[str, Any]] = list(tool_definitions or [])
@@ -511,6 +430,8 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         self._registered_client_labels: List[str] = []
         self._tool_source_map: Dict[str, str] = {}
         self._dynamic_system_prompt: str = self._SYSTEM_PROMPT  # Will be updated when tools are loaded
+        self._monitor_agent: Optional[Any] = None  # Lazy-initialized MonitorAgent
+        self._monitor_history: List[Dict[str, str]] = []  # Prior monitor delegation request/response pairs
         self._initialise_message_log()
 
         # Initialize communication queue lazily to avoid event loop issues
@@ -551,9 +472,8 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         if not await self._ensure_chat_client():
             error_msg = (
                 "Azure OpenAI chat client is not available. "
-                f"AzureOpenAIChatClient available: {_AGENT_FRAMEWORK_CHAT_AVAILABLE}, "
-                f"Agent Framework base classes available: {_AGENT_FRAMEWORK_AVAILABLE}. "
-                "Please ensure the azure-ai-agent-openai package is installed and Azure OpenAI credentials are configured."
+                "Please ensure AZURE_OPENAI_ENDPOINT and authentication credentials "
+                "(AZURE_OPENAI_API_KEY or DefaultAzureCredential) are configured."
             )
             logger.warning(error_msg)
             return self._build_failure_response(
@@ -571,18 +491,14 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         logger.info(f"🛠️  Processing message with {tool_count} tools available (mcp_ready={mcp_ready})")
         logger.info(f"💬 Session {self.session_id}: Processing message #{len(self._message_log)} (history: {len(self._message_log)-1} messages)")
 
-        # Use proven CompositeMCPClient approach with manual tool execution
-        # This is more robust than MCPStdioTool because:
-        # - Properly filters stdout noise (via wrapper)
-        # - Works with local MCP servers
-        # - No JSON-RPC parsing errors
-        # - Full control over tool execution
-        
-        # Fallback to direct get_response() with manual tool execution
+        # Append user message and enter the ReAct loop
         user_chat = ChatMessage(role="user", text=user_message)
         self._message_log.append(user_chat)
 
         for iteration in range(1, self._max_reasoning_iterations + 1):
+            # Summarize older messages to keep context window manageable
+            await self._summarize_old_messages()
+
             # Check for timeout before each iteration (50s threshold for 60s timeout)
             elapsed = time.time() - start_time
             if elapsed > 50:
@@ -627,175 +543,119 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
                 )
             
             try:
-                # Use direct OpenAI client to avoid AF auto-executing tools
-                # AF auto-executes when tools are passed, but our tool_map is empty
-                # Direct client gives us full control over tool execution
-                if self._tool_definitions:
-                    from openai import AsyncAzureOpenAI
-                    
-                    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-                    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-                    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
-                    deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-                    
-                    direct_client = None
-                    try:
-                        # Convert AF message history to OpenAI format
-                        openai_messages = []
-                        for msg in self._message_log:
-                            role = self._get_message_role(msg)
-                            
-                            # Handle tool messages specially
-                            if role == "tool":
-                                # Tool messages need tool_call_id
-                                for content in msg.contents:
-                                    if hasattr(content, 'call_id') and content.call_id:
-                                        openai_messages.append({
-                                            "role": "tool",
-                                            "tool_call_id": content.call_id,
-                                            "content": self._message_to_text(msg) or "Success"
-                                        })
-                            elif role == "assistant" and any(hasattr(c, 'name') and hasattr(c, 'call_id') for c in msg.contents):
-                                # Assistant message with tool calls
-                                tool_calls = []
-                                for content in msg.contents:
-                                    if hasattr(content, 'name') and hasattr(content, 'call_id'):
-                                        tool_calls.append({
-                                            "id": content.call_id,
-                                            "type": "function",
-                                            "function": {
-                                                "name": content.name,
-                                                "arguments": json.dumps(content.arguments) if hasattr(content, 'arguments') else "{}"
-                                            }
-                                        })
-                                if tool_calls:
-                                    openai_messages.append({
-                                        "role": "assistant",
-                                        "content": None,
-                                        "tool_calls": tool_calls
-                                    })
-                            else:
-                                # Regular message
-                                content = self._message_to_text(msg)
-                                if content:
-                                    openai_messages.append({"role": role, "content": content})
-                        
-                        # Call OpenAI directly with proper authentication
-                        if api_key:
-                            direct_client = AsyncAzureOpenAI(
-                                api_key=api_key,
-                                azure_endpoint=endpoint,
-                                api_version=api_version,
-                            )
-                        else:
-                            # Use DefaultAzureCredential
-                            if _DEFAULT_CREDENTIAL_AVAILABLE and DefaultAzureCredential:
-                                from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-                                credential = AsyncDefaultAzureCredential(
-                                    exclude_interactive_browser_credential=True,
-                                    exclude_shared_token_cache_credential=True,
-                                    exclude_visual_studio_code_credential=True,
-                                    exclude_powershell_credential=True,
-                                )
-                                token = await credential.get_token("https://cognitiveservices.azure.com/.default")
-                                direct_client = AsyncAzureOpenAI(
-                                    api_key=token.token,
-                                    azure_endpoint=endpoint,
-                                    api_version=api_version,
-                                )
-                            else:
-                                raise RuntimeError("No authentication method available")
-                            
-                            # Call OpenAI with tools
-                            raw_response = await direct_client.chat.completions.create(
-                                model=deployment,
-                                messages=openai_messages,
-                                tools=[{"type": "function", "function": t.get("function", t)} for t in self._tool_definitions],
-                                temperature=self._default_temperature,
-                                max_tokens=3000,
-                            )
-                            
-                            # Convert to AF format
-                            choice = raw_response.choices[0]
-                            if choice.message.tool_calls:
-                                tool_call_contents = []
-                                for tc in choice.message.tool_calls:
-                                    # Parse tool call arguments with robust error handling
-                                    try:
-                                        if tc.function.arguments:
-                                            arguments = json.loads(tc.function.arguments)
-                                        else:
-                                            arguments = {}
-                                    except json.JSONDecodeError as json_err:
-                                        logger.error(
-                                            "Failed to parse tool call arguments: %s (tool=%s, args_preview=%s...)",
-                                            json_err,
-                                            tc.function.name,
-                                            tc.function.arguments[:200] if tc.function.arguments else "None"
-                                        )
-                                        # Send error information to user via SSE
-                                        await self._send_sse_event("error", {
-                                            "phase": "tool_call_parsing",
-                                            "tool_name": tc.function.name,
-                                            "error": f"LLM generated malformed JSON: {str(json_err)}",
-                                            "hint": "The model may be trying to pass too much data. Try simplifying the request or breaking it into steps."
-                                        })
-                                        # Skip this malformed tool call
-                                        continue
-                                    
-                                    tool_call_contents.append(FunctionCallContent(
-                                        call_id=tc.id,
-                                        name=tc.function.name,
-                                        arguments=arguments
-                                    ))
-                                
-                                if tool_call_contents:
-                                    response = ChatResponse(messages=[ChatMessage(
-                                        role="assistant",
-                                        contents=tool_call_contents
-                                    )])
-                                else:
-                                    # All tool calls failed parsing - return error message
-                                    response = ChatResponse(messages=[ChatMessage(
-                                        role="assistant",
-                                        text="I encountered an error generating the tool call. The response was too complex or contained invalid characters. Please try simplifying your request or breaking it into smaller steps."
-                                    )])
-                            else:
-                                response = ChatResponse(messages=[ChatMessage(
-                                    role="assistant",
-                                    text=choice.message.content or ""
-                                )])
-                    finally:
-                        if direct_client:
+                # Unified LLM path: always use direct OpenAI SDK for full
+                # control over tool execution via the ReAct loop.
+                from openai import AsyncAzureOpenAI
+
+                endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+                api_key = os.getenv("AZURE_OPENAI_API_KEY")
+                api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+                deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
+                direct_client = None
+                try:
+                    # Convert message history to OpenAI format
+                    openai_messages = self._build_openai_messages()
+
+                    # Authenticate
+                    if api_key:
+                        direct_client = AsyncAzureOpenAI(
+                            api_key=api_key,
+                            azure_endpoint=endpoint,
+                            api_version=api_version,
+                        )
+                    elif _DEFAULT_CREDENTIAL_AVAILABLE and DefaultAzureCredential:
+                        from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+                        credential = AsyncDefaultAzureCredential(
+                            exclude_interactive_browser_credential=True,
+                            exclude_shared_token_cache_credential=True,
+                            exclude_visual_studio_code_credential=True,
+                            exclude_powershell_credential=True,
+                        )
+                        token = await credential.get_token("https://cognitiveservices.azure.com/.default")
+                        direct_client = AsyncAzureOpenAI(
+                            api_key=token.token,
+                            azure_endpoint=endpoint,
+                            api_version=api_version,
+                        )
+                    else:
+                        raise RuntimeError("No authentication method available")
+
+                    # Build request kwargs
+                    create_kwargs: Dict[str, Any] = {
+                        "model": deployment,
+                        "messages": openai_messages,
+                        "temperature": self._default_temperature,
+                        "max_tokens": 3000,
+                    }
+                    if self._tool_definitions:
+                        create_kwargs["tools"] = [
+                            {"type": "function", "function": t.get("function", t)}
+                            for t in self._tool_definitions
+                        ]
+
+                    raw_response = await direct_client.chat.completions.create(**create_kwargs)
+
+                    # Convert to internal message format
+                    choice = raw_response.choices[0]
+                    if choice.message.tool_calls:
+                        tool_call_contents = []
+                        for tc in choice.message.tool_calls:
                             try:
-                                await direct_client.close()
-                            except Exception as close_exc:
-                                logger.debug("Error closing direct client: %s", close_exc)
-                else:
-                    # No tools - use AF
-                    response: ChatResponse = await self._chat_client.get_response(
-                        self._message_log,
-                        options={
-                            "temperature": self._default_temperature,
-                            "max_tokens": 3000,
-                        },
-                    )
+                                arguments = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                            except json.JSONDecodeError as json_err:
+                                logger.error(
+                                    "Failed to parse tool call arguments: %s (tool=%s, args_preview=%s...)",
+                                    json_err,
+                                    tc.function.name,
+                                    tc.function.arguments[:200] if tc.function.arguments else "None",
+                                )
+                                await self._push_event("error", f"Malformed tool call for {tc.function.name}", tool_name=tc.function.name, error=str(json_err))
+                                continue
+
+                            tool_call_contents.append(FunctionCallContent(
+                                call_id=tc.id,
+                                name=tc.function.name,
+                                arguments=arguments,
+                            ))
+
+                        if tool_call_contents:
+                            response = ChatResponse(messages=[ChatMessage(
+                                role="assistant",
+                                contents=tool_call_contents,
+                            )])
+                        else:
+                            response = ChatResponse(messages=[ChatMessage(
+                                role="assistant",
+                                text="I encountered an error generating the tool call. Please try simplifying your request.",
+                            )])
+                    else:
+                        response = ChatResponse(messages=[ChatMessage(
+                            role="assistant",
+                            text=choice.message.content or "",
+                        )])
+                finally:
+                    if direct_client:
+                        try:
+                            await direct_client.close()
+                        except Exception:  # pragma: no cover
+                            pass
                 
                 logger.debug(
-                    "Agent Framework returned %d message(s) for iteration %d",
+                    "LLM returned %d message(s) for iteration %d",
                     len(response.messages),
                     iteration,
                 )
                 try:
                     for idx, raw_message in enumerate(response.messages, start=1):
                         logger.info(
-                            "🗂️ AF message %d/%d: %s",
+                            "🗂️ LLM message %d/%d: %s",
                             idx,
                             len(response.messages),
                             self._summarize_message(raw_message),
                         )
                 except Exception:  # pragma: no cover - defensive logging
-                    logger.debug("Unable to log Agent Framework messages", exc_info=True)
+                    logger.debug("Unable to log LLM messages", exc_info=True)
             except Exception as exc:  # pragma: no cover - network/service dependency
                 logger.exception("Azure OpenAI request failed: %s", exc)
                 success = False
@@ -830,12 +690,12 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             if not assistant_message:
                 if self._last_tool_failure:
                     logger.error(
-                        "Agent Framework response contained no assistant message after tool failure",
+                        "LLM response contained no assistant message after tool failure",
                         extra={"tool_failure": self._last_tool_failure},
                     )
                 else:
                     logger.error(
-                        "Agent Framework response contained no assistant message; raw messages: %s",
+                        "LLM response contained no assistant message; raw messages: %s",
                         [self._summarize_message(msg) for msg in response.messages],
                     )
                     failure_info = self._extract_failure_from_messages(response)
@@ -899,7 +759,7 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             last_iteration_requested_tool = bool(tool_calls)
             if tool_calls:
                 logger.info(
-                    "🛎️ Agent Framework requested %d tool(s) this iteration: %s",
+                    "🛎️ LLM requested %d tool(s) this iteration: %s",
                     len(tool_calls),
                     ", ".join(call.name or "<unnamed>" for call in tool_calls),
                 )
@@ -925,6 +785,32 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
 
             if not tool_calls or not mcp_ready:
                 final_text = "\n".join(text_fragments).strip()
+
+                # Guard against hallucinated data: if this is the first
+                # iteration (no tools called yet) and the response already
+                # contains structured data (tables), the LLM is fabricating.
+                # Inject a correction and force another iteration.
+                if (
+                    iteration == 1
+                    and tool_calls_made == 0
+                    and mcp_ready
+                    and self._tool_definitions
+                    and final_text
+                    and any(marker in final_text.lower() for marker in ["<table", "| ---", "|---", "subscription id"])
+                ):
+                    logger.warning(
+                        "⚠️ LLM returned structured data on first iteration without calling any tools — likely hallucination. Forcing retry."
+                    )
+                    # Replace the assistant message with a correction prompt
+                    self._message_log.append(ChatMessage(
+                        role="user",
+                        text=(
+                            "STOP. You returned data without calling any tools first. "
+                            "That data is fabricated. You MUST call the appropriate MCP tool(s) "
+                            "to fetch real Azure data before responding. Try again."
+                        ),
+                    ))
+                    continue
                 
                 # Check if this is a confirmation question - if so, stop immediately to avoid duplicates
                 confirmation_indicators = [
@@ -1129,7 +1015,7 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             "reasoning_iterations": iteration,
             "max_iterations_reached": last_iteration_requested_tool and success is False,
             "timeout_approaching": duration > 50,  # Flag for UI to show "continue" option
-            "agent_framework_enabled": _AGENT_FRAMEWORK_AVAILABLE and _AGENT_FRAMEWORK_CHAT_AVAILABLE,
+            "agent_framework_enabled": True,  # Direct OpenAI SDK
             "reasoning_trace": reasoning_trace,
             "error": error_detail,
             "last_tool_failure": self._last_tool_failure,
@@ -1161,8 +1047,9 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             output_str = json.dumps(self._last_tool_output, ensure_ascii=False)[:2000]
             logger.info("MCP orchestrator tool output (session=%s): %s", self.session_id, output_str)
 
-        # Deduplicate response text to avoid showing the same content multiple times
-        final_text = self._deduplicate_response_text(final_text)
+        # Format and deduplicate the response
+        final_text = _response_formatter.deduplicate(final_text)
+        final_text = _response_formatter.format(final_text)
 
         return {
             "success": success,
@@ -1289,6 +1176,7 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         self.session_id = self._new_session_id()
         self._initialise_message_log()
         self.communication_buffer.clear()
+        self._monitor_history.clear()
         if self.communication_queue:
             try:
                 while True:
@@ -1300,56 +1188,183 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
     async def _ensure_chat_client(self) -> bool:
+        """Validate that Azure OpenAI credentials are available.
+
+        Uses the direct OpenAI SDK, so this just verifies that the
+        required env vars exist and sets ``self._chat_client`` to a
+        truthy sentinel.
+        """
         if self._chat_client:
             return True
-        # Check if we have the chat client class available (the critical dependency)
-        if not _AGENT_FRAMEWORK_CHAT_AVAILABLE or AzureOpenAIChatClient is None:
-            logger.warning(
-                "AzureOpenAIChatClient not available. Chat Client: %s, Agent Framework base classes: %s",
-                _AGENT_FRAMEWORK_CHAT_AVAILABLE,
-                _AGENT_FRAMEWORK_AVAILABLE,
-            )
-            return False
 
-        deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT")
         endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        api_version = os.getenv("AZURE_OPENAI_API_VERSION")
         api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        has_credential = _DEFAULT_CREDENTIAL_AVAILABLE and DefaultAzureCredential is not None
 
-        client_kwargs: Dict[str, Any] = {}
-        if deployment:
-            client_kwargs["deployment_name"] = deployment
-        if endpoint:
-            client_kwargs["endpoint"] = endpoint
-        if api_version:
-            client_kwargs["api_version"] = api_version
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        elif _DEFAULT_CREDENTIAL_AVAILABLE and DefaultAzureCredential is not None:
-            try:
-                self._default_credential = DefaultAzureCredential(
-                    exclude_interactive_browser_credential=True,
-                    exclude_shared_token_cache_credential=True,
-                    exclude_visual_studio_code_credential=True,
-                    exclude_powershell_credential=True,
-                )
-                client_kwargs["credential"] = self._default_credential
-            except Exception as exc:  # pragma: no cover - credential edge cases
-                logger.warning("Unable to create DefaultAzureCredential: %s", exc)
-
-        try:
-            self._chat_client = AzureOpenAIChatClient(**client_kwargs)
-            logger.info(
-                "✅ MCP orchestrator chat client ready (deployment=%s, endpoint_configured=%s)",
-                deployment,
-                bool(endpoint),
-            )
-            return True
-        except Exception as exc:  # pragma: no cover - network/service dependency
-            logger.error("Failed to initialise AzureOpenAIChatClient: %s", exc)
-            self._chat_client = None
+        if not endpoint:
+            logger.warning("AZURE_OPENAI_ENDPOINT not set — chat client unavailable")
             return False
+        if not api_key and not has_credential:
+            logger.warning("No Azure OpenAI API key or DefaultAzureCredential available")
+            return False
+
+        # Store a truthy sentinel so subsequent calls short-circuit.
+        self._chat_client = True  # type: ignore[assignment]
+        deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+        logger.info(
+            "✅ Azure OpenAI credentials verified (deployment=%s, endpoint_configured=True)",
+            deployment,
+        )
+        return True
+
+    def _build_openai_messages(self) -> List[Dict[str, Any]]:
+        """Convert internal message history to OpenAI chat-completion format.
+
+        Includes a safety pass that drops orphaned ``tool`` messages whose
+        ``tool_call_id`` does not match any preceding assistant ``tool_calls``
+        entry.  This prevents 400 errors from the OpenAI API.
+        """
+        openai_messages: List[Dict[str, Any]] = []
+        for msg in self._message_log:
+            role = self._get_message_role(msg)
+
+            if role == "tool":
+                for content in msg.contents:
+                    if hasattr(content, "call_id") and content.call_id:
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": content.call_id,
+                            "content": self._message_to_text(msg) or "Success",
+                        })
+            elif role == "assistant" and any(
+                hasattr(c, "name") and hasattr(c, "call_id") for c in msg.contents
+            ):
+                tool_calls = []
+                for content in msg.contents:
+                    if hasattr(content, "name") and hasattr(content, "call_id"):
+                        tool_calls.append({
+                            "id": content.call_id,
+                            "type": "function",
+                            "function": {
+                                "name": content.name,
+                                "arguments": json.dumps(content.arguments) if hasattr(content, "arguments") else "{}",
+                            },
+                        })
+                if tool_calls:
+                    openai_messages.append({
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": tool_calls,
+                    })
+            else:
+                text = self._message_to_text(msg)
+                if text:
+                    openai_messages.append({"role": role, "content": text})
+
+        # --- Safety pass: drop orphaned tool messages ---
+        # Collect all tool_call ids from assistant messages
+        valid_tool_call_ids: set = set()
+        for m in openai_messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    valid_tool_call_ids.add(tc.get("id"))
+
+        original_count = len(openai_messages)
+        openai_messages = [
+            m for m in openai_messages
+            if m.get("role") != "tool" or m.get("tool_call_id") in valid_tool_call_ids
+        ]
+        dropped = original_count - len(openai_messages)
+        if dropped:
+            logger.warning(
+                "🧹 Dropped %d orphaned tool message(s) to maintain valid message sequence",
+                dropped,
+            )
+
+        return openai_messages
+
+    async def _summarize_old_messages(self) -> None:
+        """Summarize older conversation turns to keep context window manageable.
+
+        When the message log exceeds a threshold, the middle section
+        (everything except the system prompt and the last N messages) is
+        replaced with a compact summary message.
+
+        IMPORTANT: The tail boundary is adjusted so that tool_calls /
+        tool message pairs are never split.  The OpenAI API requires
+        every ``role: tool`` message to be preceded by an assistant
+        message containing the matching ``tool_calls`` entry.
+        """
+        # Keep system prompt (index 0) + last 6 messages
+        KEEP_TAIL = 6
+        MIN_MESSAGES_BEFORE_SUMMARY = 12
+
+        if len(self._message_log) < MIN_MESSAGES_BEFORE_SUMMARY:
+            return
+
+        # --- Determine a safe split index that does not orphan tool messages ---
+        candidate_split = len(self._message_log) - KEEP_TAIL  # first index of tail
+
+        # Walk backwards from the candidate split to find a safe boundary.
+        # A safe boundary is one where the message at the split index is NOT
+        # a 'tool' role (orphaned response) and is NOT an 'assistant' with
+        # tool_calls whose tool responses would fall across the boundary.
+        while candidate_split > 1:
+            msg_at_split = self._message_log[candidate_split]
+            role = self._get_message_role(msg_at_split)
+            if role == "tool":
+                # This tool message would be orphaned — include its parent too
+                candidate_split -= 1
+                continue
+            # If the message just before the split is an assistant with
+            # tool_calls, its tool responses might be at or after the split.
+            # Check the message before the split.
+            prev_msg = self._message_log[candidate_split - 1]
+            prev_role = self._get_message_role(prev_msg)
+            if prev_role == "assistant" and any(
+                hasattr(c, "name") and hasattr(c, "call_id")
+                for c in getattr(prev_msg, "contents", [])
+            ):
+                # The assistant tool_calls msg is at candidate_split-1, which
+                # would be summarized, but its tool responses start at
+                # candidate_split — that's an orphan.  Pull it into the tail.
+                candidate_split -= 1
+                continue
+            break  # safe boundary found
+
+        to_summarize = self._message_log[1:candidate_split]
+        if not to_summarize:
+            return
+
+        # Build a compact textual summary of the earlier conversation
+        summary_parts: List[str] = []
+        for msg in to_summarize:
+            role = self._get_message_role(msg)
+            text = self._message_to_text(msg)
+            if role == "tool":
+                # Truncate verbose tool results
+                text = text[:300] + "..." if len(text) > 300 else text
+            if text:
+                summary_parts.append(f"[{role}]: {text[:200]}")
+
+        summary_text = (
+            "CONVERSATION SUMMARY (older messages condensed):\n"
+            + "\n".join(summary_parts[-10:])  # keep last 10 snippets max
+        )
+
+        summary_message = ChatMessage(role="system", text=summary_text)
+        # Replace: keep system prompt + summary + safe tail
+        self._message_log = (
+            [self._message_log[0], summary_message]
+            + self._message_log[candidate_split:]
+        )
+        logger.info(
+            "📝 Summarized %d older messages into compact summary (%d messages remain)",
+            len(to_summarize),
+            len(self._message_log),
+        )
 
     async def _ensure_mcp_client(self) -> bool:
         if self._mcp_client:
@@ -1426,6 +1441,25 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
                 _workbook_mcp_import_error,
             )
 
+        if get_sre_mcp_client is not None:
+            try:
+                sre_client = await get_sre_mcp_client()
+            except SREMCPDisabledError:
+                logger.info("SRE MCP server disabled via configuration; skipping registration")
+            except Exception as exc:  # pragma: no cover - optional dependency
+                logger.warning("SRE MCP server unavailable: %s", exc)
+            else:
+                logger.debug(
+                    "SRE MCP client initialised; catalog size hint=%s",
+                    len(getattr(sre_client, "available_tools", []) or []),
+                )
+                client_entries.append(("sre", sre_client))
+        else:
+            logger.debug(
+                "SRE MCP client import resolved to None; skipping registration (error=%s)",
+                _sre_mcp_import_error,
+            )
+
         if not client_entries or CompositeMCPClient is None:
             logger.error("No MCP clients available; tool execution disabled")
             self._mcp_client = None
@@ -1448,6 +1482,10 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         return False
 
     async def _invoke_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        # Intercept the monitor_agent meta-tool
+        if tool_name == "monitor_agent":
+            return await self._handle_monitor_delegation(arguments)
+
         if not self._mcp_client:
             return {
                 "success": False,
@@ -1463,6 +1501,99 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
                 "tool_name": tool_name,
                 "error": str(exc),
             }
+
+    async def _handle_monitor_delegation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Delegate a request to the MonitorAgent sub-agent, injecting prior monitor context."""
+        user_request = arguments.get("request", "")
+        if not user_request:
+            return {"success": False, "error": "No 'request' argument provided to monitor_agent."}
+
+        if not self._monitor_agent:
+            # Try to initialise on first use
+            self._init_monitor_agent()
+
+        if not self._monitor_agent:
+            return {"success": False, "error": "Monitor agent not available — monitor MCP server may not be running."}
+
+        # Build context-enriched message from prior monitor interactions
+        enriched_request = user_request
+        if self._monitor_history:
+            # Include up to the last 3 monitor interactions for context
+            recent = self._monitor_history[-3:]
+            context_parts = []
+            for i, entry in enumerate(recent, 1):
+                context_parts.append(
+                    f"--- Previous monitor interaction {i} ---\n"
+                    f"User request: {entry['request']}\n"
+                    f"Agent response: {entry['response'][:2000]}\n"
+                )
+            context_block = "\n".join(context_parts)
+            enriched_request = (
+                f"CONTEXT FROM PRIOR MONITOR INTERACTIONS (use this to resolve references like "
+                f"'the first query', 'deploy it', resource names, download URLs, etc.):\n\n"
+                f"{context_block}\n"
+                f"--- Current request ---\n{user_request}"
+            )
+            logger.info(
+                "🔀 MonitorAgent delegation with %d prior interactions as context",
+                len(recent),
+            )
+
+        logger.info("🔀 Delegating to MonitorAgent: %s", user_request[:200])
+        try:
+            result = await self._monitor_agent.run(enriched_request)
+            response_text = result.get("response", "")
+
+            # Save this interaction for future context
+            self._monitor_history.append({
+                "request": user_request,
+                "response": response_text,
+            })
+            # Keep history bounded
+            if len(self._monitor_history) > 10:
+                self._monitor_history = self._monitor_history[-10:]
+
+            # Wrap the sub-agent's HTML response as a successful tool result
+            return {
+                "success": result.get("success", False),
+                "response": response_text,
+                "tool_calls_made": result.get("tool_calls_made", 0),
+                "agent": "monitor",
+            }
+        except Exception as exc:
+            logger.exception("MonitorAgent delegation failed: %s", exc)
+            return {"success": False, "error": f"Monitor agent error: {exc}"}
+
+    def _init_monitor_agent(self) -> None:
+        """Initialise the MonitorAgent with monitor + CLI tools from the composite client."""
+        if MonitorAgent is None:
+            logger.warning("MonitorAgent class not available — skipping initialization")
+            return
+
+        if not self._mcp_client:
+            logger.warning("Cannot init MonitorAgent — no MCP client")
+            return
+
+        # Get monitor + azure_cli tools only
+        get_by_sources = getattr(self._mcp_client, "get_tools_by_sources", None)
+        if not callable(get_by_sources):
+            logger.warning("CompositeMCPClient missing get_tools_by_sources — cannot init MonitorAgent")
+            return
+
+        monitor_tools = get_by_sources(["monitor", "azure_cli"])
+        if not monitor_tools:
+            logger.warning("No monitor/CLI tools found — MonitorAgent will not be initialised")
+            return
+
+        self._monitor_agent = MonitorAgent(
+            tool_definitions=monitor_tools,
+            tool_invoker=self._mcp_client.call_tool,
+            event_callback=self._push_event,
+        )
+        logger.info(
+            "✅ MonitorAgent initialised with %d tools (monitor + CLI)",
+            len(monitor_tools),
+        )
 
     async def aclose(self) -> None:
         """Release network clients and credentials."""
@@ -1502,7 +1633,58 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
                 self._tool_definitions = []
                 logger.warning("⚠️  Tool catalog is not a list or tuple: %s", type(tools))
             
-            logger.info("✅ Loaded %d MCP tools for agent framework", len(self._tool_definitions))
+            logger.info("✅ Loaded %d MCP tools total", len(self._tool_definitions))
+
+            # --- Hybrid architecture: filter monitor tools out, add meta-tool ---
+            # The MonitorAgent handles all monitor tools internally.
+            # The orchestrator only sees a single 'monitor_agent' delegation tool.
+            get_excl = getattr(self._mcp_client, "get_tools_excluding_sources", None)
+            if callable(get_excl) and MonitorAgent is not None:
+                non_monitor_tools = get_excl(["monitor"])
+                monitor_count = len(self._tool_definitions) - len(non_monitor_tools)
+                if monitor_count > 0:
+                    self._tool_definitions = non_monitor_tools
+                    # Inject the monitor_agent meta-tool
+                    meta_tool = {
+                        "function": {
+                            "name": "monitor_agent",
+                            "description": (
+                                "Delegate to the Azure Monitor specialist agent. Use this tool whenever the user "
+                                "asks about Azure Monitor resources, workbooks, alerts, KQL queries, or monitoring "
+                                "for ANY Azure service. Pass the user's FULL request as-is. "
+                                "The monitor agent handles discovery, listing, and deployment of monitor resources "
+                                "autonomously. Do NOT try to call monitor tools directly. "
+                                "IMPORTANT: When referring to a previously discovered resource (e.g., 'deploy the first query'), "
+                                "include the resource name and download URL from the earlier response in your request text "
+                                "so the monitor agent has full context."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "request": {
+                                        "type": "string",
+                                        "description": (
+                                            "The user's full request about Azure Monitor resources. "
+                                            "Include the original user message AND any relevant details from "
+                                            "prior responses (resource names, download URLs, categories). "
+                                            "For deployment follow-ups, include the resource name, download URL, "
+                                            "and any parameters the user has provided."
+                                        ),
+                                    }
+                                },
+                                "required": ["request"],
+                            },
+                        }
+                    }
+                    self._tool_definitions.append(meta_tool)
+                    logger.info(
+                        "🔀 Hybrid mode: replaced %d monitor tools with monitor_agent meta-tool (%d tools for orchestrator)",
+                        monitor_count,
+                        len(self._tool_definitions),
+                    )
+                    # Initialize the MonitorAgent now
+                    self._init_monitor_agent()
+
             if self._tool_definitions:
                 tool_names = [t.get("function", {}).get("name", "unknown") for t in self._tool_definitions[:5]]
                 logger.info(f"   Sample tools: {', '.join(tool_names)}{' ...' if len(self._tool_definitions) > 5 else ''}")
@@ -1797,30 +1979,46 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
         max_tokens: int = 1200,
     ) -> Tuple[bool, str]:
         if not await self._ensure_chat_client():
-            return False, "Microsoft Agent Framework chat client unavailable."
+            return False, "Azure OpenAI chat client unavailable."
         try:
-            response: ChatResponse = await self._chat_client.get_response(
-                [
-                    ChatMessage(role="system", text=system_prompt),
-                    ChatMessage(role="user", text=user_prompt),
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            from openai import AsyncAzureOpenAI
+
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+            deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
+            if api_key:
+                client = AsyncAzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
+            else:
+                from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+                credential = AsyncDefaultAzureCredential(
+                    exclude_interactive_browser_credential=True,
+                    exclude_shared_token_cache_credential=True,
+                    exclude_visual_studio_code_credential=True,
+                    exclude_powershell_credential=True,
+                )
+                token = await credential.get_token("https://cognitiveservices.azure.com/.default")
+                client = AsyncAzureOpenAI(api_key=token.token, azure_endpoint=endpoint, api_version=api_version)
+
+            try:
+                raw = await client.chat.completions.create(
+                    model=deployment,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            finally:
+                await client.close()
+
+            content = raw.choices[0].message.content or ""
+            return True, content
         except Exception as exc:  # pragma: no cover - network/service dependency
             logger.error("Prompt execution failed: %s", exc)
             return False, str(exc)
-
-        assistant = self._select_assistant_message(response)
-        if not assistant:
-            return False, "The model returned an empty response."
-        return True, self._message_to_text(assistant)
-
-    def _select_assistant_message(self, response: ChatResponse) -> Optional[ChatMessage]:
-        for message in reversed(response.messages):
-            if self._get_message_role(message) == "assistant":
-                return message
-        return None
 
     def _collect_text_fragments(self, message: ChatMessage) -> List[str]:
         fragments: List[str] = []
@@ -1940,48 +2138,6 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             fragments.append(str(message.text))
         return "\n".join(fragments).strip()
 
-    def _deduplicate_response_text(self, text: str) -> str:
-        """Remove duplicate paragraphs/sections from response text."""
-        if not text or len(text) < 100:
-            return text
-        
-        # Split text into paragraphs (by double newline or major sections)
-        paragraphs = []
-        current = []
-        
-        for line in text.split('\n'):
-            if line.strip():
-                current.append(line)
-            elif current:
-                # Empty line - end of paragraph
-                paragraphs.append('\n'.join(current))
-                current = []
-        if current:
-            paragraphs.append('\n'.join(current))
-        
-        # Deduplicate paragraphs while preserving order
-        seen = set()
-        unique_paragraphs = []
-        
-        for para in paragraphs:
-            # Normalize for comparison (remove extra whitespace, lowercase)
-            normalized = ' '.join(para.split()).lower()
-            
-            # Skip if we've seen this paragraph (or very similar content)
-            if normalized and normalized not in seen:
-                seen.add(normalized)
-                unique_paragraphs.append(para)
-            elif not normalized:
-                # Keep empty lines for formatting
-                unique_paragraphs.append(para)
-        
-        deduplicated = '\n\n'.join(unique_paragraphs)
-        
-        if len(deduplicated) < len(text) * 0.9:
-            logger.info(f"📝 Deduplicated response: {len(text)} → {len(deduplicated)} chars (removed {len(text) - len(deduplicated)} duplicate chars)")
-        
-        return deduplicated
-
     async def _push_event(self, event_type: str, content: str, **metadata: Any) -> None:
         event = {
             "type": event_type,
@@ -2090,7 +2246,7 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
             "message_count": max(len(self._message_log) - 1, 0),
             "reasoning_iterations": len(reasoning),
             "max_iterations_reached": False,
-            "agent_framework_enabled": _AGENT_FRAMEWORK_AVAILABLE and _AGENT_FRAMEWORK_CHAT_AVAILABLE,
+            "agent_framework_enabled": True,  # Direct OpenAI SDK
             "reasoning_trace": reasoning,
             "error": None,
             "last_tool_failure": None,
@@ -2127,7 +2283,7 @@ CRITICAL: Always try to find a specific tool first. Only use Azure CLI Executor 
     def _build_failure_response(self, user_message: str, elapsed: float, error: str) -> Dict[str, Any]:
         fallback = (
             "The MCP orchestration service is not available right now. "
-            "Install the Microsoft Agent Framework preview packages and retry."
+            "Ensure AZURE_OPENAI_ENDPOINT and authentication are configured, then retry."
         )
         metadata = {
             "session_id": self.session_id,

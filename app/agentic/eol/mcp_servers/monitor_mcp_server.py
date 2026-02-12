@@ -106,6 +106,42 @@ class WorkbookContent(ResourceContent):
 _server = FastMCP(name="azure-monitor-community")
 _http_client: Optional[httpx.AsyncClient] = None
 _cached_metadata: Optional[Dict[str, Any]] = None
+_cli_auth_lock = asyncio.Lock()
+_cli_auth_completed = False
+
+# Common prefixes/suffixes that users add but categories may omit
+_STRIP_PREFIXES = ["azure", "microsoft", "ms"]
+
+
+def _category_matches(keyword: str, category_name: str) -> bool:
+    """Fuzzy match a user keyword against a category name.
+
+    Checks (all case-insensitive):
+    1. Exact substring either direction (keyword in category OR category in keyword)
+    2. Keyword with common prefixes stripped (e.g. 'azure cosmos db' -> 'cosmos db')
+    3. Individual significant words from keyword present in category
+    """
+    kw = keyword.lower().strip()
+    cat = category_name.lower().strip()
+
+    # 1. Bidirectional substring
+    if kw in cat or cat in kw:
+        return True
+
+    # 2. Strip common prefixes and retry
+    kw_words = kw.split()
+    if kw_words and kw_words[0] in _STRIP_PREFIXES:
+        stripped = " ".join(kw_words[1:])
+        if stripped and (stripped in cat or cat in stripped):
+            return True
+
+    # 3. Word-level: all significant words (len>=3, not stop-words) must appear in category
+    stop_words = {"the", "for", "and", "with", "from", "azure", "microsoft", "ms", "services", "service"}
+    significant_words = [w for w in kw_words if len(w) >= 3 and w not in stop_words]
+    if significant_words and all(w in cat for w in significant_words):
+        return True
+
+    return False
 
 
 async def _load_cached_metadata() -> Optional[Dict[str, Any]]:
@@ -495,10 +531,81 @@ def _extract_workbook_parameters(content: Dict[str, Any]) -> tuple[List[Dict[str
 
 
 @_server.tool(
+    name="get_service_monitor_resources",
+    description=(
+        "Find ALL Azure Monitor resources (workbooks, alerts, queries) for a given Azure service in ONE call. "
+        "Returns a complete list of available resources with names, types, download URLs, and deployment method. "
+        "Use this as the PRIMARY tool when a user asks 'show monitor resources for <service>'. "
+        "After results, the user can pick a resource to deploy — workbooks via deploy_workbook, "
+        "queries via get_resource_content then CLI saved-search, alerts via get_resource_content then CLI scheduled-query."
+    ),
+)
+async def get_service_monitor_resources(
+    context: Context,
+    keyword: Annotated[str, "Azure service name or keyword to search for (e.g., 'virtual machines', 'container apps', 'storage')."],
+) -> list[TextContent]:
+    """Find all monitor resources for a service in one call."""
+    try:
+        metadata = await _load_cached_metadata()
+        if not metadata or "categories" not in metadata:
+            return [TextContent(type="text", text=json.dumps({"success": False, "error": "Metadata not available"}, indent=2))]
+
+        keyword_lower = keyword.lower()
+        all_resources = []
+        matched_categories = []
+
+        for cat in metadata["categories"]:
+            cat_name = cat["category"]
+            if _category_matches(keyword_lower, cat_name):
+                matched_categories.append(cat_name)
+                for rt in ["workbooks", "alerts", "queries"]:
+                    res_data = cat.get(rt, {})
+                    files = res_data.get("files", [])
+                    deploy_method = {
+                        "workbooks": "deploy_workbook tool",
+                        "alerts": "deploy_alert tool",
+                        "queries": "deploy_query tool",
+                    }
+                    for f in files:
+                        all_resources.append({
+                            "name": f.get("name", ""),
+                            "resource_type": rt,
+                            "category": cat_name,
+                            "download_url": f.get("download_url", ""),
+                            "deploy_status": "✅ Deployable",
+                            "deploy_method": deploy_method[rt],
+                        })
+
+        result = {
+            "success": True,
+            "keyword": keyword,
+            "matched_categories": matched_categories,
+            "resources": all_resources,
+            "total_count": len(all_resources),
+            "by_type": {
+                "workbooks": len([r for r in all_resources if r["resource_type"] == "workbooks"]),
+                "alerts": len([r for r in all_resources if r["resource_type"] == "alerts"]),
+                "queries": len([r for r in all_resources if r["resource_type"] == "queries"]),
+            },
+            "deployment_instructions": {
+                "workbooks": "Use deploy_workbook tool with the download_url, subscription_id, resource_group, workbook_name, and location.",
+                "queries": "Use deploy_query tool with download_url, resource_group, workspace_name, query_name, and category. The tool handles KQL formatting automatically.",
+                "alerts": "Use deploy_alert tool with download_url, resource_group, scopes (Log Analytics resource ID), alert_name, severity, and threshold. The tool handles KQL extraction automatically.",
+            },
+        }
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except Exception as exc:
+        logger.error("Error in get_service_monitor_resources: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
+
+
+@_server.tool(
     name="list_resource_types",
     description=(
-        "List all available resource types in the Azure Monitor Community repository. "
-        "Returns workbooks, alerts, and queries."
+        "List the 3 resource types available in the Azure Monitor Community repository: "
+        "workbooks, alerts, and queries. Returns type names and descriptions only — "
+        "NOT specific resources. To get actual resources for a service, "
+        "use get_service_monitor_resources instead."
     ),
 )
 async def list_resource_types(context: Context) -> list[TextContent]:
@@ -518,9 +625,11 @@ async def list_resource_types(context: Context) -> list[TextContent]:
 @_server.tool(
     name="search_categories",
     description=(
-        "Search for Azure service categories by keyword or partial name match. "
-        "Use this when you need to find the exact category name for a service. "
-        "For example, searching for 'gateway' will find 'Application gateways', 'VPN Gateway', etc."
+        "Search for Azure service categories by keyword. Returns matching categories "
+        "with per-type resource counts (how many workbooks, alerts, queries exist). "
+        "Use this FIRST when the user asks about monitor resources for a service "
+        "(e.g., search 'container apps' to find the category and see what's available). "
+        "Follow up with list_resources to get the actual resource names."
     ),
 )
 async def search_categories(
@@ -543,7 +652,7 @@ async def search_categories(
             for rt in resource_types:
                 categories = await _list_categories(rt)
                 for cat in categories:
-                    if keyword.lower() in cat["name"].lower():
+                    if _category_matches(keyword.lower(), cat["name"]):
                         all_results.append({
                             "category": cat["name"],
                             "resource_type": rt,
@@ -565,7 +674,7 @@ async def search_categories(
         
         for cat in metadata["categories"]:
             cat_name = cat["category"]
-            if keyword_lower in cat_name.lower():
+            if _category_matches(keyword_lower, cat_name):
                 # Check which resource types have resources for this category
                 cat_resources = []
                 
@@ -618,8 +727,9 @@ async def search_categories(
 @_server.tool(
     name="list_categories",
     description=(
-        "List all available categories for a specific resource type (workbooks, alerts, or queries). "
-        "Returns category names with their folder paths. Use search_categories if you need to find a category by keyword."
+        "List ALL categories for a resource type (workbooks, alerts, or queries). "
+        "Returns category names with folder paths and resource counts. "
+        "Use search_categories instead if you already know the service name."
     ),
 )
 async def list_categories(
@@ -643,17 +753,21 @@ async def list_categories(
 @_server.tool(
     name="list_resources",
     description=(
-        "List all resources (workbooks, alerts, or queries) in a specific category. "
-        "Returns resource metadata including name, path, size, type, and download URL."
+        "List specific resources (workbooks, alerts, or queries) in a category. "
+        "Returns resource names, paths, download URLs, and metadata. "
+        "Call this for EACH resource type to build a complete list. "
+        "Use the download_url from results with get_resource_content or deploy_workbook."
     ),
 )
 async def list_resources(
     context: Context,
     resource_type: Annotated[str, "The resource type: 'workbooks', 'alerts', or 'queries'."],
-    category: Annotated[str, "The category name from list_categories."],
-    base_path: Annotated[str, "The base folder path from list_categories response."],
+    category: Annotated[str, "The category name (e.g., 'Virtual machines', 'Storage Accounts')."],
+    base_path: Annotated[Optional[str], "The base folder path. Defaults to 'Azure Services' if not provided."] = None,
 ) -> list[TextContent]:
     """List resources in a category."""
+    if not base_path:
+        base_path = "Azure%20Services"
     logger.info("list_resources tool called with: resource_type=%s, category=%s, base_path=%s", 
                 resource_type, category, base_path)
     
@@ -683,9 +797,8 @@ async def list_resources(
 @_server.tool(
     name="list_workbook_categories",
     description=(
-        "List all available Azure service categories from the Azure Monitor Community workbooks repository. "
-        "Returns a list of category names (e.g., 'Virtual Machines', 'Storage Accounts', 'Azure Kubernetes Service'). "
-        "NOTE: Consider using list_categories(resource_type='workbooks') for more detailed information."
+        "DEPRECATED — use list_categories(resource_type='workbooks') instead. "
+        "Lists workbook category names only, without resource counts or paths."
     ),
 )
 async def list_workbook_categories(context: Context) -> list[TextContent]:
@@ -702,9 +815,8 @@ async def list_workbook_categories(context: Context) -> list[TextContent]:
 @_server.tool(
     name="list_workbooks",
     description=(
-        "List all workbooks in a specific Azure service category. "
-        "Returns workbook metadata including name, path, size, and download URL. "
-        "NOTE: Consider using list_resources() for more flexibility."
+        "DEPRECATED — use list_resources(resource_type='workbooks', category=...) instead. "
+        "Lists workbooks in a category but only supports workbooks, not alerts or queries."
     ),
 )
 async def list_workbooks(
@@ -785,10 +897,8 @@ async def get_resource_content(
 @_server.tool(
     name="get_workbook_details",
     description=(
-        "Download and analyze a workbook to extract its content, parameters, and requirements. "
-        "Returns the full workbook JSON, extracted parameters with types and defaults, "
-        "and a list of required parameters that must be provided for deployment. "
-        "NOTE: Consider using get_resource_content() for more flexibility."
+        "DEPRECATED — use get_resource_content(download_url, resource_type='workbooks') instead. "
+        "Downloads a workbook and extracts parameters. Identical to get_resource_content for workbooks."
     ),
 )
 async def get_workbook_details(
@@ -805,10 +915,11 @@ async def get_workbook_details(
 @_server.tool(
     name="deploy_workbook",
     description=(
-        "Deploy an Azure Monitor Community workbook to a resource group. "
-        "Requires the workbook download URL (from list_resources), target subscription ID, "
-        "resource group name, workbook name, location, and any required parameter values. "
-        "This fetches the workbook content internally and uses Azure CLI to create the workbook resource."
+        "Deploy an Azure Monitor Community workbook to Azure. "
+        "Creates the workbook as a microsoft.insights/workbooks resource via ARM template. "
+        "Requires: download_url (from list_resources), subscription_id, resource_group, "
+        "workbook_name, location, and optional parameter values. "
+        "This is the ONLY way to deploy workbooks — do NOT use azure_cli_execute_command."
     ),
 )
 async def deploy_workbook(
@@ -817,10 +928,10 @@ async def deploy_workbook(
         str,
         "The download URL of the workbook from list_resources or get_resource_content.",
     ],
-    subscription_id: Annotated[str, "Azure subscription ID where the workbook will be deployed."],
-    resource_group: Annotated[str, "Resource group name for the workbook."],
-    workbook_name: Annotated[str, "Name for the deployed workbook."],
-    location: Annotated[str, "Azure region (e.g., 'eastus', 'westeurope')."],
+    subscription_id: Annotated[str, "Azure subscription ID where the workbook will be deployed. REQUIRED — cannot be empty."],
+    resource_group: Annotated[str, "Resource group name for the workbook. REQUIRED — cannot be empty."],
+    workbook_name: Annotated[str, "Name for the deployed workbook. REQUIRED — cannot be empty."],
+    location: Annotated[str, "Azure region (e.g., 'eastus', 'westeurope'). REQUIRED — cannot be empty."],
     parameters: Annotated[
         Optional[str],
         "JSON string of parameter values as key-value pairs. Required parameters must be included.",
@@ -828,6 +939,26 @@ async def deploy_workbook(
 ) -> list[TextContent]:
     """Deploy a workbook using Azure CLI."""
     try:
+        # Validate required parameters
+        missing = []
+        if not subscription_id or not subscription_id.strip():
+            missing.append("subscription_id")
+        if not resource_group or not resource_group.strip():
+            missing.append("resource_group")
+        if not workbook_name or not workbook_name.strip():
+            missing.append("workbook_name")
+        if not location or not location.strip():
+            missing.append("location")
+        if not download_url or not download_url.strip():
+            missing.append("download_url")
+        if missing:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Missing required parameters: {', '.join(missing)}. "
+                          "Ask the user to provide these values before deploying.",
+                "missing_params": missing,
+            }, indent=2))]
+
         # Fetch workbook content from download URL
         logger.info(f"Fetching workbook content from: {download_url}")
         workbook_content_str = await _download_content(download_url)
@@ -876,30 +1007,8 @@ async def deploy_workbook(
             template_file = tf.name
 
         try:
-            # Ensure Azure CLI is authenticated with service principal
-            import os as os_module
-            sp_id = os_module.getenv("AZURE_CLIENT_ID")
-            sp_secret = os_module.getenv("AZURE_CLIENT_SECRET")
-            tenant_id = os_module.getenv("AZURE_TENANT_ID")
-            
-            if sp_id and sp_secret and tenant_id:
-                logger.info("Authenticating Azure CLI with service principal...")
-                login_cmd = [
-                    "az", "login",
-                    "--service-principal",
-                    "--username", sp_id,
-                    "--password", sp_secret,
-                    "--tenant", tenant_id
-                ]
-                login_proc = await asyncio.create_subprocess_exec(
-                    *login_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await login_proc.communicate()
-                
-                if login_proc.returncode != 0:
-                    logger.warning("Azure CLI login failed, deployment may fail if not already authenticated")
+            # Ensure Azure CLI is authenticated
+            await _ensure_cli_auth()
             
             # Build Azure CLI command
             cmd = [
@@ -946,6 +1055,306 @@ async def deploy_workbook(
             "error": str(exc),
         }
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+
+async def _ensure_cli_auth() -> None:
+    """Authenticate Azure CLI with service principal if env vars are set.
+
+    Mirrors the robust pattern from azure_cli_executor_server:
+    - Uses a lock + flag so login only happens once across all deploy calls
+    - Sets up HOME / AZURE_CONFIG_DIR for containerised environments
+    - Tries both env-var naming conventions (AZURE_SP_CLIENT_ID and AZURE_CLIENT_ID)
+    - Sets the active subscription if AZURE_SUBSCRIPTION_ID is set
+    """
+    global _cli_auth_completed
+    from pathlib import Path
+
+    if _cli_auth_completed:
+        return
+
+    async with _cli_auth_lock:
+        if _cli_auth_completed:
+            return
+
+        # Ensure HOME is valid (containers sometimes lack it)
+        home_dir = os.environ.get("HOME")
+        if not home_dir or not os.path.isdir(home_dir):
+            home_dir = "/tmp"
+            os.environ["HOME"] = home_dir
+            logger.warning("HOME not set or inaccessible; defaulting to %s", home_dir)
+        Path(home_dir).mkdir(parents=True, exist_ok=True)
+
+        config_dir = os.environ.get("AZURE_CONFIG_DIR")
+        if not config_dir:
+            config_dir = os.path.join(home_dir, ".azure")
+            os.environ["AZURE_CONFIG_DIR"] = config_dir
+        Path(config_dir).mkdir(parents=True, exist_ok=True)
+
+        # Try both env-var naming conventions
+        sp_id = os.getenv("AZURE_SP_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID")
+        sp_secret = os.getenv("AZURE_SP_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET")
+        tenant_id = os.getenv("AZURE_TENANT_ID")
+
+        if not all([sp_id, sp_secret, tenant_id]):
+            logger.warning(
+                "Service principal env vars not set (need AZURE_SP_CLIENT_ID/AZURE_CLIENT_ID, "
+                "AZURE_SP_CLIENT_SECRET/AZURE_CLIENT_SECRET, AZURE_TENANT_ID). "
+                "Deploy commands will rely on existing az login session."
+            )
+            _cli_auth_completed = True  # Don't retry every call
+            return
+
+        logger.info("Authenticating Azure CLI with service principal (client %s…)...", sp_id[:8] if sp_id else "?")
+        login_proc = await asyncio.create_subprocess_exec(
+            "az", "login", "--service-principal",
+            "-u", sp_id, "-p", sp_secret, "--tenant", tenant_id,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await login_proc.communicate()
+
+        if login_proc.returncode != 0:
+            err_msg = (stderr or stdout or b"").decode("utf-8", errors="replace")
+            logger.error("Azure CLI login failed (exit %d): %s", login_proc.returncode, err_msg[:300])
+            raise RuntimeError(f"az login failed: {err_msg[:300]}")
+
+        # Set active subscription if configured
+        sub_id = os.getenv("AZURE_SUBSCRIPTION_ID")
+        if sub_id:
+            logger.info("Setting active Azure subscription %s", sub_id)
+            await asyncio.create_subprocess_exec(
+                "az", "account", "set", "--subscription", sub_id,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+
+        logger.info("Azure CLI authentication completed successfully for monitor deploy tools")
+        _cli_auth_completed = True
+
+
+@_server.tool(
+    name="deploy_query",
+    description=(
+        "Deploy a KQL query from Azure Monitor Community as a saved search in a Log Analytics workspace. "
+        "Downloads the .kql file, cleans up formatting (removes problematic newlines), and deploys via "
+        "'az monitor log-analytics workspace saved-search create'. "
+        "REQUIRED: resource_group and workspace_name MUST be non-empty — ask the user if not known. "
+        "To discover workspaces, use azure_cli_execute_command with 'az monitor log-analytics workspace list'. "
+        "This is the correct way to deploy queries — do NOT construct CLI commands manually."
+    ),
+)
+async def deploy_query(
+    context: Context,
+    download_url: Annotated[str, "The download URL of the .kql query from list_resources or get_service_monitor_resources."],
+    resource_group: Annotated[str, "Azure resource group containing the Log Analytics workspace. REQUIRED — cannot be empty."],
+    workspace_name: Annotated[str, "Name of the Log Analytics workspace. REQUIRED — cannot be empty. Use 'az monitor log-analytics workspace list' to discover."],
+    query_name: Annotated[str, "Display name for the saved search (e.g., 'Container Apps Console Logs')."],
+    category: Annotated[str, "Category for the saved search (e.g., 'Container Apps', 'Virtual Machines')."] = "General",
+) -> list[TextContent]:
+    """Deploy a KQL query as a saved search."""
+    try:
+        # Validate required parameters
+        missing = []
+        if not resource_group or not resource_group.strip():
+            missing.append("resource_group")
+        if not workspace_name or not workspace_name.strip():
+            missing.append("workspace_name")
+        if not download_url or not download_url.strip():
+            missing.append("download_url")
+        if missing:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Missing required parameters: {', '.join(missing)}. "
+                          "Ask the user to provide these values. "
+                          "To list available workspaces, run: az monitor log-analytics workspace list --output table",
+                "missing_params": missing,
+            }, indent=2))]
+
+        # Download the KQL content
+        kql_content = await _download_content(download_url)
+
+        # Clean the KQL: strip comment header lines (// ...), collapse newlines to single spaces
+        lines = kql_content.strip().splitlines()
+        # Separate comment lines from query lines
+        query_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue  # Skip comment lines
+            query_lines.append(stripped)
+
+        # Join remaining lines with single space (KQL is whitespace-insensitive for newlines)
+        clean_kql = " ".join(line for line in query_lines if line)
+
+        if not clean_kql:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False, "error": "Downloaded KQL file is empty or contains only comments."
+            }, indent=2))]
+
+        logger.info("Deploying query '%s' (%d chars) to workspace '%s'", query_name, len(clean_kql), workspace_name)
+
+        await _ensure_cli_auth()
+
+        # Sanitize the saved-search name for CLI (alphanumeric + hyphens)
+        safe_name = re.sub(r'[^a-zA-Z0-9-]', '-', query_name).strip('-').lower()
+
+        cmd = [
+            "az", "monitor", "log-analytics", "workspace", "saved-search", "create",
+            "--resource-group", resource_group,
+            "--workspace-name", workspace_name,
+            "--name", safe_name,
+            "--category", category,
+            "--display-name", query_name,
+            "--saved-query", clean_kql,
+        ]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            result = {
+                "success": True,
+                "message": f"Query '{query_name}' deployed as saved search",
+                "query_name": query_name,
+                "saved_search_name": safe_name,
+                "workspace_name": workspace_name,
+                "resource_group": resource_group,
+                "category": category,
+                "output": stdout.decode("utf-8")[:500] if stdout else "",
+            }
+        else:
+            result = {
+                "success": False,
+                "error": f"Deployment failed (exit code {proc.returncode})",
+                "stderr": stderr.decode("utf-8")[:500] if stderr else "",
+                "stdout": stdout.decode("utf-8")[:500] if stdout else "",
+            }
+
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        logger.error("Failed to deploy query: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
+
+
+@_server.tool(
+    name="deploy_alert",
+    description=(
+        "Deploy a KQL alert rule from Azure Monitor Community as a scheduled query alert in Azure Monitor. "
+        "Downloads the alert template, extracts the KQL query, and deploys via "
+        "'az monitor scheduled-query create'. "
+        "REQUIRED: resource_group and scopes MUST be non-empty — ask the user if not known. "
+        "scopes is the full Log Analytics workspace resource ID (e.g., /subscriptions/.../resourceGroups/.../providers/Microsoft.OperationalInsights/workspaces/...). "
+        "This is the correct way to deploy alerts — do NOT construct CLI commands manually."
+    ),
+)
+async def deploy_alert(
+    context: Context,
+    download_url: Annotated[str, "The download URL of the alert from list_resources or get_service_monitor_resources."],
+    resource_group: Annotated[str, "Azure resource group for the alert rule. REQUIRED — cannot be empty."],
+    scopes: Annotated[str, "Full resource ID of the Log Analytics workspace to scope the alert to. REQUIRED — cannot be empty."],
+    alert_name: Annotated[str, "Display name for the alert rule."],
+    severity: Annotated[int, "Alert severity: 0=Critical, 1=Error, 2=Warning, 3=Informational, 4=Verbose."] = 2,
+    threshold: Annotated[int, "Threshold count that triggers the alert."] = 0,
+    evaluation_frequency: Annotated[str, "How often the query runs (e.g., '5m', '15m', '1h')."] = "5m",
+    window_size: Annotated[str, "Time window for each evaluation (e.g., '5m', '15m', '1h')."] = "5m",
+    action_groups: Annotated[Optional[str], "Resource ID of the action group to notify. Optional."] = None,
+) -> list[TextContent]:
+    """Deploy a KQL alert as a scheduled query rule."""
+    try:
+        # Validate required parameters
+        missing = []
+        if not resource_group or not resource_group.strip():
+            missing.append("resource_group")
+        if not scopes or not scopes.strip():
+            missing.append("scopes (Log Analytics workspace resource ID)")
+        if not download_url or not download_url.strip():
+            missing.append("download_url")
+        if missing:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Missing required parameters: {', '.join(missing)}. "
+                          "Ask the user to provide these values. "
+                          "To list available workspaces and get resource IDs, run: "
+                          "az monitor log-analytics workspace list --query '[].{name:name, id:id, resourceGroup:resourceGroup}' --output table",
+                "missing_params": missing,
+            }, indent=2))]
+
+        # Download the alert content
+        content_str = await _download_content(download_url)
+
+        # Try to extract KQL from JSON alert template
+        kql_query = content_str.strip()
+        try:
+            content = json.loads(content_str)
+            # Common alert template patterns
+            kql_query = (
+                content.get("query")
+                or content.get("properties", {}).get("query")
+                or content.get("savedSearchQuery")
+                or content_str.strip()
+            )
+        except json.JSONDecodeError:
+            pass  # Treat as raw KQL
+
+        # Clean KQL: strip comments, collapse newlines
+        lines = kql_query.strip().splitlines()
+        query_lines = [line.strip() for line in lines if line.strip() and not line.strip().startswith("//")]
+        clean_kql = " ".join(query_lines)
+
+        if not clean_kql:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False, "error": "Could not extract KQL query from alert template."
+            }, indent=2))]
+
+        logger.info("Deploying alert '%s' (%d chars KQL) scoped to '%s'", alert_name, len(clean_kql), scopes)
+
+        await _ensure_cli_auth()
+
+        cmd = [
+            "az", "monitor", "scheduled-query", "create",
+            "--resource-group", resource_group,
+            "--name", alert_name,
+            "--scopes", scopes,
+            "--condition", f"count '{clean_kql}' > {threshold}",
+            "--severity", str(severity),
+            "--evaluation-frequency", evaluation_frequency,
+            "--window-size", window_size,
+        ]
+        if action_groups:
+            cmd.extend(["--action-groups", action_groups])
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            result = {
+                "success": True,
+                "message": f"Alert rule '{alert_name}' deployed successfully",
+                "alert_name": alert_name,
+                "resource_group": resource_group,
+                "severity": severity,
+                "output": stdout.decode("utf-8")[:500] if stdout else "",
+            }
+        else:
+            result = {
+                "success": False,
+                "error": f"Deployment failed (exit code {proc.returncode})",
+                "stderr": stderr.decode("utf-8")[:500] if stderr else "",
+                "stdout": stdout.decode("utf-8")[:500] if stdout else "",
+            }
+
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        logger.error("Failed to deploy alert: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
 
 
 def main() -> None:

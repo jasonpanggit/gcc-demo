@@ -36,12 +36,26 @@ RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
 WORKDIR /app
 
 # Copy requirements from parent directory for better Docker layer caching
-COPY ../requirements.txt ./
+COPY requirements.txt ./
 
 # Install Python packages
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-# Use legacy resolver to handle complex agent-framework dependencies
-RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt
+
+# Install remaining packages with legacy resolver for agent-framework dependencies FIRST
+# This establishes the agent-framework baseline with its dependencies
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt || true
+
+# Then force-reinstall critical Azure SDK packages to ensure correct versions
+# This overrides any conflicting versions from agent-framework
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+    azure-mgmt-resourcehealth==1.0.0b1 \
+    azure-mgmt-monitor==6.0.2 \
+    azure-monitor-query==1.4.0 \
+    azure-mgmt-resourcegraph==8.0.1
+
+# Verify critical Azure SDK packages are installed
+RUN python -c "from azure.mgmt.resourcehealth import MicrosoftResourceHealth; print('✅ azure-mgmt-resourcehealth installed')" || echo "⚠️ azure-mgmt-resourcehealth not available"
+RUN python -c "from azure.monitor.query import LogsQueryClient; print('✅ azure-monitor-query installed')" || echo "⚠️ azure-monitor-query not available"
 
 # Create playwright directory with correct permissions before installing browsers
 RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright
@@ -61,15 +75,15 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 
 # Copy application code from parent directory
-COPY ../api ./api
-COPY ../agents ./agents
-COPY ../utils ./utils
-COPY ../mcp_servers ./mcp_servers
-COPY ../static ./static
-COPY ../templates ./templates
-COPY ../main.py ./
-COPY ../*.py ./
-COPY ../startup.txt ./
+COPY api ./api
+COPY agents ./agents
+COPY utils ./utils
+COPY mcp_servers ./mcp_servers
+COPY static ./static
+COPY templates ./templates
+COPY main.py ./
+COPY *.py ./
+COPY startup.txt ./
 
 # Create necessary directories with proper permissions for Azure App Service
 RUN mkdir -p /home/site/ms-playwright /home/site/antenv /tmp/ms-playwright /tmp/antenv || true \

@@ -17,12 +17,14 @@ clr-loader>=0.2.7,<0.3.0
 azure-identity==1.17.1
 azure-core==1.36.0
 azure-monitor-query==1.4.0
-# Azure Management SDK for workflow orchestrator
+# Azure Management SDK for workflow orchestrator and SRE operations
 azure-mgmt-resource==23.1.1
 azure-mgmt-compute==33.0.0
 azure-mgmt-network==27.0.0
 azure-mgmt-monitor==6.0.2
 azure-mgmt-storage==21.2.1
+azure-mgmt-resourcehealth==1.0.0b1
+azure-mgmt-resourcegraph==8.0.1  # For dependency mapping in SRE MCP server
 openai==2.7.1
 tiktoken==0.12.0
 a2a-sdk==0.3.12
@@ -50,6 +52,8 @@ html2text==2025.4.15
 # Azure MCP Server integration
 mcp==1.25.0
 python-dotenv==1.2.1
+# Microsoft Teams notifications for SRE agent
+pymsteams==0.2.2
 sse-starlette==3.0.3
 uvloop==0.22.1
 websockets==15.0.1

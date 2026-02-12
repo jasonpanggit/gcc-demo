@@ -74,23 +74,26 @@ class OpenAIAgent:
             logger.error(f"Failed to initialize OpenAI credential: {e}")
             self._credential = None
     
+    from utils.retry import retry_sync, retry_async
+
+    @retry_sync(retries=3, initial_delay=0.5, max_delay=5.0, exceptions=(Exception,))
     def _get_client(self):
         """Get Azure OpenAI client with fresh token"""
         try:
             if not self._credential:
                 return None
-                
+
             # Get fresh token for Azure Cognitive Services
             token = self._credential.get_token("https://cognitiveservices.azure.com/.default")
-            
+
             client = AzureOpenAI(
                 api_version="2024-08-01-preview",  # Updated for consistency with Magentic-One
                 azure_endpoint=config.azure.aoai_endpoint,
                 azure_ad_token=token.token
             )
-            
+
             return client
-            
+
         except Exception as e:
             logger.error(f"Failed to get OpenAI client: {e}")
             return None
