@@ -180,14 +180,14 @@ async def get_eol(name: str, version: Optional[str] = None):
         }
     """
     eol_data = await _get_eol_orchestrator().get_eol_data(name, version)
-    
+
     if not eol_data.get("data"):
         raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
-    
+
     return {
         "software_name": name,
         "version": version,
-        "primary_source": eol_data["primary_source"],
+        "primary_source": eol_data.get("primary_source") or eol_data.get("agent_used") or "unknown",
         "eol_data": eol_data["data"],
         "all_sources": eol_data.get("all_sources", {}),
         "timestamp": datetime.utcnow().isoformat()
