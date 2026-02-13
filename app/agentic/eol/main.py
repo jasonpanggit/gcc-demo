@@ -54,6 +54,8 @@ from api.azure_mcp import router as azure_mcp_router
 from api.monitor_community import router as monitor_community_router
 from api.metrics import router as metrics_router
 from api.teams_bot import router as teams_bot_router
+from api.sre_audit import router as sre_audit_router
+from api.azure_ai_sre import router as azure_ai_sre_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -95,6 +97,8 @@ app.include_router(azure_mcp_router)
 app.include_router(monitor_community_router)
 app.include_router(metrics_router)
 app.include_router(teams_bot_router)
+app.include_router(sre_audit_router)
+app.include_router(azure_ai_sre_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -887,14 +891,14 @@ async def get_eol_OLD(name: str, version: Optional[str] = None):
         HTTPException: 404 if no EOL data found, 500 for other errors
     """
     eol_data = await get_eol_orchestrator().get_eol_data(name, version)
-    
+
     if not eol_data.get("data"):
         raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
-    
+
     return {
         "software_name": name,
         "version": version,
-        "primary_source": eol_data["primary_source"],
+        "primary_source": eol_data.get("primary_source") or eol_data.get("agent_used") or "unknown",
         "eol_data": eol_data["data"],
         "all_sources": eol_data.get("all_sources", {}),
         "timestamp": datetime.utcnow().isoformat()
