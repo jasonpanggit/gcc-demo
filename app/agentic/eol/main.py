@@ -56,6 +56,7 @@ from api.metrics import router as metrics_router
 from api.teams_bot import router as teams_bot_router
 from api.sre_audit import router as sre_audit_router
 from api.azure_ai_sre import router as azure_ai_sre_router
+from api.sre_orchestrator import router as sre_orchestrator_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -99,6 +100,7 @@ app.include_router(metrics_router)
 app.include_router(teams_bot_router)
 app.include_router(sre_audit_router)
 app.include_router(azure_ai_sre_router)
+app.include_router(sre_orchestrator_router)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -196,7 +198,7 @@ def get_inventory_asst_orchestrator() -> Optional[Any]:
     global inventory_asst_orchestrator
     if inventory_asst_orchestrator is None and INVENTORY_ASST_AVAILABLE:
         try:
-            from agents.inventory_asst_orchestrator import InventoryAssistantOrchestrator
+            from agents.inventory_orchestrator import InventoryAssistantOrchestrator
             logger.info("🤖 Initializing inventory assistant orchestrator...")
             inventory_asst_orchestrator = InventoryAssistantOrchestrator()
             logger.info("✅ Inventory assistant orchestrator initialized successfully")
@@ -352,6 +354,17 @@ async def _run_startup_tasks():
         except Exception as e:
             logger.warning(f"⚠️ Azure MCP Server not available: {e}")
             logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
+
+        # Initialize SRE Orchestrator System (agents + tools)
+        try:
+            logger.info("🚀 Initializing SRE Orchestrator System...")
+            from utils.sre_startup import initialize_sre_orchestrator
+
+            await initialize_sre_orchestrator()
+            logger.info("✅ SRE Orchestrator System initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ SRE Orchestrator initialization warning: {e}")
+            logger.info("   SRE endpoints will still work but with limited functionality")
 
         logger.info("✅ App startup completed")
     except Exception as e:
