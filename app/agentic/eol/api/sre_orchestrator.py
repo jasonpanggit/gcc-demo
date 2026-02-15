@@ -357,8 +357,10 @@ async def list_agents():
             {
                 "agent_id": agent["agent_id"],
                 "agent_type": agent["agent_type"],
-                "status": agent["status"],
-                "registered_at": agent["registered_at"],
+                "initialized": agent["initialized"],
+                "healthy": agent["health"]["healthy"],
+                "status": agent["metadata"].get("status", "unknown"),
+                "registered_at": agent["metadata"].get("registered_at", ""),
                 "metadata": agent.get("metadata", {})
             }
             for agent in agents
