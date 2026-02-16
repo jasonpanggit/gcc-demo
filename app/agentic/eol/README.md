@@ -21,6 +21,35 @@ The orchestrator uses a **ReAct (Reasoning + Acting) loop** with Azure OpenAI (G
 
 ### Key Features
 
+### Parameter discovery & interactive selection (SRE)
+
+The SRE orchestrator includes a built-in interactive parameter discovery workflow to handle ambiguous or missing inputs. This improves usability for common operations like health checks, restarts, scaling, and cost analysis.
+
+- Component: `utils/sre_interaction_handler.py` (SREInteractionHandler)
+  - Detects missing parameters with check_required_params(tool_name, params)
+  - Decides whether discovery is needed via needs_resource_discovery(tool_name, params, query)
+  - Performs targeted discovery (resource groups, container apps, VMs, Log Analytics workspaces) using an azure_cli_executor when available
+  - Formats selection prompts via SREResponseFormatter.format_selection_prompt and parses user replies with parse_user_selection
+
+- Component: `utils/sre_response_formatter.py` (SREResponseFormatter)
+  - Converts raw tool outputs and discovery lists into friendly HTML (tables, summaries, next steps)
+  - Selection prompt payload includes options with index, name, and id for quick selection
+
+Usage notes:
+- The orchestrator will automatically attempt discovery and will either auto-select a single match or prompt the user when multiple matches are found.
+- If discovery is not possible (azure_cli_executor missing) the orchestrator returns a needs_user_input payload with a helpful HTML message suggesting how to provide the missing values.
+
+Examples:
+- "Check health of my app" → If ambiguous, the orchestrator lists container apps for selection; user replies "2" → agent proceeds with the selected resource.
+- "Restart api-prod-01" → Orchestrator detects the name and proceeds without a selection prompt when confidence is high.
+
+Debugging tips:
+- If discovery returns empty, verify the Azure CLI executor configuration and that `az` is authenticated (`az account show`).
+- See `utils/sre_interaction_handler.py` and `utils/sre_response_formatter.py` for formatter details and available selection inputs.
+
+
+### Key Features
+
 - **🔍 Intelligent Inventory Discovery**: Real-time software and OS inventory from Azure Log Analytics (Azure Arc enabled)
 - **🤖 Hybrid Orchestrator Architecture**: Central orchestrator with specialized MonitorAgent sub-agent
 - **💬 AI-Powered Chat Interface**: Conversational AI using Azure OpenAI (GPT-4o-mini) with ReAct reasoning loop

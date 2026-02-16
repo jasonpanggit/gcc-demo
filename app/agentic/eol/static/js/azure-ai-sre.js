@@ -57,10 +57,22 @@ async function loadCapabilities() {
 
         if (data.success && data.data) {
             renderCapabilities(data.data);
+        } else {
+            console.warn('Capabilities data not available:', data);
+            showCapabilitiesError('No capabilities data available');
         }
     } catch (error) {
         console.error('Error loading capabilities:', error);
+        showCapabilitiesError(error.message);
     }
+}
+
+/**
+ * Show capabilities error message
+ */
+function showCapabilitiesError(message) {
+    const container = document.getElementById('capabilities-container');
+    container.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>${message}</div>`;
 }
 
 /**
@@ -68,27 +80,53 @@ async function loadCapabilities() {
  */
 function renderCapabilities(data) {
     const container = document.getElementById('capabilities-container');
-    const categories = data.categories;
+    
+    // Validate data structure
+    if (!data || typeof data !== 'object') {
+        console.error('Invalid capabilities data structure:', data);
+        showCapabilitiesError('Invalid capabilities data format');
+        return;
+    }
+
+    const categories = data.categories || data;
+    
+    // Check if categories is an object
+    if (typeof categories !== 'object' || categories === null) {
+        console.error('Categories is not an object:', categories);
+        showCapabilitiesError('Invalid categories format');
+        return;
+    }
 
     let html = '';
 
     for (const [category, capabilities] of Object.entries(categories)) {
         const categoryTitle = category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
+        // Ensure capabilities is an array
+        const capabilitiesArray = Array.isArray(capabilities) ? capabilities : [];
+        
+        if (capabilitiesArray.length === 0) {
+            continue; // Skip empty categories
+        }
+
         html += `
             <div class="capability-category">
                 <h6><i class="fas fa-folder-open me-2"></i>${categoryTitle}</h6>
-                ${capabilities.map(cap => `
+                ${capabilitiesArray.map(cap => `
                     <div class="capability-item">
-                        <strong>${cap.name}</strong><br>
-                        <small>${cap.description}</small>
+                        <strong>${cap.name || 'Unknown'}</strong><br>
+                        <small>${cap.description || 'No description available'}</small>
                     </div>
                 `).join('')}
             </div>
         `;
     }
 
-    container.innerHTML = html;
+    if (html) {
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p class="text-muted">No capabilities available</p>';
+    }
 }
 
 /**
@@ -225,33 +263,130 @@ function sendMessage() {
  */
 function formatSREResponse(data) {
     let html = '';
-
-    if (data.summary) {
-        html += `<div class="mb-3"><strong>Summary:</strong><br>${data.summary}</div>`;
+    
+    const results = data.results || {};
+    const summary = results.summary || {};
+    
+    // Show intent and execution summary
+    if (summary.intent) {
+        const intentIcon = getIntentIcon(summary.intent);
+        html += `<div class="alert alert-info mb-3">
+            <strong><i class="${intentIcon} me-2"></i>Intent: ${summary.intent.toUpperCase()}</strong><br>
+            <small>Tools executed: ${summary.total_tools || 0} | 
+            Success: ${summary.successful || 0} | 
+            Failed: ${summary.failed || 0}${summary.skipped ? ` | Skipped: ${summary.skipped}` : ''}</small>
+        </div>`;
     }
-
-    if (data.results) {
-        html += '<div class="mb-2"><strong>Results:</strong></div>';
-        for (const [key, value] of Object.entries(data.results)) {
-            html += `<div class="ms-3 mb-2">`;
-            html += `<strong>${key}:</strong> `;
-            if (typeof value === 'object') {
-                html += `<pre class="mt-1">${JSON.stringify(value, null, 2)}</pre>`;
-            } else {
-                html += value;
+    
+    // Show helpful message if present
+    if (results.message) {
+        html += `<div class="alert alert-warning mb-3">
+            <i class="fas fa-info-circle me-2"></i>${results.message}
+        </div>`;
+    }
+    
+    // Show successful results
+    if (results.results && results.results.length > 0) {
+        html += '<div class="mb-3"><strong><i class="fas fa-check-circle me-2 text-success"></i>Results:</strong>';
+        results.results.forEach(result => {
+            const tool = result.tool || 'unknown';
+            const status = result.status || 'unknown';
+            html += `<div class="ms-3 mb-2 p-2 border-start border-success" style="border-width: 3px !important;">
+                <strong>${tool}</strong> <span class="badge bg-success">${status}</span><br>
+                <small class="text-muted">Agent: ${result.agent || 'unknown'}</small>`;
+            
+            if (result.result) {
+                html += `<pre class="mt-2 p-2 bg-light rounded" style="font-size: 0.85rem; max-height: 300px; overflow-y: auto;">${JSON.stringify(result.result, null, 2)}</pre>`;
             }
             html += `</div>`;
-        }
-    }
-
-    if (data.recommendations && data.recommendations.length > 0) {
-        html += '<div class="mt-3"><strong>Recommendations:</strong><ul class="mt-2">';
-        data.recommendations.forEach(rec => {
-            html += `<li>${rec}</li>`;
         });
-        html += '</ul></div>';
+        html += '</div>';
     }
-
-    return html || 'Request completed successfully';
+    
+    // Show skipped tools with helpful context
+    if (results.skipped && results.skipped.length > 0) {
+        html += '<div class="mb-3"><strong><i class="fas fa-forward me-2 text-warning"></i>Skipped Tools:</strong>';
+        html += '<div class="ms-3"><small class="text-muted">These tools were not executed because required parameters were not provided.</small></div>';
+        results.skipped.forEach(result => {
+            const tool = result.tool || 'unknown';
+            html += `<div class="ms-3 mb-2 p-2 border-start border-warning" style="border-width: 3px !important;">
+                <strong>${tool}</strong> <span class="badge bg-warning text-dark">skipped</span><br>
+                <small class="text-muted">${result.result?.message || 'Parameters required'}</small>
+            </div>`;
+        });
+        html += '</div>';
+    }
+    
+    // Show errors
+    if (results.errors && results.errors.length > 0) {
+        html += '<div class="mb-3"><strong><i class="fas fa-exclamation-triangle me-2 text-danger"></i>Errors:</strong>';
+        results.errors.forEach(error => {
+            const tool = error.tool || 'unknown';
+            html += `<div class="ms-3 mb-2 p-2 border-start border-danger" style="border-width: 3px !important;">
+                <strong>${tool}</strong> <span class="badge bg-danger">error</span><br>
+                <small class="text-danger">${error.error || 'Unknown error'}</small>
+            </div>`;
+        });
+        html += '</div>';
+    }
+    
+    // Show category-specific summaries
+    if (results.health_summary) {
+        const hs = results.health_summary;
+        html += `<div class="alert alert-light mb-3">
+            <strong><i class="fas fa-heartbeat me-2"></i>Health Summary:</strong><br>
+            <div class="row mt-2">
+                <div class="col-4 text-center">
+                    <div class="text-success" style="font-size: 1.5rem;">${hs.healthy_resources || 0}</div>
+                    <small class="text-muted">Healthy</small>
+                </div>
+                <div class="col-4 text-center">
+                    <div class="text-danger" style="font-size: 1.5rem;">${hs.unhealthy_resources || 0}</div>
+                    <small class="text-muted">Unhealthy</small>
+                </div>
+                <div class="col-4 text-center">
+                    <div class="text-primary" style="font-size: 1.5rem;">${hs.total_checked || 0}</div>
+                    <small class="text-muted">Total Checked</small>
+                </div>
+            </div>
+        </div>`;
+    }
+    
+    if (results.cost_summary) {
+        const cs = results.cost_summary;
+        html += `<div class="alert alert-light mb-3">
+            <strong><i class="fas fa-dollar-sign me-2"></i>Cost Summary:</strong><br>
+            <pre class="mt-2">${JSON.stringify(cs, null, 2)}</pre>
+        </div>`;
+    }
+    
+    if (results.performance_summary) {
+        const ps = results.performance_summary;
+        html += `<div class="alert alert-light mb-3">
+            <strong><i class="fas fa-chart-line me-2"></i>Performance Summary:</strong><br>
+            <pre class="mt-2">${JSON.stringify(ps, null, 2)}</pre>
+        </div>`;
+    }
+    
+    return html || '<div class="text-muted">Request completed successfully</div>';
 }
+
+/**
+ * Get icon for intent category
+ */
+function getIntentIcon(intent) {
+    const icons = {
+        'health': 'fas fa-heartbeat',
+        'incident': 'fas fa-exclamation-triangle',
+        'performance': 'fas fa-chart-line',
+        'cost': 'fas fa-dollar-sign',
+        'slo': 'fas fa-chart-bar',
+        'security': 'fas fa-shield-alt',
+        'remediation': 'fas fa-wrench',
+        'config': 'fas fa-cog',
+        'general': 'fas fa-info-circle'
+    };
+    return icons[intent] || 'fas fa-info-circle';
+}
+
 

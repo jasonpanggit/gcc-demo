@@ -18,12 +18,28 @@ try:
     from app.agentic.eol.utils.agent_context_store import get_context_store
     from app.agentic.eol.utils.agent_message_bus import get_message_bus
     from app.agentic.eol.utils.logger import get_logger
+    from app.agentic.eol.utils.sre_response_formatter import (
+        SREResponseFormatter,
+        format_tool_result,
+    )
+    from app.agentic.eol.utils.sre_interaction_handler import (
+        SREInteractionHandler,
+        get_interaction_handler,
+    )
 except ModuleNotFoundError:
     from agents.base_sre_agent import BaseSREAgent, AgentExecutionError
     from utils.agent_registry import get_agent_registry
     from utils.agent_context_store import get_context_store
     from utils.agent_message_bus import get_message_bus
     from utils.logger import get_logger
+    from utils.sre_response_formatter import (
+        SREResponseFormatter,
+        format_tool_result,
+    )
+    from utils.sre_interaction_handler import (
+        SREInteractionHandler,
+        get_interaction_handler,
+    )
 
 
 logger = get_logger(__name__)
@@ -63,6 +79,10 @@ class SREOrchestratorAgent(BaseSREAgent):
         self.message_bus = get_message_bus()
         self._context_store = None
 
+        # User interaction and response formatting
+        self.formatter = SREResponseFormatter()
+        self.interaction_handler = None  # Initialized in _initialize_impl
+
         # Intent patterns for routing
         self._intent_patterns = self._build_intent_patterns()
 
@@ -70,6 +90,11 @@ class SREOrchestratorAgent(BaseSREAgent):
         """Initialize orchestrator-specific resources."""
         # Initialize context store
         self._context_store = await get_context_store()
+
+        # Initialize interaction handler with Azure CLI executor
+        self.interaction_handler = get_interaction_handler(
+            azure_cli_executor=self._execute_azure_cli
+        )
 
         # Subscribe to message bus
         await self.message_bus.subscribe(
@@ -222,10 +247,16 @@ class SREOrchestratorAgent(BaseSREAgent):
                     "metadata": {
                         "status": "completed",
                         "intent": intent_category,
-                        "tools_executed": len(results)
+                        "tools_executed": len(results),
+                        "user_interaction_required": aggregated.get("user_interaction_required", False)
                     }
                 }
             )
+
+        # Format response if successful results exist
+        if aggregated.get("results") and not aggregated.get("user_interaction_required"):
+            formatted_html = self.format_response(aggregated, intent_category)
+            aggregated["formatted_response"] = formatted_html
 
         return {
             "workflow_id": workflow_id,
@@ -339,10 +370,40 @@ class SREOrchestratorAgent(BaseSREAgent):
                 "error": f"Agent {agent_id} not available"
             }
 
+        # Prepare tool parameters
+        parameters = await self._prepare_tool_parameters(
+            tool_name,
+            tool_info,
+            request
+        )
+
+        # Check if user input is needed
+        if isinstance(parameters, dict) and parameters.get("status") == "needs_user_input":
+            logger.info(f"Tool {tool_name} requires user input")
+            return {
+                "tool": tool_name,
+                "agent": agent_id,
+                "status": "needs_user_input",
+                "result": parameters
+            }
+
+        # Skip tool if required parameters cannot be satisfied
+        if parameters is None:
+            logger.info(f"Skipping {tool_name} - required parameters not available")
+            return {
+                "tool": tool_name,
+                "agent": agent_id,
+                "status": "skipped",
+                "result": {
+                    "success": False,
+                    "message": "Tool requires parameters that are not available in current context"
+                }
+            }
+
         # Execute tool via agent
         tool_result = await agent.handle_request({
             "tool": tool_name,
-            "parameters": request.get("parameters", {}),
+            "parameters": parameters,
             **request
         })
 
@@ -362,6 +423,150 @@ class SREOrchestratorAgent(BaseSREAgent):
             "result": tool_result.get("result", tool_result)
         }
 
+    async def _prepare_tool_parameters(
+        self,
+        tool_name: str,
+        tool_info: Dict[str, Any],
+        request: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Prepare parameters for tool execution.
+
+        Merges parameters from:
+        1. Request parameters
+        2. Request context
+        3. Environment defaults
+        4. Discovers resources if needed
+        5. Prompts user for ambiguous selections
+
+        Args:
+            tool_name: Name of the tool
+            tool_info: Tool metadata from registry
+            request: Original request
+
+        Returns:
+            Parameters dict, None if unavailable, or dict with "needs_user_input" status
+        """
+        import os
+
+        # Start with request parameters
+        parameters = dict(request.get("parameters", {}))
+
+        # Merge context parameters
+        context = request.get("context", {})
+        parameters.update({
+            k: v for k, v in context.items()
+            if k not in parameters and v is not None
+        })
+
+        # Apply environment defaults
+        if "subscription_id" not in parameters:
+            sub_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+            if sub_id:
+                parameters["subscription_id"] = sub_id
+
+        if "workspace_id" not in parameters:
+            ws_id = os.environ.get("LOG_ANALYTICS_WORKSPACE_ID")
+            if ws_id:
+                parameters["workspace_id"] = ws_id
+
+        # Check for ambiguous parameters and handle user interaction
+        query = request.get("query", "")
+        if query and self.interaction_handler:
+            ambiguity_check = await self._check_and_handle_ambiguous_params(
+                tool_name,
+                parameters,
+                query
+            )
+
+            if ambiguity_check:
+                # Check if resource was auto-selected
+                if ambiguity_check.get("auto_selected"):
+                    resource = ambiguity_check.get("resource", {})
+                    # Update parameters with auto-selected resource
+                    if resource.get("id"):
+                        parameters["resource_id"] = resource["id"]
+                    if resource.get("name"):
+                        parameters["resource_name"] = resource["name"]
+                    if resource.get("resource_group"):
+                        parameters["resource_group"] = resource["resource_group"]
+                    logger.info(f"Auto-selected resource: {resource.get('name')}")
+                else:
+                    # User input needed - return special status
+                    return ambiguity_check
+
+        # Tool-specific parameter preparation
+        tool_def = tool_info.get("definition", {}).get("function", {})
+        required_params = self._get_required_parameters(tool_def)
+
+        # For health check tools, try to discover resources if resource_id not provided
+        if tool_name in ["check_resource_health", "check_container_app_health", "check_aks_cluster_health"]:
+            if "resource_id" not in parameters:
+                # Try to discover resources
+                discovered = await self._discover_resources_for_tool(tool_name, parameters)
+                if discovered:
+                    # Use first discovered resource
+                    parameters["resource_id"] = discovered[0]
+                    logger.info(f"Discovered resource for {tool_name}: {discovered[0]}")
+                else:
+                    # Cannot execute without resource_id
+                    logger.info(f"Cannot execute {tool_name} - no resource_id and discovery failed")
+                    return None
+
+        # Check if all required parameters are present
+        missing = [p for p in required_params if p not in parameters]
+        if missing:
+            logger.info(f"Tool {tool_name} missing required params: {missing}")
+            return None
+
+        return parameters
+    
+    def _get_required_parameters(self, tool_def: Dict[str, Any]) -> List[str]:
+        """Extract required parameters from tool definition.
+        
+        Args:
+            tool_def: Tool function definition
+            
+        Returns:
+            List of required parameter names
+        """
+        parameters = tool_def.get("parameters", {})
+        if not parameters:
+            return []
+            
+        properties = parameters.get("properties", {})
+        required = parameters.get("required", [])
+        
+        return required
+    
+    async def _discover_resources_for_tool(
+        self,
+        tool_name: str,
+        parameters: Dict[str, Any]
+    ) -> List[str]:
+        """Discover resources for a tool.
+        
+        Args:
+            tool_name: Name of the tool
+            parameters: Current parameters
+            
+        Returns:
+            List of discovered resource IDs
+        """
+        # Map tools to resource discovery methods
+        discovery_map = {
+            "check_container_app_health": ("list", "Microsoft.App/containerApps"),
+            "check_aks_cluster_health": ("list", "Microsoft.ContainerService/managedClusters"),
+            "check_resource_health": ("list", "*")  # Generic resources
+        }
+        
+        if tool_name not in discovery_map:
+            return []
+        
+        # For now, return empty list - resource discovery will be enhanced in next phase
+        # This allows the orchestrator to skip tools that need specific resources
+        logger.info(f"Resource discovery for {tool_name} - not yet implemented")
+        return []
+
     def _aggregate_results(
         self,
         results: List[Dict[str, Any]],
@@ -374,7 +579,7 @@ class SREOrchestratorAgent(BaseSREAgent):
             intent_category: Intent category
 
         Returns:
-            Aggregated results
+            Aggregated results with user-friendly formatting
         """
         successful_results = [
             r for r in results
@@ -386,19 +591,53 @@ class SREOrchestratorAgent(BaseSREAgent):
             if r.get("status") in ["error", "not_found"]
         ]
 
+        skipped_results = [
+            r for r in results
+            if r.get("status") == "skipped"
+        ]
+
+        needs_input_results = [
+            r for r in results
+            if r.get("status") == "needs_user_input"
+        ]
+
         # Build aggregated response
         aggregated = {
             "summary": {
                 "total_tools": len(results),
                 "successful": len(successful_results),
                 "failed": len(failed_results),
+                "skipped": len(skipped_results),
+                "needs_input": len(needs_input_results),
                 "intent": intent_category
             },
             "results": successful_results,
-            "errors": failed_results if failed_results else None
+            "errors": failed_results if failed_results else None,
+            "skipped": skipped_results if skipped_results else None,
+            "needs_input": needs_input_results if needs_input_results else None,
         }
 
-        # Add category-specific aggregation
+        # If user input is needed, prioritize that in the response
+        if needs_input_results:
+            # Return first user input request
+            first_input_request = needs_input_results[0].get("result", {})
+            aggregated["user_interaction_required"] = True
+            aggregated["interaction_data"] = first_input_request
+            aggregated["message"] = first_input_request.get("message", "User input required")
+            return aggregated
+
+        # Add helpful message if all tools were skipped
+        if len(skipped_results) == len(results) and intent_category == "health":
+            aggregated["message"] = self.formatter.format_error_message(
+                "Health check tools require specific resource information.",
+                suggestions=[
+                    "Provide a resource name: 'Check health of container app my-app'",
+                    "Specify a resource group: 'Check health in resource-group prod-rg'",
+                    "List available resources first: 'List all container apps'"
+                ]
+            )
+
+        # Add category-specific aggregation with friendly formatting
         if intent_category == "health":
             aggregated["health_summary"] = self._summarize_health(successful_results)
         elif intent_category == "cost":
@@ -556,3 +795,248 @@ class SREOrchestratorAgent(BaseSREAgent):
             capabilities["tools_by_category"][category] = list(set(category_tools))
 
         return capabilities
+
+    async def _execute_azure_cli(self, command: str) -> Dict[str, Any]:
+        """Execute Azure CLI command via the azure_cli tool.
+
+        Args:
+            command: Azure CLI command to execute
+
+        Returns:
+            Command execution result
+        """
+        try:
+            # Get the Azure CLI tool from registry
+            cli_tool = self.registry.get_tool("azure_cli_execute_command")
+
+            if not cli_tool:
+                logger.error("Azure CLI tool not found in registry")
+                return {
+                    "status": "error",
+                    "error": "Azure CLI tool not available"
+                }
+
+            agent_id = cli_tool["agent_id"]
+            agent = self.registry.get_agent(agent_id)
+
+            if not agent:
+                logger.error(f"Agent {agent_id} not found")
+                return {
+                    "status": "error",
+                    "error": f"Agent {agent_id} not available"
+                }
+
+            # Execute command
+            result = await agent.handle_request({
+                "tool": "azure_cli_execute_command",
+                "parameters": {"command": command}
+            })
+
+            return result
+
+        except Exception as exc:
+            logger.error(f"Azure CLI execution failed: {exc}")
+            return {
+                "status": "error",
+                "error": str(exc)
+            }
+
+    async def _check_and_handle_ambiguous_params(
+        self,
+        tool_name: str,
+        parameters: Dict[str, Any],
+        query: str
+    ) -> Optional[Dict[str, Any]]:
+        """Check if parameters are ambiguous and prompt user for selection.
+
+        Args:
+            tool_name: Name of the tool
+            parameters: Current parameters
+            query: Original user query
+
+        Returns:
+            Selection prompt dict or None if no ambiguity
+        """
+        if not self.interaction_handler:
+            return None
+
+        # Check if required parameters are missing
+        missing_check = self.interaction_handler.check_required_params(
+            tool_name,
+            parameters
+        )
+
+        if missing_check:
+            # Need to discover resources
+            resource_type = self.interaction_handler.needs_resource_discovery(
+                tool_name,
+                parameters,
+                query
+            )
+
+            if resource_type:
+                # Discover resources
+                resources = await self._discover_resources_by_type(
+                    resource_type,
+                    parameters
+                )
+
+                if resources:
+                    # Multiple resources found - prompt user to select
+                    if len(resources) > 1:
+                        return self.interaction_handler.format_selection_prompt(
+                            resources,
+                            self._get_resource_type_label(resource_type),
+                            action="use for this operation"
+                        )
+                    # Single resource found - use it automatically
+                    elif len(resources) == 1:
+                        await self._stream_event("info", {
+                            "message": f"Found {self._get_resource_type_label(resource_type)}: {resources[0].get('name')}"
+                        })
+                        return {
+                            "auto_selected": True,
+                            "resource": resources[0]
+                        }
+
+            # Return missing params message
+            return missing_check
+
+        return None
+
+    async def _discover_resources_by_type(
+        self,
+        resource_type: str,
+        context: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Discover resources by type.
+
+        Args:
+            resource_type: Type of resource to discover
+            context: Context parameters (resource_group, subscription, etc.)
+
+        Returns:
+            List of discovered resources
+        """
+        if not self.interaction_handler:
+            return []
+
+        resource_group = context.get("resource_group")
+        name_filter = context.get("name_filter")
+
+        try:
+            if resource_type == "container_app":
+                return await self.interaction_handler.discover_container_apps(
+                    resource_group, name_filter
+                )
+            elif resource_type == "vm":
+                return await self.interaction_handler.discover_virtual_machines(
+                    resource_group, name_filter
+                )
+            elif resource_type == "resource_group":
+                subscription_id = context.get("subscription_id")
+                return await self.interaction_handler.discover_resource_groups(
+                    subscription_id
+                )
+            elif resource_type == "workspace":
+                return await self.interaction_handler.discover_log_analytics_workspaces(
+                    resource_group
+                )
+            else:
+                logger.warning(f"Unknown resource type for discovery: {resource_type}")
+                return []
+
+        except Exception as exc:
+            logger.error(f"Resource discovery failed for {resource_type}: {exc}")
+            return []
+
+    def _get_resource_type_label(self, resource_type: str) -> str:
+        """Get user-friendly label for a resource type.
+
+        Args:
+            resource_type: Resource type key
+
+        Returns:
+            Human-readable label
+        """
+        labels = {
+            "container_app": "Container App",
+            "vm": "Virtual Machine",
+            "resource_group": "Resource Group",
+            "workspace": "Log Analytics Workspace",
+        }
+        return labels.get(resource_type, resource_type.replace("_", " ").title())
+
+    def format_response(
+        self,
+        aggregated_results: Dict[str, Any],
+        intent_category: str
+    ) -> str:
+        """Format aggregated results into user-friendly HTML.
+
+        Args:
+            aggregated_results: Aggregated tool results
+            intent_category: Intent category
+
+        Returns:
+            HTML-formatted response
+        """
+        html_parts = []
+
+        # Add summary header
+        summary = aggregated_results.get("summary", {})
+        successful = summary.get("successful", 0)
+        total = summary.get("total_tools", 0)
+
+        if successful > 0:
+            html_parts.append(
+                f"<h3>✅ Operation Complete</h3>"
+                f"<p>Successfully executed {successful} out of {total} operations.</p>"
+            )
+        else:
+            html_parts.append(
+                f"<h3>ℹ️ Results</h3>"
+                f"<p>Processed {total} operation(s).</p>"
+            )
+
+        # Format individual results
+        results = aggregated_results.get("results", [])
+        for result in results:
+            tool_name = result.get("tool", "Unknown Tool")
+            tool_result = result.get("result", {})
+
+            html_parts.append(f"<hr>")
+            formatted = format_tool_result(tool_name, tool_result)
+            html_parts.append(formatted)
+
+        # Add category-specific summaries
+        if intent_category == "health":
+            health_summary = aggregated_results.get("health_summary", {})
+            if health_summary:
+                html_parts.append("<hr>")
+                html_parts.append(
+                    f"<h4>📊 Health Summary</h4>"
+                    f"<p><strong>Healthy Resources:</strong> {health_summary.get('healthy_resources', 0)}</p>"
+                    f"<p><strong>Unhealthy Resources:</strong> {health_summary.get('unhealthy_resources', 0)}</p>"
+                )
+
+        elif intent_category == "cost":
+            cost_summary = aggregated_results.get("cost_summary", {})
+            if cost_summary:
+                html_parts.append("<hr>")
+                html_parts.append(
+                    f"<h4>💰 Cost Summary</h4>"
+                    f"<p><strong>Potential Savings:</strong> {cost_summary.get('potential_savings', '$0.00')}</p>"
+                    f"<p><strong>Orphaned Resources:</strong> {cost_summary.get('orphaned_resources', 0)}</p>"
+                )
+
+        # Add helpful message if all tools were skipped
+        message = aggregated_results.get("message")
+        if message:
+            html_parts.append(
+                f"<div class='alert alert-info'>"
+                f"<p><strong>💡 Tip:</strong> {message}</p>"
+                f"</div>"
+            )
+
+        return "\n".join(html_parts)

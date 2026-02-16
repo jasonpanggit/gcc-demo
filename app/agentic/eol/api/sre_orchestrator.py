@@ -139,7 +139,7 @@ async def execute_sre_request(request: SREExecuteRequest):
         request: SRE execution request with query and optional context
 
     Returns:
-        StandardResponse with execution results
+        StandardResponse with execution results (may include user interaction prompts)
 
     Raises:
         HTTPException: If execution fails
@@ -171,9 +171,45 @@ async def execute_sre_request(request: SREExecuteRequest):
                 detail=result.get("error", "Unknown error")
             )
 
+        # Extract results
+        results_data = result.get("results", {})
+
+        # Check if user interaction is required
+        if results_data.get("user_interaction_required"):
+            interaction_data = results_data.get("interaction_data", {})
+
+            # Return user interaction prompt
+            return StandardResponse(
+                success=True,
+                data={
+                    "interaction_required": True,
+                    "interaction_type": interaction_data.get("selection_type", "input"),
+                    "message": interaction_data.get("message", "User input required"),
+                    "options": interaction_data.get("options", []),
+                    "workflow_id": result.get("workflow_id")
+                },
+                message="User interaction required to complete operation"
+            )
+
+        # Check if formatted response exists
+        formatted_response = results_data.get("formatted_response")
+        if formatted_response:
+            # Return formatted HTML response
+            return StandardResponse(
+                success=True,
+                data={
+                    "formatted_html": formatted_response,
+                    "raw_results": results_data.get("results", []),
+                    "summary": results_data.get("summary", {}),
+                    "workflow_id": result.get("workflow_id")
+                },
+                message=f"Successfully processed query: {request.query[:50]}..."
+            )
+
+        # Return raw results if no formatting
         return StandardResponse(
             success=True,
-            data=result,
+            data=results_data,
             message=f"Successfully processed query"
         )
 
@@ -211,6 +247,29 @@ async def get_capabilities():
         await orchestrator.initialize()
 
         capabilities = orchestrator.get_capabilities()
+        
+        # Transform tools_by_category into the format expected by frontend
+        # Convert tool name strings to objects with name and description
+        registry = get_agent_registry()
+        all_tools = {tool["name"]: tool for tool in registry.list_tools()}
+        
+        formatted_categories = {}
+        for category, tool_names in capabilities.get("tools_by_category", {}).items():
+            formatted_categories[category] = []
+            for tool_name in tool_names:
+                tool_info = all_tools.get(tool_name, {})
+                tool_def = tool_info.get("definition", {})
+                func_info = tool_def.get("function", {})
+                formatted_categories[category].append({
+                    "name": tool_name,
+                    "description": func_info.get("description", "No description available"),
+                    "agent_id": tool_info.get("agent_id", "unknown")
+                })
+        
+        # Update capabilities with formatted categories
+        capabilities["categories"] = formatted_categories
+        # Remove tools_by_category as it's now included in categories
+        capabilities.pop("tools_by_category", None)
 
         return StandardResponse(
             success=True,
