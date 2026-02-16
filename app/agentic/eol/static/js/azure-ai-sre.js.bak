@@ -255,3 +255,9 @@ function formatSREResponse(data) {
     return html || 'Request completed successfully';
 }
 
+        // Re-enable input
+        input.disabled = false;
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+    });
+}
