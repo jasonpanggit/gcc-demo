@@ -46,13 +46,23 @@ class InventoryAssistantConfig:
     default_timeout: int = 150
 
 
+@dataclass
+class AzureAISREConfig:
+    """Azure AI SRE Agent configuration"""
+    agent_name: str
+    agent_id: Optional[str]
+    project_endpoint: Optional[str]
+    enabled: bool
+
+
 class ConfigManager:
     """Centralized configuration manager"""
-    
+
     def __init__(self):
         self._azure_config: Optional[AzureConfig] = None
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
+        self._azure_ai_sre_config: Optional[AzureAISREConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
     def _load_appsettings(self) -> Dict[str, Any]:
@@ -140,7 +150,19 @@ class ConfigManager:
                 default_timeout=int(str(default_timeout)),
             )
         return self._inventory_asst_config
-    
+
+    @property
+    def azure_ai_sre(self) -> AzureAISREConfig:
+        """Get Azure AI SRE agent configuration"""
+        if self._azure_ai_sre_config is None:
+            self._azure_ai_sre_config = AzureAISREConfig(
+                agent_name=os.getenv("AZURE_AI_SRE_AGENT_NAME", "gccsreagent"),
+                agent_id=os.getenv("AZURE_AI_SRE_AGENT_ID"),
+                project_endpoint=os.getenv("AZURE_AI_PROJECT_ENDPOINT"),
+                enabled=os.getenv("AZURE_AI_SRE_ENABLED", "true").lower() == "true"
+            )
+        return self._azure_ai_sre_config
+
     def validate_config(self) -> Dict[str, Any]:
         """
         Validate configuration and return status

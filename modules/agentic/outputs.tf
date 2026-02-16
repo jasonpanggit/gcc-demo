@@ -155,3 +155,17 @@ output "azure_ai_foundry_id" {
   description = "Azure AI Foundry service resource ID"
   value       = var.deploy_agentic_app && var.deploy_azure_ai_agent ? azurerm_cognitive_account.ai_foundry[0].id : null
 }
+
+# ============================================================================
+# AZURE AI SRE AGENT OUTPUTS
+# ============================================================================
+
+output "azure_ai_sre_agent_name" {
+  description = "Azure AI SRE agent name (gccsreagent)"
+  value       = var.azure_ai_sre_agent_name
+}
+
+output "azure_ai_sre_agent_id" {
+  description = "Azure AI SRE agent resource ID"
+  value       = var.azure_ai_sre_agent_id
+}

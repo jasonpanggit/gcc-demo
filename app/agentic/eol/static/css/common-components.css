@@ -68,19 +68,19 @@
 }
 
 /* Responsive hero */
-/* @media (max-width: 100%) {
+@media (max-width: 768px) {
     .hero-section {
         padding: var(--spacing-xl) 0;
     }
-    
+
     .hero-title {
         font-size: var(--font-size-2xl);
     }
-    
+
     .hero-subtitle {
         font-size: var(--font-size-base);
     }
-} */
+}
 
 /* ============================================================
    MODERN CARDS

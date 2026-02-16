@@ -1,6 +1,7 @@
 {
   "auto_triage_enabled": true,
   "safe_remediation_enabled": true,
+  "allow_real_remediation": false,
   "teams_notification_channels": {
     "critical": "https://outlook.office.com/webhook/...",
     "warning": "https://outlook.office.com/webhook/...",
@@ -10,14 +11,22 @@
     "restart",
     "scale",
     "remediation",
-    "clear_cache"
+    "clear_cache",
+    "execute_restart_resource",
+    "execute_scale_resource",
+    "execute_clear_redis_cache",
+    "execute_automation_runbook"
   ],
   "log_retention_hours": 24,
   "performance_thresholds": {
     "cpu_percent_high": 80,
     "cpu_percent_critical": 95,
     "memory_percent_high": 80,
-    "memory_percent_critical": 95
+    "memory_percent_critical": 95,
+    "disk_percent_high": 85,
+    "disk_percent_critical": 95,
+    "network_latency_ms_high": 200,
+    "network_latency_ms_critical": 500
   },
   "incident_severity_mapping": {
     "Unavailable": "critical",
@@ -28,5 +37,36 @@
   "default_analysis_hours": 24,
   "max_affected_resources_display": 10,
   "enable_automatic_notifications": true,
-  "notification_rate_limit_seconds": 300
+  "notification_rate_limit_seconds": 300,
+  "slo_defaults": {
+    "default_window_days": 30,
+    "default_availability_target": 99.9,
+    "default_latency_p99_target_ms": 500,
+    "default_error_rate_target": 0.1,
+    "burn_rate_alert_threshold": 2.0
+  },
+  "cost_optimization": {
+    "orphaned_resource_types": [
+      "Microsoft.Compute/disks",
+      "Microsoft.Network/publicIPAddresses",
+      "Microsoft.Network/networkSecurityGroups",
+      "Microsoft.Network/networkInterfaces",
+      "Microsoft.Network/loadBalancers"
+    ],
+    "cost_anomaly_sensitivity": "medium",
+    "default_cost_lookback_days": 30
+  },
+  "anomaly_detection": {
+    "z_score_threshold": 3.0,
+    "iqr_multiplier": 1.5,
+    "minimum_data_points": 10,
+    "default_lookback_hours": 168
+  },
+  "cache_ttl_profiles": {
+    "real_time": 60,
+    "short": 300,
+    "medium": 1800,
+    "long": 3600,
+    "daily": 86400
+  }
 }

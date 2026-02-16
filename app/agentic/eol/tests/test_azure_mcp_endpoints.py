@@ -34,6 +34,10 @@ class DummyMCPClient:
     def get_available_tools(self) -> List[Dict[str, Any]]:
         return list(self._tools)
 
+    def get_auth_mode(self) -> str:
+        """Return mock authentication mode."""
+        return "DefaultAzureCredential"
+
     async def list_resource_groups(self) -> Dict[str, Any]:
         return self.resource_groups_result
 

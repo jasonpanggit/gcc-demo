@@ -375,8 +375,11 @@ resource "azurerm_linux_web_app" "app" {
     # Azure AI Agent Service settings (Modern replacement for Bing Search)
     AZURE_AI_PROJECT_ENDPOINT = try(azurerm_cognitive_account.ai_foundry[0].endpoint, "")
     AZURE_AI_PROJECT_NAME     = try(azurerm_cognitive_account.ai_foundry[0].name, "")
+    # Azure AI SRE Agent settings (existing gccsreagent)
+    AZURE_AI_SRE_AGENT_NAME = var.azure_ai_sre_agent_name != null ? var.azure_ai_sre_agent_name : ""
+    AZURE_AI_SRE_AGENT_ID   = var.azure_ai_sre_agent_id != null ? var.azure_ai_sre_agent_id : ""
   # Deprecated services removed: Azure AI Search
-    # Log Analytics workspace for software inventory  
+    # Log Analytics workspace for software inventory
     LOG_ANALYTICS_WORKSPACE_ID          = var.workspace_guid
     LOG_ANALYTICS_WORKSPACE_RESOURCE_ID = var.workspace_resource_id
     # Azure resource information for portal links

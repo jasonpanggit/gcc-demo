@@ -281,7 +281,7 @@ COSMOS_KEY=your-cosmos-key
 COSMOS_DATABASE_NAME=eol-agentic                  # Default database name
 COSMOS_CONTAINER_NAME=communications              # Default container name
 
-# Azure SRE Agent Configuration
+# SRE MCP Server Configuration
 SRE_ENABLED=true                                   # Enable/disable SRE MCP server
 SUBSCRIPTION_ID=your-subscription-id               # Required for SRE operations
 TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/...  # Primary Teams channel

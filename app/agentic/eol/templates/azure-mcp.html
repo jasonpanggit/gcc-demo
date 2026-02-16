@@ -881,7 +881,7 @@
         os_eol: 'Operating System EOL',
         azure_cli: 'Azure CLI Executor',
         monitor: 'Azure Monitor Community Resources',
-        sre: 'Azure SRE Agent',
+        sre: 'SRE MCP Server',
         microsoft_learn: 'Microsoft Learn',
     };
 
@@ -1034,12 +1034,12 @@
             ]
         },
         // ======================================================================
-        // Azure SRE Agent
+        // SRE MCP Server
         // ======================================================================
         {
             slug: 'sre-capabilities',
             display_name: 'Azure SRE · Capabilities',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'describe_capabilities',
             description: 'Get comprehensive overview of SRE Agent capabilities and features.',
             operations: [
@@ -1057,7 +1057,7 @@
         {
             slug: 'sre-prompt-examples',
             display_name: 'Azure SRE · Prompt examples',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'get_prompt_examples',
             description: 'Get example prompts for specific Azure service categories.',
             operations: [
@@ -1076,7 +1076,7 @@
         {
             slug: 'sre-query-app-service',
             display_name: 'Azure SRE · Query App Service',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'query_app_service_configuration',
             description: 'Query App Service configuration across multiple web apps with filtering.',
             operations: [
@@ -1097,7 +1097,7 @@
         {
             slug: 'sre-query-container-apps',
             display_name: 'Azure SRE · Query Container Apps',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'query_container_app_configuration',
             description: 'Query Container Apps configuration with filtering by Dapr, ingress, autoscaling.',
             operations: [
@@ -1118,7 +1118,7 @@
         {
             slug: 'sre-query-aks',
             display_name: 'Azure SRE · Query AKS',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'query_aks_configuration',
             description: 'Query AKS cluster configuration with filtering by K8s version, autoscaling, RBAC.',
             operations: [
@@ -1137,7 +1137,7 @@
         {
             slug: 'sre-query-apim',
             display_name: 'Azure SRE · Query APIM',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'query_apim_configuration',
             description: 'Query API Management configuration with filtering by SKU, VNet, managed identity.',
             operations: [
@@ -1155,7 +1155,7 @@
         {
             slug: 'sre-check-resource-health',
             display_name: 'Azure SRE · Check resource health',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'check_resource_health',
             description: 'Check health status of an Azure resource using Resource Health API.',
             operations: [
@@ -1171,7 +1171,7 @@
         {
             slug: 'sre-check-container-app',
             display_name: 'Azure SRE · Check Container App',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'check_container_app_health',
             description: 'Check Container App health with replica status and ingress configuration.',
             operations: [
@@ -1188,7 +1188,7 @@
         {
             slug: 'sre-check-aks-cluster',
             display_name: 'Azure SRE · Check AKS Cluster',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'check_aks_cluster_health',
             description: 'Check AKS cluster health with node and pod status analysis.',
             operations: [
@@ -1205,7 +1205,7 @@
         {
             slug: 'sre-diagnose-app-service',
             display_name: 'Azure SRE · Diagnose App Service',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'diagnose_app_service',
             description: 'Comprehensive App Service diagnostics including deployment logs and HTTP errors.',
             operations: [
@@ -1225,7 +1225,7 @@
         {
             slug: 'sre-diagnose-apim',
             display_name: 'Azure SRE · Diagnose APIM',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'diagnose_apim',
             description: 'Comprehensive APIM diagnostics including backend health and policy validation.',
             operations: [
@@ -1246,7 +1246,7 @@
         {
             slug: 'sre-triage-incident',
             display_name: 'Azure SRE · Triage incident',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'triage_incident',
             description: 'Analyze an incident with log correlation and root cause investigation.',
             operations: [
@@ -1264,7 +1264,7 @@
         {
             slug: 'sre-get-diagnostic-logs',
             display_name: 'Azure SRE · Get diagnostic logs',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'get_diagnostic_logs',
             description: 'Retrieve diagnostic logs from Log Analytics for a resource.',
             operations: [
@@ -1281,7 +1281,7 @@
         {
             slug: 'sre-get-performance-metrics',
             display_name: 'Azure SRE · Get performance metrics',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'get_performance_metrics',
             description: 'Retrieve performance metrics (CPU, memory, requests) for a resource.',
             operations: [
@@ -1298,7 +1298,7 @@
         {
             slug: 'sre-identify-bottlenecks',
             display_name: 'Azure SRE · Identify bottlenecks',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'identify_bottlenecks',
             description: 'Analyze performance metrics to identify resource bottlenecks.',
             operations: [
@@ -1314,7 +1314,7 @@
         {
             slug: 'sre-search-logs-by-error',
             display_name: 'Azure SRE · Search logs by error',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'search_logs_by_error',
             description: 'Search diagnostic logs for specific error messages.',
             operations: [
@@ -1331,7 +1331,7 @@
         {
             slug: 'sre-plan-remediation',
             display_name: 'Azure SRE · Plan remediation',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'plan_remediation',
             description: 'Generate a remediation plan for resource issues.',
             operations: [
@@ -1347,7 +1347,7 @@
         {
             slug: 'sre-send-teams-alert',
             display_name: 'Azure SRE · Send Teams alert',
-            category: 'Azure SRE Agent',
+            category: 'SRE MCP Server',
             namespace: 'send_teams_alert',
             description: 'Send a critical incident alert to Microsoft Teams channel.',
             operations: [
@@ -3012,6 +3012,49 @@
     .chat-html-content {
         white-space: normal;
         overflow-x: auto;
+    }
+
+    /* Reduced font sizes for headers in orchestrator responses */
+    .chat-html-content h1 {
+        font-size: 1.5rem;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .chat-html-content h2 {
+        font-size: 1.25rem;
+        margin-top: 0.875rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .chat-html-content h3 {
+        font-size: 1.1rem;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .chat-html-content h4 {
+        font-size: 1rem;
+        margin-top: 0.625rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .chat-html-content h5 {
+        font-size: 0.95rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .chat-html-content h6 {
+        font-size: 0.875rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
     }
 
     .chat-html-content table {

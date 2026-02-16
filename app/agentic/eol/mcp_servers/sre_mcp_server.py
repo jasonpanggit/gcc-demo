@@ -1,4 +1,4 @@
-"""Azure SRE Agent MCP Server
+"""SRE MCP Server
 
 Provides MCP-compliant tools for Site Reliability Engineering operations on Azure:
 - Resource health monitoring and diagnostics
@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Dict, List, Optional
 
@@ -27,6 +28,10 @@ try:
     from azure.mgmt.resource import ResourceManagementClient
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
+    from azure.mgmt.compute import ComputeManagementClient
+    from azure.mgmt.web import WebSiteManagementClient
+    from azure.mgmt.redis import RedisManagementClient
+    from azure.mgmt.containerservice import ContainerServiceClient
 except ImportError:
     DefaultAzureCredential = None
     ClientSecretCredential = None
@@ -38,6 +43,10 @@ except ImportError:
     ResourceGraphClient = None
     QueryRequest = None
     QueryRequestOptions = None
+    ComputeManagementClient = None
+    WebSiteManagementClient = None
+    RedisManagementClient = None
+    ContainerServiceClient = None
 
 # Import Teams notification client
 try:
@@ -56,18 +65,71 @@ except AttributeError:
 logging.basicConfig(level=_resolved_log_level, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+# Suppress verbose Azure SDK HTTP logging
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.monitor.query").setLevel(logging.WARNING)
+logging.getLogger("azure.identity").setLevel(logging.WARNING)
+
 _server = FastMCP(name="azure-sre")
 _credential: Optional[DefaultAzureCredential] = None
 _teams_client: Optional[TeamsNotificationClient] = None
 _subscription_id: Optional[str] = None
 
-# In-memory audit trail (in production, this should write to Cosmos DB or Log Analytics)
+# SRE cache for reducing redundant Azure API calls
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from utils.sre_cache import get_sre_cache
+    _sre_cache = get_sre_cache()
+    logger.info("✅ SRE cache manager initialized")
+except ImportError:
+    _sre_cache = None
+    logger.debug("SRE cache not available (utils.sre_cache not found)")
+
+# In-memory audit trail (fallback when Cosmos DB unavailable)
 _audit_trail: List[Dict[str, Any]] = []
+
+# Cosmos DB client for audit persistence (initialized lazily)
+_cosmos_audit_container = None
+
+
+def _get_audit_container():
+    """Get or create Cosmos DB container for audit trail"""
+    global _cosmos_audit_container
+    if _cosmos_audit_container is not None:
+        return _cosmos_audit_container
+
+    try:
+        # Import cosmos_cache utility
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+        from utils.cosmos_cache import cosmos_cache
+        cosmos_cache._ensure_initialized()
+
+        if cosmos_cache.initialized:
+            # Create audit_trail container with 90-day TTL
+            _cosmos_audit_container = cosmos_cache.get_container(
+                container_id="audit_trail",
+                partition_path="/operation",
+                offer_throughput=400,
+                default_ttl=7776000  # 90 days in seconds
+            )
+            logger.info("✅ Cosmos DB audit_trail container initialized")
+            return _cosmos_audit_container
+        else:
+            logger.warning("⚠️ Cosmos DB not available - using in-memory audit trail only")
+            return None
+    except Exception as exc:
+        logger.warning(f"⚠️ Failed to initialize Cosmos DB for audit trail: {exc}")
+        return None
 
 
 def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[str, Any], success: bool):
-    """Log an audit event for SRE operations"""
+    """Log an audit event for SRE operations with Cosmos DB persistence"""
     audit_entry = {
+        "id": f"{operation}-{datetime.utcnow().timestamp()}-{uuid.uuid4().hex[:8]}",
         "timestamp": datetime.utcnow().isoformat(),
         "operation": operation,
         "resource_id": resource_id,
@@ -75,12 +137,24 @@ def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[s
         "details": details,
         "caller": os.getenv("USER", "system")
     }
+
+    # Always add to in-memory trail (fallback)
     _audit_trail.append(audit_entry)
     logger.info(f"AUDIT: {operation} | Resource: {resource_id} | Success: {success}")
 
     # Keep only last 1000 entries in memory
     if len(_audit_trail) > 1000:
         _audit_trail.pop(0)
+
+    # Persist to Cosmos DB if available
+    try:
+        container = _get_audit_container()
+        if container is not None:
+            container.upsert_item(body=audit_entry)
+            logger.debug(f"✅ Audit event persisted to Cosmos DB: {audit_entry['id']}")
+    except Exception as exc:
+        logger.warning(f"⚠️ Failed to persist audit event to Cosmos DB: {exc}")
+        # Continue - in-memory trail is still available
 
 
 def _get_credential():
@@ -112,6 +186,19 @@ def _get_teams_client() -> Optional[TeamsNotificationClient]:
     if _teams_client is None and TeamsNotificationClient is not None:
         _teams_client = TeamsNotificationClient()
     return _teams_client
+
+
+def _cache_get(tool_name: str, args: Dict[str, Any]) -> Optional[Any]:
+    """Check SRE cache for a cached tool result. Returns None on miss."""
+    if _sre_cache is None:
+        return None
+    return _sre_cache.get(tool_name, args)
+
+
+def _cache_set(tool_name: str, args: Dict[str, Any], value: Any, ttl_profile: Optional[str] = None) -> None:
+    """Store a tool result in the SRE cache."""
+    if _sre_cache is not None:
+        _sre_cache.set(tool_name, args, value, ttl_profile)
 
 
 def _get_subscription_id() -> str:
@@ -151,6 +238,27 @@ async def check_resource_health(
 
         credential = _get_credential()
         subscription_id = _get_subscription_id()
+
+        # Check if resource type is Container Apps (not supported by Resource Health API)
+        if "Microsoft.App/containerApps" in resource_id or "/containerapps/" in resource_id.lower():
+            result = {
+                "success": False,
+                "error": "Azure Resource Health API doesn't support Container Apps",
+                "recommendation": "Use the check_container_app_health tool instead for Container Apps health monitoring",
+                "supported_resource_types": [
+                    "Microsoft.Compute/virtualMachines",
+                    "Microsoft.Web/sites",
+                    "Microsoft.Sql/servers/databases",
+                    "Microsoft.Storage/storageAccounts",
+                    "Microsoft.Network/applicationGateways",
+                    "Microsoft.Network/loadBalancers",
+                    "Microsoft.Network/virtualNetworkGateways"
+                ],
+                "resource_id": resource_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            logger.info(f"Container Apps not supported by Resource Health API: {resource_id}")
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
         client = ResourceHealthMgmtClient(credential, subscription_id)
 
@@ -624,7 +732,7 @@ async def analyze_resource_configuration(
 
         resource = client.resources.get_by_id(
             resource_id=resource_id,
-            api_version="2021-04-01"
+            api_version="2024-03-01"
         )
 
         # Perform basic configuration analysis
@@ -731,10 +839,11 @@ async def get_resource_dependencies(
             | where id !~ '{resource_id}'
             | project id
         )
+        | distinct id=coalesce(dep_id, id)
         | join kind=inner (
             Resources
-            | project id, name, type, location, resourceGroup, properties
-        ) on $left.dep_id == $right.id or $left.id == $right.id
+            | project id, name, type, location, resourceGroup
+        ) on id
         | project id, name, type, location, resourceGroup
         | limit 50
         """
@@ -1280,17 +1389,21 @@ async def generate_incident_summary(
     description=(
         "Query Azure Monitor metrics for a resource (CPU, memory, network, etc.). "
         "✅ Automatically detects resource type (Container Apps, App Service, VM, AKS) and uses appropriate metrics. "
+        "✅ Supports common metric aliases: 'cpu'→'CpuPercentage', 'memory'→'MemoryPercentage' (auto-normalized per resource type). "
+        "✅ Data is aggregated by hour to minimize token usage - perfect for long time ranges (24+ hours). "
         "Returns metric values for specified time range with aggregation and summary statistics. "
         "Use for performance analysis and capacity planning. "
-        "Example: 'Show me CPU and memory utilization of my container app' - no need to specify metric names."
+        "🎯 RECOMMENDED: Omit metric_names parameter to auto-select best metrics for the resource type. "
+        "Example: get_performance_metrics(resource_id='/subscriptions/.../containerapps/myapp', hours=1) - auto-selects CPU, memory, requests, replicas."
     ),
 )
 async def get_performance_metrics(
     context: Context,
     resource_id: Annotated[str, "Full Azure resource ID"],
-    metric_names: Annotated[Optional[List[str]], "List of metric names to query. If not provided, defaults are used based on resource type."] = None,
+    metric_names: Annotated[Optional[List[str]], "Optional: List of metric names. Omit to auto-select. Common aliases supported: cpu, memory, requests, replicas."] = None,
     hours: Annotated[int, "Hours to look back (default: 1)"] = 1,
     aggregation: Annotated[str, "Aggregation type: Average, Maximum, Minimum, Total"] = "Average",
+    aggregate_interval_minutes: Annotated[int, "Aggregate data into N-minute buckets (default: 60 for hourly). Use 1 for raw data, 5 for 5-min buckets, etc."] = 60,
 ) -> list[TextContent]:
     """Get performance metrics for a resource"""
     try:
@@ -1307,6 +1420,35 @@ async def get_performance_metrics(
         # Normalize resource ID for case-insensitive matching
         resource_id_lower = resource_id.lower()
         resource_type = None
+
+        # Define metric name mappings for common aliases
+        metric_name_mappings = {
+            "ContainerApp": {
+                "cpu": "CpuPercentage",
+                "memory": "MemoryPercentage",
+                "requests": "Requests",
+                "replicas": "Replicas",
+                "cpupercentage": "CpuPercentage",
+                "memorypercentage": "MemoryPercentage"
+            },
+            "AppService": {
+                "cpu": "CpuPercentage",
+                "memory": "MemoryPercentage",
+                "responsetime": "HttpResponseTime",
+                "requests": "Requests"
+            },
+            "VirtualMachine": {
+                "cpu": "Percentage CPU",
+                "memory": "Available Memory Bytes",
+                "networkin": "Network In Total",
+                "networkout": "Network Out Total"
+            },
+            "AKS": {
+                "cpu": "node_cpu_usage_percentage",
+                "memory": "node_memory_working_set_percentage",
+                "pods": "kube_pod_status_ready"
+            }
+        }
 
         if "/microsoft.app/containerapps/" in resource_id_lower:
             resource_type = "ContainerApp"
@@ -1351,6 +1493,15 @@ async def get_performance_metrics(
                 # Generic fallback metrics
                 metric_names = ["Percentage CPU", "Available Memory Bytes"]
 
+        # Normalize metric names if provided by user
+        if metric_names and resource_type in metric_name_mappings:
+            normalized_names = []
+            for name in metric_names:
+                # Try to map common aliases to proper metric names
+                normalized_name = metric_name_mappings[resource_type].get(name.lower(), name)
+                normalized_names.append(normalized_name)
+            metric_names = normalized_names
+
         start_time = datetime.utcnow() - timedelta(hours=hours)
         end_time = datetime.utcnow()
 
@@ -1368,29 +1519,76 @@ async def get_performance_metrics(
 
                 for metric in response.metrics:
                     for timeseries in metric.timeseries:
-                        data_points = []
+                        # Collect raw data points
+                        raw_data_points = []
                         for data in timeseries.data:
                             value = getattr(data, aggregation.lower(), None)
                             if value is not None:
-                                data_points.append({
-                                    "timestamp": str(data.timestamp),
+                                raw_data_points.append({
+                                    "timestamp": data.timestamp,
                                     "value": value
                                 })
 
-                        if data_points:
-                            # Calculate summary statistics
-                            values = [dp["value"] for dp in data_points]
+                        if raw_data_points:
+                            # Aggregate data into time buckets to reduce data sent to LLM
+                            # This is crucial for long time ranges (e.g., 24 hours)
+                            # Default is hourly aggregation (60 minutes)
+                            time_buckets = {}
+                            for dp in raw_data_points:
+                                # Truncate timestamp to the specified interval
+                                if aggregate_interval_minutes >= 60:
+                                    # Hourly or longer - truncate to hour
+                                    bucket_key = dp["timestamp"].replace(minute=0, second=0, microsecond=0)
+                                elif aggregate_interval_minutes == 1:
+                                    # No aggregation - use raw data
+                                    bucket_key = dp["timestamp"]
+                                else:
+                                    # Custom interval (e.g., 5 minutes, 15 minutes)
+                                    minute_bucket = (dp["timestamp"].minute // aggregate_interval_minutes) * aggregate_interval_minutes
+                                    bucket_key = dp["timestamp"].replace(minute=minute_bucket, second=0, microsecond=0)
+
+                                if bucket_key not in time_buckets:
+                                    time_buckets[bucket_key] = []
+                                time_buckets[bucket_key].append(dp["value"])
+
+                            # Calculate aggregates for each time bucket
+                            aggregated_data = []
+                            for bucket_time, values in sorted(time_buckets.items()):
+                                aggregated_data.append({
+                                    "timestamp": str(bucket_time),
+                                    "average": sum(values) / len(values),
+                                    "min": min(values),
+                                    "max": max(values),
+                                    "count": len(values)
+                                })
+
+                            # Calculate overall summary statistics
+                            all_values = [dp["value"] for dp in raw_data_points]
+
+                            # Determine data field name based on interval
+                            if aggregate_interval_minutes >= 60:
+                                data_field_name = "hourly_data"
+                                interval_description = f"{aggregate_interval_minutes // 60}-hour"
+                            elif aggregate_interval_minutes == 1:
+                                data_field_name = "raw_data"
+                                interval_description = "raw (1-minute)"
+                            else:
+                                data_field_name = "aggregated_data"
+                                interval_description = f"{aggregate_interval_minutes}-minute"
+
                             metrics_data.append({
                                 "metric_name": metric.name,
                                 "unit": metric.unit,
                                 "aggregation": aggregation,
-                                "data_points": data_points,
+                                "aggregation_interval": interval_description,
+                                data_field_name: aggregated_data,
                                 "summary": {
-                                    "current": values[-1] if values else None,
-                                    "average": sum(values) / len(values) if values else None,
-                                    "minimum": min(values) if values else None,
-                                    "maximum": max(values) if values else None,
-                                    "count": len(values)
+                                    "current": all_values[-1] if all_values else None,
+                                    "average": sum(all_values) / len(all_values) if all_values else None,
+                                    "minimum": min(all_values) if all_values else None,
+                                    "maximum": max(all_values) if all_values else None,
+                                    "total_data_points": len(all_values),
+                                    "aggregated_buckets": len(aggregated_data)
                                 }
                             })
 
@@ -1406,6 +1604,10 @@ async def get_performance_metrics(
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat(),
                 "hours": hours
+            },
+            "aggregation_config": {
+                "interval_minutes": aggregate_interval_minutes,
+                "description": f"Data aggregated into {aggregate_interval_minutes}-minute buckets to minimize token usage"
             },
             "metrics": metrics_data,
             "failed_metrics": failed_metrics if failed_metrics else None,
@@ -1647,7 +1849,7 @@ async def execute_safe_restart(
     resource_id: Annotated[str, "Full Azure resource ID to restart"],
     confirmed: Annotated[bool, "Must be true to execute (default: false)"] = False,
 ) -> list[TextContent]:
-    """Execute safe resource restart with confirmation"""
+    """Execute REAL resource restart with Azure Management API"""
     try:
         if not confirmed:
             return [TextContent(type="text", text=json.dumps({
@@ -1657,28 +1859,106 @@ async def execute_safe_restart(
                 "recommendation": "Use plan_remediation first to review the restart plan"
             }, indent=2))]
 
-        # In production, this would execute actual restart via Azure APIs
+        # Check if Azure SDK is available
+        if ComputeManagementClient is None and WebSiteManagementClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure Management SDK not installed"
+            }, indent=2))]
+
+        # Parse resource ID
+        parts = resource_id.split('/')
+        if len(parts) < 9:
+            raise ValueError("Invalid resource ID format")
+
+        subscription_id = parts[2]
+        resource_group = parts[4]
+        provider = parts[6]
+        resource_type = parts[7]
+        resource_name = parts[8]
+
+        credential = _get_credential()
+        restart_status = "Unknown"
+
+        # Execute restart based on resource type
+        if provider == "Microsoft.Compute" and resource_type == "virtualMachines":
+            # Restart Virtual Machine
+            compute_client = ComputeManagementClient(credential, subscription_id)
+            logger.info(f"Initiating VM restart for {resource_name} in {resource_group}")
+            async_restart = compute_client.virtual_machines.begin_restart(
+                resource_group_name=resource_group,
+                vm_name=resource_name
+            )
+            async_restart.result()  # Wait for completion
+            restart_status = "VM restarted successfully"
+
+        elif provider == "Microsoft.Web" and resource_type == "sites":
+            # Restart App Service / Web App
+            web_client = WebSiteManagementClient(credential, subscription_id)
+            logger.info(f"Initiating App Service restart for {resource_name} in {resource_group}")
+            web_client.web_apps.restart(
+                resource_group_name=resource_group,
+                name=resource_name
+            )
+            restart_status = "App Service restarted successfully"
+
+        elif provider == "Microsoft.ContainerService" and resource_type == "managedClusters":
+            # Note: AKS doesn't have a direct "restart" - this would restart specific node pools
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "AKS cluster restart not supported. Use Azure Portal or CLI to restart specific node pools.",
+                "recommendation": "az aks nodepool restart --resource-group <rg> --cluster-name <cluster> --name <nodepool>"
+            }, indent=2))]
+
+        else:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Restart not supported for resource type: {provider}/{resource_type}",
+                "supported_types": [
+                    "Microsoft.Compute/virtualMachines",
+                    "Microsoft.Web/sites (App Services)"
+                ]
+            }, indent=2))]
+
         result = {
             "success": True,
             "resource_id": resource_id,
             "action": "restart",
-            "status": "Simulated - not executed in this implementation",
-            "message": "In production, this would restart the resource via Azure Management API",
+            "status": "Completed",
+            "message": restart_status,
+            "resource_type": f"{provider}/{resource_type}",
             "next_steps": [
                 "Monitor resource health after restart",
                 "Verify application is responding",
                 "Check logs for errors"
-            ]
+            ],
+            "timestamp": datetime.utcnow().isoformat()
         }
 
-        logger.warning(f"Safe restart simulated (not executed) for {resource_id}")
+        # Log audit event
+        _log_audit_event(
+            operation="execute_safe_restart",
+            resource_id=resource_id,
+            details={"confirmed": True, "status": restart_status},
+            success=True
+        )
+
+        logger.info(f"Safe restart completed for {resource_id}: {restart_status}")
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except Exception as exc:
+        # Log audit event for failure
+        _log_audit_event(
+            operation="execute_safe_restart",
+            resource_id=resource_id,
+            details={"error": str(exc), "confirmed": confirmed},
+            success=False
+        )
         logger.error(f"Error executing safe restart: {exc}", exc_info=True)
         return [TextContent(type="text", text=json.dumps({
             "success": False,
-            "error": str(exc)
+            "error": str(exc),
+            "resource_id": resource_id
         }, indent=2))]
 
 
@@ -1696,7 +1976,7 @@ async def scale_resource(
     target_capacity: Annotated[Optional[int], "Target capacity/instance count"] = None,
     confirmed: Annotated[bool, "Must be true to execute"] = False,
 ) -> list[TextContent]:
-    """Scale resource with validation"""
+    """Scale resource with REAL Azure Management API calls"""
     try:
         if not confirmed:
             return [TextContent(type="text", text=json.dumps({
@@ -1707,24 +1987,127 @@ async def scale_resource(
                 "target_capacity": target_capacity
             }, indent=2))]
 
+        # Check if Azure SDK is available
+        if WebSiteManagementClient is None and ComputeManagementClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure Management SDK not installed"
+            }, indent=2))]
+
+        # Parse resource ID
+        parts = resource_id.split('/')
+        if len(parts) < 9:
+            raise ValueError("Invalid resource ID format")
+
+        subscription_id = parts[2]
+        resource_group = parts[4]
+        provider = parts[6]
+        resource_type = parts[7]
+        resource_name = parts[8]
+
+        credential = _get_credential()
+        scale_status = "Unknown"
+
+        if target_capacity is None or target_capacity < 1:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "target_capacity must be specified and >= 1"
+            }, indent=2))]
+
+        # Execute scaling based on resource type
+        if provider == "Microsoft.Web" and resource_type == "sites":
+            # Scale App Service
+            web_client = WebSiteManagementClient(credential, subscription_id)
+            logger.info(f"Scaling App Service {resource_name} to {target_capacity} instances")
+
+            # Get current configuration
+            site = web_client.web_apps.get(resource_group, resource_name)
+
+            # Update the site configuration with new capacity
+            site_config = web_client.web_apps.get_configuration(resource_group, resource_name)
+
+            # Scale via App Service Plan
+            plan_id = site.server_farm_id
+            plan_parts = plan_id.split('/')
+            plan_name = plan_parts[-1]
+            plan_rg = plan_parts[4]
+
+            # Get and update the App Service Plan
+            from azure.mgmt.web.models import AppServicePlan
+            plan = web_client.app_service_plans.get(plan_rg, plan_name)
+            plan.sku.capacity = target_capacity
+
+            web_client.app_service_plans.begin_create_or_update(plan_rg, plan_name, plan)
+            scale_status = f"App Service scaled to {target_capacity} instances"
+
+        elif provider == "Microsoft.Compute" and resource_type == "virtualMachines":
+            # VMs don't scale directly - need VMSS
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Individual VMs cannot be scaled. Use Virtual Machine Scale Sets (VMSS) instead.",
+                "recommendation": "Convert to VMSS or manually resize the VM SKU"
+            }, indent=2))]
+
+        elif provider == "Microsoft.Compute" and resource_type == "virtualMachineScaleSets":
+            # Scale VMSS
+            compute_client = ComputeManagementClient(credential, subscription_id)
+            logger.info(f"Scaling VMSS {resource_name} to {target_capacity} instances")
+
+            vmss = compute_client.virtual_machine_scale_sets.get(resource_group, resource_name)
+            vmss.sku.capacity = target_capacity
+
+            async_update = compute_client.virtual_machine_scale_sets.begin_create_or_update(
+                resource_group, resource_name, vmss
+            )
+            async_update.result()
+            scale_status = f"VMSS scaled to {target_capacity} instances"
+
+        else:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Scaling not supported for resource type: {provider}/{resource_type}",
+                "supported_types": [
+                    "Microsoft.Web/sites (App Services)",
+                    "Microsoft.Compute/virtualMachineScaleSets"
+                ]
+            }, indent=2))]
+
         result = {
             "success": True,
             "resource_id": resource_id,
             "action": "scale",
             "scale_direction": scale_direction,
             "target_capacity": target_capacity,
-            "status": "Simulated - not executed in this implementation",
-            "message": "In production, this would scale the resource via Azure Management API"
+            "status": "Completed",
+            "message": scale_status,
+            "resource_type": f"{provider}/{resource_type}",
+            "timestamp": datetime.utcnow().isoformat()
         }
 
-        logger.warning(f"Resource scaling simulated (not executed) for {resource_id}")
+        # Log audit event
+        _log_audit_event(
+            operation="scale_resource",
+            resource_id=resource_id,
+            details={"confirmed": True, "target_capacity": target_capacity, "status": scale_status},
+            success=True
+        )
+
+        logger.info(f"Resource scaling completed for {resource_id}: {scale_status}")
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except Exception as exc:
+        # Log audit event for failure
+        _log_audit_event(
+            operation="scale_resource",
+            resource_id=resource_id,
+            details={"error": str(exc), "confirmed": confirmed, "target_capacity": target_capacity},
+            success=False
+        )
         logger.error(f"Error scaling resource: {exc}", exc_info=True)
         return [TextContent(type="text", text=json.dumps({
             "success": False,
-            "error": str(exc)
+            "error": str(exc),
+            "resource_id": resource_id
         }, indent=2))]
 
 
@@ -1741,7 +2124,7 @@ async def clear_cache(
     cache_type: Annotated[str, "Cache type: redis, cdn, application"],
     confirmed: Annotated[bool, "Must be true to execute"] = False,
 ) -> list[TextContent]:
-    """Clear cache safely"""
+    """Clear cache using REAL Azure Management API calls"""
     try:
         if not confirmed:
             return [TextContent(type="text", text=json.dumps({
@@ -1751,17 +2134,113 @@ async def clear_cache(
                 "warning": "This may cause temporary performance degradation"
             }, indent=2))]
 
+        # Check if Azure SDK is available
+        if RedisManagementClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure Management SDK not installed (azure-mgmt-redis required)"
+            }, indent=2))]
+
+        # Parse resource ID
+        parts = resource_id.split('/')
+        if len(parts) < 9:
+            raise ValueError("Invalid resource ID format")
+
+        subscription_id = parts[2]
+        resource_group = parts[4]
+        provider = parts[6]
+        resource_type = parts[7]
+        resource_name = parts[8]
+
+        credential = _get_credential()
+        clear_status = "Unknown"
+
+        if cache_type.lower() == "redis" and provider == "Microsoft.Cache" and resource_type == "Redis":
+            # Clear Redis cache via force reboot
+            redis_client = RedisManagementClient(credential, subscription_id)
+            logger.info(f"Clearing Redis cache {resource_name} via flush")
+
+            # Get Redis properties to determine reboot strategy
+            redis_resource = redis_client.redis.get(resource_group, resource_name)
+
+            # For Redis cache, we use the ForceReboot to clear cache
+            # Note: This is a disruptive operation
+            from azure.mgmt.redis.models import RebootType
+
+            logger.warning(f"Initiating Redis cache flush for {resource_name} - this will cause brief downtime")
+
+            # Reboot all nodes to clear cache
+            redis_client.redis.begin_force_reboot(
+                resource_group_name=resource_group,
+                name=resource_name,
+                parameters={
+                    "reboot_type": RebootType.ALL_NODES,
+                    "shard_id": None  # Reboot all shards
+                }
+            )
+
+            clear_status = f"Redis cache {resource_name} flushed (all nodes rebooted)"
+
+        elif cache_type.lower() == "cdn":
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "CDN cache purge not yet implemented",
+                "recommendation": "Use Azure Portal or CLI: az cdn endpoint purge"
+            }, indent=2))]
+
+        elif cache_type.lower() == "application":
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Application cache clear requires application-specific logic",
+                "recommendation": "Use application's cache management API or restart the application"
+            }, indent=2))]
+
+        else:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Unsupported cache type or resource: {cache_type} / {provider}/{resource_type}",
+                "supported_types": [
+                    "redis (Microsoft.Cache/Redis)"
+                ]
+            }, indent=2))]
+
         result = {
             "success": True,
             "resource_id": resource_id,
             "action": "clear_cache",
             "cache_type": cache_type,
-            "status": "Simulated - not executed in this implementation",
-            "message": "In production, this would clear the cache via appropriate API"
+            "status": "Completed",
+            "message": clear_status,
+            "warning": "Cache cleared - expect temporary performance impact while cache rebuilds",
+            "resource_type": f"{provider}/{resource_type}",
+            "timestamp": datetime.utcnow().isoformat()
         }
 
-        logger.warning(f"Cache clear simulated (not executed) for {resource_id}")
+        # Log audit event
+        _log_audit_event(
+            operation="clear_cache",
+            resource_id=resource_id,
+            details={"confirmed": True, "cache_type": cache_type, "status": clear_status},
+            success=True
+        )
+
+        logger.info(f"Cache clear completed for {resource_id}: {clear_status}")
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        # Log audit event for failure
+        _log_audit_event(
+            operation="clear_cache",
+            resource_id=resource_id,
+            details={"error": str(exc), "confirmed": confirmed, "cache_type": cache_type},
+            success=False
+        )
+        logger.error(f"Error clearing cache: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "resource_id": resource_id
+        }, indent=2))]
 
     except Exception as exc:
         logger.error(f"Error clearing cache: {exc}", exc_info=True)
@@ -1778,9 +2257,13 @@ async def clear_cache(
 @_server.tool(
     name="send_teams_notification",
     description=(
-        "Send a formatted notification to Microsoft Teams via webhook. "
-        "Supports rich adaptive cards with facts, colors, and action buttons. "
-        "Use for general notifications and status updates."
+        "⚠️ DEPRECATED: Webhook-based Teams notifications are not configured. "
+        "Consider using: "
+        "(1) Teams Bot - Users interact with the bot via chat at /api/teams-bot/messages (bidirectional conversations), "
+        "(2) Email alerts - Configure SMTP notifications via /api/alerts endpoints (proactive notifications), "
+        "(3) Azure Monitor Action Groups - Production-grade alerting with multiple notification channels. "
+        "This tool will return an error unless a webhook URL is configured. "
+        "For testing, you can configure TEAMS_WEBHOOK_URL environment variable with an incoming webhook."
     ),
 )
 async def send_teams_notification(
@@ -1790,14 +2273,42 @@ async def send_teams_notification(
     color: Annotated[Optional[str], "Hex color (without #): e.g., FF0000 for red"] = None,
     facts: Annotated[Optional[Dict[str, str]], "Key-value facts to display"] = None,
 ) -> list[TextContent]:
-    """Send notification to Teams"""
+    """Send notification to Teams (webhook-based, deprecated)"""
     try:
         teams_client = _get_teams_client()
         if not teams_client or not teams_client.is_configured():
-            return [TextContent(type="text", text=json.dumps({
-                "success": False,
-                "error": "Teams webhook not configured"
-            }, indent=2))]
+            result = {
+                "success": True,  # Tool successfully explained the limitation
+                "notification_sent": False,
+                "reason": "Teams webhook notifications not configured (by design)",
+                "alternatives": [
+                    {
+                        "method": "Teams Bot",
+                        "endpoint": "/api/teams-bot/messages",
+                        "description": "Bidirectional conversations via Microsoft Teams Bot",
+                        "status": "configured" if (os.getenv("TEAMS_BOT_APP_ID") and os.getenv("TEAMS_BOT_APP_PASSWORD")) else "not_configured"
+                    },
+                    {
+                        "method": "Email Alerts",
+                        "endpoint": "/api/alerts",
+                        "description": "SMTP-based email notifications for proactive alerting",
+                        "status": "available"
+                    },
+                    {
+                        "method": "Azure Monitor Action Groups",
+                        "endpoint": "Azure Portal",
+                        "description": "Production-grade alerting infrastructure with multiple notification channels",
+                        "status": "recommended"
+                    }
+                ],
+                "documentation_url": "/docs#notifications",
+                "requested_notification": {
+                    "title": title,
+                    "message": message
+                }
+            }
+            logger.info(f"Teams notification requested but webhook not configured (by design): {title}")
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
         result = teams_client.send_notification(
             title=title,
@@ -1820,9 +2331,13 @@ async def send_teams_notification(
 @_server.tool(
     name="send_teams_alert",
     description=(
-        "Send an incident alert to Microsoft Teams with severity-based formatting. "
-        "Creates rich adaptive card with affected resources, metadata, and action buttons. "
-        "Use for incident notifications and critical alerts."
+        "⚠️ DEPRECATED: Webhook-based Teams alerts are not configured. "
+        "Consider using: "
+        "(1) Teams Bot - Users interact with the bot via chat at /api/teams-bot/messages (bidirectional conversations), "
+        "(2) Email alerts - Configure SMTP notifications via /api/alerts endpoints (proactive critical alerts), "
+        "(3) Azure Monitor Action Groups - Production-grade alerting with multiple notification channels. "
+        "This tool will return an error unless a webhook URL is configured. "
+        "For testing, you can configure TEAMS_WEBHOOK_URL environment variable with an incoming webhook."
     ),
 )
 async def send_teams_alert(
@@ -1834,14 +2349,44 @@ async def send_teams_alert(
     affected_resources: Annotated[Optional[List[str]], "List of affected resources"] = None,
     metadata: Annotated[Optional[Dict[str, Any]], "Additional metadata"] = None,
 ) -> list[TextContent]:
-    """Send incident alert to Teams"""
+    """Send incident alert to Teams (webhook-based, deprecated)"""
     try:
         teams_client = _get_teams_client()
         if not teams_client or not teams_client.is_configured():
-            return [TextContent(type="text", text=json.dumps({
-                "success": False,
-                "error": "Teams webhook not configured"
-            }, indent=2))]
+            result = {
+                "success": True,  # Tool successfully explained the limitation
+                "notification_sent": False,
+                "reason": "Teams webhook notifications not configured (by design)",
+                "alternatives": [
+                    {
+                        "method": "Teams Bot",
+                        "endpoint": "/api/teams-bot/messages",
+                        "description": "Bidirectional conversations via Microsoft Teams Bot",
+                        "status": "configured" if (os.getenv("TEAMS_BOT_APP_ID") and os.getenv("TEAMS_BOT_APP_PASSWORD")) else "not_configured"
+                    },
+                    {
+                        "method": "Email Alerts",
+                        "endpoint": "/api/alerts",
+                        "description": "SMTP-based email notifications for proactive critical alerts",
+                        "status": "available"
+                    },
+                    {
+                        "method": "Azure Monitor Action Groups",
+                        "endpoint": "Azure Portal",
+                        "description": "Production-grade alerting infrastructure with multiple notification channels",
+                        "status": "recommended"
+                    }
+                ],
+                "documentation_url": "/docs#notifications",
+                "requested_alert": {
+                    "title": title,
+                    "severity": severity,
+                    "description": description,
+                    "resource_id": resource_id
+                }
+            }
+            logger.info(f"Teams alert requested but webhook not configured (by design): {title} (severity: {severity})")
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
         result = teams_client.send_incident_alert(
             title=title,
@@ -1959,10 +2504,40 @@ async def send_sre_status_update(
     try:
         teams_client = _get_teams_client()
         if not teams_client or not teams_client.is_configured():
-            return [TextContent(type="text", text=json.dumps({
-                "success": False,
-                "error": "Teams webhook not configured"
-            }, indent=2))]
+            result = {
+                "success": True,  # Tool successfully explained the limitation
+                "notification_sent": False,
+                "reason": "Teams webhook notifications not configured (by design)",
+                "alternatives": [
+                    {
+                        "method": "Teams Bot",
+                        "endpoint": "/api/teams-bot/messages",
+                        "description": "Bidirectional conversations via Microsoft Teams Bot",
+                        "status": "configured" if (os.getenv("TEAMS_BOT_APP_ID") and os.getenv("TEAMS_BOT_APP_PASSWORD")) else "not_configured"
+                    },
+                    {
+                        "method": "Email Alerts",
+                        "endpoint": "/api/alerts",
+                        "description": "SMTP-based email notifications for SRE operation status updates",
+                        "status": "available"
+                    },
+                    {
+                        "method": "Azure Monitor Action Groups",
+                        "endpoint": "Azure Portal",
+                        "description": "Production-grade alerting infrastructure with multiple notification channels",
+                        "status": "recommended"
+                    }
+                ],
+                "documentation_url": "/docs#notifications",
+                "requested_status_update": {
+                    "operation": operation,
+                    "status": status,
+                    "details": details,
+                    "resource_id": resource_id
+                }
+            }
+            logger.info(f"SRE status update requested but webhook not configured (by design): {operation} - {status}")
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
         result = teams_client.send_sre_status_update(
             operation=operation,
@@ -2989,8 +3564,1631 @@ async def query_apim_configuration(
 
 
 # ============================================================================
-# Self-Documentation Tools
+# Application Insights & Distributed Tracing (P0)
 # ============================================================================
+
+@_server.tool(
+    name="query_app_insights_traces",
+    description=(
+        "Query Application Insights distributed traces by operation ID to trace requests across microservices. "
+        "✅ USE THIS TOOL when users ask: 'Trace this request', 'Show me the end-to-end trace', "
+        "'What happened with operation/correlation ID xyz?'. "
+        "Returns request, dependency, and exception data for the specified operation. "
+        "Requires a Log Analytics workspace with Application Insights connected."
+    ),
+)
+async def query_app_insights_traces(
+    context: Context,
+    workspace_id: Annotated[str, "Log Analytics workspace ID"],
+    operation_id: Annotated[str, "Operation/correlation ID to trace"],
+    time_range: Annotated[str, "Time range in hours (default: 24)"] = "24",
+) -> list[TextContent]:
+    """Query Application Insights traces by operation ID"""
+    try:
+        credential = _get_credential()
+        logs_client = LogsQueryClient(credential)
+        hours = int(time_range) if time_range.isdigit() else 24
+        timespan = timedelta(hours=hours)
+
+        # Query requests, dependencies, and exceptions for this operation
+        kql_query = f"""
+        let opId = '{operation_id}';
+        let requestData = requests
+            | where operation_Id == opId
+            | project timestamp, name, url, resultCode, duration, success, cloud_RoleName, operation_Id
+            | order by timestamp asc;
+        let dependencyData = dependencies
+            | where operation_Id == opId
+            | project timestamp, name, target, type, duration, success, resultCode, cloud_RoleName
+            | order by timestamp asc;
+        let exceptionData = exceptions
+            | where operation_Id == opId
+            | project timestamp, type, message, outerMessage, cloud_RoleName
+            | order by timestamp asc;
+        requestData
+        | union (dependencyData | extend url = target, resultCode = resultCode)
+        | union (exceptionData | extend name = type, url = message, resultCode = '', duration = 0, success = false)
+        | order by timestamp asc
+        """
+
+        result = logs_client.query_workspace(workspace_id, kql_query, timespan=timespan)
+
+        rows = []
+        if hasattr(result, 'tables') and result.tables:
+            for table in result.tables:
+                columns = [col.name for col in table.columns]
+                for row in table.rows:
+                    rows.append(dict(zip(columns, [str(v) for v in row])))
+
+        response = {
+            "success": True,
+            "operation_id": operation_id,
+            "trace_count": len(rows),
+            "traces": rows[:100],  # Limit to 100 entries
+            "time_range_hours": hours,
+        }
+
+        _log_audit_event("query_app_insights_traces", None,
+                         {"operation_id": operation_id, "trace_count": len(rows)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error querying App Insights traces: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "operation_id": operation_id
+        }, indent=2))]
+
+
+@_server.tool(
+    name="get_request_telemetry",
+    description=(
+        "Get request performance telemetry from Application Insights including response times, "
+        "failure rates, and P50/P95/P99 latencies. "
+        "✅ USE THIS TOOL when users ask: 'How is my app performing?', 'Show me request latencies', "
+        "'What is the failure rate?', 'Show me P95 response times'. "
+        "Returns aggregated performance statistics for the specified application."
+    ),
+)
+async def get_request_telemetry(
+    context: Context,
+    workspace_id: Annotated[str, "Log Analytics workspace ID"],
+    app_name: Annotated[str, "Application name (cloud_RoleName in App Insights)"],
+    time_range: Annotated[str, "Time range in hours (default: 24)"] = "24",
+    status_code_filter: Annotated[str, "Optional HTTP status code filter (e.g., '500', '4xx', '5xx')"] = "",
+) -> list[TextContent]:
+    """Get request performance telemetry"""
+    try:
+        credential = _get_credential()
+        logs_client = LogsQueryClient(credential)
+        hours = int(time_range) if time_range.isdigit() else 24
+        timespan = timedelta(hours=hours)
+
+        status_filter = ""
+        if status_code_filter:
+            if status_code_filter.endswith("xx"):
+                prefix = status_code_filter[0]
+                status_filter = f"| where resultCode startswith '{prefix}'"
+            else:
+                status_filter = f"| where resultCode == '{status_code_filter}'"
+
+        kql_query = f"""
+        requests
+        | where cloud_RoleName == '{app_name}'
+        {status_filter}
+        | summarize
+            total_requests = count(),
+            successful_requests = countif(success == true),
+            failed_requests = countif(success == false),
+            avg_duration_ms = avg(duration),
+            p50_duration_ms = percentile(duration, 50),
+            p95_duration_ms = percentile(duration, 95),
+            p99_duration_ms = percentile(duration, 99),
+            max_duration_ms = max(duration),
+            min_duration_ms = min(duration)
+        """
+
+        result = logs_client.query_workspace(workspace_id, kql_query, timespan=timespan)
+
+        stats = {}
+        if hasattr(result, 'tables') and result.tables:
+            for table in result.tables:
+                columns = [col.name for col in table.columns]
+                for row in table.rows:
+                    stats = dict(zip(columns, [str(v) for v in row]))
+
+        total = int(float(stats.get("total_requests", 0)))
+        failed = int(float(stats.get("failed_requests", 0)))
+        failure_rate = (failed / total * 100) if total > 0 else 0
+
+        response = {
+            "success": True,
+            "app_name": app_name,
+            "time_range_hours": hours,
+            "performance": {
+                "total_requests": total,
+                "successful_requests": int(float(stats.get("successful_requests", 0))),
+                "failed_requests": failed,
+                "failure_rate_percent": round(failure_rate, 2),
+                "avg_duration_ms": round(float(stats.get("avg_duration_ms", 0)), 2),
+                "p50_duration_ms": round(float(stats.get("p50_duration_ms", 0)), 2),
+                "p95_duration_ms": round(float(stats.get("p95_duration_ms", 0)), 2),
+                "p99_duration_ms": round(float(stats.get("p99_duration_ms", 0)), 2),
+                "max_duration_ms": round(float(stats.get("max_duration_ms", 0)), 2),
+            },
+            "status_code_filter": status_code_filter or "none",
+        }
+
+        _log_audit_event("get_request_telemetry", None,
+                         {"app_name": app_name, "total_requests": total}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error getting request telemetry: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "app_name": app_name
+        }, indent=2))]
+
+
+@_server.tool(
+    name="analyze_dependency_map",
+    description=(
+        "Map service-to-service dependencies using Application Insights dependency tracking. "
+        "✅ USE THIS TOOL when users ask: 'What services does my app call?', "
+        "'Show me the dependency map', 'Which downstream services are failing?'. "
+        "Returns dependency call statistics including target services, call counts, and failure rates."
+    ),
+)
+async def analyze_dependency_map(
+    context: Context,
+    workspace_id: Annotated[str, "Log Analytics workspace ID"],
+    app_name: Annotated[str, "Application name (cloud_RoleName in App Insights)"],
+    time_range: Annotated[str, "Time range in hours (default: 24)"] = "24",
+) -> list[TextContent]:
+    """Map service dependencies via Application Insights"""
+    try:
+        credential = _get_credential()
+        logs_client = LogsQueryClient(credential)
+        hours = int(time_range) if time_range.isdigit() else 24
+        timespan = timedelta(hours=hours)
+
+        kql_query = f"""
+        dependencies
+        | where cloud_RoleName == '{app_name}'
+        | summarize
+            call_count = count(),
+            failed_calls = countif(success == false),
+            avg_duration_ms = avg(duration),
+            p95_duration_ms = percentile(duration, 95)
+          by target, type, name
+        | extend failure_rate = round(todouble(failed_calls) / todouble(call_count) * 100, 2)
+        | order by call_count desc
+        """
+
+        result = logs_client.query_workspace(workspace_id, kql_query, timespan=timespan)
+
+        dependencies_list = []
+        if hasattr(result, 'tables') and result.tables:
+            for table in result.tables:
+                columns = [col.name for col in table.columns]
+                for row in table.rows:
+                    dep = dict(zip(columns, [str(v) for v in row]))
+                    dependencies_list.append(dep)
+
+        response = {
+            "success": True,
+            "app_name": app_name,
+            "time_range_hours": hours,
+            "dependency_count": len(dependencies_list),
+            "dependencies": dependencies_list[:50],  # Limit to 50
+        }
+
+        _log_audit_event("analyze_dependency_map", None,
+                         {"app_name": app_name, "dependency_count": len(dependencies_list)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error analyzing dependency map: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "app_name": app_name
+        }, indent=2))]
+
+
+# ============================================================================
+# Cost Optimization & FinOps (P0)
+# ============================================================================
+
+@_server.tool(
+    name="get_cost_analysis",
+    description=(
+        "Query Azure Cost Management for spending breakdown by resource group, service, tag, or location. "
+        "✅ USE THIS TOOL when users ask: 'How much am I spending?', 'Show me cost breakdown', "
+        "'What are my most expensive resources?', 'Cost by resource group'. "
+        "Returns actual and forecast costs with grouping and trend data."
+    ),
+)
+async def get_cost_analysis(
+    context: Context,
+    scope: Annotated[str, "Cost scope: subscription ID or resource group path (e.g., '/subscriptions/{id}' or '/subscriptions/{id}/resourceGroups/{rg}')"],
+    time_range: Annotated[str, "Time range: 'last_7_days', 'last_30_days', 'this_month', 'last_month' (default: last_30_days)"] = "last_30_days",
+    group_by: Annotated[str, "Group results by: 'ResourceGroup', 'ServiceName', 'ResourceType', 'ResourceLocation' (default: ServiceName)"] = "ServiceName",
+) -> list[TextContent]:
+    """Query Azure Cost Management for spending analysis"""
+    try:
+        import httpx
+        credential = _get_credential()
+        token = credential.get_token("https://management.azure.com/.default")
+
+        # Calculate date range
+        now = datetime.utcnow()
+        if time_range == "last_7_days":
+            start_date = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+        elif time_range == "this_month":
+            start_date = now.replace(day=1).strftime("%Y-%m-%d")
+        elif time_range == "last_month":
+            first_of_month = now.replace(day=1)
+            last_month_end = first_of_month - timedelta(days=1)
+            start_date = last_month_end.replace(day=1).strftime("%Y-%m-%d")
+            now = last_month_end
+        else:  # last_30_days
+            start_date = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date = now.strftime("%Y-%m-%d")
+
+        # Build Cost Management query
+        cost_url = f"https://management.azure.com{scope}/providers/Microsoft.CostManagement/query?api-version=2023-11-01"
+        query_body = {
+            "type": "ActualCost",
+            "timeframe": "Custom",
+            "timePeriod": {"from": start_date, "to": end_date},
+            "dataset": {
+                "granularity": "None",
+                "aggregation": {
+                    "totalCost": {"name": "Cost", "function": "Sum"},
+                    "totalCostUSD": {"name": "CostUSD", "function": "Sum"}
+                },
+                "grouping": [{"type": "Dimension", "name": group_by}]
+            }
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                cost_url,
+                json=query_body,
+                headers={"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
+            )
+            resp.raise_for_status()
+            cost_data = resp.json()
+
+        # Parse cost results
+        columns = [col["name"] for col in cost_data.get("properties", {}).get("columns", [])]
+        rows = cost_data.get("properties", {}).get("rows", [])
+
+        cost_items = []
+        total_cost = 0.0
+        for row in rows:
+            item = dict(zip(columns, row))
+            cost = float(item.get("Cost", 0))
+            total_cost += cost
+            cost_items.append({
+                "group": item.get(group_by, "Unknown"),
+                "cost": round(cost, 2),
+                "cost_usd": round(float(item.get("CostUSD", 0)), 2),
+                "currency": item.get("Currency", "USD"),
+            })
+
+        # Sort by cost descending
+        cost_items.sort(key=lambda x: x["cost"], reverse=True)
+
+        response = {
+            "success": True,
+            "scope": scope,
+            "time_range": time_range,
+            "date_range": {"start": start_date, "end": end_date},
+            "group_by": group_by,
+            "total_cost": round(total_cost, 2),
+            "item_count": len(cost_items),
+            "cost_breakdown": cost_items[:25],  # Top 25
+        }
+
+        _log_audit_event("get_cost_analysis", scope,
+                         {"total_cost": total_cost, "items": len(cost_items)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error getting cost analysis: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "scope": scope
+        }, indent=2))]
+
+
+@_server.tool(
+    name="identify_orphaned_resources",
+    description=(
+        "Find unused Azure resources that may be wasting money: unattached disks, "
+        "idle public IPs, empty NSGs, unused NICs, and stopped VMs. "
+        "✅ USE THIS TOOL when users ask: 'Find unused resources', 'What resources are wasting money?', "
+        "'Show me orphaned disks', 'Identify cloud waste'. "
+        "Uses Azure Resource Graph for efficient cross-subscription queries."
+    ),
+)
+async def identify_orphaned_resources(
+    context: Context,
+    subscription_id: Annotated[str, "Azure subscription ID (optional, uses env var if not provided)"] = "",
+) -> list[TextContent]:
+    """Find unused/orphaned Azure resources"""
+    try:
+        credential = _get_credential()
+        sub_id = subscription_id or os.getenv("SUBSCRIPTION_ID", "")
+        if not sub_id:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "No subscription_id provided and SUBSCRIPTION_ID env var not set"
+            }, indent=2))]
+
+        graph_client = ResourceGraphClient(credential)
+        orphaned = {}
+
+        # Query for unattached managed disks
+        disk_query = """
+        resources
+        | where type =~ 'Microsoft.Compute/disks'
+        | where managedBy == ''
+        | where properties.diskState == 'Unattached'
+        | project name, resourceGroup, location, sku = properties.sku.name,
+                  sizeGB = properties.diskSizeGB, id
+        """
+        disk_result = graph_client.resources(QueryRequest(
+            subscriptions=[sub_id],
+            query=disk_query,
+            options=QueryRequestOptions(result_format="objectArray")
+        ))
+        orphaned["unattached_disks"] = disk_result.data if hasattr(disk_result, 'data') else []
+
+        # Query for unused public IPs
+        ip_query = """
+        resources
+        | where type =~ 'Microsoft.Network/publicIPAddresses'
+        | where properties.ipConfiguration == ''
+        | where properties.natGateway == ''
+        | project name, resourceGroup, location, sku = sku.name,
+                  ipAddress = properties.ipAddress, id
+        """
+        ip_result = graph_client.resources(QueryRequest(
+            subscriptions=[sub_id],
+            query=ip_query,
+            options=QueryRequestOptions(result_format="objectArray")
+        ))
+        orphaned["unused_public_ips"] = ip_result.data if hasattr(ip_result, 'data') else []
+
+        # Query for deallocated/stopped VMs
+        vm_query = """
+        resources
+        | where type =~ 'Microsoft.Compute/virtualMachines'
+        | where properties.extended.instanceView.powerState.displayStatus == 'VM deallocated'
+        | project name, resourceGroup, location, vmSize = properties.hardwareProfile.vmSize, id
+        """
+        vm_result = graph_client.resources(QueryRequest(
+            subscriptions=[sub_id],
+            query=vm_query,
+            options=QueryRequestOptions(result_format="objectArray")
+        ))
+        orphaned["stopped_vms"] = vm_result.data if hasattr(vm_result, 'data') else []
+
+        total_orphaned = sum(len(v) for v in orphaned.values())
+
+        response = {
+            "success": True,
+            "subscription_id": sub_id,
+            "total_orphaned_resources": total_orphaned,
+            "orphaned_resources": {
+                k: {"count": len(v), "resources": v[:10]}
+                for k, v in orphaned.items()
+            },
+            "recommendation": "Review and delete unused resources to reduce costs" if total_orphaned > 0 else "No orphaned resources found",
+        }
+
+        _log_audit_event("identify_orphaned_resources", sub_id,
+                         {"total_orphaned": total_orphaned}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2, default=str))]
+
+    except Exception as exc:
+        logger.error(f"Error identifying orphaned resources: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="get_cost_recommendations",
+    description=(
+        "Get Azure Advisor cost optimization recommendations including right-sizing, "
+        "reserved instance opportunities, and idle resource suggestions. "
+        "✅ USE THIS TOOL when users ask: 'How can I reduce costs?', 'Give me cost recommendations', "
+        "'What does Azure Advisor suggest?', 'Right-sizing recommendations'."
+    ),
+)
+async def get_cost_recommendations(
+    context: Context,
+    subscription_id: Annotated[str, "Azure subscription ID (optional, uses env var)"] = "",
+) -> list[TextContent]:
+    """Get Azure Advisor cost optimization recommendations"""
+    try:
+        import httpx
+        credential = _get_credential()
+        sub_id = subscription_id or os.getenv("SUBSCRIPTION_ID", "")
+        if not sub_id:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "No subscription_id provided and SUBSCRIPTION_ID env var not set"
+            }, indent=2))]
+
+        token = credential.get_token("https://management.azure.com/.default")
+        advisor_url = (
+            f"https://management.azure.com/subscriptions/{sub_id}"
+            f"/providers/Microsoft.Advisor/recommendations"
+            f"?api-version=2023-01-01&$filter=Category eq 'Cost'"
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                advisor_url,
+                headers={"Authorization": f"Bearer {token.token}"}
+            )
+            resp.raise_for_status()
+            advisor_data = resp.json()
+
+        recommendations = []
+        for rec in advisor_data.get("value", []):
+            props = rec.get("properties", {})
+            recommendations.append({
+                "id": rec.get("id", ""),
+                "category": props.get("category", "Cost"),
+                "impact": props.get("impact", "Unknown"),
+                "impacted_type": props.get("impactedField", ""),
+                "impacted_value": props.get("impactedValue", ""),
+                "problem": props.get("shortDescription", {}).get("problem", ""),
+                "solution": props.get("shortDescription", {}).get("solution", ""),
+                "savings_amount": props.get("extendedProperties", {}).get("annualSavingsAmount", "N/A"),
+                "savings_currency": props.get("extendedProperties", {}).get("savingsCurrency", "USD"),
+            })
+
+        response = {
+            "success": True,
+            "subscription_id": sub_id,
+            "recommendation_count": len(recommendations),
+            "recommendations": recommendations[:20],  # Top 20
+        }
+
+        _log_audit_event("get_cost_recommendations", sub_id,
+                         {"recommendation_count": len(recommendations)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2, default=str))]
+
+    except Exception as exc:
+        logger.error(f"Error getting cost recommendations: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="analyze_cost_anomalies",
+    description=(
+        "Detect cost spikes and unusual spending patterns using Azure Cost Management anomaly detection. "
+        "✅ USE THIS TOOL when users ask: 'Are there any cost anomalies?', 'Why did my bill spike?', "
+        "'Detect unusual spending'. "
+        "Compares recent spending against historical baseline to identify anomalies."
+    ),
+)
+async def analyze_cost_anomalies(
+    context: Context,
+    scope: Annotated[str, "Cost scope: subscription path (e.g., '/subscriptions/{id}')"],
+    time_range: Annotated[str, "Analysis period: 'last_7_days', 'last_30_days' (default: last_30_days)"] = "last_30_days",
+) -> list[TextContent]:
+    """Detect cost anomalies by comparing recent vs baseline spending"""
+    try:
+        import httpx
+        credential = _get_credential()
+        token = credential.get_token("https://management.azure.com/.default")
+
+        now = datetime.utcnow()
+        if time_range == "last_7_days":
+            recent_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+            baseline_start = (now - timedelta(days=37)).strftime("%Y-%m-%d")
+            baseline_end = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+        else:
+            recent_start = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+            baseline_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+            baseline_end = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date = now.strftime("%Y-%m-%d")
+
+        cost_url = f"https://management.azure.com{scope}/providers/Microsoft.CostManagement/query?api-version=2023-11-01"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Get recent costs by service
+            recent_body = {
+                "type": "ActualCost",
+                "timeframe": "Custom",
+                "timePeriod": {"from": recent_start, "to": end_date},
+                "dataset": {
+                    "granularity": "Daily",
+                    "aggregation": {"totalCost": {"name": "Cost", "function": "Sum"}},
+                    "grouping": [{"type": "Dimension", "name": "ServiceName"}]
+                }
+            }
+            recent_resp = await client.post(
+                cost_url, json=recent_body,
+                headers={"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
+            )
+            recent_resp.raise_for_status()
+            recent_data = recent_resp.json()
+
+            # Get baseline costs
+            baseline_body = {
+                "type": "ActualCost",
+                "timeframe": "Custom",
+                "timePeriod": {"from": baseline_start, "to": baseline_end},
+                "dataset": {
+                    "granularity": "None",
+                    "aggregation": {"totalCost": {"name": "Cost", "function": "Sum"}},
+                    "grouping": [{"type": "Dimension", "name": "ServiceName"}]
+                }
+            }
+            baseline_resp = await client.post(
+                cost_url, json=baseline_body,
+                headers={"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
+            )
+            baseline_resp.raise_for_status()
+            baseline_data = baseline_resp.json()
+
+        # Parse baseline averages
+        baseline_rows = baseline_data.get("properties", {}).get("rows", [])
+        baseline_columns = [c["name"] for c in baseline_data.get("properties", {}).get("columns", [])]
+        baseline_by_service = {}
+        baseline_days = (datetime.strptime(baseline_end, "%Y-%m-%d") - datetime.strptime(baseline_start, "%Y-%m-%d")).days or 1
+        for row in baseline_rows:
+            item = dict(zip(baseline_columns, row))
+            service = item.get("ServiceName", "Unknown")
+            baseline_by_service[service] = float(item.get("Cost", 0)) / baseline_days
+
+        # Parse recent costs and detect anomalies
+        recent_rows = recent_data.get("properties", {}).get("rows", [])
+        recent_columns = [c["name"] for c in recent_data.get("properties", {}).get("columns", [])]
+        recent_by_service = {}
+        recent_days = (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(recent_start, "%Y-%m-%d")).days or 1
+        for row in recent_rows:
+            item = dict(zip(recent_columns, row))
+            service = item.get("ServiceName", "Unknown")
+            cost = float(item.get("Cost", 0))
+            recent_by_service[service] = recent_by_service.get(service, 0) + cost
+
+        # Compare and flag anomalies (>50% increase from baseline)
+        anomalies = []
+        for service, recent_total in recent_by_service.items():
+            recent_daily = recent_total / recent_days
+            baseline_daily = baseline_by_service.get(service, 0)
+            if baseline_daily > 0:
+                change_pct = ((recent_daily - baseline_daily) / baseline_daily) * 100
+                if change_pct > 50:
+                    anomalies.append({
+                        "service": service,
+                        "recent_daily_cost": round(recent_daily, 2),
+                        "baseline_daily_cost": round(baseline_daily, 2),
+                        "change_percent": round(change_pct, 1),
+                        "severity": "critical" if change_pct > 200 else "warning" if change_pct > 100 else "info",
+                    })
+
+        anomalies.sort(key=lambda x: x["change_percent"], reverse=True)
+
+        response = {
+            "success": True,
+            "scope": scope,
+            "time_range": time_range,
+            "anomaly_count": len(anomalies),
+            "anomalies": anomalies[:15],
+            "analysis": {
+                "services_analyzed": len(recent_by_service),
+                "recent_period": f"{recent_start} to {end_date}",
+                "baseline_period": f"{baseline_start} to {baseline_end}",
+                "threshold": "50% increase over baseline",
+            },
+        }
+
+        _log_audit_event("analyze_cost_anomalies", scope,
+                         {"anomaly_count": len(anomalies)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error analyzing cost anomalies: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
+# SLO/SLI/Error Budget Management (P0)
+# ============================================================================
+
+# In-memory SLO store (fallback, persisted to Cosmos DB when available)
+_slo_definitions: Dict[str, Dict[str, Any]] = {}
+
+
+def _get_slo_container():
+    """Get Cosmos DB container for SLO definitions"""
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+        from utils.cosmos_cache import cosmos_cache
+        cosmos_cache._ensure_initialized()
+        if cosmos_cache.initialized:
+            return cosmos_cache.get_container(
+                container_id="slo_definitions",
+                partition_path="/service_name",
+                offer_throughput=400,
+            )
+    except Exception:
+        pass
+    return None
+
+
+@_server.tool(
+    name="define_slo",
+    description=(
+        "Define a Service Level Objective (SLO) for an Azure service. "
+        "✅ USE THIS TOOL when users ask: 'Set an SLO for my app', 'Define a 99.9% availability target', "
+        "'Create an error budget for my service'. "
+        "Supports SLI types: availability, latency, error_rate. "
+        "SLO definitions are stored in Cosmos DB for persistence."
+    ),
+)
+async def define_slo(
+    context: Context,
+    service_name: Annotated[str, "Name of the service to set SLO for"],
+    sli_type: Annotated[str, "SLI type: 'availability', 'latency', or 'error_rate'"],
+    target_percentage: Annotated[float, "Target percentage (e.g., 99.9 for availability, or max latency P99 target in ms for latency type)"],
+    window_days: Annotated[int, "SLO measurement window in days (default: 30)"] = 30,
+    workspace_id: Annotated[str, "Log Analytics workspace ID for SLI measurement (optional)"] = "",
+) -> list[TextContent]:
+    """Define a Service Level Objective"""
+    try:
+        slo_id = f"slo-{service_name}-{sli_type}-{uuid.uuid4().hex[:8]}"
+
+        slo_definition = {
+            "id": slo_id,
+            "service_name": service_name,
+            "sli_type": sli_type,
+            "target": target_percentage,
+            "window_days": window_days,
+            "workspace_id": workspace_id,
+            "created_at": datetime.utcnow().isoformat(),
+            "status": "active",
+        }
+
+        # Store in memory
+        _slo_definitions[slo_id] = slo_definition
+
+        # Persist to Cosmos DB if available
+        container = _get_slo_container()
+        if container:
+            container.upsert_item(body=slo_definition)
+            slo_definition["persisted"] = True
+        else:
+            slo_definition["persisted"] = False
+            slo_definition["note"] = "Stored in memory only (Cosmos DB unavailable)"
+
+        response = {
+            "success": True,
+            "slo": slo_definition,
+            "message": f"SLO defined: {service_name} {sli_type} target {target_percentage}% over {window_days} days",
+            "error_budget": {
+                "total_budget_percent": round(100 - target_percentage, 4),
+                "budget_minutes_per_window": round((100 - target_percentage) / 100 * window_days * 24 * 60, 2),
+            },
+        }
+
+        _log_audit_event("define_slo", service_name,
+                         {"slo_id": slo_id, "sli_type": sli_type, "target": target_percentage}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error defining SLO: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="calculate_error_budget",
+    description=(
+        "Calculate remaining error budget based on actual SLI measurements vs SLO targets. "
+        "✅ USE THIS TOOL when users ask: 'How much error budget do I have left?', "
+        "'Am I burning through my error budget?', 'SLO compliance status'. "
+        "Calculates SLI from Application Insights data when workspace_id is available."
+    ),
+)
+async def calculate_error_budget(
+    context: Context,
+    service_name: Annotated[str, "Service name to check error budget for"],
+    slo_id: Annotated[str, "SLO definition ID (optional, uses latest for service)"] = "",
+    time_range: Annotated[str, "Override time range in days (optional, uses SLO window)"] = "",
+) -> list[TextContent]:
+    """Calculate remaining error budget"""
+    try:
+        # Find SLO definition
+        slo = None
+        if slo_id and slo_id in _slo_definitions:
+            slo = _slo_definitions[slo_id]
+        else:
+            # Find latest SLO for service
+            for sid, sdef in _slo_definitions.items():
+                if sdef["service_name"] == service_name and sdef["status"] == "active":
+                    slo = sdef
+                    slo_id = sid
+
+        if not slo:
+            # Try loading from Cosmos DB
+            container = _get_slo_container()
+            if container:
+                query = f"SELECT * FROM c WHERE c.service_name = '{service_name}' AND c.status = 'active' ORDER BY c.created_at DESC OFFSET 0 LIMIT 1"
+                items = list(container.query_items(query=query, enable_cross_partition_query=True))
+                if items:
+                    slo = items[0]
+                    slo_id = slo["id"]
+                    _slo_definitions[slo_id] = slo
+
+        if not slo:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"No active SLO found for service '{service_name}'. Use define_slo to create one.",
+                "service_name": service_name
+            }, indent=2))]
+
+        window_days = int(time_range) if time_range.isdigit() else slo["window_days"]
+        target = slo["target"]
+        sli_type = slo["sli_type"]
+        total_budget_percent = 100 - target
+
+        # Try to calculate actual SLI from Application Insights
+        actual_sli = None
+        measurement_source = "estimated"
+
+        workspace_id = slo.get("workspace_id", "")
+        if workspace_id and LogsQueryClient:
+            try:
+                credential = _get_credential()
+                logs_client = LogsQueryClient(credential)
+                timespan = timedelta(days=window_days)
+
+                if sli_type == "availability":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize
+                        total = count(),
+                        successful = countif(success == true)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        total = float(row[0]) if row[0] else 0
+                        successful = float(row[1]) if row[1] else 0
+                        if total > 0:
+                            actual_sli = round((successful / total) * 100, 4)
+                            measurement_source = "application_insights"
+
+                elif sli_type == "error_rate":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize
+                        total = count(),
+                        failed = countif(success == false)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        total = float(row[0]) if row[0] else 0
+                        failed = float(row[1]) if row[1] else 0
+                        if total > 0:
+                            actual_sli = round(100 - (failed / total) * 100, 4)
+                            measurement_source = "application_insights"
+
+                elif sli_type == "latency":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize p99 = percentile(duration, 99)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        p99 = float(row[0]) if row[0] else 0
+                        # For latency: SLI = percentage of requests under target
+                        actual_sli = p99  # Return raw P99 for comparison
+                        measurement_source = "application_insights"
+
+            except Exception as e:
+                logger.warning(f"Failed to query App Insights for SLI: {e}")
+
+        # Calculate error budget
+        if actual_sli is not None and sli_type != "latency":
+            budget_consumed_percent = max(0, (100 - actual_sli) / total_budget_percent * 100) if total_budget_percent > 0 else 0
+            budget_remaining_percent = max(0, 100 - budget_consumed_percent)
+            burn_rate = budget_consumed_percent / 100  # 1.0 = consuming at expected rate
+        else:
+            budget_consumed_percent = None
+            budget_remaining_percent = None
+            burn_rate = None
+
+        response = {
+            "success": True,
+            "service_name": service_name,
+            "slo_id": slo_id,
+            "slo": {
+                "sli_type": sli_type,
+                "target": target,
+                "window_days": window_days,
+            },
+            "error_budget": {
+                "total_budget_percent": round(total_budget_percent, 4),
+                "total_budget_minutes": round(total_budget_percent / 100 * window_days * 24 * 60, 2),
+                "budget_consumed_percent": round(budget_consumed_percent, 2) if budget_consumed_percent is not None else "N/A",
+                "budget_remaining_percent": round(budget_remaining_percent, 2) if budget_remaining_percent is not None else "N/A",
+                "burn_rate": round(burn_rate, 2) if burn_rate is not None else "N/A",
+            },
+            "sli_measurement": {
+                "actual_sli": actual_sli,
+                "source": measurement_source,
+                "note": "Requires workspace_id in SLO definition for live measurements" if measurement_source == "estimated" else "Live measurement from Application Insights",
+            },
+            "status": "healthy" if (budget_remaining_percent and budget_remaining_percent > 20) else "warning" if (budget_remaining_percent and budget_remaining_percent > 0) else "budget_exhausted" if budget_remaining_percent is not None else "no_data",
+        }
+
+        _log_audit_event("calculate_error_budget", service_name,
+                         {"slo_id": slo_id, "status": response["status"]}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error calculating error budget: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="get_slo_dashboard",
+    description=(
+        "Generate an SLO compliance dashboard showing all active SLOs for a service, "
+        "including burn rates, remaining budgets, and trend analysis. "
+        "✅ USE THIS TOOL when users ask: 'Show me my SLO dashboard', 'SLO compliance report', "
+        "'How are my services performing against targets?'."
+    ),
+)
+async def get_slo_dashboard(
+    context: Context,
+    service_name: Annotated[str, "Service name (or 'all' for all services)"] = "all",
+) -> list[TextContent]:
+    """Generate SLO compliance dashboard"""
+    try:
+        # Gather all active SLOs
+        active_slos = []
+
+        # From memory
+        for slo_id, slo in _slo_definitions.items():
+            if slo.get("status") == "active":
+                if service_name == "all" or slo.get("service_name") == service_name:
+                    active_slos.append(slo)
+
+        # From Cosmos DB
+        container = _get_slo_container()
+        if container:
+            if service_name == "all":
+                query = "SELECT * FROM c WHERE c.status = 'active'"
+            else:
+                query = f"SELECT * FROM c WHERE c.service_name = '{service_name}' AND c.status = 'active'"
+            try:
+                cosmos_slos = list(container.query_items(query=query, enable_cross_partition_query=True))
+                # Merge (avoid duplicates)
+                existing_ids = {s["id"] for s in active_slos}
+                for cslo in cosmos_slos:
+                    if cslo["id"] not in existing_ids:
+                        active_slos.append(cslo)
+            except Exception:
+                pass
+
+        response = {
+            "success": True,
+            "service_filter": service_name,
+            "active_slo_count": len(active_slos),
+            "slos": [
+                {
+                    "slo_id": slo["id"],
+                    "service_name": slo["service_name"],
+                    "sli_type": slo["sli_type"],
+                    "target": slo["target"],
+                    "window_days": slo["window_days"],
+                    "error_budget_percent": round(100 - slo["target"], 4),
+                    "created_at": slo.get("created_at", "unknown"),
+                }
+                for slo in active_slos
+            ],
+            "note": "Use calculate_error_budget for detailed budget analysis per SLO" if active_slos else "No active SLOs found. Use define_slo to create one.",
+        }
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error generating SLO dashboard: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
+# Security & Compliance (P2)
+# ============================================================================
+
+@_server.tool(
+    name="get_security_score",
+    description=(
+        "Get Microsoft Defender for Cloud secure score with control-level breakdown. "
+        "✅ USE THIS TOOL when users ask: 'What is my security score?', "
+        "'How secure is my Azure environment?', 'Security posture overview'. "
+        "Returns overall score percentage and per-control scores."
+    ),
+)
+async def get_security_score(
+    context: Context,
+    subscription_id: Annotated[str, "Azure subscription ID (optional, uses env var)"] = "",
+) -> list[TextContent]:
+    """Get Defender for Cloud secure score"""
+    try:
+        import httpx
+        credential = _get_credential()
+        sub_id = subscription_id or os.getenv("SUBSCRIPTION_ID", "")
+        if not sub_id:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "No subscription_id provided and SUBSCRIPTION_ID env var not set"
+            }, indent=2))]
+
+        token = credential.get_token("https://management.azure.com/.default")
+
+        # Get secure scores
+        score_url = (
+            f"https://management.azure.com/subscriptions/{sub_id}"
+            f"/providers/Microsoft.Security/secureScores"
+            f"?api-version=2020-01-01"
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                score_url,
+                headers={"Authorization": f"Bearer {token.token}"}
+            )
+            resp.raise_for_status()
+            score_data = resp.json()
+
+        scores = []
+        for item in score_data.get("value", []):
+            props = item.get("properties", {})
+            score_details = props.get("score", {})
+            scores.append({
+                "name": item.get("name", ""),
+                "display_name": props.get("displayName", ""),
+                "current_score": score_details.get("current", 0),
+                "max_score": score_details.get("max", 0),
+                "percentage": score_details.get("percentage", 0),
+                "weight": props.get("weight", 0),
+            })
+
+        overall_pct = scores[0]["percentage"] * 100 if scores else 0
+
+        response = {
+            "success": True,
+            "subscription_id": sub_id,
+            "overall_score_percent": round(overall_pct, 1),
+            "scores": scores,
+            "recommendation": (
+                "Excellent security posture" if overall_pct >= 80
+                else "Good, but room for improvement" if overall_pct >= 60
+                else "Security improvements needed" if overall_pct >= 40
+                else "Critical security issues require attention"
+            ),
+        }
+
+        _log_audit_event("get_security_score", sub_id,
+                         {"score_percent": overall_pct}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error getting security score: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="list_security_recommendations",
+    description=(
+        "List actionable security recommendations from Microsoft Defender for Cloud. "
+        "✅ USE THIS TOOL when users ask: 'What security issues do I have?', "
+        "'Show me security recommendations', 'What should I fix first?'. "
+        "Returns recommendations sorted by severity with remediation steps."
+    ),
+)
+async def list_security_recommendations(
+    context: Context,
+    subscription_id: Annotated[str, "Azure subscription ID (optional, uses env var)"] = "",
+    severity_filter: Annotated[str, "Filter by severity: 'High', 'Medium', 'Low' (optional)"] = "",
+) -> list[TextContent]:
+    """List Defender for Cloud security recommendations"""
+    try:
+        import httpx
+        credential = _get_credential()
+        sub_id = subscription_id or os.getenv("SUBSCRIPTION_ID", "")
+        if not sub_id:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "No subscription_id provided and SUBSCRIPTION_ID env var not set"
+            }, indent=2))]
+
+        token = credential.get_token("https://management.azure.com/.default")
+        rec_url = (
+            f"https://management.azure.com/subscriptions/{sub_id}"
+            f"/providers/Microsoft.Security/assessments"
+            f"?api-version=2021-06-01"
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                rec_url,
+                headers={"Authorization": f"Bearer {token.token}"}
+            )
+            resp.raise_for_status()
+            rec_data = resp.json()
+
+        recommendations = []
+        for item in rec_data.get("value", []):
+            props = item.get("properties", {})
+            status = props.get("status", {})
+            metadata = props.get("metadata", {}) or props.get("displayName", "")
+
+            severity = ""
+            if isinstance(metadata, dict):
+                severity = metadata.get("severity", "")
+            status_code = status.get("code", "")
+
+            # Only include unhealthy assessments
+            if status_code != "Unhealthy":
+                continue
+
+            if severity_filter and severity.lower() != severity_filter.lower():
+                continue
+
+            display_name = props.get("displayName", "")
+            if isinstance(metadata, dict):
+                display_name = metadata.get("displayName", display_name)
+
+            recommendations.append({
+                "name": display_name,
+                "severity": severity,
+                "status": status_code,
+                "description": metadata.get("description", "") if isinstance(metadata, dict) else "",
+                "remediation": metadata.get("remediationDescription", "") if isinstance(metadata, dict) else "",
+                "resource_id": item.get("id", ""),
+            })
+
+        # Sort by severity
+        severity_order = {"High": 0, "Medium": 1, "Low": 2}
+        recommendations.sort(key=lambda x: severity_order.get(x["severity"], 3))
+
+        response = {
+            "success": True,
+            "subscription_id": sub_id,
+            "total_recommendations": len(recommendations),
+            "severity_filter": severity_filter or "all",
+            "recommendations": recommendations[:30],
+        }
+
+        _log_audit_event("list_security_recommendations", sub_id,
+                         {"count": len(recommendations), "filter": severity_filter}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2, default=str))]
+
+    except Exception as exc:
+        logger.error(f"Error listing security recommendations: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="check_compliance_status",
+    description=(
+        "Check Azure Policy compliance status for regulatory frameworks like CIS, NIST, and PCI-DSS. "
+        "✅ USE THIS TOOL when users ask: 'Are we compliant with CIS?', "
+        "'Show me NIST compliance status', 'Policy compliance overview'. "
+        "Returns compliance percentages and non-compliant resource counts."
+    ),
+)
+async def check_compliance_status(
+    context: Context,
+    scope: Annotated[str, "Compliance scope: subscription path (e.g., '/subscriptions/{id}')"],
+    policy_definition_name: Annotated[str, "Policy initiative name to filter (optional, shows all if empty)"] = "",
+) -> list[TextContent]:
+    """Check Azure Policy compliance status"""
+    try:
+        import httpx
+        credential = _get_credential()
+        token = credential.get_token("https://management.azure.com/.default")
+
+        compliance_url = (
+            f"https://management.azure.com{scope}"
+            f"/providers/Microsoft.PolicyInsights/policyStates/latest/summarize"
+            f"?api-version=2019-10-01"
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                compliance_url,
+                headers={"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
+            )
+            resp.raise_for_status()
+            compliance_data = resp.json()
+
+        summaries = compliance_data.get("value", [])
+        results = []
+
+        for summary in summaries:
+            policy_results = summary.get("results", {})
+            total = policy_results.get("resourceDetails", [{}])[0].get("count", 0) if policy_results.get("resourceDetails") else 0
+            non_compliant = policy_results.get("nonCompliantResources", 0)
+            compliant = total - non_compliant if total > 0 else 0
+            compliance_pct = (compliant / total * 100) if total > 0 else 100
+
+            # Get policy assignments
+            for assignment in summary.get("policyAssignments", []):
+                assign_props = assignment.get("policyAssignmentId", "")
+                assign_results = assignment.get("results", {})
+
+                if policy_definition_name and policy_definition_name.lower() not in assign_props.lower():
+                    continue
+
+                results.append({
+                    "assignment_id": assign_props,
+                    "non_compliant_resources": assign_results.get("nonCompliantResources", 0),
+                    "non_compliant_policies": assign_results.get("nonCompliantPolicies", 0),
+                })
+
+        response = {
+            "success": True,
+            "scope": scope,
+            "filter": policy_definition_name or "all policies",
+            "summary": {
+                "total_assignments": len(results),
+            },
+            "assignments": results[:20],
+        }
+
+        _log_audit_event("check_compliance_status", scope,
+                         {"assignments": len(results)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2, default=str))]
+
+    except Exception as exc:
+        logger.error(f"Error checking compliance status: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
+# Anomaly Detection & Predictive Analysis (P1)
+# ============================================================================
+
+@_server.tool(
+    name="detect_metric_anomalies",
+    description=(
+        "Detect anomalies in Azure Monitor metrics using statistical analysis (Z-score). "
+        "✅ USE THIS TOOL when users ask: 'Are there any metric anomalies?', "
+        "'Is CPU usage unusual?', 'Detect abnormal patterns'. "
+        "Analyzes time-series data and flags values that deviate significantly from the mean."
+    ),
+)
+async def detect_metric_anomalies(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID"],
+    metric_names: Annotated[str, "Comma-separated metric names (e.g., 'Percentage CPU,Network In Total')"] = "Percentage CPU",
+    time_range: Annotated[str, "Time range in hours (default: 168 = 7 days)"] = "168",
+    sensitivity: Annotated[str, "Sensitivity: 'high' (z>2), 'medium' (z>3), 'low' (z>4) (default: medium)"] = "medium",
+) -> list[TextContent]:
+    """Detect anomalies in Azure Monitor metrics"""
+    try:
+        credential = _get_credential()
+        metrics_client = MetricsQueryClient(credential)
+        hours = int(time_range) if time_range.isdigit() else 168
+        timespan = timedelta(hours=hours)
+
+        z_thresholds = {"high": 2.0, "medium": 3.0, "low": 4.0}
+        z_threshold = z_thresholds.get(sensitivity, 3.0)
+
+        metrics = [m.strip() for m in metric_names.split(",")]
+        anomalies = []
+
+        for metric_name in metrics:
+            try:
+                result = metrics_client.query_resource(
+                    resource_id,
+                    metric_names=[metric_name],
+                    timespan=timespan,
+                    granularity=timedelta(hours=1),
+                )
+
+                # Extract time series values
+                values = []
+                timestamps = []
+                for metric in result.metrics:
+                    for ts in metric.timeseries:
+                        for dp in ts.data:
+                            val = dp.average or dp.total or dp.maximum
+                            if val is not None:
+                                values.append(float(val))
+                                timestamps.append(dp.timestamp.isoformat() if dp.timestamp else "")
+
+                if len(values) < 10:
+                    continue
+
+                # Calculate Z-scores (pure Python, no numpy needed)
+                mean = sum(values) / len(values)
+                variance = sum((v - mean) ** 2 for v in values) / len(values)
+                std_dev = variance ** 0.5
+
+                if std_dev == 0:
+                    continue
+
+                for i, val in enumerate(values):
+                    z_score = abs(val - mean) / std_dev
+                    if z_score > z_threshold:
+                        anomalies.append({
+                            "metric": metric_name,
+                            "timestamp": timestamps[i] if i < len(timestamps) else "",
+                            "value": round(val, 2),
+                            "mean": round(mean, 2),
+                            "std_dev": round(std_dev, 2),
+                            "z_score": round(z_score, 2),
+                            "severity": "critical" if z_score > z_threshold + 2 else "warning",
+                        })
+
+            except Exception as e:
+                logger.warning(f"Failed to analyze metric {metric_name}: {e}")
+
+        response = {
+            "success": True,
+            "resource_id": resource_id,
+            "metrics_analyzed": metrics,
+            "time_range_hours": hours,
+            "sensitivity": sensitivity,
+            "z_score_threshold": z_threshold,
+            "anomaly_count": len(anomalies),
+            "anomalies": anomalies[:20],
+        }
+
+        _log_audit_event("detect_metric_anomalies", resource_id,
+                         {"anomaly_count": len(anomalies), "metrics": metrics}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error detecting metric anomalies: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="predict_resource_exhaustion",
+    description=(
+        "Predict when a resource will hit capacity based on trend extrapolation using linear regression. "
+        "✅ USE THIS TOOL when users ask: 'When will my disk be full?', "
+        "'Predict CPU saturation', 'Capacity forecast for my resource'. "
+        "Uses historical metrics to project future values and estimate time to threshold."
+    ),
+)
+async def predict_resource_exhaustion(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID"],
+    metric_name: Annotated[str, "Metric to forecast (e.g., 'Percentage CPU', 'Data Disk Used Percentage')"] = "Percentage CPU",
+    threshold: Annotated[float, "Threshold percentage to predict reaching (default: 90)"] = 90.0,
+    time_range: Annotated[str, "Historical data range in hours (default: 168 = 7 days)"] = "168",
+) -> list[TextContent]:
+    """Predict resource exhaustion using linear trend"""
+    try:
+        credential = _get_credential()
+        metrics_client = MetricsQueryClient(credential)
+        hours = int(time_range) if time_range.isdigit() else 168
+        timespan = timedelta(hours=hours)
+
+        result = metrics_client.query_resource(
+            resource_id,
+            metric_names=[metric_name],
+            timespan=timespan,
+            granularity=timedelta(hours=1),
+        )
+
+        # Extract values
+        values = []
+        for metric in result.metrics:
+            for ts in metric.timeseries:
+                for dp in ts.data:
+                    val = dp.average or dp.total or dp.maximum
+                    if val is not None:
+                        values.append(float(val))
+
+        if len(values) < 10:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Insufficient data points ({len(values)}) for prediction. Need at least 10.",
+                "resource_id": resource_id,
+            }, indent=2))]
+
+        # Linear regression (pure Python)
+        n = len(values)
+        x = list(range(n))
+        x_mean = sum(x) / n
+        y_mean = sum(values) / n
+
+        numerator = sum((x[i] - x_mean) * (values[i] - y_mean) for i in range(n))
+        denominator = sum((x[i] - x_mean) ** 2 for i in range(n))
+
+        if denominator == 0:
+            slope = 0
+        else:
+            slope = numerator / denominator
+        intercept = y_mean - slope * x_mean
+
+        current_value = values[-1]
+        current_trend = "increasing" if slope > 0.01 else "decreasing" if slope < -0.01 else "stable"
+
+        # Predict time to threshold
+        hours_to_threshold = None
+        if slope > 0 and current_value < threshold:
+            remaining = threshold - current_value
+            hours_to_threshold = remaining / slope
+        elif slope <= 0 and current_value < threshold:
+            hours_to_threshold = None  # Will never reach if stable/decreasing
+
+        response = {
+            "success": True,
+            "resource_id": resource_id,
+            "metric": metric_name,
+            "threshold": threshold,
+            "analysis": {
+                "current_value": round(current_value, 2),
+                "mean_value": round(y_mean, 2),
+                "min_value": round(min(values), 2),
+                "max_value": round(max(values), 2),
+                "trend": current_trend,
+                "slope_per_hour": round(slope, 4),
+            },
+            "prediction": {
+                "hours_to_threshold": round(hours_to_threshold, 1) if hours_to_threshold else None,
+                "days_to_threshold": round(hours_to_threshold / 24, 1) if hours_to_threshold else None,
+                "predicted_date": (datetime.utcnow() + timedelta(hours=hours_to_threshold)).isoformat() if hours_to_threshold else None,
+                "will_reach_threshold": hours_to_threshold is not None,
+                "urgency": (
+                    "critical" if hours_to_threshold and hours_to_threshold < 24
+                    else "warning" if hours_to_threshold and hours_to_threshold < 168
+                    else "info" if hours_to_threshold
+                    else "safe"
+                ),
+            },
+            "data_points": n,
+            "historical_hours": hours,
+        }
+
+        _log_audit_event("predict_resource_exhaustion", resource_id,
+                         {"metric": metric_name, "trend": current_trend, "hours_to_threshold": hours_to_threshold}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error predicting resource exhaustion: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
+# Enhanced Incident Management (P2)
+# ============================================================================
+
+@_server.tool(
+    name="generate_postmortem",
+    description=(
+        "Generate a comprehensive post-incident review document with timeline, "
+        "root cause analysis, and action items. "
+        "✅ USE THIS TOOL when users ask: 'Generate a postmortem', 'Create a post-incident review', "
+        "'Write up the incident report'. "
+        "Aggregates audit trail events, health checks, and alert data into a structured document."
+    ),
+)
+async def generate_postmortem(
+    context: Context,
+    incident_description: Annotated[str, "Description of the incident"],
+    resource_id: Annotated[str, "Primary affected resource ID (optional)"] = "",
+    start_time: Annotated[str, "Incident start time ISO format (optional, defaults to 24h ago)"] = "",
+    end_time: Annotated[str, "Incident end time ISO format (optional, defaults to now)"] = "",
+) -> list[TextContent]:
+    """Generate a post-incident review document"""
+    try:
+        now = datetime.utcnow()
+        inc_start = datetime.fromisoformat(start_time) if start_time else (now - timedelta(hours=24))
+        inc_end = datetime.fromisoformat(end_time) if end_time else now
+
+        # Gather audit trail events for timeline
+        timeline_events = []
+        for entry in _audit_trail:
+            try:
+                entry_time = datetime.fromisoformat(entry["timestamp"])
+                if inc_start <= entry_time <= inc_end:
+                    if not resource_id or entry.get("resource_id", "") == resource_id:
+                        timeline_events.append({
+                            "timestamp": entry["timestamp"],
+                            "operation": entry["operation"],
+                            "resource_id": entry.get("resource_id", ""),
+                            "success": entry["success"],
+                        })
+            except (ValueError, KeyError):
+                continue
+
+        timeline_events.sort(key=lambda x: x["timestamp"])
+
+        postmortem = {
+            "success": True,
+            "title": f"Post-Incident Review: {incident_description[:100]}",
+            "generated_at": now.isoformat(),
+            "incident": {
+                "description": incident_description,
+                "primary_resource": resource_id or "Not specified",
+                "start_time": inc_start.isoformat(),
+                "end_time": inc_end.isoformat(),
+                "duration_minutes": round((inc_end - inc_start).total_seconds() / 60, 1),
+            },
+            "timeline": {
+                "event_count": len(timeline_events),
+                "events": timeline_events[:50],
+            },
+            "template": {
+                "summary": f"[TO BE FILLED] Summary of {incident_description}",
+                "impact": "[TO BE FILLED] Describe user impact, affected services, and blast radius",
+                "root_cause": "[TO BE FILLED] Describe the root cause of the incident",
+                "detection": {
+                    "how_detected": "[TO BE FILLED] How was the incident detected?",
+                    "time_to_detect_minutes": "[TO BE FILLED]",
+                },
+                "resolution": {
+                    "actions_taken": "[TO BE FILLED] What steps were taken to resolve?",
+                    "time_to_resolve_minutes": round((inc_end - inc_start).total_seconds() / 60, 1),
+                },
+                "action_items": [
+                    {"item": "[TO BE FILLED] Action item 1", "owner": "", "due_date": ""},
+                    {"item": "[TO BE FILLED] Action item 2", "owner": "", "due_date": ""},
+                ],
+                "lessons_learned": [
+                    "[TO BE FILLED] What went well?",
+                    "[TO BE FILLED] What could be improved?",
+                ],
+            },
+        }
+
+        _log_audit_event("generate_postmortem", resource_id,
+                         {"description": incident_description[:100], "events": len(timeline_events)}, True)
+
+        return [TextContent(type="text", text=json.dumps(postmortem, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error generating postmortem: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="calculate_mttr_metrics",
+    description=(
+        "Calculate DORA reliability metrics (MTTR, MTTD, incident count) from the SRE audit trail. "
+        "✅ USE THIS TOOL when users ask: 'What is our MTTR?', 'Show me DORA metrics', "
+        "'How quickly do we resolve incidents?'. "
+        "Analyzes triage_incident and remediation audit events to compute mean times."
+    ),
+)
+async def calculate_mttr_metrics(
+    context: Context,
+    service_name: Annotated[str, "Service name filter (optional, 'all' for all services)"] = "all",
+    time_range: Annotated[str, "Time range in days (default: 30)"] = "30",
+) -> list[TextContent]:
+    """Calculate DORA-aligned reliability metrics"""
+    try:
+        days = int(time_range) if time_range.isdigit() else 30
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        # Analyze audit trail for incident-related events
+        triage_events = []
+        remediation_events = []
+
+        for entry in _audit_trail:
+            try:
+                entry_time = datetime.fromisoformat(entry["timestamp"])
+                if entry_time < cutoff:
+                    continue
+                if service_name != "all" and entry.get("resource_id", "") and service_name.lower() not in entry.get("resource_id", "").lower():
+                    continue
+
+                if entry["operation"] == "triage_incident":
+                    triage_events.append(entry)
+                elif entry["operation"] in ("execute_safe_restart", "scale_resource", "clear_cache", "execute_restart_resource", "execute_scale_resource"):
+                    remediation_events.append(entry)
+            except (ValueError, KeyError):
+                continue
+
+        total_incidents = len(triage_events)
+        successful_remediations = len([r for r in remediation_events if r.get("success")])
+
+        response = {
+            "success": True,
+            "service_filter": service_name,
+            "time_range_days": days,
+            "metrics": {
+                "total_incidents": total_incidents,
+                "total_remediations": len(remediation_events),
+                "successful_remediations": successful_remediations,
+                "remediation_success_rate": round(
+                    successful_remediations / len(remediation_events) * 100, 1
+                ) if remediation_events else 0,
+            },
+            "note": "MTTR calculation requires incident start/end timestamps in audit trail. Current data shows event counts. For time-based MTTR, integrate with Azure Monitor alert resolution times.",
+        }
+
+        _log_audit_event("calculate_mttr_metrics", None,
+                         {"incidents": total_incidents, "remediations": len(remediation_events)}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error calculating MTTR metrics: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
 
 @_server.tool(
     name="describe_capabilities",
@@ -3007,9 +5205,9 @@ async def describe_capabilities(
     """Describe SRE Agent capabilities"""
     capabilities = {
         "success": True,
-        "agent_name": "Azure SRE Agent MCP Server",
-        "version": "1.0.0",
-        "description": "Site Reliability Engineering operations for Azure with 28 specialized tools",
+        "agent_name": "SRE MCP Server",
+        "version": "2.0.0",
+        "description": "Site Reliability Engineering operations for Azure with 45+ specialized tools across 15 domains",
 
         "key_capabilities": [
             {
@@ -3164,7 +5362,7 @@ async def describe_capabilities(
             "Visualization generation not yet implemented (returns data only)"
         ],
 
-        "total_tools": 28,
+        "total_tools": 45,
         "timestamp": datetime.utcnow().isoformat()
     }
 

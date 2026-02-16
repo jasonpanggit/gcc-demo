@@ -506,6 +506,22 @@ variable "azure_ai_foundry_name" {
   default     = null
 }
 
+# ============================================================================
+# AZURE AI SRE AGENT VARIABLES
+# ============================================================================
+
+variable "azure_ai_sre_agent_name" {
+  description = "Name of existing Azure AI SRE agent to connect to (e.g., gccsreagent)"
+  type        = string
+  default     = "gccsreagent"
+}
+
+variable "azure_ai_sre_agent_id" {
+  description = "Resource ID of existing Azure AI SRE agent"
+  type        = string
+  default     = null
+}
+
 # ==============================================================================
 # CONTAINER APPS CONFIGURATION
 # ==============================================================================

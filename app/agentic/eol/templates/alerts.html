@@ -663,9 +663,9 @@
                     <div class="config-group">
                         <label class="config-label" for="warning-frequency">Warning Alert Frequency</label>
                         <select class="form-select" id="warning-frequency" onchange="updatePreview()">
+                            <option value="daily">Daily</option>
                             <option value="weekly">Weekly</option>
                             <option value="monthly" selected>Monthly</option>
-                            <option value="quarterly">Quarterly</option>
                         </select>
                         <div class="config-description">How often to send warning alerts</div>
                     </div>
@@ -673,34 +673,11 @@
                     <div class="config-group">
                         <label class="config-label" for="info-frequency">Info Alert Frequency</label>
                         <select class="form-select" id="info-frequency" onchange="updatePreview()">
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly" selected>Quarterly</option>
-                            <option value="yearly">Yearly</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly" selected>Monthly</option>
                         </select>
                         <div class="config-description">How often to send informational alerts</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Notification Settings -->
-            <div class="config-section">
-                <div class="config-title">
-                    <i class="fas fa-envelope"></i>
-                    Email Notification Settings
-                </div>
-                <div class="config-row">
-                    <div class="config-group">
-                        <label class="config-label" for="notification-email">Email Recipients</label>
-                        <textarea class="form-control" id="notification-email" rows="3"
-                            placeholder="admin@company.com, security@company.com" onchange="updatePreview()"></textarea>
-                        <div class="config-description">Comma-separated list of email addresses</div>
-                    </div>
-
-                    <div class="config-group">
-                        <label class="config-label" for="notification-webhook">Webhook URL (Optional)</label>
-                        <input type="url" class="form-control" id="notification-webhook"
-                            placeholder="https://hooks.slack.com/services/..." onchange="updatePreview()">
-                        <div class="config-description">Webhook URL for external notification systems</div>
                     </div>
                 </div>
             </div>
@@ -830,6 +807,31 @@
                                     <span class="slider"></span>
                                 </label>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Email Recipients Section -->
+                    <div class="config-row mt-4">
+                        <div class="col-12">
+                            <h6 class="config-label mb-3">
+                                <i class="fas fa-envelope me-2"></i>Email Notification Settings
+                            </h6>
+                        </div>
+                    </div>
+
+                    <div class="config-row">
+                        <div class="config-group">
+                            <label class="config-label" for="notification-email">Email Recipients</label>
+                            <textarea class="form-control" id="notification-email" rows="3"
+                                placeholder="admin@company.com, security@company.com" onchange="updatePreview()"></textarea>
+                            <div class="config-description">Comma-separated list of email addresses for alert notifications</div>
+                        </div>
+
+                        <div class="config-group">
+                            <label class="config-label" for="notification-webhook">Webhook URL (Optional)</label>
+                            <input type="url" class="form-control" id="notification-webhook"
+                                placeholder="https://hooks.slack.com/services/..." onchange="updatePreview()">
+                            <div class="config-description">Webhook URL for external notification systems</div>
                         </div>
                     </div>
 
@@ -1132,16 +1134,19 @@
                 const data = await response.json();
                 // Backend response received
 
-                if (data.success && data.data) {
+                if (data.success && data.data && data.data.length > 0) {
+                    // Extract configuration from the response structure
+                    const configData = data.data[0].configuration || data.data[0];
+
                     // Properly structure the alert configuration with defaults
                     alertConfig = {
-                        enabled: data.data.enabled !== undefined ? data.data.enabled : true,
-                        critical: data.data.critical || { period: 3, unit: 'months', frequency: 'weekly' },
-                        warning: data.data.warning || { period: 6, unit: 'months', frequency: 'monthly' },
-                        info: data.data.info || { period: 12, unit: 'months', frequency: 'quarterly' },
-                        email_recipients: data.data.email_recipients || [],
-                        webhook_url: data.data.webhook_url || '',
-                        smtp_settings: data.data.smtp_settings || {
+                        enabled: configData.enabled !== undefined ? configData.enabled : true,
+                        critical: configData.critical || { period: 3, unit: 'months', frequency: 'weekly' },
+                        warning: configData.warning || { period: 6, unit: 'months', frequency: 'monthly' },
+                        info: configData.info || { period: 12, unit: 'months', frequency: 'quarterly' },
+                        email_recipients: configData.email_recipients || [],
+                        webhook_url: configData.webhook_url || '',
+                        smtp_settings: configData.smtp_settings || {
                             enabled: false,
                             server: '',
                             port: 587,
@@ -1152,7 +1157,7 @@
                             from_email: '',
                             from_name: 'EOL Alert System'
                         },
-                        last_sent: data.data.last_sent || {}
+                        last_sent: configData.last_sent || {}
                     };
 
                     // Updated alertConfig from backend
@@ -1207,6 +1212,9 @@
         }
     }
 
+    // Track if password field contains a masked value from server
+    let passwordIsMasked = false;
+
     function populateConfigForm() {
         // Populating form with alertConfig
 
@@ -1224,7 +1232,7 @@
                 const criticalPeriodEl = document.getElementById('critical-period');
                 const criticalUnitEl = document.getElementById('critical-unit');
                 const criticalFreqEl = document.getElementById('critical-frequency');
-                
+
                 if (criticalPeriodEl) criticalPeriodEl.value = alertConfig.critical.period || 3;
                 if (criticalUnitEl) criticalUnitEl.value = alertConfig.critical.unit || 'months';
                 if (criticalFreqEl) criticalFreqEl.value = alertConfig.critical.frequency || 'weekly';
@@ -1234,7 +1242,7 @@
                 const warningPeriodEl = document.getElementById('warning-period');
                 const warningUnitEl = document.getElementById('warning-unit');
                 const warningFreqEl = document.getElementById('warning-frequency');
-                
+
                 if (warningPeriodEl) warningPeriodEl.value = alertConfig.warning.period || 6;
                 if (warningUnitEl) warningUnitEl.value = alertConfig.warning.unit || 'months';
                 if (warningFreqEl) warningFreqEl.value = alertConfig.warning.frequency || 'monthly';
@@ -1244,7 +1252,7 @@
                 const infoPeriodEl = document.getElementById('info-period');
                 const infoUnitEl = document.getElementById('info-unit');
                 const infoFreqEl = document.getElementById('info-frequency');
-                
+
                 if (infoPeriodEl) infoPeriodEl.value = alertConfig.info.period || 12;
                 if (infoUnitEl) infoUnitEl.value = alertConfig.info.unit || 'months';
                 if (infoFreqEl) infoFreqEl.value = alertConfig.info.frequency || 'quarterly';
@@ -1254,10 +1262,10 @@
             const emailList = Array.isArray(alertConfig.email_recipients) ?
                 alertConfig.email_recipients.join(', ') :
                 (alertConfig.email_recipients || '');
-            
+
             const notificationEmailEl = document.getElementById('notification-email');
             const notificationWebhookEl = document.getElementById('notification-webhook');
-            
+
             if (notificationEmailEl) notificationEmailEl.value = emailList;
             if (notificationWebhookEl) notificationWebhookEl.value = alertConfig.webhook_url || '';
 
@@ -1281,7 +1289,22 @@
             if (smtpElements.server) smtpElements.server.value = smtp.server || '';
             if (smtpElements.port) smtpElements.port.value = smtp.port || 587;
             if (smtpElements.username) smtpElements.username.value = smtp.username || '';
-            if (smtpElements.password) smtpElements.password.value = smtp.password || '';
+
+            // Handle password: detect if it's masked by backend
+            if (smtpElements.password) {
+                if (smtp.password === '***' || smtp.password === '***SET***') {
+                    // Password is masked by backend - keep field empty with placeholder
+                    smtpElements.password.value = '';
+                    smtpElements.password.placeholder = '(password set - leave blank to keep unchanged)';
+                    passwordIsMasked = true;
+                } else {
+                    // Either no password or actual password value
+                    smtpElements.password.value = smtp.password || '';
+                    smtpElements.password.placeholder = 'Enter App Password';
+                    passwordIsMasked = false;
+                }
+            }
+
             if (smtpElements.fromEmail) smtpElements.fromEmail.value = smtp.from_email || '';
             if (smtpElements.fromName) smtpElements.fromName.value = smtp.from_name || 'EOL Alert System';
             if (smtpElements.useTls) smtpElements.useTls.checked = smtp.use_tls !== false; // default to true
@@ -1422,12 +1445,7 @@
         }
     }
 
-    function updatePreview() {
-        if (!alertConfig.enabled) {
-            showDisabledMessage();
-            return;
-        }
-
+    function updateConfigFromForm() {
         // Update config from form with proper nested structure
         alertConfig.enabled = document.getElementById('alerts-enabled').checked;
 
@@ -1447,7 +1465,7 @@
         if (!alertConfig.info) alertConfig.info = {};
         alertConfig.info.period = parseInt(document.getElementById('info-period').value) || 12;
         alertConfig.info.unit = document.getElementById('info-unit').value || 'months';
-        alertConfig.info.frequency = document.getElementById('info-frequency').value || 'quarterly';
+        alertConfig.info.frequency = document.getElementById('info-frequency').value || 'monthly';
 
         // Email settings
         const emailText = document.getElementById('notification-email').value;
@@ -1461,13 +1479,33 @@
         alertConfig.smtp_settings.server = document.getElementById('smtp-server').value || '';
         alertConfig.smtp_settings.port = parseInt(document.getElementById('smtp-port').value) || 587;
         alertConfig.smtp_settings.username = document.getElementById('smtp-username').value || '';
-        alertConfig.smtp_settings.password = document.getElementById('smtp-password').value || '';
+
+        // Password handling: only update if user entered a new value
+        const passwordField = document.getElementById('smtp-password').value;
+        if (passwordField && passwordField !== '***' && passwordField !== '***SET***') {
+            // User entered a new password - use it
+            alertConfig.smtp_settings.password = passwordField;
+        } else if (!passwordIsMasked) {
+            // No existing password and field is empty - clear it
+            alertConfig.smtp_settings.password = '';
+        }
+        // If passwordIsMasked is true and field is empty, we don't update the password
+        // (backend will keep the existing password)
+
         alertConfig.smtp_settings.from_email = document.getElementById('smtp-from-email').value || '';
         alertConfig.smtp_settings.from_name = document.getElementById('smtp-from-name').value || 'EOL Alert System';
         alertConfig.smtp_settings.use_tls = document.getElementById('smtp-use-tls').checked;
         alertConfig.smtp_settings.use_ssl = document.getElementById('smtp-use-ssl').checked;
+    }
 
-        // Updated alertConfig structure
+    function updatePreview() {
+        // Update config from form
+        updateConfigFromForm();
+
+        if (!alertConfig.enabled) {
+            showDisabledMessage();
+            return;
+        }
 
         if (osInventoryData.length === 0) {
             showNoDataMessage();
@@ -1677,10 +1715,21 @@
     function saveAlertConfiguration() {
         // console.log('Saving alert configuration...');
 
-        // First update the alertConfig object from the form
-        updatePreview();
+        // Update the alertConfig object from the form
+        updateConfigFromForm();
 
-        // Alert config to save (removed verbose logging)
+        // 🔍 DEBUG: Log what we're about to save
+        console.log('🔍 DEBUG - SMTP settings being saved:');
+        console.log('  Server:', alertConfig.smtp_settings?.server);
+        console.log('  Port:', alertConfig.smtp_settings?.port);
+        console.log('  Username:', alertConfig.smtp_settings?.username);
+        console.log('  Password:', alertConfig.smtp_settings?.password ? '***SET***' : '***EMPTY***');
+        console.log('  From Email:', alertConfig.smtp_settings?.from_email);
+        console.log('  From Name:', alertConfig.smtp_settings?.from_name);
+        console.log('  TLS:', alertConfig.smtp_settings?.use_tls);
+        console.log('  SSL:', alertConfig.smtp_settings?.use_ssl);
+        console.log('  Enabled:', alertConfig.smtp_settings?.enabled);
+        console.log('📦 Full config object:', JSON.stringify(alertConfig, null, 2));
 
         // Validate required SMTP fields if SMTP is enabled
         if (alertConfig.smtp_settings && alertConfig.smtp_settings.enabled) {
@@ -1802,16 +1851,19 @@
             // console.log('Data success:', data.success);
             // console.log('Data data:', data.data);
 
-            if (data.success && data.data) {
+            if (data.success && data.data && data.data.length > 0) {
+                // Extract configuration from the response structure (same as loadAlertConfiguration)
+                const configData = data.data[0].configuration || data.data[0];
+
                 // Reset alertConfig to fresh data from Cosmos DB
                 alertConfig = {
-                    enabled: data.data.enabled || false,
-                    critical: data.data.critical || { period: 3, unit: 'months', frequency: 'weekly' },
-                    warning: data.data.warning || { period: 6, unit: 'months', frequency: 'monthly' },
-                    info: data.data.info || { period: 12, unit: 'months', frequency: 'quarterly' },
-                    email_recipients: data.data.email_recipients || [],
-                    webhook_url: data.data.webhook_url || '',
-                    smtp_settings: data.data.smtp_settings || {
+                    enabled: configData.enabled !== undefined ? configData.enabled : true,
+                    critical: configData.critical || { period: 3, unit: 'months', frequency: 'weekly' },
+                    warning: configData.warning || { period: 6, unit: 'months', frequency: 'monthly' },
+                    info: configData.info || { period: 12, unit: 'months', frequency: 'quarterly' },
+                    email_recipients: configData.email_recipients || [],
+                    webhook_url: configData.webhook_url || '',
+                    smtp_settings: configData.smtp_settings || {
                         enabled: false,
                         server: '',
                         port: 587,
@@ -1822,7 +1874,7 @@
                         from_email: '',
                         from_name: 'EOL Alert System'
                     },
-                    last_sent: data.data.last_sent || {}
+                    last_sent: configData.last_sent || {}
                 };
 
                 // console.log('Configuration reloaded from Cosmos DB:', alertConfig);

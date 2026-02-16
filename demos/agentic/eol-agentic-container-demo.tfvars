@@ -81,6 +81,10 @@ acr_admin_enabled             = true     # Enable for initial setup
 deploy_azure_ai_agent         = true
 azure_ai_foundry_sku_name     = "S0"
 
+# Azure AI SRE Agent (Existing gccsreagent)
+azure_ai_sre_agent_name       = "gccsreagent"
+azure_ai_sre_agent_id         = null  # Optional: Full resource ID if needed
+
 # Private Endpoints (Recommended for production)
 deploy_agentic_private_endpoints = true
 

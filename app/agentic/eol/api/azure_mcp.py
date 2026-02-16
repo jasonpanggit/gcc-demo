@@ -300,11 +300,9 @@ async def query_azure_resources(request: ResourceQueryRequest):
     """
     try:
         client = await get_azure_mcp_client()
-        result = await client.query_resources(
-            query=request.query,
-            cluster_uri=request.cluster_uri,
-            database=request.database
-        )
+        # Note: cluster_uri and database parameters are not yet supported by azure_mcp_client
+        # TODO: Add Kusto query support if needed
+        result = await client.query_resources(query=request.query)
         
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))

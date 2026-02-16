@@ -29,9 +29,10 @@ _SOURCE_GUIDANCE: Dict[str, str] = {
         "Use os_eol_bulk_lookup after retrieving inventory to cross-reference EOL status."
     ),
     "inventory": (
-        " [Inventory Server] Query OS and software inventory from Log Analytics. "
-        "Use these tools to find WHAT is installed. To check if it's end-of-life, "
-        "pass results to os_eol tools. To manage the workspace itself, use Azure MCP Server."
+        " [Inventory Server - Azure Arc ONLY] Query OS and software inventory from Azure Arc-enabled servers "
+        "reported to Log Analytics. ONLY use when user asks for Arc server inventory, installed software, or OS list. "
+        "For Azure VMs without Arc, use Azure MCP 'compute' tools. For Container Apps, use 'azure_cli'. "
+        "WORKFLOW: Get inventory → Pass to os_eol_bulk_lookup for EOL checking."
     ),
     "monitor": (
         " [Azure Monitor Community] Discover and deploy workbooks, alerts, and KQL queries. "
@@ -39,11 +40,17 @@ _SOURCE_GUIDANCE: Dict[str, str] = {
         "Then deploy: workbooks via deploy_workbook, queries/alerts via get_resource_content then CLI."
     ),
     "sre": (
-        " [Azure SRE Agent] For site reliability operations: resource health checks, incident triage, "
-        "diagnostics, performance monitoring, and safe remediation actions. "
-        "Use check_resource_health for availability status (requires full resource ID). "
-        "For troubleshooting, use triage_incident, get_diagnostic_logs, and identify_bottlenecks. "
-        "NEVER use the 'speech' tool for SRE operations - call SRE tools directly."
+        " [Azure SRE Agent] Comprehensive Site Reliability Engineering operations: "
+        "health monitoring, incident response, performance analysis, cost optimization, "
+        "SLO management, Application Insights tracing, security compliance, and safe remediation. "
+        "Use SRE tools for: health checks (check_resource_health, check_container_app_health), "
+        "incident triage (triage_incident, correlate_alerts), performance (get_performance_metrics), "
+        "cost analysis (get_cost_analysis, identify_orphaned_resources), "
+        "SLOs (define_slo, calculate_error_budget), "
+        "App Insights (query_app_insights_traces, get_request_telemetry), "
+        "security (get_security_score, check_compliance_status), "
+        "and remediation planning (plan_remediation). "
+        "NEVER use the 'speech' tool for SRE operations."
     ),
 }
 
@@ -83,7 +90,48 @@ _TOOL_DISAMBIGUATION: Dict[str, str] = {
     ),
     "applicationinsights": (
         " [Application Insights Configuration] This is for configuring Application Insights resources. "
-        "For retrieving diagnostic logs or performance data, use SRE tools: get_diagnostic_logs, get_performance_metrics."
+        "For retrieving diagnostic logs or performance data, use SRE tools: get_diagnostic_logs, get_performance_metrics. "
+        "For Application Insights traces and request telemetry, use SRE tools: query_app_insights_traces, get_request_telemetry."
+    ),
+
+    # === SRE New Tool Disambiguation ===
+    "query_app_insights": (
+        " [SRE Application Insights Query] Query Application Insights traces and telemetry via Log Analytics. "
+        "NOT for configuring Application Insights resources (use 'applicationinsights' Azure MCP tool for that)."
+    ),
+    "get_cost_analysis": (
+        " [SRE Cost Analysis] Query Azure Cost Management for spending data by resource group, service, or tag. "
+        "NOT for Azure resource pricing. For cost recommendations, also see get_cost_recommendations."
+    ),
+    "identify_orphaned": (
+        " [SRE Orphaned Resources] Find unused Azure resources (unattached disks, idle IPs, empty NSGs). "
+        "Helps reduce cloud waste and optimize costs."
+    ),
+    "define_slo": (
+        " [SRE SLO Management] Define and manage service level objectives (availability, latency, error rate). "
+        "SLO definitions are stored in Cosmos DB. Use calculate_error_budget to check compliance."
+    ),
+    "calculate_error_budget": (
+        " [SRE Error Budget] Calculate remaining error budget based on SLI measurements vs SLO targets. "
+        "Requires an SLO defined via define_slo first."
+    ),
+    "execute_restart_resource": (
+        " [SRE REAL Restart] ⚠️ ACTUALLY restarts Azure resources (not simulated). "
+        "Requires ALLOW_REAL_REMEDIATION=true environment variable AND confirmed=true parameter. "
+        "Use plan_remediation first to preview, then execute_safe_restart (simulated) to dry-run."
+    ),
+    "execute_scale_resource": (
+        " [SRE REAL Scale] ⚠️ ACTUALLY scales Azure resources (not simulated). "
+        "Requires ALLOW_REAL_REMEDIATION=true environment variable AND confirmed=true parameter. "
+        "Use plan_remediation first to preview impact."
+    ),
+    "get_security_score": (
+        " [SRE Security Score] Microsoft Defender for Cloud secure score. "
+        "NOT for Azure AD or identity security. For specific recommendations, use list_security_recommendations."
+    ),
+    "check_compliance_status": (
+        " [SRE Compliance Check] Azure Policy compliance status for regulatory frameworks (CIS, NIST, PCI-DSS). "
+        "NOT for Azure AD compliance or Purview."
     ),
 
     # === Search Disambiguation ===
@@ -173,6 +221,27 @@ _TOOL_DISAMBIGUATION: Dict[str, str] = {
     ),
     "get_workbook_details": (
         " ⚠️ DEPRECATED: Use get_resource_content(download_url, resource_type='workbooks') instead."
+    ),
+
+    # === Inventory Tool Disambiguation ===
+    "law_get_os_inventory": (
+        " [Azure Arc Inventory] Returns OS inventory ONLY for Azure Arc-enabled servers in Log Analytics. "
+        "NOT for Azure VMs without Arc, Container Apps, or AKS nodes. "
+        "For non-Arc VMs: use Azure MCP 'compute' tools. "
+        "For Container Apps: use 'azure_cli' with 'az containerapp'."
+    ),
+    "law_get_software_inventory": (
+        " [Azure Arc Software Inventory] Returns software inventory ONLY for Azure Arc-enabled servers. "
+        "NOT for Azure services, Container Apps, or cloud-native applications. "
+        "After retrieving, pass results to os_eol_bulk_lookup to check EOL status."
+    ),
+    "law_get_os_summary": (
+        " [Azure Arc OS Summary] Aggregates OS types ONLY from Arc-enabled servers. "
+        "Use this for quick overview of Arc server operating systems, not general Azure VMs."
+    ),
+    "law_get_os_environment_breakdown": (
+        " [Azure Arc Environment Breakdown] Shows Arc server OS distribution by environment. "
+        "ONLY for Arc-enabled servers with environment tags in Log Analytics."
     ),
 }
 

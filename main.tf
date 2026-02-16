@@ -401,7 +401,11 @@ module "container_apps" {
   # ACR Configuration
   acr_sku          = var.acr_sku
   acr_admin_enabled = var.acr_admin_enabled
-  
+
+  # Azure AI SRE Agent Configuration
+  azure_ai_sre_agent_name = var.azure_ai_sre_agent_name
+  azure_ai_sre_agent_id   = var.azure_ai_sre_agent_id
+
   tags = {
     Environment  = var.environment
     Project      = var.project_name

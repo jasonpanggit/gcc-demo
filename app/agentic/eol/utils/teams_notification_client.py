@@ -1,5 +1,17 @@
 """
 Microsoft Teams notification client for Azure SRE operations
+
+NOTE: This client uses the legacy webhook approach. For modern Teams Bot integration,
+use the Teams Bot Framework API (see api/teams_bot.py) which supports:
+- Bidirectional conversations
+- Proactive messaging to specific users/channels
+- Adaptive cards and rich formatting
+
+The webhook approach is being phased out and only works for incoming webhooks.
+For SRE notifications, consider using:
+1. Teams Bot proactive messaging (requires conversation reference)
+2. Email alerts (SMTP)
+3. Azure Monitor Action Groups
 """
 import os
 import logging
@@ -7,7 +19,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import pymsteams
 
-from app.agentic.eol.utils.logger import get_logger
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -15,6 +27,11 @@ logger = get_logger(__name__)
 class TeamsNotificationClient:
     """
     Send adaptive cards and messages to Microsoft Teams via incoming webhooks.
+
+    DEPRECATED: Webhook-based notifications are limited. Consider using:
+    - Teams Bot Framework (api/teams_bot.py) for bidirectional conversations
+    - SMTP email alerts for proactive notifications
+    - Azure Monitor Action Groups for production alerting
 
     This client supports:
     - Sending incident alerts and notifications
@@ -38,8 +55,19 @@ class TeamsNotificationClient:
         self.webhook_url = webhook_url or os.getenv("TEAMS_WEBHOOK_URL")
         self.critical_webhook_url = critical_webhook_url or os.getenv("TEAMS_CRITICAL_WEBHOOK_URL")
 
+        # Check if Teams Bot is configured instead
+        bot_app_id = os.getenv("TEAMS_BOT_APP_ID")
+        bot_app_password = os.getenv("TEAMS_BOT_APP_PASSWORD")
+
         if not self.webhook_url:
-            logger.warning("TEAMS_WEBHOOK_URL not configured - Teams notifications disabled")
+            if bot_app_id and bot_app_password:
+                logger.info(
+                    "Teams Bot is configured (webhook not set). "
+                    "For proactive notifications, use Teams Bot API or configure email alerts. "
+                    "See api/teams_bot.py for bidirectional Teams integration."
+                )
+            else:
+                logger.warning("No Teams integration configured - Teams notifications disabled")
 
     def _create_message_card(self, webhook_url: str) -> pymsteams.connectorcard:
         """Create a new Teams connector card"""
@@ -71,7 +99,16 @@ class TeamsNotificationClient:
             Dict with status and message
         """
         if not self.webhook_url:
-            return {"success": False, "error": "Teams webhook not configured"}
+            return {
+                "success": False,
+                "error": "Teams webhook not configured",
+                "recommendation": (
+                    "Webhook-based notifications are not configured. Consider using: "
+                    "(1) Teams Bot for bidirectional chat - interact via /api/teams-bot/messages, "
+                    "(2) Email alerts via SMTP - configure with /api/alerts endpoints, "
+                    "(3) Azure Monitor Action Groups for production alerting"
+                )
+            }
 
         try:
             # Use critical webhook for critical/error severity
@@ -161,7 +198,16 @@ class TeamsNotificationClient:
             Dict with status and message
         """
         if not self.webhook_url:
-            return {"success": False, "error": "Teams webhook not configured"}
+            return {
+                "success": False,
+                "error": "Teams webhook not configured",
+                "recommendation": (
+                    "Webhook-based notifications are not configured. Consider using: "
+                    "(1) Teams Bot for bidirectional chat - interact via /api/teams-bot/messages, "
+                    "(2) Email alerts via SMTP - configure with /api/alerts endpoints, "
+                    "(3) Azure Monitor Action Groups for production alerting"
+                )
+            }
 
         try:
             card = self._create_message_card(self.webhook_url)
@@ -214,7 +260,16 @@ class TeamsNotificationClient:
             Dict with status and message
         """
         if not self.webhook_url:
-            return {"success": False, "error": "Teams webhook not configured"}
+            return {
+                "success": False,
+                "error": "Teams webhook not configured",
+                "recommendation": (
+                    "Webhook-based notifications are not configured. Consider using: "
+                    "(1) Teams Bot for bidirectional chat - interact via /api/teams-bot/messages, "
+                    "(2) Email alerts via SMTP - configure with /api/alerts endpoints, "
+                    "(3) Azure Monitor Action Groups for production alerting"
+                )
+            }
 
         try:
             card = self._create_message_card(self.webhook_url)

@@ -356,14 +356,37 @@ async def agent_management_ui(request: Request):
 async def azure_mcp_ui(request: Request):
     """
     Azure MCP Server integration page.
-    
+
     Serves the Azure MCP Server management interface for interacting with
     Azure resources through the Model Context Protocol.
-    
+
     Args:
         request: FastAPI Request object
-    
+
     Returns:
         HTMLResponse with rendered azure-mcp.html template.
     """
     return templates.TemplateResponse(request, "azure-mcp.html")
+
+
+@router.get("/azure-ai-sre", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="azure_ai_sre_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def azure_ai_sre_ui(request: Request):
+    """
+    Azure AI SRE Agent page.
+
+    Serves the Azure AI SRE Agent interface for intelligent Site Reliability
+    Engineering operations powered by Azure AI Agent Service (gccsreagent).
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered azure-ai-sre.html template.
+    """
+    return templates.TemplateResponse(request, "azure-ai-sre.html")

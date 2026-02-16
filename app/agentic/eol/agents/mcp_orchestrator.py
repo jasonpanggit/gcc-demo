@@ -245,7 +245,7 @@ WORKFLOW — READ OPERATIONS:
 
 SRE OPERATIONS:
 When users ask about resource health, incidents, troubleshooting, performance issues, or remediation:
-→ Use Azure SRE Agent tools (31 tools available) for specialized SRE operations.
+→ Use Azure SRE Agent tools for specialized SRE operations across 15 domains.
 
 RESOURCE CONFIGURATION DISCOVERY:
 → Bulk queries across resources: Use query_app_service_configuration, query_container_app_configuration, query_aks_configuration, query_apim_configuration
@@ -255,21 +255,46 @@ HEALTH CHECKS & DIAGNOSTICS:
 → Resource health: Use check_resource_health (requires full resource ID). For Container Apps: use check_container_app_health. For AKS: use check_aks_cluster_health.
 → Service-specific diagnostics: Use diagnose_app_service for App Service issues, diagnose_apim for APIM issues
 → Diagnostic logs: Use get_diagnostic_logs (requires workspace_id and resource_id)
-→ Performance metrics: Use get_performance_metrics and identify_bottlenecks
+→ Performance metrics: ⚠️ ALWAYS use get_performance_metrics (SRE tool) - it auto-calculates time ranges dynamically. NEVER use 'az monitor metrics' CLI commands.
 
 INCIDENT RESPONSE:
 → Automated triage: Use triage_incident for incident analysis, log correlation, and root cause investigation
 → Log analysis: Use search_logs_by_error for pattern-based log search
 → Alert correlation: Use correlate_alerts for temporal and resource-based correlation
 → Incident reporting: Use generate_incident_summary for structured reports
+→ DORA metrics: Use calculate_mttr_metrics for Mean Time to Recovery and related metrics
+→ Postmortem: Use generate_postmortem for comprehensive post-incident review documents
+
+APPLICATION INSIGHTS & DISTRIBUTED TRACING:
+→ Use query_app_insights_traces for distributed tracing by operation ID — trace requests across microservices
+→ Use get_request_telemetry for request performance analysis (response times, failure rates, P95/P99 latencies)
+→ Use analyze_dependency_map for service-to-service dependency visualization
+→ Requires Log Analytics workspace with Application Insights connected
+
+COST OPTIMIZATION:
+→ Use get_cost_analysis for cost breakdown by resource group, service, tag, or location
+→ Use identify_orphaned_resources to find unused Azure resources (unattached disks, idle public IPs, empty NSGs)
+→ Use get_cost_recommendations for Azure Advisor cost savings suggestions (right-sizing, reserved instances)
+→ Use analyze_cost_anomalies for detecting unusual spending patterns and cost spikes
+
+SLO/SLI MANAGEMENT:
+→ Use define_slo to create service level objectives (availability, latency, error rate targets)
+→ Use calculate_error_budget to check remaining error budget against SLO targets
+→ Use get_slo_dashboard for SLO compliance report with burn rate and trend analysis
+
+SECURITY & COMPLIANCE:
+→ Use get_security_score for Microsoft Defender for Cloud secure score with control-level breakdown
+→ Use list_security_recommendations for actionable security findings by severity
+→ Use check_compliance_status for Azure Policy compliance status (CIS, NIST, PCI-DSS frameworks)
 
 SELF-DOCUMENTATION:
 → If users ask "What can you help me with?" or "What are your capabilities?": Use describe_capabilities
-→ If users ask for example prompts: Use get_prompt_examples with category (app_service, container_apps, aks, apim, incident_response, performance, configuration, all)
+→ If users ask for example prompts: Use get_prompt_examples with category (app_service, container_apps, aks, apim, incident_response, performance, configuration, cost, slo, security, all)
 
 REMEDIATION & NOTIFICATIONS:
 → For destructive remediation actions (restart, scale, clear_cache), ALWAYS present a plan with plan_remediation and wait for approval.
 → Use send_teams_notification or send_teams_alert to notify teams about critical incidents.
+→ For REAL remediation (execute_restart_resource, execute_scale_resource): requires ALLOW_REAL_REMEDIATION=true env var AND user confirmation.
 
 IMPORTANT AZURE CLI USAGE:
 → When using azure_cli_execute_command for Log Analytics queries, use --analytics-query (NOT --query) for KQL queries.
@@ -399,12 +424,37 @@ FORMATTING:
             "\n→ For remediation: plan_remediation (returns plan), execute_safe_restart, scale_resource (require approval)."
             "\n→ Use send_teams_alert or send_teams_notification to notify on-call teams about critical incidents."
             "\n→ ALWAYS require user confirmation before executing destructive SRE operations (restart, scale, remediation)."
+            "\n\nSRE COST & OPTIMIZATION:"
+            "\nWhen the user asks about cloud costs, spending, unused resources, or cost optimization:"
+            "\n→ Use get_cost_analysis for cost breakdown by resource group, service, tag, or location."
+            "\n→ Use identify_orphaned_resources to find unused Azure resources (unattached disks, idle public IPs)."
+            "\n→ Use get_cost_recommendations for Azure Advisor cost savings suggestions."
+            "\n→ Use analyze_cost_anomalies for detecting unusual spending patterns."
+            "\n\nSRE APPLICATION INSIGHTS:"
+            "\nWhen the user asks about traces, request performance, or service dependencies:"
+            "\n→ Use query_app_insights_traces for distributed tracing by operation ID."
+            "\n→ Use get_request_telemetry for request P95/P99 latencies and failure rates."
+            "\n→ Use analyze_dependency_map for service-to-service call analysis."
+            "\n\nSRE SLO/ERROR BUDGETS:"
+            "\nWhen the user asks about SLOs, service levels, error budgets, or reliability targets:"
+            "\n→ Use define_slo to create service level objectives."
+            "\n→ Use calculate_error_budget to check remaining error budget vs targets."
+            "\n→ Use get_slo_dashboard for compliance summary with burn rate."
+            "\n\nSRE SECURITY & COMPLIANCE:"
+            "\nWhen the user asks about security posture, compliance, or security recommendations:"
+            "\n→ Use get_security_score for Defender for Cloud secure score."
+            "\n→ Use list_security_recommendations for actionable security findings."
+            "\n→ Use check_compliance_status for Azure Policy compliance (CIS, NIST, PCI-DSS)."
             "\n\nCOMMON SRE WORKFLOWS:"
             "\n• Health check for Container Apps → First: azure_cli_execute_command('az containerapp list'), Then: check_resource_health(resource_id)"
             "\n• Health check for any Azure resource → If you don't have the resource ID, list/search resources first, Then: check_resource_health(resource_id)"
             "\n• Incident investigation → triage_incident (auto-gathers logs and correlates events), Then: get_diagnostic_logs for detailed analysis"
             "\n• Performance issue → get_performance_metrics (last 24h by default), Then: identify_bottlenecks to analyze patterns"
             "\n• Service restart → plan_remediation first (shows impact), Then: execute_safe_restart with user approval"
+            "\n• Cost review → get_cost_analysis (spending breakdown), Then: identify_orphaned_resources + get_cost_recommendations"
+            "\n• Distributed tracing → query_app_insights_traces(operation_id), Then: analyze_dependency_map for call chain"
+            "\n• SLO check → get_slo_dashboard (compliance overview), Then: calculate_error_budget for specific services"
+            "\n• Security audit → get_security_score (overall posture), Then: list_security_recommendations for action items"
         )
 
         return base_prompt + catalog_section + disambiguation

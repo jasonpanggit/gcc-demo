@@ -106,16 +106,17 @@ async def get_alert_configuration():
 async def save_alert_configuration(config_data: dict):
     """
     Save alert configuration to Cosmos DB.
-    
+
     Updates the alert configuration with new SMTP settings, recipients,
     and notification preferences. Validates configuration before saving.
-    
+    If password is empty or not provided, keeps the existing password.
+
     Args:
         config_data: Dictionary with alert configuration (SMTP, recipients, etc.)
-    
+
     Returns:
         StandardResponse indicating success or failure of save operation.
-    
+
     Example Request:
         {
             "smtp": {
@@ -132,7 +133,7 @@ async def save_alert_configuration(config_data: dict):
                 "alert_levels": ["high", "critical"]
             }
         }
-    
+
     Example Response:
         {
             "success": true,
@@ -141,25 +142,59 @@ async def save_alert_configuration(config_data: dict):
         }
     """
     from utils.alert_manager import alert_manager, AlertConfiguration
-    config = AlertConfiguration(**config_data)
-    success = await alert_manager.save_configuration(config)
-    
-    if success:
-        sanitized_config = config.dict()
-        if "smtp_settings" in sanitized_config:
-            sanitized_config["smtp_settings"]["password"] = "***"
 
-        response = StandardResponse.success_response(
-            [
-                {
-                    "message": "Configuration saved successfully",
-                    "configuration": sanitized_config,
-                }
-            ]
-        )
-        return response.to_dict()
-    else:
-        raise HTTPException(status_code=500, detail="Failed to save configuration")
+    try:
+        # 🔍 DEBUG: Log received SMTP settings
+        smtp_settings = config_data.get('smtp_settings', {})
+        logger.info(f"🔍 DEBUG - Received SMTP settings:")
+        logger.info(f"  Server: {smtp_settings.get('server', 'NOT SET')}")
+        logger.info(f"  Port: {smtp_settings.get('port', 'NOT SET')}")
+        logger.info(f"  Username: {smtp_settings.get('username', 'NOT SET')}")
+        logger.info(f"  Password: {'***SET***' if smtp_settings.get('password') else '***EMPTY***'}")
+        logger.info(f"  From Email: {smtp_settings.get('from_email', 'NOT SET')}")
+        logger.info(f"  From Name: {smtp_settings.get('from_name', 'NOT SET')}")
+        logger.info(f"  TLS: {smtp_settings.get('use_tls', 'NOT SET')}")
+        logger.info(f"  SSL: {smtp_settings.get('use_ssl', 'NOT SET')}")
+        logger.info(f"  Enabled: {smtp_settings.get('enabled', 'NOT SET')}")
+
+        # Load existing configuration to preserve password if not provided
+        existing_config = await alert_manager.load_configuration()
+
+        # If password is empty or not provided, use existing password
+        if 'smtp_settings' in config_data:
+            new_password = config_data['smtp_settings'].get('password', '')
+            if not new_password or new_password in ['***', '***SET***']:
+                # Keep existing password
+                logger.info("📝 Password not provided or masked - keeping existing password")
+                config_data['smtp_settings']['password'] = existing_config.smtp_settings.password
+            else:
+                logger.info("📝 New password provided - updating password")
+
+        logger.info(f"📝 Saving alert configuration")
+        config = AlertConfiguration(**config_data)
+        success = await alert_manager.save_configuration(config)
+
+        if success:
+            sanitized_config = config.dict()
+            if "smtp_settings" in sanitized_config:
+                sanitized_config["smtp_settings"]["password"] = "***"
+
+            response = StandardResponse.success_response(
+                [
+                    {
+                        "message": "Configuration saved successfully",
+                        "configuration": sanitized_config,
+                    }
+                ]
+            )
+            logger.info("✅ Configuration saved successfully")
+            return response.to_dict()
+        else:
+            logger.error("❌ Failed to save configuration to Cosmos DB")
+            raise HTTPException(status_code=500, detail="Failed to save configuration")
+    except Exception as e:
+        logger.error(f"❌ Error saving alert configuration: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
 
 
 @router.post("/api/alerts/config/reload")
@@ -415,7 +450,7 @@ async def send_test_alert(request_data: dict):
     
     # Use provided recipients or fall back to config
     if not recipients:
-        recipients = config.recipients
+        recipients = config.email_recipients
         if not recipients:
             return {
                 "success": False,
@@ -475,5 +510,429 @@ async def send_test_alert(request_data: dict):
             "success": False,
             "error": str(e),
             "message": "Exception occurred while sending alert",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@router.post("/api/alerts/send-teams-test")
+@write_endpoint(agent_name="send_teams_test", timeout_seconds=30)
+async def send_teams_test_alert():
+    """
+    Send a test alert notification to Microsoft Teams.
+
+    Uses the MCP Orchestrator's Teams bot integration to send a test alert
+    to the configured Teams channel via webhook.
+
+    Returns:
+        StandardResponse with Teams send results and status information.
+
+    Example Response:
+        {
+            "success": true,
+            "message": "Teams test alert sent successfully",
+            "teams": {
+                "sent": true,
+                "message": "Teams alert sent successfully"
+            },
+            "timestamp": "2025-10-15T12:00:00Z"
+        }
+    """
+    from utils.alert_manager import alert_manager, AlertPreviewItem
+    from datetime import datetime, timedelta
+
+    try:
+        logger.info("📧 Sending test Teams alert...")
+
+        # Load configuration to check if Teams is enabled
+        config = await alert_manager.load_configuration()
+
+        # Create sample alert items for testing
+        sample_items = [
+            AlertPreviewItem(
+                computer="TEST-SERVER-01",
+                os_name="Windows Server 2016",
+                version="Standard",
+                eol_date=datetime.now() + timedelta(days=60),
+                days_until_eol=60,
+                alert_level="info"
+            ),
+            AlertPreviewItem(
+                computer="TEST-SERVER-02",
+                os_name="Ubuntu 20.04 LTS",
+                version="20.04",
+                eol_date=datetime.now() + timedelta(days=180),
+                days_until_eol=180,
+                alert_level="info"
+            )
+        ]
+
+        # Send Teams alert with teams_enabled flag
+        success, message = await alert_manager.send_alert_teams(
+            sample_items,
+            "info",
+            teams_enabled=config.teams_settings.enabled
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": "Test Teams alert sent successfully",
+                "teams": {
+                    "sent": True,
+                    "message": message
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            return {
+                "success": False,
+                "error": message,
+                "message": "Failed to send Teams test alert",
+                "teams": {
+                    "sent": False,
+                    "message": message
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except Exception as e:
+        logger.error(f"❌ Error sending test Teams alert: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Exception occurred while sending Teams test alert",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@router.post("/api/alerts/send-teams-bot-notification")
+async def send_teams_bot_notification(
+    alert_level: str = "info",
+    conversation_id: Optional[str] = None,
+    recipient_email: Optional[str] = None
+):
+    """
+    Send an alert notification via Teams Bot to a specific conversation or user.
+
+    This endpoint sends proactive EOL alert notifications through the Teams Bot,
+    allowing you to see the formatted alert in a Teams conversation.
+
+    Args:
+        alert_level: Alert severity level ('critical', 'warning', 'info')
+        conversation_id: Optional Teams conversation ID to send to
+        recipient_email: Optional user email to send 1:1 message
+
+    Returns:
+        StandardResponse with send status and details
+
+    Example Request:
+        POST /api/alerts/send-teams-bot-notification?alert_level=critical
+
+    Example Response:
+        {
+            "success": true,
+            "message": "Alert notification sent via Teams Bot",
+            "data": [{
+                "alert_level": "critical",
+                "systems_count": 2,
+                "notification_sent": true,
+                "delivery_method": "teams_bot"
+            }]
+        }
+    """
+    from utils.alert_manager import alert_manager, AlertPreviewItem
+    from datetime import timedelta
+    import os
+    import aiohttp
+
+    try:
+        logger.info(f"📱 Sending {alert_level} alert notification via Teams Bot...")
+
+        # Get Teams Bot credentials
+        bot_app_id = os.getenv("TEAMS_BOT_APP_ID")
+        bot_app_password = os.getenv("TEAMS_BOT_APP_PASSWORD")
+        tenant_id = os.getenv("AZURE_TENANT_ID", "ffc83107-fcc0-4d2e-8798-d582da36505e")
+
+        if not bot_app_id or not bot_app_password:
+            return {
+                "success": False,
+                "error": "Teams Bot not configured",
+                "message": "TEAMS_BOT_APP_ID and TEAMS_BOT_APP_PASSWORD environment variables required",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Create sample alert items for the notification
+        sample_items = [
+            AlertPreviewItem(
+                computer="PROD-WEB-01",
+                os_name="Windows Server 2016",
+                version="Standard",
+                eol_date=datetime.now() + timedelta(days=45),
+                days_until_eol=45,
+                alert_level=alert_level
+            ),
+            AlertPreviewItem(
+                computer="PROD-DB-02",
+                os_name="Ubuntu 18.04 LTS",
+                version="18.04",
+                eol_date=datetime.now() + timedelta(days=90),
+                days_until_eol=90,
+                alert_level=alert_level
+            )
+        ]
+
+        # Filter by alert level
+        level_items = [item for item in sample_items if item.alert_level == alert_level]
+
+        if not level_items:
+            return {
+                "success": False,
+                "error": "No items match alert level",
+                "message": f"No {alert_level} items found in sample data",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Build alert message
+        level_title = alert_level.capitalize()
+        emoji_map = {"critical": "🔴", "warning": "⚠️", "info": "ℹ️"}
+        emoji = emoji_map.get(alert_level, "📢")
+
+        message_lines = [
+            f"{emoji} **EOL {level_title} Alert - {len(level_items)} Systems**",
+            "",
+            f"{len(level_items)} systems are approaching their End-of-Life dates and require attention.",
+            "",
+            "**Affected Systems:**"
+        ]
+
+        for item in sorted(level_items, key=lambda x: x.days_until_eol):
+            days_text = f"{item.days_until_eol} days remaining"
+            message_lines.append(
+                f"• **{item.computer}**: {item.os_name} {item.version} - "
+                f"EOL: {item.eol_date.strftime('%Y-%m-%d')} ({days_text})"
+            )
+
+        message_lines.extend([
+            "",
+            "**Recommended Actions:**",
+            "• Plan upgrade or migration for affected systems",
+            "• Review security implications of EOL systems",
+            "• Contact vendors for extended support options",
+            "• Update system documentation and inventory",
+            "",
+            f"_Alert generated at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC_"
+        ])
+
+        alert_message = "\n".join(message_lines)
+
+        # Get Bot Framework access token
+        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+        token_data = {
+            "grant_type": "client_credentials",
+            "client_id": bot_app_id,
+            "client_secret": bot_app_password,
+            "scope": "https://api.botframework.com/.default"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            # Get access token
+            async with session.post(
+                token_url,
+                data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"}
+            ) as token_response:
+                if token_response.status != 200:
+                    error_text = await token_response.text()
+                    logger.error(f"Failed to get Bot Framework token: {token_response.status} - {error_text}")
+                    return {
+                        "success": False,
+                        "error": "Authentication failed",
+                        "message": "Failed to get Bot Framework token",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+
+                token_json = await token_response.json()
+                access_token = token_json.get("access_token")
+
+                if not access_token:
+                    return {
+                        "success": False,
+                        "error": "No access token",
+                        "message": "Failed to obtain Bot Framework access token",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+
+            # Determine target for message
+            if conversation_id:
+                # Send to existing conversation
+                service_url = "https://smba.trafficmanager.net/amer"
+                message_url = f"{service_url}/v3/conversations/{conversation_id}/activities"
+                target_description = f"conversation {conversation_id}"
+            elif recipient_email:
+                # Create 1:1 conversation with user
+                # Note: This requires knowing the user's Teams ID or AAD object ID
+                return {
+                    "success": False,
+                    "error": "Direct messaging not yet implemented",
+                    "message": "Please provide a conversation_id instead. Direct user messaging requires AAD user lookup.",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            else:
+                # No target specified - return instructions
+                return {
+                    "success": False,
+                    "error": "No target specified",
+                    "message": "Please provide either conversation_id or recipient_email parameter. "
+                              "To find your conversation ID, send any message to the bot in Teams and check the logs.",
+                    "teams_bot_help": {
+                        "how_to_find_conversation_id": [
+                            "1. Open Teams and start a chat with the bot",
+                            "2. Send any message (e.g., 'hello')",
+                            "3. Check the application logs for 'Received Teams bot activity'",
+                            "4. Copy the conversation ID from the logs",
+                            "5. Use that ID in the conversation_id parameter"
+                        ],
+                        "alternative": "Or use the test endpoint: POST /api/alerts/test-teams"
+                    },
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+            # Send message to Teams
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+
+            message_body = {
+                "type": "message",
+                "from": {"id": bot_app_id},
+                "text": alert_message
+            }
+
+            async with session.post(message_url, json=message_body, headers=headers) as send_response:
+                if send_response.status not in (200, 201):
+                    error_text = await send_response.text()
+                    logger.error(f"Failed to send Teams message: {send_response.status} - {error_text}")
+                    return {
+                        "success": False,
+                        "error": f"Send failed with status {send_response.status}",
+                        "message": f"Failed to send message to {target_description}",
+                        "details": error_text,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+
+                logger.info(f"✅ Successfully sent alert notification to {target_description}")
+
+                return {
+                    "success": True,
+                    "message": f"Alert notification sent via Teams Bot to {target_description}",
+                    "data": [{
+                        "alert_level": alert_level,
+                        "systems_count": len(level_items),
+                        "notification_sent": True,
+                        "delivery_method": "teams_bot",
+                        "target": target_description,
+                        "message_preview": alert_message[:200] + "..." if len(alert_message) > 200 else alert_message
+                    }],
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+    except Exception as e:
+        logger.error(f"❌ Error sending Teams Bot notification: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Exception occurred while sending Teams Bot notification",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@router.get("/api/alerts/teams-bot-conversations")
+async def get_teams_bot_conversations():
+    """
+    Get list of active Teams Bot conversations.
+
+    This endpoint retrieves the list of active conversation IDs that you can use
+    to send alert notifications via the send-teams-bot-notification endpoint.
+
+    Returns:
+        List of active conversation IDs with metadata
+
+    Example Response:
+        {
+            "success": true,
+            "message": "Found 2 active conversations",
+            "data": [{
+                "conversations": [
+                    {
+                        "conversation_id": "a:1v...",
+                        "message_count": 10,
+                        "last_updated": "2025-02-15T08:30:00Z",
+                        "age_hours": 2.5
+                    }
+                ],
+                "total_conversations": 2,
+                "instructions": "Use conversation_id with /api/alerts/send-teams-bot-notification"
+            }]
+        }
+    """
+    try:
+        # Import conversation state from teams_bot module
+        from api.teams_bot import _conversation_states
+
+        if not _conversation_states:
+            return {
+                "success": True,
+                "message": "No active Teams Bot conversations found",
+                "data": [{
+                    "conversations": [],
+                    "total_conversations": 0,
+                    "help": {
+                        "how_to_start_conversation": [
+                            "1. Open Microsoft Teams",
+                            "2. Search for your bot by name or App ID",
+                            "3. Start a chat and send any message (e.g., 'hello')",
+                            "4. The conversation will appear in this list"
+                        ]
+                    }
+                }],
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Build conversation list
+        conversations = []
+        for conv_id, state in _conversation_states.items():
+            last_updated = state.get("last_updated")
+            age_hours = None
+            if last_updated:
+                age = datetime.utcnow() - last_updated
+                age_hours = round(age.total_seconds() / 3600, 1)
+
+            conversations.append({
+                "conversation_id": conv_id,
+                "message_count": len(state.get("history", [])),
+                "last_updated": last_updated.isoformat() + "Z" if last_updated else None,
+                "age_hours": age_hours
+            })
+
+        # Sort by most recent first
+        conversations.sort(key=lambda x: x["last_updated"] or "", reverse=True)
+
+        return {
+            "success": True,
+            "message": f"Found {len(conversations)} active conversation(s)",
+            "data": [{
+                "conversations": conversations,
+                "total_conversations": len(conversations),
+                "instructions": "Use conversation_id with POST /api/alerts/send-teams-bot-notification?conversation_id=<id>&alert_level=<level>"
+            }],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting Teams Bot conversations: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Exception occurred while retrieving Teams Bot conversations",
             "timestamp": datetime.utcnow().isoformat()
         }

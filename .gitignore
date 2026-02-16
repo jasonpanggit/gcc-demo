@@ -97,3 +97,6 @@ CLAUDE.md
 
 # github
 .github/
+
+# playwright
+.playwright-mcp/

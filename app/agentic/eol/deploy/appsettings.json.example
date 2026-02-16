@@ -11,13 +11,9 @@
       "Environment": "your-container-app-environment",
       "Url": "https://your-app.region.azurecontainerapps.io"
     },
-    "AppService": {
-      "Name": "your-app-service-name",
-      "Url": "https://your-app.azurewebsites.net"
-    },
     "ContainerRegistry": {
       "Name": "your-acr-name",
-      "ImageName": "your-image-name",
+      "ImageName": "eol-app",
       "DefaultTag": "latest"
     }
   },
@@ -47,8 +43,23 @@
     },
     "AIFoundry": {
       "ProjectName": "your-ai-project-name",
-      "Endpoint": "https://your-ai-foundry.cognitiveservices.azure.com/"
+      "Endpoint": "https://your-ai-foundry.cognitiveservices.azure.com/",
+      "ProjectEndpoint": "https://your-ai-foundry.cognitiveservices.azure.com/",
+      "SREAgentName": "gccsreagent",
+      "SREAgentId": "your-sre-agent-id-optional",
+      "SREEnabled": "true",
+      "Comment": "Azure AI Agent Service configuration for Azure AI SRE agent integration"
+    },
+    "Kusto": {
+      "ClusterUri": "https://data-explorer.azure.com",
+      "Database": "ARG",
+      "Description": "Azure Resource Graph endpoint for KQL queries"
     }
+  },
+  "TeamsBot": {
+    "AppId": "your-teams-bot-app-id",
+    "AppPassword": "your-teams-bot-app-password",
+    "_comment": "Microsoft Teams Bot credentials for SRE notifications"
   },
   "AppSettings": {
     "WEBSITES_PORT": "8000",

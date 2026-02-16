@@ -164,6 +164,30 @@ output "agentic_acr_admin_username" {
   value       = var.deploy_acr && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].acr_admin_username : null
 }
 
+# ============================================================================
+# AZURE AI FOUNDRY / AI PROJECT OUTPUTS
+# ============================================================================
+
+output "agentic_azure_ai_foundry_name" {
+  description = "Azure AI Foundry project name"
+  value       = var.deploy_azure_ai_agent && var.deploy_container_apps && length(module.container_apps) > 0 ? var.azure_ai_foundry_name : null
+}
+
+output "agentic_azure_ai_foundry_endpoint" {
+  description = "Azure AI Foundry project endpoint (for Azure AI Agent Service)"
+  value       = var.deploy_azure_ai_agent && var.deploy_container_apps && length(module.container_apps) > 0 ? module.container_apps[0].ai_project_endpoint : null
+}
+
+output "agentic_azure_ai_sre_agent_name" {
+  description = "Azure AI SRE agent name (gccsreagent)"
+  value       = var.azure_ai_sre_agent_name
+}
+
+output "agentic_azure_ai_sre_agent_id" {
+  description = "Azure AI SRE agent ID"
+  value       = var.azure_ai_sre_agent_id
+}
+
 # EOL Solution Configuration
 output "eol_solution_config" {
   description = "Configuration parameters for EOL solution deployment"

@@ -22,13 +22,13 @@ resource "azurerm_container_registry" "acr" {
   location            = var.location
   sku                 = var.acr_sku
   admin_enabled       = var.acr_admin_enabled
-  
+
   # Public network access control
   public_network_access_enabled = !var.deploy_private_endpoints
-  
+
   # Network rules only apply to Premium SKU
   # For Basic/Standard, use private endpoints only
-  
+
   tags = var.tags
 }
 
@@ -57,6 +57,26 @@ resource "azurerm_container_app_environment" "cae" {
   zone_redundancy_enabled        = var.zone_redundancy_enabled
 
   tags = var.tags
+}
+
+# Diagnostic settings for Container App Environment (enables log collection)
+resource "azurerm_monitor_diagnostic_setting" "cae_diagnostics" {
+  count                      = var.deploy_container_apps ? 1 : 0
+  name                       = "containerapp-env-diagnostics"
+  target_resource_id         = azurerm_container_app_environment.cae[0].id
+  log_analytics_workspace_id = var.create_log_analytics_workspace ? azurerm_log_analytics_workspace.law[0].id : var.workspace_resource_id
+
+  enabled_log {
+    category = "ContainerAppConsoleLogs"
+  }
+
+  enabled_log {
+    category = "ContainerAppSystemLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
 }
 
 # ============================================================================
@@ -131,7 +151,7 @@ resource "azurerm_cosmosdb_account" "cosmos" {
   offer_type                    = "Standard"
   kind                          = "GlobalDocumentDB"
   public_network_access_enabled = !var.deploy_private_endpoints
-  
+
   capabilities {
     name = var.cosmos_db_serverless ? "EnableServerless" : "EnableAggregationPipeline"
   }
@@ -184,7 +204,7 @@ resource "azurerm_cognitive_account" "ai_project" {
   name                          = var.ai_project_name != null ? var.ai_project_name : "ai-foundry-${var.app_name}-${var.project_name}-${var.environment}"
   location                      = var.location
   resource_group_name           = var.resource_group_name
-  kind                          = "CognitiveServices"  # Multi-service account
+  kind                          = "CognitiveServices" # Multi-service account
   sku_name                      = "S0"
   custom_subdomain_name         = var.ai_project_name != null ? var.ai_project_name : "ai-foundry-${var.app_name}-${var.project_name}-${var.environment}"
   public_network_access_enabled = !var.deploy_private_endpoints
@@ -221,8 +241,8 @@ resource "azurerm_container_app" "app" {
   }
 
   registry {
-    server   = var.deploy_acr ? azurerm_container_registry.acr[0].login_server : var.acr_login_server
-    username = var.deploy_acr && var.acr_admin_enabled ? azurerm_container_registry.acr[0].admin_username : var.acr_username
+    server               = var.deploy_acr ? azurerm_container_registry.acr[0].login_server : var.acr_login_server
+    username             = var.deploy_acr && var.acr_admin_enabled ? azurerm_container_registry.acr[0].admin_username : var.acr_username
     password_secret_name = "acr-password"
   }
 
@@ -372,6 +392,23 @@ resource "azurerm_container_app" "app" {
           value = azurerm_cognitive_account.ai_project[0].endpoint
         }
       }
+
+      # Azure AI SRE Agent (gccsreagent)
+      dynamic "env" {
+        for_each = var.azure_ai_sre_agent_name != null ? [1] : []
+        content {
+          name  = "AZURE_AI_SRE_AGENT_NAME"
+          value = var.azure_ai_sre_agent_name
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.azure_ai_sre_agent_id != null ? [1] : []
+        content {
+          name  = "AZURE_AI_SRE_AGENT_ID"
+          value = var.azure_ai_sre_agent_id
+        }
+      }
     }
 
     # Azure MCP Server Sidecar Container
@@ -391,6 +428,18 @@ resource "azurerm_container_app" "app" {
   }
 
   tags = var.tags
+}
+
+# Diagnostic settings for Container App (metrics only - logs are at Environment level)
+resource "azurerm_monitor_diagnostic_setting" "container_app" {
+  count                      = var.deploy_container_apps ? 1 : 0
+  name                       = "containerapp-metrics"
+  target_resource_id         = azurerm_container_app.app[0].id
+  log_analytics_workspace_id = var.create_log_analytics_workspace ? azurerm_log_analytics_workspace.law[0].id : var.workspace_resource_id
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
 }
 
 # ============================================================================

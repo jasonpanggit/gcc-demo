@@ -162,12 +162,15 @@ COSMOSDB_CONTAINER=$(jq -r '.AzureServices.CosmosDB.Container' "$APPSETTINGS_FIL
 LOG_WORKSPACE_ID=$(jq -r '.AzureServices.LogAnalytics.WorkspaceId' "$APPSETTINGS_FILE")
 AI_PROJECT_NAME=$(jq -r '.AzureServices.AIFoundry.ProjectName' "$APPSETTINGS_FILE")
 AI_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
+AI_PROJECT_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.ProjectEndpoint // .AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
+AI_SRE_AGENT_NAME=$(jq -r '.AzureServices.AIFoundry.SREAgentName // "gccsreagent"' "$APPSETTINGS_FILE")
+AI_SRE_AGENT_ID=$(jq -r '.AzureServices.AIFoundry.SREAgentId // empty' "$APPSETTINGS_FILE")
+AI_SRE_ENABLED=$(jq -r '.AzureServices.AIFoundry.SREEnabled // "true"' "$APPSETTINGS_FILE")
 PLAYWRIGHT_LLM_EXTRACTION=$(jq -r '.AppSettings.PlaywrightLLMExtraction // "false"' "$APPSETTINGS_FILE")
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
 AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
 GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
-TEAMS_WEBHOOK_URL=$(jq -r '.Teams.WebhookUrl // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
 
@@ -203,6 +206,22 @@ ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_CONTAINER=$COSMOSDB_CONTAINER"
 ENV_VARS="$ENV_VARS LOG_ANALYTICS_WORKSPACE_ID=$LOG_WORKSPACE_ID"
 ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_NAME=$AI_PROJECT_NAME"
 ENV_VARS="$ENV_VARS AZURE_AI_ENDPOINT=$AI_ENDPOINT"
+ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_ENDPOINT=$AI_PROJECT_ENDPOINT"
+
+# Add Azure AI SRE Agent configuration if available
+if [[ -n "$AI_SRE_AGENT_NAME" ]] && [[ "$AI_SRE_AGENT_NAME" != "null" ]]; then
+    ENV_VARS="$ENV_VARS AZURE_AI_SRE_AGENT_NAME=$AI_SRE_AGENT_NAME"
+    echo "✅ Azure AI SRE agent name configured: $AI_SRE_AGENT_NAME"
+fi
+
+if [[ -n "$AI_SRE_AGENT_ID" ]] && [[ "$AI_SRE_AGENT_ID" != "null" ]]; then
+    ENV_VARS="$ENV_VARS AZURE_AI_SRE_AGENT_ID=$AI_SRE_AGENT_ID"
+    echo "✅ Azure AI SRE agent ID configured"
+fi
+
+if [[ -n "$AI_SRE_ENABLED" ]] && [[ "$AI_SRE_ENABLED" != "null" ]]; then
+    ENV_VARS="$ENV_VARS AZURE_AI_SRE_ENABLED=$AI_SRE_ENABLED"
+fi
 
 # Add Kusto configuration if available
 if [[ -n "$KUSTO_CLUSTER_URI" ]]; then
@@ -221,12 +240,6 @@ ENV_VARS="$ENV_VARS PLAYWRIGHT_LLM_EXTRACTION=$PLAYWRIGHT_LLM_EXTRACTION"
 # Disable optional MCP servers that cause issues in ACA unless explicitly enabled
 ENV_VARS="$ENV_VARS AZURE_CLI_EXECUTOR_ENABLED=$AZURE_CLI_EXECUTOR_ENABLED"
 
-# Add Teams webhook URL if configured
-if [[ -n "$TEAMS_WEBHOOK_URL" ]] && [[ "$TEAMS_WEBHOOK_URL" != "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_WEBHOOK_URL_" ]] && [[ "$TEAMS_WEBHOOK_URL" != "null" ]]; then
-    ENV_VARS="$ENV_VARS TEAMS_WEBHOOK_URL=$TEAMS_WEBHOOK_URL"
-    echo "✅ Teams webhook URL configured"
-fi
-
 # Add Teams Bot credentials if configured
 if [[ -n "$TEAMS_BOT_APP_ID" ]] && [[ "$TEAMS_BOT_APP_ID" != "null" ]] && [[ "$TEAMS_BOT_APP_ID" != "empty" ]]; then
     ENV_VARS="$ENV_VARS TEAMS_BOT_APP_ID=$TEAMS_BOT_APP_ID"
@@ -236,6 +249,12 @@ fi
 if [[ -n "$TEAMS_BOT_APP_PASSWORD" ]] && [[ "$TEAMS_BOT_APP_PASSWORD" != "null" ]] && [[ "$TEAMS_BOT_APP_PASSWORD" != "empty" ]]; then
     ENV_VARS="$ENV_VARS TEAMS_BOT_APP_PASSWORD=$TEAMS_BOT_APP_PASSWORD"
     echo "✅ Teams Bot App Password configured"
+fi
+
+# Add Teams Webhook URL for alert notifications if configured
+if [[ -n "$TEAMS_WEBHOOK_URL" ]] && [[ "$TEAMS_WEBHOOK_URL" != "null" ]] && [[ "$TEAMS_WEBHOOK_URL" != "empty" ]]; then
+    ENV_VARS="$ENV_VARS TEAMS_WEBHOOK_URL=$TEAMS_WEBHOOK_URL"
+    echo "✅ Teams Webhook URL configured for alert notifications"
 fi
 
 # Deploy to Container Apps

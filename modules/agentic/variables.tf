@@ -302,3 +302,19 @@ variable "agentic_subnet_id" {
   type        = string
   default     = null
 }
+
+# ============================================================================
+# AZURE AI SRE AGENT VARIABLES
+# ============================================================================
+
+variable "azure_ai_sre_agent_name" {
+  description = "Name of existing Azure AI SRE agent to connect to (e.g., gccsreagent)"
+  type        = string
+  default     = null
+}
+
+variable "azure_ai_sre_agent_id" {
+  description = "Resource ID of existing Azure AI SRE agent"
+  type        = string
+  default     = null
+}

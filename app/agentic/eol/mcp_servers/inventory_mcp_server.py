@@ -103,10 +103,12 @@ def _normalise_tabular_result(
 @_server.tool(
     name="law_get_os_inventory",
     description=(
-        "Get raw OS inventory records from Log Analytics — one row per computer. "
+        "Get raw OS inventory records from Log Analytics for AZURE ARC-ENABLED SERVERS ONLY. "
         "Returns: computer name, OS name, OS version, environment, IP address, last seen date. "
-        "Use this to get the full machine-level list. "
-        "For aggregated views, use law_get_os_summary or law_get_os_environment_breakdown instead."
+        "⚠️ CRITICAL: This ONLY works with Azure Arc-enabled servers that send inventory to Log Analytics. "
+        "For Azure VMs without Arc, use Azure MCP 'compute' tools instead. "
+        "For Container Apps, use 'azure_cli' with 'az containerapp'. "
+        "WORKFLOW: Use this to get the full machine-level list, then pass to os_eol_bulk_lookup for EOL checking."
     ),
 )
 async def law_get_os_inventory(
@@ -135,9 +137,10 @@ async def law_get_os_inventory(
 @_server.tool(
     name="law_get_os_summary",
     description=(
-        "Get a summary of OS types and version counts from Log Analytics. "
-        "Returns: OS name, version, and how many computers run each combination. "
-        "Use this for a quick overview of what operating systems are deployed."
+        "Get a summary of OS types and version counts from Azure Arc-enabled servers in Log Analytics. "
+        "Returns: OS name, version, and how many Arc servers run each combination. "
+        "⚠️ ONLY for Arc-enabled servers. For general Azure VM inventory, use Azure MCP 'compute' tools. "
+        "Use this for a quick overview of what operating systems are deployed on Arc servers."
     ),
 )
 async def law_get_os_summary(
@@ -164,9 +167,11 @@ async def law_get_os_summary(
 @_server.tool(
     name="law_get_software_inventory",
     description=(
-        "Get raw software inventory records from Log Analytics ConfigurationData. "
+        "Get raw software inventory records from Log Analytics ConfigurationData for AZURE ARC-ENABLED SERVERS ONLY. "
         "Returns: computer name, software name, publisher, version, install date. "
+        "⚠️ CRITICAL: This ONLY works with Arc-enabled servers. NOT for Azure services or Container Apps. "
         "Use software_filter to search for specific software (e.g., 'SQL Server', 'Java'). "
+        "WORKFLOW: Get inventory → Pass to os_eol_bulk_lookup to check EOL status. "
         "For aggregated views, use law_get_software_publisher_summary or law_get_top_software_packages."
     ),
 )
@@ -218,9 +223,10 @@ async def law_get_software_inventory(
 @_server.tool(
     name="law_get_os_environment_breakdown",
     description=(
-        "Break down OS inventory by environment (Production, Dev, Staging, etc.) and computer type. "
+        "Break down OS inventory by environment (Production, Dev, Staging, etc.) and computer type for Arc-enabled servers. "
         "Returns: environment, computer type, OS name, and count. "
-        "Use this when the user wants to see OS distribution across environments."
+        "⚠️ ONLY for Azure Arc-enabled servers with environment tags in Log Analytics. "
+        "Use this when the user wants to see OS distribution across environments for Arc servers."
     ),
 )
 async def law_get_os_environment_breakdown(
@@ -252,9 +258,10 @@ async def law_get_os_environment_breakdown(
 @_server.tool(
     name="law_get_os_vendor_summary",
     description=(
-        "Summarize OS inventory by vendor (Microsoft, Red Hat, Canonical, etc.) and OS type. "
+        "Summarize OS inventory by vendor (Microsoft, Red Hat, Canonical, etc.) and OS type for Arc-enabled servers. "
         "Returns: vendor, OS type, and count. "
-        "Use this to understand the OS vendor distribution in the environment."
+        "⚠️ ONLY for Azure Arc-enabled servers in Log Analytics. "
+        "Use this to understand the OS vendor distribution in the Arc-enabled environment."
     ),
 )
 async def law_get_os_vendor_summary(
@@ -286,9 +293,10 @@ async def law_get_os_vendor_summary(
 @_server.tool(
     name="law_get_software_publisher_summary",
     description=(
-        "Summarize software inventory by publisher — shows top publishers and how many "
+        "Summarize software inventory by publisher for Azure Arc-enabled servers — shows top publishers and how many "
         "distinct software packages each has installed. "
-        "Use this for a high-level view of software vendors in the environment."
+        "⚠️ ONLY for Arc-enabled servers in Log Analytics. "
+        "Use this for a high-level view of software vendors in the Arc-enabled environment."
     ),
 )
 async def law_get_software_publisher_summary(
@@ -320,9 +328,10 @@ async def law_get_software_publisher_summary(
 @_server.tool(
     name="law_get_top_software_packages",
     description=(
-        "List the most commonly installed software packages across all computers. "
+        "List the most commonly installed software packages across all Azure Arc-enabled servers. "
         "Returns: software name, version (optional), publisher, and install count. "
-        "Use this to identify the most prevalent software in the environment."
+        "⚠️ ONLY for Arc-enabled servers in Log Analytics. "
+        "Use this to identify the most prevalent software in the Arc-enabled environment."
     ),
 )
 async def law_get_top_software_packages(

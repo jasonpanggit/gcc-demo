@@ -112,7 +112,12 @@ generate_appsettings() {
     local subscription_id=$(jq -r '.subscription_id.value // "NOT_SET"' "$tf_outputs")
     local tenant_id=$(jq -r '.tenant_id.value // "NOT_SET"' "$tf_outputs")
     local resource_group_name=$(jq -r '.hub_resource_group_name.value // "NOT_SET"' "$tf_outputs")
-    local app_name=$(jq -r '.agentic_app_hostname.value // "NOT_SET"' "$tf_outputs" | sed 's/\.azurewebsites\.net$//')
+    local location=$(jq -r '.location.value // "australiaeast"' "$tf_outputs")
+    local environment=$(jq -r '.environment.value // "production"' "$tf_outputs")
+    local container_app_name=$(jq -r '.agentic_app_service_name.value // "NOT_SET"' "$tf_outputs")
+    local container_app_fqdn=$(jq -r '.agentic_app_hostname.value // "NOT_SET"' "$tf_outputs")
+    local container_app_url=$(jq -r '.agentic_app_url.value // "NOT_SET"' "$tf_outputs")
+    local container_app_env_name=$(jq -r '.container_apps_environment_name.value // "NOT_SET"' "$tf_outputs")
     local azure_openai_endpoint=$(jq -r '.agentic_aoai_endpoint.value // "NOT_SET"' "$tf_outputs")
     local azure_openai_deployment=$(jq -r '.agentic_aoai_deployment_name.value // "NOT_SET"' "$tf_outputs")
     local azure_openai_api_version="2024-08-01-preview"
@@ -120,6 +125,7 @@ generate_appsettings() {
     local cosmos_db_endpoint=$(jq -r '(.agentic_cosmos_db_endpoint.value // .cosmos_db_endpoint.value) // "NOT_SET"' "$tf_outputs")
     local cosmos_db_database=$(jq -r '(.agentic_cosmos_db_database_name.value // .cosmos_db_database_name.value) // "NOT_SET"' "$tf_outputs")
     local cosmos_db_container=$(jq -r '(.agentic_cosmos_db_container_name.value // .cosmos_db_container_name.value) // "NOT_SET"' "$tf_outputs")
+    local managed_identity_client_id=$(jq -r '.agentic_app_principal_id.value // "NOT_SET"' "$tf_outputs")
     local environment=$(jq -r '.environment.value // "production"' "$tf_outputs")
     
     # Service Principal credentials (if configured)
@@ -133,7 +139,9 @@ generate_appsettings() {
     # Azure AI Agent Service settings (optional)
     local azure_ai_project_name=$(jq -r '.agentic_azure_ai_foundry_name.value // "NOT_SET"' "$tf_outputs")
     local azure_ai_endpoint=$(jq -r '.agentic_azure_ai_foundry_endpoint.value // "NOT_SET"' "$tf_outputs")
-    
+    local azure_ai_sre_agent_name=$(jq -r '.agentic_azure_ai_sre_agent_name.value // "gccsreagent"' "$tf_outputs")
+    local azure_ai_sre_agent_id=$(jq -r '.agentic_azure_ai_sre_agent_id.value // "NOT_SET"' "$tf_outputs")
+
     # Check if agentic module outputs are available
     local has_agentic_outputs=$(jq -r 'has("agentic_app_url")' "$tf_outputs")
     
@@ -148,44 +156,82 @@ generate_appsettings() {
         log_warn "Azure AI Agent Service not deployed. Set deploy_azure_ai_agent=true to enable."
     fi
     
-    # Generate the appsettings.json content
+    # Generate the appsettings.json content with nested structure
     cat > "$OUTPUT_FILE" << EOF
 {
-  "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
-  "ENABLE_ORYX_BUILD": "true",
-  "WEBSITE_RUN_FROM_PACKAGE": "0",
-  "WEBSITES_PORT": "8000",
-  "PYTHONUNBUFFERED": "1",
-  "PYTHON_ENABLE_GUNICORN_MULTIWORKERS": "true",
-  "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false",
-  "DEBUG_MODE": "false",
-  "ENVIRONMENT": "${environment}",
-  "SUBSCRIPTION_ID": "${subscription_id}",
-  "AZURE_SUBSCRIPTION_ID": "${subscription_id}",
-  "TENANT_ID": "${tenant_id}",
-  "AZURE_TENANT_ID": "${tenant_id}",
-  "RESOURCE_GROUP_NAME": "${resource_group_name}",
-  "APP_NAME": "${app_name}",
-  "AZURE_OPENAI_ENDPOINT": "${azure_openai_endpoint}",
-  "AZURE_OPENAI_DEPLOYMENT": "${azure_openai_deployment}",
-  "AZURE_OPENAI_CHAT_DEPLOYMENT_NAME": "${azure_openai_deployment}",
-  "AZURE_OPENAI_API_VERSION": "${azure_openai_api_version}",
-  "LOG_ANALYTICS_WORKSPACE_ID": "${log_analytics_workspace_id}",
-  "AZURE_COSMOS_DB_ENDPOINT": "${cosmos_db_endpoint}",
-  "AZURE_COSMOS_DB_DATABASE": "${cosmos_db_database}",
-  "AZURE_COSMOS_DB_CONTAINER": "${cosmos_db_container}",
-  "AZURE_CONTAINER_REGISTRY": "${acr_name}",
-  "IMAGE_NAME": "eol-app",
-  "IMAGE_TAG": "latest",
-  "AZURE_AI_PROJECT_NAME": "${azure_ai_project_name}",
-  "AZURE_AI_ENDPOINT": "${azure_ai_endpoint}",
-  "USE_SERVICE_PRINCIPAL": "$([[ \"${sp_client_id}\" != \"NOT_SET\" ]] && echo \"true\" || echo \"false\")",
-  "AZURE_SP_CLIENT_ID": "${sp_client_id}",
-  "AZURE_SP_CLIENT_SECRET": "${sp_client_secret}",
-  "MCP_AGENT_MAX_ITERATIONS": "50",
-  "MCP_AGENT_TEMPERATURE": "0.2",
-  "LOG_LEVEL": "INFO",
-  "DISABLE_MCP_ORCHESTRATOR": "false"
+  "Azure": {
+    "SubscriptionId": "${subscription_id}",
+    "TenantId": "${tenant_id}",
+    "ResourceGroup": "${resource_group_name}",
+    "Location": "${location}"
+  },
+  "Deployment": {
+    "ContainerApp": {
+      "Name": "${container_app_name}",
+      "Environment": "${container_app_env_name}",
+      "Url": "${container_app_url}"
+    },
+    "ContainerRegistry": {
+      "Name": "${acr_name}",
+      "ImageName": "eol-app",
+      "DefaultTag": "latest"
+    }
+  },
+  "ServicePrincipal": {
+    "ClientId": "${sp_client_id}",
+    "ClientSecret": "${sp_client_secret}",
+    "UseServicePrincipal": $([[ "${sp_client_id}" != "NOT_SET" ]] && echo "true" || echo "false"),
+    "Comment": "Set UseServicePrincipal to false to use Managed Identity instead"
+  },
+  "ManagedIdentity": {
+    "ClientId": "${managed_identity_client_id}",
+    "Comment": "Used when UseServicePrincipal is false"
+  },
+  "AzureServices": {
+    "OpenAI": {
+      "Endpoint": "${azure_openai_endpoint}",
+      "Deployment": "${azure_openai_deployment}",
+      "ApiVersion": "${azure_openai_api_version}"
+    },
+    "CosmosDB": {
+      "Endpoint": "${cosmos_db_endpoint}",
+      "Database": "${cosmos_db_database}",
+      "Container": "${cosmos_db_container}"
+    },
+    "LogAnalytics": {
+      "WorkspaceId": "${log_analytics_workspace_id}"
+    },
+    "AIFoundry": {
+      "ProjectName": "${azure_ai_project_name}",
+      "Endpoint": "${azure_ai_endpoint}",
+      "ProjectEndpoint": "${azure_ai_endpoint}",
+      "SREAgentName": "${azure_ai_sre_agent_name}",
+      "SREAgentId": "${azure_ai_sre_agent_id}",
+      "SREEnabled": "$([[ \"${azure_ai_endpoint}\" != \"NOT_SET\" && \"${azure_ai_endpoint}\" != \"null\" ]] && echo \"true\" || echo \"false\")",
+      "Comment": "Azure AI Agent Service configuration for Azure AI SRE agent integration"
+    },
+    "Kusto": {
+      "ClusterUri": "https://data-explorer.azure.com",
+      "Database": "ARG",
+      "Description": "Azure Resource Graph endpoint for KQL queries"
+    }
+  },
+  "TeamsBot": {
+    "AppId": "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_BOT_APP_ID_",
+    "AppPassword": "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_BOT_APP_PASSWORD_",
+    "_comment": "Replace with your Microsoft Teams Bot credentials for SRE notifications"
+  },
+  "AppSettings": {
+    "WEBSITES_PORT": "8000",
+    "PYTHONUNBUFFERED": "1",
+    "DEBUG_MODE": "false",
+    "ENVIRONMENT": "${environment}",
+    "CONTAINER_MODE": "true",
+    "PlaywrightLLMExtraction": "false"
+  },
+  "McpSettings": {
+    "AzureCliExecutorEnabled": false
+  }
 }
 EOF
     

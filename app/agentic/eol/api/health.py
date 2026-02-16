@@ -146,3 +146,41 @@ async def detailed_health() -> Dict[str, Any]:
         }
     }
     return health_status
+
+
+@router.get("/api/status", response_model=StandardResponse)
+@readonly_endpoint(agent_name="api_status", timeout_seconds=5)
+async def api_status() -> Dict[str, Any]:
+    """
+    Application status endpoint showing running state and version.
+
+    Returns basic application status information including runtime state,
+    version, and service message. This is a lightweight status check that
+    provides quick confirmation the API is operational.
+
+    Returns:
+        StandardResponse with status data containing:
+            - status (str): Runtime status ("running")
+            - version (str): Application version
+            - message (str): Service identifier
+            - timestamp (str): Current UTC timestamp
+
+    Example Response:
+        {
+            "success": true,
+            "data": [{
+                "status": "running",
+                "version": "1.0.0",
+                "message": "EOL Multi-Agent App",
+                "timestamp": "2025-10-15T10:30:00.000Z"
+            }],
+            "count": 1
+        }
+    """
+    status_data = {
+        "status": "running",
+        "version": config.app.version,
+        "message": "EOL Multi-Agent App",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    return status_data
