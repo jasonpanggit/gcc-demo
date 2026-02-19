@@ -1042,25 +1042,25 @@ html.dark-mode .chat-send-btn:disabled {
 
 /* Cards */
 html.dark-mode .card {
-    background: var(--bg-secondary);
-    border-color: var(--border-primary);
-    color: var(--text-primary);
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .card-header {
-    background: var(--bg-tertiary);
-    border-bottom-color: var(--border-primary);
-    color: var(--text-primary);
+    background: var(--bg-tertiary) !important;
+    border-bottom-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .card-body {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .card-footer {
-    background: var(--bg-tertiary);
-    border-top-color: var(--border-primary);
+    background: var(--bg-tertiary) !important;
+    border-top-color: var(--border-primary) !important;
 }
 
 /* Forms */
@@ -1532,4 +1532,16 @@ html.dark-mode .agent-node {
 
 html.dark-mode .communications-stream {
     background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .agent-communications {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode #communicationsStream {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode #communicationsDebugInfo {
+    color: var(--text-muted) !important;
 }
