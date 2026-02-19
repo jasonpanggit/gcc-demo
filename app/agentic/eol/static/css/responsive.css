@@ -1,0 +1,396 @@
+/**
+ * Responsive Design Fixes
+ * Replaces fixed heights with flexible layouts for mobile/tablet/desktop
+ * Task #4: Responsive Design Improvements
+ */
+
+/* === GLOBAL RESPONSIVE UTILITIES === */
+
+/* Remove fixed viewport heights - use flexible containers instead */
+.container-fluid {
+    padding-left: var(--spacing-md, 1rem);
+    padding-right: var(--spacing-md, 1rem);
+}
+
+/* === CHAT CONTAINERS === */
+
+/* Fix chat containers with fixed heights */
+.chat-container {
+    /* Remove fixed calc(100vh - 300px), min-height: 600px, max-height: 800px */
+    height: auto !important;
+    min-height: 400px !important;  /* Reduced from 600px */
+    max-height: none !important;   /* Remove max constraint */
+}
+
+@media (min-width: 768px) {
+    .chat-container {
+        min-height: 500px !important;
+    }
+}
+
+@media (min-width: 1024px) {
+    .chat-container {
+        min-height: 600px !important;
+        max-height: calc(100vh - 200px) !important; /* Flexible based on viewport */
+    }
+}
+
+/* Chat messages area */
+.chat-messages {
+    /* Remove max-height: calc(100% - 200px) */
+    flex: 1;
+    overflow-y: auto;
+    min-height: 200px !important;
+    max-height: 600px !important;  /* Reasonable max for mobile */
+}
+
+@media (min-width: 1024px) {
+    .chat-messages {
+        max-height: calc(100vh - 350px) !important;
+    }
+}
+
+/* Chat input area */
+.chat-input-area {
+    /* Remove min-height: 120px */
+    min-height: auto !important;
+    padding: var(--spacing-md, 1rem);
+}
+
+.chat-input,
+textarea.chat-input {
+    /* Remove min-height: 50px, max-height: 120px */
+    min-height: 44px !important;  /* Minimum touch target size */
+    max-height: 200px !important; /* Allow more room for typing */
+    resize: vertical;
+}
+
+/* === DATA TABLES === */
+
+/* Make DataTables responsive */
+.dataTables_wrapper {
+    overflow-x: auto;
+}
+
+table.dataTable {
+    width: 100% !important;
+}
+
+/* Stacked table view for mobile */
+@media (max-width: 767px) {
+    table.dataTable thead {
+        display: none;
+    }
+
+    table.dataTable tbody tr {
+        display: block;
+        margin-bottom: 1rem;
+        border: 1px solid var(--border-primary, #e5e7eb);
+        border-radius: var(--radius-md, 0.5rem);
+    }
+
+    table.dataTable tbody td {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem !important;
+        border: none;
+        border-bottom: 1px solid var(--border-primary, #e5e7eb);
+    }
+
+    table.dataTable tbody td:last-child {
+        border-bottom: none;
+    }
+
+    table.dataTable tbody td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        margin-right: 1rem;
+    }
+}
+
+/* === CARDS === */
+
+.card {
+    margin-bottom: var(--spacing-md, 1rem);
+}
+
+/* Remove fixed max-heights from cards */
+.card-body {
+    max-height: none !important;
+    padding: var(--spacing-md, 1rem);
+}
+
+@media (max-width: 767px) {
+    .card-body {
+        padding: var(--spacing-sm, 0.75rem);
+    }
+}
+
+/* Scrollable card bodies - set max-height with data attribute */
+.card-body[data-scrollable="true"] {
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+@media (min-width: 768px) {
+    .card-body[data-scrollable="true"] {
+        max-height: 600px;
+    }
+}
+
+/* === MODALS === */
+
+.modal-content {
+    /* Remove max-height: 70vh */
+    max-height: none !important;
+}
+
+@media (min-width: 768px) {
+    .modal-content {
+        max-height: 90vh !important;
+    }
+}
+
+.modal-body {
+    /* Remove max-height: 300px */
+    max-height: none !important;
+    overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+    .modal-body {
+        max-height: 60vh !important;
+    }
+}
+
+/* === AGENT COMMUNICATIONS === */
+
+.agent-comms-container,
+.communications-stream {
+    /* Remove height: calc(100vh - 250px), min-height: 300px */
+    height: auto !important;
+    min-height: 200px !important;
+    max-height: 500px !important;
+    overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+    .agent-comms-container,
+    .communications-stream {
+        min-height: 300px !important;
+        max-height: 600px !important;
+    }
+}
+
+@media (min-width: 1024px) {
+    .agent-comms-container,
+    .communications-stream {
+        max-height: calc(100vh - 300px) !important;
+    }
+}
+
+/* === CHARTS === */
+
+/* Ensure all charts are responsive */
+canvas {
+    max-width: 100% !important;
+    height: auto !important;
+}
+
+.chart-container {
+    position: relative;
+    width: 100%;
+    /* Remove max-height: 200px, 300px constraints */
+    min-height: 200px !important;
+    max-height: none !important;
+    padding: var(--spacing-md, 1rem);
+}
+
+@media (min-width: 768px) {
+    .chart-container {
+        min-height: 250px !important;
+    }
+}
+
+@media (min-width: 1024px) {
+    .chart-container {
+        min-height: 300px !important;
+    }
+}
+
+/* Specific chart container overrides */
+.chart-container[data-max-height="400"] {
+    max-height: 300px !important;
+}
+
+@media (min-width: 768px) {
+    .chart-container[data-max-height="400"] {
+        max-height: 400px !important;
+    }
+}
+
+/* === SIDEBAR/PANELS === */
+
+.sidebar,
+.details-panel {
+    /* Remove min-height: 200px, max-height: 600px */
+    min-height: auto !important;
+    max-height: none !important;
+}
+
+@media (max-width: 1023px) {
+    .sidebar,
+    .details-panel {
+        /* Full width on mobile/tablet */
+        width: 100% !important;
+        max-width: none !important;
+    }
+}
+
+/* === GRID LAYOUTS === */
+
+/* Responsive grid gaps */
+.row {
+    --bs-gutter-x: var(--spacing-md, 1rem);
+    --bs-gutter-y: var(--spacing-md, 1rem);
+}
+
+@media (max-width: 767px) {
+    .row {
+        --bs-gutter-x: var(--spacing-sm, 0.75rem);
+        --bs-gutter-y: var(--spacing-sm, 0.75rem);
+    }
+}
+
+/* === BUTTONS === */
+
+/* Touch-friendly button sizing */
+.btn {
+    min-height: 44px !important;  /* WCAG touch target minimum */
+    padding: var(--spacing-sm, 0.75rem) var(--spacing-md, 1rem);
+}
+
+.btn-sm {
+    min-height: 36px !important;
+    padding: 0.5rem 0.75rem;
+}
+
+/* Stack buttons on mobile */
+@media (max-width: 767px) {
+    .btn-group-vertical-mobile {
+        flex-direction: column;
+    }
+
+    .btn-group-vertical-mobile .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* === FORMS === */
+
+/* Touch-friendly form inputs */
+.form-control,
+.form-select {
+    min-height: 44px !important;
+}
+
+.form-control-sm {
+    min-height: 36px !important;
+}
+
+/* Stack form groups on mobile */
+@media (max-width: 767px) {
+    .input-group {
+        flex-wrap: wrap;
+    }
+
+    .input-group > .form-control,
+    .input-group > .form-select {
+        flex: 1 1 100%;
+    }
+
+    .input-group > .btn {
+        flex: 1 1 100%;
+        margin-top: 0.5rem;
+    }
+}
+
+/* === NAVIGATION === */
+
+/* Responsive navbar */
+@media (max-width: 991px) {
+    .navbar-collapse {
+        background: var(--bg-dark, #111827);
+        padding: var(--spacing-md, 1rem);
+        margin-top: var(--spacing-sm, 0.75rem);
+        border-radius: var(--radius-md, 0.5rem);
+    }
+}
+
+/* === UTILITIES === */
+
+/* Hide on mobile */
+@media (max-width: 767px) {
+    .hide-mobile {
+        display: none !important;
+    }
+}
+
+/* Hide on tablet */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .hide-tablet {
+        display: none !important;
+    }
+}
+
+/* Hide on desktop */
+@media (min-width: 1024px) {
+    .hide-desktop {
+        display: none !important;
+    }
+}
+
+/* Show only on mobile */
+@media (min-width: 768px) {
+    .show-mobile-only {
+        display: none !important;
+    }
+}
+
+/* Responsive text sizes */
+@media (max-width: 767px) {
+    h1 { font-size: var(--font-size-2xl, 1.875rem) !important; }
+    h2 { font-size: var(--font-size-xl, 1.5rem) !important; }
+    h3 { font-size: var(--font-size-lg, 1.25rem) !important; }
+    h4, h5, h6 { font-size: var(--font-size-base, 1rem) !important; }
+}
+
+/* Responsive padding/margins */
+@media (max-width: 767px) {
+    .container-fluid {
+        padding-left: var(--spacing-sm, 0.75rem) !important;
+        padding-right: var(--spacing-sm, 0.75rem) !important;
+    }
+
+    .hero-section {
+        padding: var(--spacing-lg, 1.5rem) 0 !important;
+    }
+}
+
+/* === PRINT STYLES === */
+
+@media print {
+    .navbar,
+    .btn,
+    .sidebar,
+    .modal {
+        display: none !important;
+    }
+
+    .chat-messages,
+    .card-body {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+}
