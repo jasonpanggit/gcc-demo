@@ -25,13 +25,18 @@
     <link href="/static/css/pagination-components.css" rel="stylesheet">
     <!-- Responsive design fixes - Load last to override fixed heights -->
     <link href="/static/css/responsive.css" rel="stylesheet">
+    <!-- Accessibility enhancements - WCAG 2.1 AA compliance -->
+    <link href="/static/css/accessibility.css" rel="stylesheet">
 
     {% block extra_head %}{% endblock %}
 </head>
 
 <body>
+    <!-- Skip to main content link for keyboard navigation -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <!-- Navigation -->
-    <nav class="navbar navbar-dark bg-primary">
+    <nav class="navbar navbar-dark bg-primary" role="navigation" aria-label="Main navigation">
         <div class="container-fluid d-flex">
             <!-- App name label - leftmost -->
             <a class="navbar-brand me-auto" href="/">
@@ -133,7 +138,7 @@
     </nav>
 
     <!-- Main Content -->
-    <main class="container-fluid py-4">
+    <main id="main-content" class="container-fluid py-4" role="main">
         {% block content %}{% endblock %}
     </main>
 
