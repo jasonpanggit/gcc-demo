@@ -1615,3 +1615,117 @@ html.dark-mode #communicationsStream {
 html.dark-mode #communicationsDebugInfo {
     color: var(--text-muted) !important;
 }
+
+/* Additional agent communication elements from agent_communication.css */
+html.dark-mode .interactions-column,
+html.dark-mode .flow-column {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .section-title {
+    color: var(--text-primary) !important;
+    border-bottom-color: var(--border-primary) !important;
+}
+
+html.dark-mode .interaction-content {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .agent-info strong {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .timestamp {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .interaction-toggle {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .text-content {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .eol-response,
+html.dark-mode .generic-response {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .response-header {
+    color: var(--text-primary) !important;
+    border-bottom-color: var(--border-primary) !important;
+}
+
+html.dark-mode .response-details > div,
+html.dark-mode .input-section,
+html.dark-mode .output-section {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .json-display {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-data {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-message {
+    background: var(--bg-tertiary) !important;
+    border-left-color: var(--color-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-action {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .comm-agent {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .agent-communications-container {
+    background: transparent !important;
+}
+
+html.dark-mode .flow-diagram {
+    background: transparent !important;
+}
+
+html.dark-mode .flow-node {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .flow-arrow {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .no-flow,
+html.dark-mode .no-interactions {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .request-content,
+html.dark-mode .response-content {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .request-item,
+html.dark-mode .response-item {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-request-response {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
