@@ -30,7 +30,7 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
             </button>
             {% endif %}
         </div>
-        <div class="card-body" style="background-color: #f8f9fa;">
+        <div class="card-body chat-card-body">
             {# Chat History Container #}
             <div id="{{ config.container_id }}" class="chat-container mb-3">
                 <div class="text-center text-muted py-5">
@@ -112,7 +112,7 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
         <div class="card-body p-0" id="agent-comms-section" style="display: none;">
             {# Agent Flow Visualization (optional) #}
             {% if config.show_flow %}
-            <div class="p-3 border-bottom bg-light" id="agent-flow-container">
+            <div class="p-3 border-bottom agent-flow-section" id="agent-flow-container">
                 <h6 class="text-muted mb-2"><i class="fas fa-route me-1"></i>Agent Flow</h6>
                 <div id="agentFlow" class="agent-flow">
                     <div class="text-muted small">No active conversation</div>
@@ -132,7 +132,7 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
 
             {# Token Usage Stats (optional) #}
             {% if config.show_token_stats %}
-            <div class="p-3 border-top bg-light" id="token-stats-container" style="display: none;">
+            <div class="p-3 border-top token-stats-section" id="token-stats-container" style="display: none;">
                 <h6 class="text-muted mb-2"><i class="fas fa-chart-line me-1"></i>Token Usage</h6>
                 <div class="row g-2">
                     <div class="col-md-4">

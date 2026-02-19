@@ -736,6 +736,19 @@
    DARK MODE OVERRIDES
    ============================================================ */
 
+/* Light mode defaults */
+html.light-mode .chat-card-body,
+html:not(.dark-mode) .chat-card-body {
+    background: #f8f9fa;
+}
+
+html.light-mode .agent-flow-section,
+html.light-mode .token-stats-section,
+html:not(.dark-mode) .agent-flow-section,
+html:not(.dark-mode) .token-stats-section {
+    background: #f8f9fa;
+}
+
 html.light-mode .topbar,
 html:not(.dark-mode) .topbar {
     background: rgba(255, 255, 255, 0.95);
@@ -955,6 +968,16 @@ html.dark-mode .progress-bar.bg-warning {
 html.dark-mode .chat-container {
     background: var(--bg-secondary);
     border-color: var(--border-primary);
+}
+
+html.dark-mode .chat-card-body {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .agent-flow-section,
+html.dark-mode .token-stats-section {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
 }
 
 html.dark-mode .chat-messages {
@@ -1355,4 +1378,45 @@ html.dark-mode a:hover {
 html.dark-mode hr {
     border-color: var(--border-primary);
     opacity: 1;
+}
+
+/* Bootstrap utility classes */
+html.dark-mode .bg-light {
+    background-color: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .bg-white {
+    background-color: var(--bg-secondary) !important;
+}
+
+html.dark-mode .bg-dark {
+    background-color: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .text-dark {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-white {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .border {
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-top {
+    border-top-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-bottom {
+    border-bottom-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-start {
+    border-left-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-end {
+    border-right-color: var(--border-primary) !important;
 }
