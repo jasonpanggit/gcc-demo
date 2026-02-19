@@ -1586,6 +1586,24 @@ html.dark-mode .communications-stream {
     background: var(--bg-secondary) !important;
 }
 
+html.dark-mode .comm-request-section,
+html.dark-mode .comm-response-section {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .section-header {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-content pre,
+html.dark-mode .comm-content code {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
 html.dark-mode .agent-communications {
     background: var(--bg-secondary) !important;
 }
