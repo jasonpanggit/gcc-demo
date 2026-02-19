@@ -177,6 +177,15 @@ from utils.chat_config import chat_config_filter, chat_config_dict
 templates.env.filters['chat_config'] = chat_config_filter
 templates.env.globals['chat_config_dict'] = chat_config_dict
 
+# Add merge filter for dictionary merging in templates
+def merge_filter(dict1, dict2):
+    """Merge two dictionaries, with dict2 values taking precedence."""
+    result = dict1.copy()
+    result.update(dict2)
+    return result
+
+templates.env.filters['merge'] = merge_filter
+
 # Use managed identity for all Azure service authentication
 # Exclude slow/irrelevant credential sources to speed up startup on App Service
 cred = DefaultAzureCredential(
