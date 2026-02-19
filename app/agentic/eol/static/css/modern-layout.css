@@ -819,3 +819,96 @@ html.dark-mode .nav-item.active {
 html.dark-mode .sidebar-footer {
     border-top-color: var(--border-primary);
 }
+
+/* Tables */
+html.dark-mode .table {
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .table thead th {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .table tbody tr {
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .table tbody td {
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .table-hover tbody tr:hover {
+    background-color: var(--bg-tertiary);
+}
+
+html.dark-mode .table-responsive {
+    border-color: var(--border-primary);
+}
+
+/* Badges */
+html.dark-mode .badge {
+    color: #ffffff;
+}
+
+html.dark-mode .badge.bg-primary {
+    background-color: var(--color-primary) !important;
+}
+
+html.dark-mode .badge.bg-success {
+    background-color: var(--color-success) !important;
+}
+
+html.dark-mode .badge.bg-warning {
+    background-color: var(--color-warning) !important;
+}
+
+html.dark-mode .badge.bg-danger {
+    background-color: var(--color-error) !important;
+}
+
+html.dark-mode .badge.bg-info {
+    background-color: var(--color-info) !important;
+}
+
+/* Text colors */
+html.dark-mode .text-muted {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .text-primary {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-secondary {
+    color: var(--text-secondary) !important;
+}
+
+/* Small text */
+html.dark-mode .small {
+    color: var(--text-secondary);
+}
+
+/* Progress bars */
+html.dark-mode .progress {
+    background-color: var(--bg-tertiary);
+}
+
+html.dark-mode .progress-bar {
+    background-color: var(--color-primary);
+}
+
+html.dark-mode .progress-bar.bg-success {
+    background-color: var(--color-success) !important;
+}
+
+html.dark-mode .progress-bar.bg-info {
+    background-color: var(--color-info) !important;
+}
+
+html.dark-mode .progress-bar.bg-warning {
+    background-color: var(--color-warning) !important;
+}
