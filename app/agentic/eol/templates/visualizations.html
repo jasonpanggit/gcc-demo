@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+
+{% block title %}Data Visualizations Demo - Azure Agentic Platform{% endblock %}
+
+{% block extra_head %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<!-- Chart Components CSS -->
+<link rel="stylesheet" href="/static/css/chart-components.css">
+
+<!-- Chart Theme and Visualization Libraries -->
+<script src="/static/js/chart-theme.js"></script>
+<script src="/static/js/sparklines.js"></script>
+<script src="/static/js/agent-metrics-dashboard.js"></script>
+<script src="/static/js/token-usage-viz.js"></script>
+
+<style>
+.demo-section {
+    margin-bottom: var(--spacing-3xl, 64px);
+}
+
+.demo-section-header {
+    margin-bottom: var(--spacing-lg, 24px);
+    padding-bottom: var(--spacing-md, 16px);
+    border-bottom: 2px solid var(--border-primary, #e5e7eb);
+}
+
+.demo-section-title {
+    font-size: var(--font-size-2xl, 30px);
+    font-weight: var(--font-weight-bold, 700);
+    color: var(--text-primary, #111827);
+    margin: 0 0 var(--spacing-sm, 12px) 0;
+}
+
+.demo-section-description {
+    font-size: var(--font-size-base, 16px);
+    color: var(--text-secondary, #4b5563);
+    margin: 0;
+}
+
+.demo-code-block {
+    background: var(--gray-900, #111827);
+    color: var(--gray-100, #f3f4f6);
+    padding: var(--spacing-md, 16px);
+    border-radius: var(--radius-md, 8px);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm, 14px);
+    overflow-x: auto;
+    margin-top: var(--spacing-md, 16px);
+}
+
+.sparkline-demo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md, 16px);
+    margin-bottom: var(--spacing-lg, 24px);
+}
+
+.sparkline-demo-card {
+    padding: var(--spacing-md, 16px);
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: var(--radius-md, 8px);
+    border: 1px solid var(--border-primary, #e5e7eb);
+}
+
+.sparkline-demo-label {
+    font-size: var(--font-size-sm, 14px);
+    color: var(--text-secondary, #4b5563);
+    margin-bottom: var(--spacing-xs, 8px);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section mb-5">
+    <div class="hero-content">
+        <h1 class="hero-title">
+            <span class="hero-icon me-3"><i class="fas fa-chart-bar"></i></span>
+            Data Visualizations
+        </h1>
+        <p class="hero-subtitle">
+            Enhanced charts and graphs for the EOL Agentic Platform. Showcasing Chart.js theming, sparklines, agent metrics, token usage, and EOL risk heatmaps.
+        </p>
+    </div>
+</div>
+
+<div class="container-fluid">
+    <!-- Sparklines Demo -->
+    <section class="demo-section">
+        <div class="demo-section-header">
+            <h2 class="demo-section-title">
+                <i class="fas fa-chart-line me-2"></i>Sparklines
+            </h2>
+            <p class="demo-section-description">
+                Lightweight inline charts for embedding in tables and compact dashboards. SVG-based, no dependencies.
+            </p>
+        </div>
+
+        <div class="sparkline-demo-grid">
+            <div class="sparkline-demo-card">
+                <div class="sparkline-demo-label">Line Chart</div>
+                <span class="sparkline" data-values="[1, 3, 2, 5, 4, 7, 6, 9, 8, 12]" data-type="line" data-height="40" data-width="150"></span>
+            </div>
+            <div class="sparkline-demo-card">
+                <div class="sparkline-demo-label">Area Chart</div>
+                <span class="sparkline" data-values="[5, 8, 3, 9, 4, 12, 7, 15, 10, 18]" data-type="area" data-height="40" data-width="150" data-color="#0a8754"></span>
+            </div>
+            <div class="sparkline-demo-card">
+                <div class="sparkline-demo-label">Bar Chart</div>
+                <span class="sparkline" data-values="[3, 7, 2, 9, 5, 12, 8, 4, 11, 6]" data-type="bar" data-height="40" data-width="150" data-color="#f59e0b"></span>
+            </div>
+            <div class="sparkline-demo-card">
+                <div class="sparkline-demo-label">Trend Indicator</div>
+                <span class="sparkline" data-values="[10, 12, 15, 18, 22, 25, 30]" data-type="trend" data-height="40" data-width="150"></span>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Usage Example</h5>
+            </div>
+            <div class="card-body">
+                <div class="demo-code-block">
+&lt;span class="sparkline"
+      data-values="[1,5,2,8,3,7,4]"
+      data-type="line"
+      data-height="40"
+      data-width="150"&gt;&lt;/span&gt;
+
+&lt;script&gt;Sparklines.init();&lt;/script&gt;
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- EOL Risk Heatmap Demo -->
+    <section class="demo-section">
+        <div class="demo-section-header">
+            <h2 class="demo-section-title">
+                <i class="fas fa-fire me-2"></i>EOL Risk Heatmap
+            </h2>
+            <p class="demo-section-description">
+                Visualizes End-of-Life risk across resources with color-coded indicators based on days to EOL.
+            </p>
+        </div>
+
+        {% include 'components/eol_heatmap.html' %}
+
+        <div id="eol-heatmap-demo" class="mb-4"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Sample Data</h5>
+            </div>
+            <div class="card-body">
+                <div class="demo-code-block">
+EOLHeatmap.init('eol-heatmap-demo', {
+  data: [
+    { name: 'Windows Server 2012 R2', vendor: 'Microsoft', daysToEOL: 15, type: 'OS' },
+    { name: 'Ubuntu 18.04 LTS', vendor: 'Ubuntu', daysToEOL: 45, type: 'OS' },
+    { name: 'RHEL 7', vendor: 'RedHat', daysToEOL: 120, type: 'OS' },
+    { name: 'Oracle Linux 6', vendor: 'Oracle', daysToEOL: 200, type: 'OS' },
+    { name: 'Ubuntu 20.04 LTS', vendor: 'Ubuntu', daysToEOL: 400, type: 'OS' }
+  ]
+});
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Agent Metrics Dashboard Demo -->
+    <section class="demo-section">
+        <div class="demo-section-header">
+            <h2 class="demo-section-title">
+                <i class="fas fa-robot me-2"></i>Agent Metrics Dashboard
+            </h2>
+            <p class="demo-section-description">
+                Real-time performance monitoring for AI agents with response times, success rates, and activity distribution.
+            </p>
+        </div>
+
+        <div id="agent-metrics-demo"></div>
+    </section>
+
+    <!-- Token Usage Visualization Demo -->
+    <section class="demo-section">
+        <div class="demo-section-header">
+            <h2 class="demo-section-title">
+                <i class="fas fa-coins me-2"></i>Token Usage Analytics
+            </h2>
+            <p class="demo-section-description">
+                Track AI model token consumption with cost estimates, trends, and breakdown by agent.
+            </p>
+        </div>
+
+        <div id="token-usage-demo"></div>
+    </section>
+
+    <!-- Chart Theme Examples -->
+    <section class="demo-section">
+        <div class="demo-section-header">
+            <h2 class="demo-section-title">
+                <i class="fas fa-palette me-2"></i>Chart.js Theme
+            </h2>
+            <p class="demo-section-description">
+                Consistent styling across all charts using design tokens. Supports line, bar, pie, doughnut, and more.
+            </p>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Line Chart Example</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="line-chart-demo" aria-label="Line chart example"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Bar Chart Example</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="bar-chart-demo" aria-label="Bar chart example"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Doughnut Chart Example</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="doughnut-chart-demo" aria-label="Doughnut chart example"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Stacked Area Chart Example</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="area-chart-demo" aria-label="Stacked area chart example"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Sparklines (already done by library)
+
+    // Initialize EOL Heatmap with sample data
+    EOLHeatmap.init('eol-heatmap-demo', {
+        title: 'EOL Risk Heatmap Demo',
+        data: [
+            { name: 'Windows Server 2012 R2', vendor: 'Microsoft', daysToEOL: 15, type: 'OS' },
+            { name: 'Ubuntu 18.04 LTS', vendor: 'Ubuntu', daysToEOL: 45, type: 'OS' },
+            { name: 'RHEL 7', vendor: 'RedHat', daysToEOL: 120, type: 'OS' },
+            { name: 'CentOS 7', vendor: 'RedHat', daysToEOL: -30, type: 'OS' },
+            { name: 'Oracle Linux 6', vendor: 'Oracle', daysToEOL: 200, type: 'OS' },
+            { name: 'Ubuntu 20.04 LTS', vendor: 'Ubuntu', daysToEOL: 400, type: 'OS' },
+            { name: 'Windows Server 2019', vendor: 'Microsoft', daysToEOL: 600, type: 'OS' },
+            { name: 'RHEL 8', vendor: 'RedHat', daysToEOL: 800, type: 'OS' }
+        ]
+    });
+
+    // Initialize Agent Metrics Dashboard with mock data
+    initAgentMetricsMock();
+
+    // Initialize Token Usage Visualization with mock data
+    initTokenUsageMock();
+
+    // Initialize Chart Theme Examples
+    initChartThemeExamples();
+});
+
+// Mock data for Agent Metrics
+function initAgentMetricsMock() {
+    const mockData = {
+        totalRequests: 1547,
+        successfulRequests: 1423,
+        failedRequests: 124,
+        avgResponseTime: 342,
+        activeAgents: 8,
+        timeLabels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+        responseTimeHistory: [280, 310, 295, 342, 378, 315],
+        p95ResponseTimeHistory: [450, 480, 465, 520, 550, 490],
+        requestsHistory: [150, 180, 220, 310, 290, 250],
+        successRateHistory: [92, 94, 91, 93, 90, 92],
+        agentActivity: [
+            { name: 'MCP Orchestrator', requests: 450 },
+            { name: 'SRE Orchestrator', requests: 320 },
+            { name: 'EOL Analyzer', requests: 280 },
+            { name: 'Inventory Agent', requests: 250 },
+            { name: 'Monitor Agent', requests: 147 },
+            { name: 'Config Agent', requests: 100 }
+        ],
+        inputTokenHistory: [12000, 15000, 18000, 22000, 19000, 16000],
+        outputTokenHistory: [8000, 10000, 12000, 15000, 13000, 11000]
+    };
+
+    // Override fetch for demo
+    const originalFetch = window.fetch;
+    window.fetch = function(url) {
+        if (url.includes('/api/agents/metrics')) {
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ success: true, data: mockData })
+            });
+        }
+        return originalFetch.apply(this, arguments);
+    };
+
+    AgentMetrics.init('agent-metrics-demo', { refreshInterval: 0 });
+}
+
+// Mock data for Token Usage
+function initTokenUsageMock() {
+    const mockData = {
+        totalInputTokens: 125000,
+        totalOutputTokens: 87000,
+        changePercent: 12.5,
+        model: 'gpt-4o-mini',
+        timeLabels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        inputTokenHistory: [15000, 18000, 22000, 19000, 17000, 16000, 18000],
+        outputTokenHistory: [10000, 12000, 15000, 13000, 11000, 12000, 14000],
+        agentTokens: [
+            { name: 'MCP Orchestrator', inputTokens: 45000, outputTokens: 32000, trend: [8000, 9000, 8500, 9200, 9800] },
+            { name: 'SRE Orchestrator', inputTokens: 35000, outputTokens: 25000, trend: [6000, 6500, 7000, 7200, 7500] },
+            { name: 'EOL Analyzer', inputTokens: 25000, outputTokens: 18000, trend: [4000, 4200, 4500, 4800, 5000] },
+            { name: 'Inventory Agent', inputTokens: 20000, outputTokens: 12000, trend: [3000, 3200, 3500, 3600, 3700] }
+        ]
+    };
+
+    // Override fetch for demo
+    const originalFetch = window.fetch;
+    window.fetch = function(url) {
+        if (url.includes('/api/agents/token-usage')) {
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ success: true, data: mockData })
+            });
+        }
+        return originalFetch.apply(this, arguments);
+    };
+
+    TokenUsageViz.init('token-usage-demo', { period: '7d', refreshInterval: 0 });
+}
+
+// Chart Theme Examples
+function initChartThemeExamples() {
+    // Line Chart
+    const lineCtx = document.getElementById('line-chart-demo');
+    new Chart(lineCtx, applyChartTheme({
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            datasets: [{
+                label: 'Requests',
+                data: [65, 78, 90, 81, 96, 105],
+                borderColor: ChartColors.primary,
+                backgroundColor: createChartGradient(lineCtx.getContext('2d'), ChartColors.primary),
+                fill: true,
+                tension: 0.4
+            }]
+        }
+    }));
+
+    // Bar Chart
+    const barCtx = document.getElementById('bar-chart-demo');
+    new Chart(barCtx, applyChartTheme({
+        type: 'bar',
+        data: {
+            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+            datasets: [{
+                label: 'Tasks Completed',
+                data: [12, 19, 15, 25, 22],
+                backgroundColor: [
+                    getChartColor(0, 0.8),
+                    getChartColor(1, 0.8),
+                    getChartColor(2, 0.8),
+                    getChartColor(3, 0.8),
+                    getChartColor(4, 0.8)
+                ],
+                borderColor: [
+                    getChartColor(0),
+                    getChartColor(1),
+                    getChartColor(2),
+                    getChartColor(3),
+                    getChartColor(4)
+                ],
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        }
+    }));
+
+    // Doughnut Chart
+    const doughnutCtx = document.getElementById('doughnut-chart-demo');
+    new Chart(doughnutCtx, applyChartTheme({
+        type: 'doughnut',
+        data: {
+            labels: ['Active', 'Pending', 'Completed', 'Failed'],
+            datasets: [{
+                data: [30, 15, 45, 10],
+                backgroundColor: [
+                    ChartColors.success,
+                    ChartColors.warning,
+                    ChartColors.primary,
+                    ChartColors.error
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            cutout: '65%'
+        }
+    }));
+
+    // Stacked Area Chart
+    const areaCtx = document.getElementById('area-chart-demo');
+    new Chart(areaCtx, applyChartTheme({
+        type: 'line',
+        data: {
+            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+            datasets: [
+                {
+                    label: 'Dataset A',
+                    data: [30, 45, 38, 52],
+                    borderColor: ChartColors.primary,
+                    backgroundColor: getChartColor(0, 0.5),
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'Dataset B',
+                    data: [25, 35, 42, 38],
+                    borderColor: ChartColors.success,
+                    backgroundColor: getChartColor(1, 0.5),
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            scales: {
+                y: {
+                    stacked: true
+                }
+            }
+        }
+    }));
+}
+</script>
+{% endblock %}

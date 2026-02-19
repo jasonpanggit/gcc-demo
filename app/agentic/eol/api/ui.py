@@ -13,6 +13,7 @@ Multi-Agent Application. Each endpoint serves a different page of the web UI:
 - Cache (/cache) - Cache statistics and management
 - Cache Details (/agent-cache-details) - Detailed per-agent cache metrics
 - Agents (/agents) - Agent configuration management
+- Visualizations (/visualizations) - Data visualization demos and showcase
 
 All endpoints return HTMLResponse with rendered Jinja2 templates.
 """
@@ -414,3 +415,30 @@ async def resource_inventory_ui(request: Request):
         HTMLResponse with rendered resource_inventory.html template.
     """
     return templates.TemplateResponse(request, "resource_inventory.html")
+
+
+@router.get("/visualizations", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="visualizations_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def visualizations_ui(request: Request):
+    """
+    Data Visualizations Demo page.
+
+    Serves a comprehensive showcase of enhanced data visualizations including:
+    - Chart.js themed charts
+    - Sparklines for inline data display
+    - Agent metrics dashboard
+    - Token usage analytics
+    - EOL risk heatmaps
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered visualizations.html template.
+    """
+    return templates.TemplateResponse(request, "visualizations.html")
