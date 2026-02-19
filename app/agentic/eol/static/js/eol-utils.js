@@ -765,5 +765,142 @@ window.eolUtils = window.eolUtils || {};
     window.deferUntilIdle = eolUtils.deferUntilIdle;
     window.preload = eolUtils.preload;
 
-    console.log('✅ EOL Utilities loaded successfully');
+    /**
+     * ============================================================
+     * DARK MODE THEME UTILITIES
+     * ============================================================
+     */
+
+    /**
+     * Check if dark mode is currently active
+     * @returns {boolean} True if dark mode is enabled
+     */
+    eolUtils.isDarkMode = function() {
+        return document.documentElement.classList.contains('dark-mode') ||
+               document.documentElement.getAttribute('data-theme') === 'dark';
+    };
+
+    /**
+     * Get CSS variable value from design tokens
+     * @param {string} variableName - CSS variable name (e.g., '--text-primary')
+     * @param {string} fallback - Fallback value if variable not found
+     * @returns {string} CSS variable value
+     */
+    eolUtils.getCSSVariable = function(variableName, fallback = '') {
+        const value = getComputedStyle(document.documentElement)
+            .getPropertyValue(variableName)
+            .trim();
+        return value || fallback;
+    };
+
+    /**
+     * Get themed color based on current mode
+     * @param {string} lightColor - Color to use in light mode
+     * @param {string} darkColor - Color to use in dark mode
+     * @returns {string} Appropriate color for current theme
+     */
+    eolUtils.getThemedColor = function(lightColor, darkColor) {
+        return eolUtils.isDarkMode() ? darkColor : lightColor;
+    };
+
+    /**
+     * Get themed chart colors for Chart.js configurations
+     * @returns {Object} Chart color configuration for current theme
+     */
+    eolUtils.getThemedChartColors = function() {
+        const isDark = eolUtils.isDarkMode();
+        return {
+            // Grid and axes
+            grid: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
+            text: eolUtils.getCSSVariable('--text-secondary', isDark ? '#d1d5db' : '#6c757d'),
+
+            // Tooltips (inverted for contrast)
+            tooltipBg: isDark ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.95)',
+            tooltipText: isDark ? '#111827' : '#ffffff',
+            tooltipBorder: eolUtils.getCSSVariable('--border-primary'),
+
+            // Legend
+            legendText: eolUtils.getCSSVariable('--text-primary'),
+
+            // Data series (maintain visibility in both modes)
+            primary: eolUtils.getCSSVariable('--color-primary', '#0078d4'),
+            success: isDark ? '#86efac' : '#198754',
+            warning: isDark ? '#fdba74' : '#ffc107',
+            error: isDark ? '#fca5a5' : '#dc3545',
+            info: isDark ? '#93c5fd' : '#0891b2',
+
+            // Status indicators
+            healthy: eolUtils.getCSSVariable('--color-success'),
+            degraded: eolUtils.getCSSVariable('--color-warning'),
+            unhealthy: eolUtils.getCSSVariable('--color-error'),
+        };
+    };
+
+    /**
+     * Get themed flow diagram colors
+     * @returns {Object} Flow node color configuration for current theme
+     */
+    eolUtils.getFlowDiagramColors = function() {
+        const isDark = eolUtils.isDarkMode();
+        return {
+            user: isDark ? '#1e3a5f' : '#e3f2fd',
+            orchestrator: isDark ? '#3a2a4f' : '#f3e5f5',
+            microsoft: isDark ? '#2a4f2a' : '#e8f5e8',
+            eol: isDark ? '#4f3e2a' : '#fff3e0',
+            generic: isDark ? '#4f2a3e' : '#fce4ec',
+            completion: isDark ? '#2a5f3a' : '#c8e6c9',
+        };
+    };
+
+    /**
+     * Create a MutationObserver to watch for theme changes
+     * Emits 'theme-changed' custom event when theme switches
+     */
+    eolUtils.initThemeObserver = function() {
+        // Prevent multiple observers
+        if (window.eolThemeObserver) return;
+
+        const observer = new MutationObserver(() => {
+            const isDark = eolUtils.isDarkMode();
+            document.dispatchEvent(new CustomEvent('theme-changed', {
+                detail: { isDark, theme: isDark ? 'dark' : 'light' }
+            }));
+        });
+
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['class', 'data-theme']
+        });
+
+        window.eolThemeObserver = observer;
+    };
+
+    /**
+     * Listen for theme changes and execute callback
+     * @param {Function} callback - Function to call when theme changes
+     * @returns {Function} Cleanup function to remove listener
+     */
+    eolUtils.onThemeChange = function(callback) {
+        const handler = (event) => callback(event.detail);
+        document.addEventListener('theme-changed', handler);
+
+        // Return cleanup function
+        return () => document.removeEventListener('theme-changed', handler);
+    };
+
+    // Expose theme utilities globally
+    window.isDarkMode = eolUtils.isDarkMode;
+    window.getCSSVariable = eolUtils.getCSSVariable;
+    window.getThemedColor = eolUtils.getThemedColor;
+    window.getThemedChartColors = eolUtils.getThemedChartColors;
+    window.getFlowDiagramColors = eolUtils.getFlowDiagramColors;
+
+    // Auto-initialize theme observer
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => eolUtils.initThemeObserver());
+    } else {
+        eolUtils.initThemeObserver();
+    }
+
+    console.log('✅ EOL Utilities loaded successfully (with dark mode support)');
 })();
