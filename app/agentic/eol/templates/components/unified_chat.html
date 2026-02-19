@@ -1,0 +1,239 @@
+{#
+Unified Chat Component Macro
+Single source of truth for all chat interfaces (MCP, SRE, Inventory, EOL).
+
+Usage:
+    {% from "components/unified_chat.html" import render_chat %}
+    {{ render_chat(mode='mcp') }}
+
+Modes: 'mcp', 'sre', 'inventory', 'eol'
+#}
+
+{% macro render_chat(mode='mcp', custom_config={}) %}
+    {# Get base configuration for this mode #}
+    {% set config = chat_config_dict(mode) %}
+
+    {# Allow custom overrides #}
+    {% if custom_config %}
+        {% set config = config | merge(custom_config) %}
+    {% endif %}
+
+    {# Chat Interface Card #}
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas {{ config.icon }} me-2"></i>{{ config.title }}
+            </h5>
+            {% if config.show_clear_button %}
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()">
+                <i class="fas fa-trash me-1"></i>Clear Chat
+            </button>
+            {% endif %}
+        </div>
+        <div class="card-body" style="background-color: #f8f9fa;">
+            {# Chat History Container #}
+            <div id="{{ config.container_id }}" class="chat-container mb-3">
+                <div class="text-center text-muted py-5">
+                    <i class="fas {{ config.empty_icon }} fa-3x mb-3"></i>
+                    <p>{{ config.empty_message }}</p>
+                </div>
+            </div>
+
+            {# Quick Examples Section (MCP only) #}
+            {% if config.examples_section %}
+            <div class="mb-3">
+                <label class="form-label mb-2"><i class="fas fa-lightbulb me-1"></i>Quick Examples:</label>
+                <div class="row g-2">
+                    {% if config.server_selector %}
+                    <div class="col-md-3">
+                        <select class="form-select" id="server-selector" onchange="updateToolsByServer()" disabled>
+                            <option value="">Loading servers...</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                    {% if config.tool_selector %}
+                    <div class="col-md-4">
+                        <select class="form-select" id="tool-selector" onchange="updateExamples()" disabled>
+                            <option value="">Select a server first...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <select class="form-select" id="example-selector" disabled>
+                            <option value="">Select a tool first...</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="mt-2 small" id="tool-doc-link"></div>
+                <div class="mt-2" id="tool-parameter-hints"></div>
+            </div>
+            {% endif %}
+
+            {# Chat Input #}
+            <div class="input-group">
+                <input type="text" class="form-control" id="chat-input"
+                       placeholder="{{ config.placeholder }}"
+                       onkeypress="if(event.key === 'Enter') sendMessage()">
+                <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
+                    <i class="fas fa-paper-plane me-1"></i>{{ config.button_text }}
+                </button>
+            </div>
+        </div>
+    </div>
+{% endmacro %}
+
+
+{% macro render_agent_comms(mode='mcp', custom_config={}) %}
+    {# Get base configuration for this mode #}
+    {% set config = chat_config_dict(mode) %}
+
+    {# Allow custom overrides #}
+    {% if custom_config %}
+        {% set config = config | merge(custom_config) %}
+    {% endif %}
+
+    {# Agent Communication Section #}
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas fa-project-diagram me-2"></i>Agent Communication & Reasoning
+            </h5>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" onclick="toggleAgentComms()" id="toggle-comms-btn">
+                    <i class="fas fa-eye me-1"></i>Show
+                </button>
+                {% if config.show_token_stats %}
+                <button class="btn btn-sm btn-outline-info" onclick="toggleTokenStats()" id="toggle-stats-btn">
+                    <i class="fas fa-chart-bar me-1"></i>Stats
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body p-0" id="agent-comms-section" style="display: none;">
+            {# Agent Flow Visualization (optional) #}
+            {% if config.show_flow %}
+            <div class="p-3 border-bottom bg-light" id="agent-flow-container">
+                <h6 class="text-muted mb-2"><i class="fas fa-route me-1"></i>Agent Flow</h6>
+                <div id="agentFlow" class="agent-flow">
+                    <div class="text-muted small">No active conversation</div>
+                </div>
+            </div>
+            {% endif %}
+
+            {# Agent Communications Stream #}
+            <div class="p-3">
+                <div id="{{ config.comms_container_id }}" class="communications-stream">
+                    <div class="text-center text-muted py-3">
+                        <i class="fas fa-satellite-dish fa-2x mb-2"></i>
+                        <p class="mb-0">Agent communications will appear here</p>
+                    </div>
+                </div>
+            </div>
+
+            {# Token Usage Stats (optional) #}
+            {% if config.show_token_stats %}
+            <div class="p-3 border-top bg-light" id="token-stats-container" style="display: none;">
+                <h6 class="text-muted mb-2"><i class="fas fa-chart-line me-1"></i>Token Usage</h6>
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <div class="card text-center">
+                            <div class="card-body py-2">
+                                <div class="h5 mb-0" id="total-tokens">0</div>
+                                <small class="text-muted">Total Tokens</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card text-center">
+                            <div class="card-body py-2">
+                                <div class="h5 mb-0" id="prompt-tokens">0</div>
+                                <small class="text-muted">Prompt Tokens</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card text-center">
+                            <div class="card-body py-2">
+                                <div class="h5 mb-0" id="completion-tokens">0</div>
+                                <small class="text-muted">Completion Tokens</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+{% endmacro %}
+
+
+{# Auto-initialization script - Include once per page #}
+{% macro chat_init_script(mode='mcp', agent_name='mcp-orchestrator') %}
+<script>
+    // Auto-initialize agent communication handler
+    let agentCommHandler;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const config = {
+            containerId: 'communicationsStream',
+            showFlow: {{ 'true' if chat_config_dict(mode).show_flow else 'false' }},
+            autoExpand: true,
+            autoScroll: true,
+            titles: {
+                interactions: '🤖 Agent Interactions',
+                flow: '🔄 Agent Flow'
+            }
+        };
+
+        // Initialize handler (requires agent-communication.js to be loaded)
+        if (typeof AgentCommunicationHandler !== 'undefined') {
+            agentCommHandler = new AgentCommunicationHandler(config);
+            agentCommHandler.initialize();
+        } else {
+            console.warn('AgentCommunicationHandler not loaded. Include agent-communication.js first.');
+        }
+    });
+
+    // Toggle functions
+    function toggleAgentComms() {
+        const section = document.getElementById('agent-comms-section');
+        const btn = document.getElementById('toggle-comms-btn');
+        if (section.style.display === 'none') {
+            section.style.display = 'block';
+            btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Hide';
+        } else {
+            section.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-eye me-1"></i>Show';
+        }
+    }
+
+    function toggleTokenStats() {
+        const container = document.getElementById('token-stats-container');
+        const btn = document.getElementById('toggle-stats-btn');
+        if (container.style.display === 'none') {
+            container.style.display = 'block';
+            btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Hide Stats';
+        } else {
+            container.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Stats';
+        }
+    }
+
+    function clearChat() {
+        const chatHistory = document.getElementById('{{ chat_config_dict(mode).container_id }}');
+        if (chatHistory) {
+            chatHistory.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas {{ chat_config_dict(mode).empty_icon }} fa-3x mb-3"></i>
+                    <p>{{ chat_config_dict(mode).empty_message }}</p>
+                </div>
+            `;
+        }
+
+        // Reset agent handler if available
+        if (agentCommHandler) {
+            agentCommHandler.initialize();
+        }
+    }
+</script>
+{% endmacro %}

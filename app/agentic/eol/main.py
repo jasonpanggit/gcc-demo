@@ -172,6 +172,11 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+# Register chat configuration helpers for unified chat component
+from utils.chat_config import chat_config_filter, chat_config_dict
+templates.env.filters['chat_config'] = chat_config_filter
+templates.env.globals['chat_config_dict'] = chat_config_dict
+
 # Use managed identity for all Azure service authentication
 # Exclude slow/irrelevant credential sources to speed up startup on App Service
 cred = DefaultAzureCredential(

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/unified_chat.html" import render_chat, render_agent_comms, chat_init_script %}
 
 {% block title %}Azure MCP Server - Azure Agentic Platform{% endblock %}
 
@@ -32,122 +33,14 @@
     <!-- MCP Chat Interface -->
     <div class="row">
         <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Conversation</h5>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()">
-                        <i class="fas fa-trash me-1"></i>Clear Chat
-                    </button>
-                </div>
-                <div class="card-body" style="background-color: #f8f9fa;">
-                    <!-- Chat History -->
-                    <div id="chat-history" class="chat-container mb-3">
-                        <div class="text-center text-muted py-5">
-                            <i class="fas fa-robot fa-3x mb-3"></i>
-                            <p>Ask me anything about your Azure resources!</p>
-                        </div>
-                    </div>
-
-                    <!-- Quick Examples -->
-                    <div class="mb-3">
-                        <label class="form-label mb-2"><i class="fas fa-lightbulb me-1"></i>Quick Examples:</label>
-                        <div class="row g-2">
-                            <div class="col-md-3">
-                                <select class="form-select" id="server-selector" onchange="updateToolsByServer()" disabled>
-                                    <option value="">Loading servers...</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <select class="form-select" id="tool-selector" onchange="updateExamples()" disabled>
-                                    <option value="">Select a server first...</option>
-                                </select>
-                            </div>
-                            <div class="col-md-5">
-                                <select class="form-select" id="example-selector" disabled>
-                                    <option value="">Select a tool first...</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mt-2 small" id="tool-doc-link"></div>
-                        <div class="mt-2" id="tool-parameter-hints"></div>
-                    </div>
-
-                    <!-- Chat Input -->
-                    <div class="input-group">
-                        <input type="text" class="form-control" id="chat-input"
-                               placeholder="Type your question about Azure resources..."
-                               onkeypress="if(event.key === 'Enter') sendMessage()">
-                        <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
-                            <i class="fas fa-paper-plane me-1"></i>Send
-                        </button>
-                    </div>
-                </div>
-            </div>
+            {{ render_chat(mode='mcp') }}
         </div>
     </div>
 
     <!-- Agent Communication Section -->
     <div class="row">
         <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        <i class="fas fa-project-diagram me-2"></i>Agent Communication & Reasoning
-                    </h5>
-                    <div>
-                        <button class="btn btn-sm btn-outline-primary" onclick="toggleAgentComms()" id="toggle-comms-btn">
-                            <i class="fas fa-eye me-1"></i>Show
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="clearAgentComms()">
-                            <i class="fas fa-trash me-1"></i>Clear
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body" id="agent-comms-section" style="display: none;">
-                    <div class="alert alert-info mb-3">
-                        <i class="fas fa-info-circle me-2"></i>
-                        <strong>Real-time Agent Activity:</strong> This section shows the agentic orchestrator's reasoning process,
-                        tool calls, and observations as they happen. Watch how the agent autonomously breaks down your questions
-                        and executes multi-step workflows.
-                    </div>
-
-                    <!-- Reasoning Summary Stats -->
-                    <div class="row mb-3" id="reasoning-stats" style="display: none;">
-                        <div class="col-md-3">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-iterations">0</div>
-                                <div class="stat-label">Reasoning Iterations</div>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-tools">0</div>
-                                <div class="stat-label">Tool Calls</div>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-strategy">-</div>
-                                <div class="stat-label">Strategy</div>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="stat-card">
-                                <div class="stat-value" id="stat-duration">0s</div>
-                                <div class="stat-label">Duration</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Agent Communication Stream -->
-                    <div id="agent-comms-stream" class="agent-comms-container" style="height: 500px; overflow-y: auto; background-color: #1e1e1e; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.85rem;">
-                        <div class="text-center text-muted py-5">
-                            <i class="fas fa-brain fa-3x mb-3" style="color: #6c757d;"></i>
-                            <p style="color: #6c757d;">Agent activity will appear here when processing requests...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {{ render_agent_comms(mode='mcp') }}
         </div>
     </div>
 
@@ -2906,6 +2799,9 @@
         }
     });
 </script>
+
+{# Initialize unified chat component #}
+{{ chat_init_script(mode='mcp', agent_name='mcp-orchestrator') }}
 
 <style>
     .action-btn {
