@@ -1,0 +1,811 @@
+/**
+ * Modern Design Enhancements - EOL Agentic Platform
+ * Task #7: Modernize visual design and styling
+ * Version: 1.0.0
+ *
+ * This file applies design tokens globally with:
+ * - Subtle gradients and modern card designs
+ * - Smooth animations respecting prefers-reduced-motion
+ * - Polished button styles and hover states
+ * - Enhanced badges and alerts
+ */
+
+/* ============================================================
+   HERO SECTION ENHANCEMENTS
+   ============================================================ */
+
+.hero-section {
+    /* Enhanced gradient with design tokens */
+    background: linear-gradient(
+        135deg,
+        var(--color-primary) 0%,
+        var(--color-primary-dark) 50%,
+        #5f3dc4 100%
+    );
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn var(--transition-slow);
+}
+
+/* Animated gradient overlay */
+.hero-section::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 20% 25%, rgba(255, 255, 255, 0.12) 0%, transparent 50%),
+        radial-gradient(circle at 80% 35%, rgba(255, 255, 255, 0.08) 0%, transparent 45%);
+    animation: heroGlow 8s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 0;
+}
+
+@keyframes heroGlow {
+    0% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
+
+.hero-content {
+    position: relative;
+    z-index: 1;
+}
+
+/* Hero button enhancements */
+.hero-section .btn,
+.hero-section .btn-outline-light {
+    backdrop-filter: blur(10px);
+    transition: all var(--transition-base);
+    animation: slideUp var(--transition-slow) ease-out;
+    animation-fill-mode: both;
+}
+
+.hero-section .btn:nth-child(1) { animation-delay: 0.1s; }
+.hero-section .btn:nth-child(2) { animation-delay: 0.2s; }
+.hero-section .btn:nth-child(3) { animation-delay: 0.3s; }
+.hero-section .btn:nth-child(4) { animation-delay: 0.4s; }
+.hero-section .btn:nth-child(5) { animation-delay: 0.5s; }
+
+.hero-section .btn:hover,
+.hero-section .btn-outline-light:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================================
+   MODERN CARD DESIGNS
+   ============================================================ */
+
+.card,
+.modern-card,
+.feature-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-base);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Gradient accent on card hover */
+.card::before,
+.feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(
+        90deg,
+        var(--color-primary),
+        var(--color-primary-light),
+        var(--color-primary)
+    );
+    transform: scaleX(0);
+    transition: transform var(--transition-base);
+    z-index: 1;
+}
+
+.card:hover::before,
+.feature-card:hover::before {
+    transform: scaleX(1);
+}
+
+.card:hover,
+.feature-card:hover {
+    box-shadow: var(--shadow-xl);
+    transform: translateY(-4px);
+    border-color: var(--color-primary-light);
+}
+
+/* Card header with subtle gradient */
+.card-header {
+    background: linear-gradient(
+        135deg,
+        var(--bg-secondary) 0%,
+        var(--bg-tertiary) 100%
+    );
+    border-bottom: 1px solid var(--border-primary);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    padding: var(--spacing-lg);
+}
+
+/* Feature cards with icon gradients */
+.feature-icon {
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-light)
+    );
+    box-shadow: 0 4px 15px rgba(0, 120, 212, 0.3);
+    transition: all var(--transition-base);
+}
+
+.feature-card:hover .feature-icon {
+    transform: scale(1.1) rotate(5deg);
+    box-shadow: 0 8px 25px rgba(0, 120, 212, 0.4);
+}
+
+/* ============================================================
+   STAT CARDS WITH GRADIENTS
+   ============================================================ */
+
+.stat-card {
+    background: linear-gradient(
+        135deg,
+        var(--bg-primary) 0%,
+        var(--gray-50) 100%
+    );
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-base);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100px;
+    height: 100px;
+    background: radial-gradient(
+        circle,
+        var(--color-primary-pale) 0%,
+        transparent 70%
+    );
+    opacity: 0;
+    transition: opacity var(--transition-base);
+}
+
+.stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--color-primary-light);
+}
+
+.stat-card:hover::after {
+    opacity: 1;
+}
+
+.stat-value {
+    font-size: var(--font-size-3xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-light)
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.stat-label {
+    color: var(--text-secondary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* ============================================================
+   BUTTON STYLES AND HOVER STATES
+   ============================================================ */
+
+.btn {
+    border-radius: var(--radius-md);
+    font-weight: var(--font-weight-semibold);
+    transition: all var(--transition-base);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Primary button with gradient */
+.btn-primary {
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-dark)
+    );
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 120, 212, 0.3);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(
+        135deg,
+        var(--color-primary-dark),
+        var(--color-primary)
+    );
+    box-shadow: 0 4px 15px rgba(0, 120, 212, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+/* Outline buttons */
+.btn-outline-primary {
+    border: 2px solid var(--color-primary);
+    color: var(--color-primary);
+    background: transparent;
+    transition: all var(--transition-base);
+}
+
+.btn-outline-primary:hover {
+    background: var(--color-primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+    transform: translateY(-2px);
+}
+
+/* Secondary button */
+.btn-secondary {
+    background: linear-gradient(
+        135deg,
+        var(--color-secondary),
+        var(--color-secondary-dark)
+    );
+    border: none;
+}
+
+.btn-secondary:hover {
+    opacity: 0.9;
+    transform: translateY(-2px);
+}
+
+/* Success button */
+.btn-success {
+    background: linear-gradient(
+        135deg,
+        var(--color-success),
+        #0a7c4d
+    );
+    border: none;
+    box-shadow: 0 2px 8px rgba(10, 135, 84, 0.3);
+}
+
+.btn-success:hover {
+    box-shadow: 0 4px 15px rgba(10, 135, 84, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Warning button */
+.btn-warning {
+    background: linear-gradient(
+        135deg,
+        var(--color-warning),
+        #d97706
+    );
+    border: none;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.btn-warning:hover {
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Danger button */
+.btn-danger {
+    background: linear-gradient(
+        135deg,
+        var(--color-error),
+        #b91c1c
+    );
+    border: none;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.btn-danger:hover {
+    box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Small buttons */
+.btn-sm {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-size-sm);
+}
+
+/* Button ripple effect */
+.btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.5);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.btn:active::after {
+    width: 300px;
+    height: 300px;
+    transition: width 0s, height 0s;
+}
+
+/* ============================================================
+   ENHANCED BADGES
+   ============================================================ */
+
+.badge {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-xs);
+    transition: all var(--transition-fast);
+}
+
+.badge:hover {
+    transform: scale(1.05);
+}
+
+/* Badge variants with gradients */
+.badge.bg-primary,
+.bg-primary {
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-dark)
+    ) !important;
+}
+
+.badge.bg-success,
+.bg-success {
+    background: linear-gradient(
+        135deg,
+        var(--color-success),
+        #0a7c4d
+    ) !important;
+}
+
+.badge.bg-warning,
+.bg-warning {
+    background: linear-gradient(
+        135deg,
+        var(--color-warning),
+        #d97706
+    ) !important;
+}
+
+.badge.bg-danger,
+.bg-danger {
+    background: linear-gradient(
+        135deg,
+        var(--color-error),
+        #b91c1c
+    ) !important;
+}
+
+.badge.bg-info,
+.bg-info {
+    background: linear-gradient(
+        135deg,
+        var(--color-info),
+        #0891b2
+    ) !important;
+}
+
+/* ============================================================
+   ENHANCED ALERTS
+   ============================================================ */
+
+.alert {
+    border-radius: var(--radius-lg);
+    border: none;
+    padding: var(--spacing-md) var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    animation: slideUp var(--transition-base);
+    position: relative;
+    overflow: hidden;
+}
+
+.alert::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+}
+
+.alert-success {
+    background: linear-gradient(
+        135deg,
+        var(--color-success-light),
+        #d1f4e0
+    );
+    color: var(--color-success);
+}
+
+.alert-success::before {
+    background: var(--color-success);
+}
+
+.alert-warning {
+    background: linear-gradient(
+        135deg,
+        var(--color-warning-light),
+        #fef3c7
+    );
+    color: var(--color-warning);
+}
+
+.alert-warning::before {
+    background: var(--color-warning);
+}
+
+.alert-danger {
+    background: linear-gradient(
+        135deg,
+        var(--color-error-light),
+        #fee2e2
+    );
+    color: var(--color-error);
+}
+
+.alert-danger::before {
+    background: var(--color-error);
+}
+
+.alert-info {
+    background: linear-gradient(
+        135deg,
+        var(--color-info-light),
+        #cffafe
+    );
+    color: var(--color-info);
+}
+
+.alert-info::before {
+    background: var(--color-info);
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+/* Fade in animation */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Slide up animation */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Slide in from left */
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Slide in from right */
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Scale in animation */
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Pulse animation */
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Animation utility classes */
+.fade-in {
+    animation: fadeIn var(--transition-base);
+}
+
+.slide-up {
+    animation: slideUp var(--transition-base);
+}
+
+.slide-in-left {
+    animation: slideInLeft var(--transition-base);
+}
+
+.slide-in-right {
+    animation: slideInRight var(--transition-base);
+}
+
+.scale-in {
+    animation: scaleIn var(--transition-base);
+}
+
+.pulse {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Staggered animation delays */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+
+/* ============================================================
+   ENHANCED TABLES
+   ============================================================ */
+
+.table {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.table thead th {
+    background: linear-gradient(
+        135deg,
+        var(--gray-50),
+        var(--gray-100)
+    );
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+    border-bottom: 2px solid var(--border-primary);
+    padding: var(--spacing-md);
+}
+
+.table tbody tr {
+    transition: all var(--transition-fast);
+}
+
+.table-hover tbody tr:hover {
+    background: linear-gradient(
+        90deg,
+        var(--color-primary-pale),
+        transparent
+    );
+    transform: scale(1.01);
+    box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================
+   FORM ENHANCEMENTS
+   ============================================================ */
+
+.form-control {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-primary);
+    transition: all var(--transition-base);
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.form-control:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-pale);
+    outline: none;
+}
+
+.form-label {
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+/* ============================================================
+   LOADING STATES
+   ============================================================ */
+
+.spinner-border {
+    animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Skeleton loader */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--gray-200) 25%,
+        var(--gray-100) 50%,
+        var(--gray-200) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: var(--radius-md);
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* ============================================================
+   ACCESSIBILITY - REDUCED MOTION
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .fade-in,
+    .slide-up,
+    .slide-in-left,
+    .slide-in-right,
+    .scale-in,
+    .pulse,
+    .skeleton {
+        animation: none !important;
+    }
+
+    .hero-section::after {
+        animation: none !important;
+    }
+
+    .btn::after {
+        transition: none !important;
+    }
+}
+
+/* ============================================================
+   RESPONSIVE DESIGN
+   ============================================================ */
+
+@media (max-width: 768px) {
+    .stat-card {
+        padding: var(--spacing-md);
+    }
+
+    .stat-value {
+        font-size: var(--font-size-2xl);
+    }
+
+    .card-header {
+        padding: var(--spacing-md);
+    }
+
+    .btn {
+        width: 100%;
+    }
+
+    .feature-card:hover {
+        transform: none;
+    }
+}
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+
+/* Gradient text */
+.gradient-text {
+    background: linear-gradient(
+        135deg,
+        var(--color-primary),
+        var(--color-primary-light)
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Backdrop blur */
+.backdrop-blur {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/* Glass morphism effect */
+.glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Smooth transitions */
+.transition-all {
+    transition: all var(--transition-base);
+}
+
+.transition-fast {
+    transition: all var(--transition-fast);
+}
+
+.transition-slow {
+    transition: all var(--transition-slow);
+}
+
+/* Hover lift effect */
+.hover-lift {
+    transition: transform var(--transition-base);
+}
+
+.hover-lift:hover {
+    transform: translateY(-4px);
+}
+
+/* Hover glow effect */
+.hover-glow {
+    transition: box-shadow var(--transition-base);
+}
+
+.hover-glow:hover {
+    box-shadow: 0 8px 30px rgba(0, 120, 212, 0.3);
+}
