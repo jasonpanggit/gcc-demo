@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.base_sre_agent import BaseSREAgent
-from agents.sre_orchestrator_agent import SREOrchestratorAgent
+from agents.sre_orchestrator import SREOrchestratorAgent
 from utils.agent_registry import get_agent_registry
 from utils.sre_mcp_client import get_sre_mcp_client
 from utils.logger import get_logger

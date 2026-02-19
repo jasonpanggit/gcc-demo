@@ -95,6 +95,7 @@ litellm/
 .claude/
 .design/
 CLAUDE.md
+plan.md
 
 # github
 .github/

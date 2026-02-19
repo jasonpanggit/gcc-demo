@@ -234,13 +234,32 @@ function sendMessage() {
             // Format and display the response
             let responseContent = '';
 
-            if (data.data && data.data.results) {
-                // Format the results nicely
-                responseContent = formatSREResponse(data.data);
-            } else if (data.data && data.data.response) {
+            // Check if formatted HTML is available (preferred)
+            if (data.data && data.data.formatted_html) {
+                responseContent = data.data.formatted_html;
+            }
+            // Check for user interaction required
+            else if (data.data && data.data.interaction_required) {
+                responseContent = `<div class="alert alert-warning">
+                    <i class="fas fa-question-circle me-2"></i>${data.data.message || 'User interaction required'}
+                </div>`;
+                // Could add interaction handling here
+            }
+            // Check for raw results to format
+            else if (data.data && (data.data.raw_results || data.data.results)) {
+                responseContent = formatSREResponse({
+                    results: data.data.raw_results || data.data.results,
+                    summary: data.data.summary || {},
+                    intent: data.data.intent
+                });
+            }
+            // Fallback: check for response field
+            else if (data.data && data.data.response) {
                 responseContent = data.data.response;
-            } else {
-                responseContent = JSON.stringify(data.data, null, 2);
+            }
+            // Last resort: stringify the data
+            else {
+                responseContent = `<pre class="bg-light p-3 rounded">${JSON.stringify(data.data, null, 2)}</pre>`;
             }
 
             addMessage(responseContent, 'agent');
@@ -264,14 +283,19 @@ function sendMessage() {
 function formatSREResponse(data) {
     let html = '';
     
-    const results = data.results || {};
-    const summary = results.summary || {};
+    // Handle both structures:
+    // 1. Old: data.results = { summary: {}, results: [], ... }
+    // 2. New: data = { results: [], summary: {}, ... }
+    const results = Array.isArray(data.results) ? data.results : (data.results?.results || []);
+    const summary = data.summary || data.results?.summary || {};
+    const intent = data.intent || summary.intent || 'unknown';
+    const message = data.message || data.results?.message;
     
     // Show intent and execution summary
-    if (summary.intent) {
-        const intentIcon = getIntentIcon(summary.intent);
+    if (summary.total_tools > 0 || summary.successful > 0) {
+        const intentIcon = getIntentIcon(intent);
         html += `<div class="alert alert-info mb-3">
-            <strong><i class="${intentIcon} me-2"></i>Intent: ${summary.intent.toUpperCase()}</strong><br>
+            <strong><i class="${intentIcon} me-2"></i>Intent: ${intent.toUpperCase()}</strong><br>
             <small>Tools executed: ${summary.total_tools || 0} | 
             Success: ${summary.successful || 0} | 
             Failed: ${summary.failed || 0}${summary.skipped ? ` | Skipped: ${summary.skipped}` : ''}</small>
@@ -279,20 +303,22 @@ function formatSREResponse(data) {
     }
     
     // Show helpful message if present
-    if (results.message) {
+    if (message) {
         html += `<div class="alert alert-warning mb-3">
-            <i class="fas fa-info-circle me-2"></i>${results.message}
+            <i class="fas fa-info-circle me-2"></i>${message}
         </div>`;
     }
     
     // Show successful results
-    if (results.results && results.results.length > 0) {
+    if (results && results.length > 0) {
         html += '<div class="mb-3"><strong><i class="fas fa-check-circle me-2 text-success"></i>Results:</strong>';
-        results.results.forEach(result => {
+        results.forEach(result => {
             const tool = result.tool || 'unknown';
-            const status = result.status || 'unknown';
-            html += `<div class="ms-3 mb-2 p-2 border-start border-success" style="border-width: 3px !important;">
-                <strong>${tool}</strong> <span class="badge bg-success">${status}</span><br>
+            const status = result.status || 'success';
+            const statusClass = status === 'success' ? 'success' : (status === 'error' ? 'danger' : 'warning');
+            
+            html += `<div class="ms-3 mb-2 p-2 border-start border-${statusClass}" style="border-width: 3px !important;">
+                <strong>${tool}</strong> <span class="badge bg-${statusClass}">${status}</span><br>
                 <small class="text-muted">Agent: ${result.agent || 'unknown'}</small>`;
             
             if (result.result) {
@@ -303,11 +329,12 @@ function formatSREResponse(data) {
         html += '</div>';
     }
     
-    // Show skipped tools with helpful context
-    if (results.skipped && results.skipped.length > 0) {
+    // Show skipped tools
+    const skipped = data.skipped || data.results?.skipped || [];
+    if (skipped && skipped.length > 0) {
         html += '<div class="mb-3"><strong><i class="fas fa-forward me-2 text-warning"></i>Skipped Tools:</strong>';
         html += '<div class="ms-3"><small class="text-muted">These tools were not executed because required parameters were not provided.</small></div>';
-        results.skipped.forEach(result => {
+        skipped.forEach(result => {
             const tool = result.tool || 'unknown';
             html += `<div class="ms-3 mb-2 p-2 border-start border-warning" style="border-width: 3px !important;">
                 <strong>${tool}</strong> <span class="badge bg-warning text-dark">skipped</span><br>
@@ -318,9 +345,10 @@ function formatSREResponse(data) {
     }
     
     // Show errors
-    if (results.errors && results.errors.length > 0) {
+    const errors = data.errors || data.results?.errors || [];
+    if (errors && errors.length > 0) {
         html += '<div class="mb-3"><strong><i class="fas fa-exclamation-triangle me-2 text-danger"></i>Errors:</strong>';
-        results.errors.forEach(error => {
+        errors.forEach(error => {
             const tool = error.tool || 'unknown';
             html += `<div class="ms-3 mb-2 p-2 border-start border-danger" style="border-width: 3px !important;">
                 <strong>${tool}</strong> <span class="badge bg-danger">error</span><br>
@@ -331,8 +359,9 @@ function formatSREResponse(data) {
     }
     
     // Show category-specific summaries
-    if (results.health_summary) {
-        const hs = results.health_summary;
+    const health_summary = data.health_summary || data.results?.health_summary;
+    if (health_summary) {
+        const hs = health_summary;
         html += `<div class="alert alert-light mb-3">
             <strong><i class="fas fa-heartbeat me-2"></i>Health Summary:</strong><br>
             <div class="row mt-2">
@@ -352,19 +381,19 @@ function formatSREResponse(data) {
         </div>`;
     }
     
-    if (results.cost_summary) {
-        const cs = results.cost_summary;
+    const cost_summary = data.cost_summary || data.results?.cost_summary;
+    if (cost_summary) {
         html += `<div class="alert alert-light mb-3">
             <strong><i class="fas fa-dollar-sign me-2"></i>Cost Summary:</strong><br>
-            <pre class="mt-2">${JSON.stringify(cs, null, 2)}</pre>
+            <pre class="mt-2">${JSON.stringify(cost_summary, null, 2)}</pre>
         </div>`;
     }
     
-    if (results.performance_summary) {
-        const ps = results.performance_summary;
+    const performance_summary = data.performance_summary || data.results?.performance_summary;
+    if (performance_summary) {
         html += `<div class="alert alert-light mb-3">
             <strong><i class="fas fa-chart-line me-2"></i>Performance Summary:</strong><br>
-            <pre class="mt-2">${JSON.stringify(ps, null, 2)}</pre>
+            <pre class="mt-2">${JSON.stringify(performance_summary, null, 2)}</pre>
         </div>`;
     }
     

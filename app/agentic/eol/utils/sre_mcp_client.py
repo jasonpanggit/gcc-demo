@@ -178,6 +178,7 @@ class SREMCPClient:
             else:
                 raw_content.append(str(result.content))
 
+
             # Try to parse as JSON
             parsed_payload: Optional[Dict[str, Any]] = None
             for entry in raw_content:
@@ -190,6 +191,7 @@ class SREMCPClient:
                         break
                 except json.JSONDecodeError:
                     continue
+
 
             # Check if result indicates error
             result_is_error = getattr(result, "isError", False)
@@ -206,13 +208,15 @@ class SREMCPClient:
                 success,
             )
 
-            return {
+            response = {
                 "success": success,
                 "tool_name": tool_name,
                 "content": raw_content,
                 "parsed": parsed_payload,
                 "is_error": result_is_error or not success,
             }
+
+            return response
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Error executing SRE tool '%s': %s", tool_name, exc)

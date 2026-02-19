@@ -12,25 +12,36 @@ import asyncio
 from .base_eol_agent import BaseEOLAgent
 
 try:
-    from utils.logger import get_logger
-    logger = get_logger(__name__)
-except ImportError:
-    import logging
-    logger = logging.getLogger(__name__)
+    from app.agentic.eol.utils.logger import get_logger
+except ModuleNotFoundError:
+    try:
+        from utils.logger import get_logger
+    except ModuleNotFoundError:
+        import logging
+
+        def get_logger(name: str):
+            return logging.getLogger(name)
+
+logger = get_logger(__name__)
 
 try:
-    from utils.cache_stats_manager import CacheStatsManager
+    from app.agentic.eol.utils.cache_stats_manager import CacheStatsManager
     cache_stats_manager = CacheStatsManager()
-except ImportError:
+except ModuleNotFoundError:
+    try:
+        from utils.cache_stats_manager import CacheStatsManager
+        cache_stats_manager = CacheStatsManager()
+    except ModuleNotFoundError:
+        class DummyCacheStatsManager:
+            def record_agent_request(self, agent_name, url, response_time=None, success=True, error_message=None):
+                pass
+        cache_stats_manager = DummyCacheStatsManager()
+except Exception:
     # Dummy implementation for environments without cache_stats_manager
     class DummyCacheStatsManager:
         def record_agent_request(self, agent_name, url, response_time=None, success=True, error_message=None):
             pass
     cache_stats_manager = DummyCacheStatsManager()
-    logger = get_logger(__name__)
-except Exception:
-    import logging
-    logger = logging.getLogger(__name__)
 
 class RedHatEOLAgent(BaseEOLAgent):
     """Agent for scraping Red Hat official EOL information"""

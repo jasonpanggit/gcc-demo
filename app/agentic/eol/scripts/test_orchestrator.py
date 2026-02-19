@@ -14,7 +14,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agents.sre_orchestrator_agent import SREOrchestratorAgent
+from agents.sre_orchestrator import SREOrchestratorAgent
 from utils.agent_registry import get_agent_registry
 from utils.logger import get_logger
 

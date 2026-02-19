@@ -35,4 +35,6 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 # Run the FastAPI app with uvicorn using the selected interpreter
-"$PYTHON_BIN" -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Use PORT environment variable or default to 8000
+PORT="${PORT:-8000}"
+"$PYTHON_BIN" -m uvicorn main:app --reload --host 0.0.0.0 --port "$PORT"

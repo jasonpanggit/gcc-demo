@@ -3,7 +3,7 @@ Standardized response models for API endpoints
 Ensures consistent data format across all endpoints
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
 
@@ -29,7 +29,7 @@ class StandardResponse:
         )
     """
     success: bool
-    data: List[Dict[str, Any]] = field(default_factory=list)
+    data: Union[List[Dict[str, Any]], Dict[str, Any], Any] = field(default_factory=list)
     count: int = 0
     cached: bool = False
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())

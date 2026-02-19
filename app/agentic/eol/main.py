@@ -8,8 +8,9 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Any, Dict
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -43,6 +44,7 @@ from utils.eol_inventory import eol_inventory
 from api.health import router as health_router
 from api.cache import router as cache_router
 from api.inventory import router as inventory_router
+from api.resource_inventory import router as resource_inventory_router, health_router as resource_inventory_health_router
 from api.eol import router as eol_router
 from api.alerts import router as alerts_router
 from api.agents import router as agents_router
@@ -87,6 +89,8 @@ app.state.metrics = metrics_collector
 app.include_router(health_router)
 app.include_router(cache_router)
 app.include_router(inventory_router)
+app.include_router(resource_inventory_router)  # Azure resource inventory
+app.include_router(resource_inventory_health_router)  # /healthz/inventory
 app.include_router(eol_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)
@@ -265,6 +269,181 @@ class SoftwareSearchRequest(BaseModel):
     search_hints: Optional[dict] = None  # Additional search optimization hints
     search_internet_only: Optional[bool] = False  # Force use of Playwright web search only
 
+# ============================================================================
+# RESOURCE INVENTORY STARTUP DISCOVERY
+# ============================================================================
+
+# Global discovery status tracker (used by /healthz/inventory)
+_inventory_discovery_status: Dict[str, Any] = {
+    "enabled": False,
+    "status": "not_started",
+    "subscriptions": {},
+    "started_at": None,
+    "completed_at": None,
+    "error_count": 0,
+}
+
+
+async def _background_discovery(
+    discovery_engine,
+    subscriptions: List[Dict[str, Any]],
+    inventory_cache,
+):
+    """Run full resource discovery in the background for each subscription."""
+    global _inventory_discovery_status
+    _inventory_discovery_status["status"] = "in_progress"
+    _inventory_discovery_status["started_at"] = datetime.now(timezone.utc).isoformat()
+
+    for sub in subscriptions:
+        # Handle both dict (expected) and string (backward compatibility)
+        if isinstance(sub, dict):
+            sub_id = sub["subscription_id"]
+            sub_name = sub.get("display_name", sub_id)
+        else:
+            # sub is a string (subscription ID)
+            sub_id = str(sub)
+            sub_name = sub_id
+        
+        _inventory_discovery_status["subscriptions"][sub_id] = {
+            "display_name": sub_name,
+            "status": "in_progress",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "resource_count": 0,
+            "error": None,
+        }
+
+        try:
+            resources = await discovery_engine.full_resource_discovery(sub_id)
+            resource_count = len(resources)
+            
+            logger.debug(
+                "Discovery returned %d items for subscription %s (types: %s)",
+                resource_count, sub_id[:8], 
+                str([type(r).__name__ for r in (resources[:3] if resources else [])])
+            )
+
+            # Store in inventory cache grouped by resource type
+            type_groups: Dict[str, list] = {}
+            for idx, r in enumerate(resources):
+                if not isinstance(r, dict):
+                    logger.error(
+                        "Invalid resource at index %d (type: %s): %s",
+                        idx, type(r).__name__, str(r)[:100]
+                    )
+                    continue
+                rtype = r.get("resource_type", "unknown")
+                type_groups.setdefault(rtype, []).append(r)
+
+            for rtype, rlist in type_groups.items():
+                await inventory_cache.set(sub_id, rtype, rlist)
+
+            _inventory_discovery_status["subscriptions"][sub_id].update({
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "resource_count": resource_count,
+            })
+            logger.info(
+                "Background discovery: %d resources in subscription %s (%s)",
+                resource_count, sub_id[:8], sub_name,
+            )
+        except Exception as e:
+            import traceback
+            _inventory_discovery_status["subscriptions"][sub_id].update({
+                "status": "failed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error": str(e),
+            })
+            _inventory_discovery_status["error_count"] += 1
+            logger.error(
+                "Background discovery failed for subscription %s (%s): %s\n%s",
+                sub_id[:8], sub_name, e, traceback.format_exc(),
+            )
+
+    _inventory_discovery_status["status"] = "completed"
+    _inventory_discovery_status["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    total = sum(
+        s.get("resource_count", 0)
+        for s in _inventory_discovery_status["subscriptions"].values()
+    )
+    errors = _inventory_discovery_status["error_count"]
+    logger.info(
+        "Background discovery complete: %d total resources, %d errors across %d subscriptions",
+        total, errors, len(subscriptions),
+    )
+
+
+async def _startup_inventory_discovery():
+    """Initialize resource inventory system on startup (non-blocking by default)."""
+    global _inventory_discovery_status
+
+    if not config.inventory.enable_inventory:
+        logger.info("Resource inventory discovery disabled via config")
+        return
+
+    _inventory_discovery_status["enabled"] = True
+    logger.info("Initializing Resource Inventory Discovery System...")
+
+    try:
+        # Initialize Cosmos DB containers for inventory
+        from utils.resource_inventory_cosmos import resource_inventory_setup
+        cosmos_ok = await resource_inventory_setup.initialize()
+        if not cosmos_ok:
+            logger.warning("Cosmos DB not available - inventory discovery skipped")
+            _inventory_discovery_status["status"] = "cosmos_unavailable"
+            return
+
+        # Initialize discovery engine
+        from utils.resource_discovery_engine import ResourceDiscoveryEngine
+        discovery_engine = ResourceDiscoveryEngine()
+
+        # Discover subscriptions
+        subscriptions = await discovery_engine.discover_all_subscriptions()
+        if not subscriptions:
+            logger.warning("No subscriptions found - inventory discovery skipped")
+            _inventory_discovery_status["status"] = "no_subscriptions"
+            return
+
+        logger.info(
+            "Found %d subscriptions for inventory discovery", len(subscriptions),
+        )
+
+        # Get inventory cache
+        from utils.resource_inventory_cache import get_resource_inventory_cache
+        inventory_cache = get_resource_inventory_cache()
+
+        # Launch background discovery
+        task = asyncio.create_task(
+            _background_discovery(discovery_engine, subscriptions, inventory_cache)
+        )
+
+        if config.inventory.startup_blocking:
+            logger.info("Startup blocking mode - waiting for discovery to complete...")
+            await task
+        else:
+            logger.info(
+                "Non-blocking startup - discovery running in background for %d subscriptions",
+                len(subscriptions),
+            )
+
+        # Start inventory scheduler (APScheduler - Task #11 integration)
+        try:
+            from utils.inventory_scheduler import get_inventory_scheduler
+            scheduler = get_inventory_scheduler()
+            await scheduler.start()
+            logger.info("Inventory scheduler started (cron: %s)", config.inventory.full_scan_schedule_cron)
+        except Exception as e:
+            logger.warning(f"Inventory scheduler start warning: {e}")
+
+    except Exception as e:
+        logger.warning(f"Resource inventory initialization warning: {e}")
+        _inventory_discovery_status["status"] = "init_failed"
+        _inventory_discovery_status["error_count"] += 1
+
+
+def get_inventory_discovery_status() -> Dict[str, Any]:
+    """Get current inventory discovery status (for health endpoint)."""
+    return _inventory_discovery_status.copy()
 
 # ============================================================================
 # STARTUP AND HEALTH ENDPOINTS
@@ -366,6 +545,9 @@ async def _run_startup_tasks():
             logger.warning(f"⚠️ SRE Orchestrator initialization warning: {e}")
             logger.info("   SRE endpoints will still work but with limited functionality")
 
+        # Initialize Resource Inventory Discovery System
+        await _startup_inventory_discovery()
+
         logger.info("✅ App startup completed")
     except Exception as e:
         logger.warning(f"⚠️ Startup warning: {e}")
@@ -407,6 +589,15 @@ async def _run_shutdown_tasks():
         except Exception as e:
             logger.debug(f"MCP orchestrator cleanup: {e}")
 
+        # Shutdown inventory scheduler
+        try:
+            from utils.inventory_scheduler import get_inventory_scheduler
+            scheduler = get_inventory_scheduler()
+            await scheduler.stop()
+            logger.info("✅ Inventory scheduler stopped")
+        except Exception as e:
+            logger.debug(f"Inventory scheduler cleanup: {e}")
+            
         # Cleanup Playwright pool
         try:
             from utils.playwright_pool import playwright_pool

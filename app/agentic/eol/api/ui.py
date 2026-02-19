@@ -390,3 +390,27 @@ async def azure_ai_sre_ui(request: Request):
         HTMLResponse with rendered azure-ai-sre.html template.
     """
     return templates.TemplateResponse(request, "azure-ai-sre.html")
+
+
+@router.get("/resource-inventory", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="resource_inventory_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def resource_inventory_ui(request: Request):
+    """
+    Azure Resource Inventory Browser page.
+
+    Serves the resource inventory management interface for browsing, filtering,
+    and exploring Azure resources discovered via Azure Resource Graph with
+    dual-layer caching (L1 in-memory + L2 Cosmos DB).
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered resource_inventory.html template.
+    """
+    return templates.TemplateResponse(request, "resource_inventory.html")

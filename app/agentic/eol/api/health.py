@@ -5,10 +5,11 @@ This module provides health check and diagnostic endpoints for monitoring
 and debugging the EOL Multi-Agent application.
 
 Endpoints:
-    GET /health - Fast health check for load balancers
     GET /api/health/detailed - Detailed health with service status
-    GET /api/test-logging - Logging test for Azure debugging
     GET /api/status - Application status and statistics
+    GET /api/test-logging - Logging test for Azure debugging
+    GET /health - Fast health check for load balancers
+    GET /health/inventory - Resource inventory discovery status
 
 Usage:
     from api.health import router
@@ -184,3 +185,103 @@ async def api_status() -> Dict[str, Any]:
         "timestamp": datetime.utcnow().isoformat()
     }
     return status_data
+
+@router.get('/health/inventory')
+@with_timeout_and_stats(
+    agent_name="inventory_health",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def inventory_health_check() -> Dict[str, Any]:
+    """
+    Resource inventory discovery health endpoint.
+
+    Shows discovery status per subscription, last successful scan,
+    error counts, and cache statistics. Used by monitoring dashboards
+    and deployment health probes.
+
+    Returns:
+        Dict containing:
+            - enabled (bool): Whether inventory discovery is enabled
+            - status (str): Overall discovery status
+            - subscriptions (Dict): Per-subscription discovery details
+            - started_at (str): When discovery started
+            - completed_at (str): When discovery finished
+            - error_count (int): Number of failed subscriptions
+            - cache_statistics (Dict): L1/L2 cache hit rates and counts
+            - cosmos_status (Dict): Cosmos DB container readiness
+            - config (Dict): Current inventory configuration summary
+
+    Example Response:
+        {
+            "enabled": true,
+            "status": "completed",
+            "subscriptions": {
+                "abc-123": {
+                    "display_name": "Production",
+                    "status": "completed",
+                    "resource_count": 1247,
+                    "error": null
+                }
+            },
+            "error_count": 0,
+            "cache_statistics": {
+                "l1_entries": 42,
+                "hits_l1": 150,
+                "hit_rate_percent": 87.5
+            },
+            "config": {
+                "enable_inventory": true,
+                "startup_blocking": false
+            }
+        }
+
+    Note:
+        This endpoint does NOT wrap response in StandardResponse format
+        for maximum compatibility with monitoring tools.
+    """
+    try:
+        from main import _inventory_discovery_status
+        status = dict(_inventory_discovery_status)
+        # Deep copy subscriptions to avoid mutation
+        if "subscriptions" in status:
+            status["subscriptions"] = dict(status["subscriptions"])
+    except Exception:
+        status = {"enabled": False, "status": "unavailable"}
+
+    # Add cache statistics if available
+    try:
+        from utils.resource_inventory_cache import get_resource_inventory_cache
+        cache = get_resource_inventory_cache()
+        status["cache_statistics"] = cache.get_statistics()
+    except Exception:
+        status["cache_statistics"] = {"error": "unavailable"}
+
+    # Add Cosmos DB container status
+    try:
+        from utils.resource_inventory_cosmos import resource_inventory_setup
+        status["cosmos_status"] = resource_inventory_setup.get_status()
+    except Exception:
+        status["cosmos_status"] = {"error": "unavailable"}
+
+    # Add config summary
+    status["config"] = {
+        "enable_inventory": config.inventory.enable_inventory,
+        "startup_blocking": config.inventory.startup_blocking,
+        "default_l1_ttl": config.inventory.default_l1_ttl,
+        "default_l2_ttl": config.inventory.default_l2_ttl,
+        "full_scan_cron": config.inventory.full_scan_schedule_cron,
+    }
+
+    # Add scheduler status if available
+    try:
+        from utils.inventory_scheduler import get_inventory_scheduler
+        scheduler = get_inventory_scheduler()
+        status["scheduler"] = {
+            "running": scheduler.running if hasattr(scheduler, 'running') else "unknown",
+        }
+    except Exception:
+        status["scheduler"] = {"status": "unavailable"}
+
+    return status

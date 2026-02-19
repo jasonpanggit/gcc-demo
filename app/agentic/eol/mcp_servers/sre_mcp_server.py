@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Dict, List, Optional
@@ -100,17 +101,17 @@ def _get_audit_container():
         return _cosmos_audit_container
 
     try:
-        # Import cosmos_cache utility
+        # Import base_cosmos utility
         import sys
         import os
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-        from utils.cosmos_cache import cosmos_cache
-        cosmos_cache._ensure_initialized()
+        from utils.cosmos_cache import base_cosmos
+        base_cosmos._ensure_initialized()
 
-        if cosmos_cache.initialized:
+        if base_cosmos.initialized:
             # Create audit_trail container with 90-day TTL
-            _cosmos_audit_container = cosmos_cache.get_container(
+            _cosmos_audit_container = base_cosmos.get_container(
                 container_id="audit_trail",
                 partition_path="/operation",
                 offer_throughput=400,
@@ -431,9 +432,75 @@ async def check_container_app_health(
                 continue
 
         if not query_succeeded:
-            # No tables available - Container App may not have diagnostic settings enabled
-            health_data["health_status"] = "Unknown - No logs available"
-            health_data["table_used"] = "None (diagnostic logs not configured)"
+            # No tables available - fallback to Azure CLI for direct log access
+            logger.info(f"Log Analytics tables not available, falling back to Azure CLI for {container_app_name}")
+            
+            try:
+                # Use Azure CLI to get logs directly
+                cli_command = [
+                    "az", "containerapp", "logs", "show",
+                    "--name", container_app_name,
+                    "--resource-group", resource_group,
+                    "--tail", "100",
+                    "--format", "text",
+                    "--output", "json"
+                ]
+                
+                cli_result = subprocess.run(
+                    cli_command,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if cli_result.returncode == 0:
+                    # Parse logs from CLI output
+                    logs_output = cli_result.stdout
+                    error_count = logs_output.lower().count("error") + logs_output.lower().count("failed")
+                    warning_count = logs_output.lower().count("warn")
+                    total_logs = logs_output.count("\n")
+                    
+                    # Extract recent errors
+                    recent_errors = []
+                    for line in logs_output.split("\n"):
+                        if "error" in line.lower() or "failed" in line.lower():
+                            recent_errors.append(line.strip())
+                            if len(recent_errors) >= 5:
+                                break
+                    
+                    # Determine health status
+                    if error_count > 10:
+                        health_status = "Unhealthy"
+                    elif error_count > 3:
+                        health_status = "Degraded"
+                    else:
+                        health_status = "Healthy"
+                    
+                    health_data = {
+                        "total_logs": total_logs,
+                        "error_count": error_count,
+                        "warning_count": warning_count,
+                        "health_status": health_status,
+                        "recent_errors": recent_errors,
+                        "table_used": "Azure CLI (direct logs)",
+                        "log_sample": logs_output[:500] if logs_output else "No logs available"
+                    }
+                    logger.info(f"Azure CLI fallback successful for {container_app_name}: {health_status}")
+                else:
+                    # CLI command failed
+                    health_data["health_status"] = "Unknown - CLI access failed"
+                    health_data["table_used"] = "None (CLI error)"
+                    health_data["cli_error"] = cli_result.stderr
+                    logger.warning(f"Azure CLI failed for {container_app_name}: {cli_result.stderr}")
+                    
+            except subprocess.TimeoutExpired:
+                health_data["health_status"] = "Unknown - Timeout"
+                health_data["table_used"] = "None (timeout)"
+                logger.error(f"Azure CLI timeout for {container_app_name}")
+            except Exception as cli_exc:
+                health_data["health_status"] = "Unknown - No logs available"
+                health_data["table_used"] = "None (diagnostic logs not configured)"
+                logger.error(f"Azure CLI fallback failed for {container_app_name}: {cli_exc}")
 
         result = {
             "success": True,
@@ -1439,9 +1506,12 @@ async def get_performance_metrics(
             },
             "VirtualMachine": {
                 "cpu": "Percentage CPU",
-                "memory": "Available Memory Bytes",
                 "networkin": "Network In Total",
-                "networkout": "Network Out Total"
+                "networkout": "Network Out Total",
+                "diskread": "Disk Read Bytes",
+                "diskwrite": "Disk Write Bytes"
+                # Note: Memory metrics require Azure Monitor Agent
+                # "memory": "Available Memory Bytes" - requires guest agent
             },
             "AKS": {
                 "cpu": "node_cpu_usage_percentage",
@@ -1473,11 +1543,16 @@ async def get_performance_metrics(
         elif "/microsoft.compute/virtualmachines/" in resource_id_lower:
             resource_type = "VirtualMachine"
             if not metric_names:
+                # Use only host-level metrics that are always available
+                # Guest-level metrics (Available Memory Bytes, etc.) require
+                # Azure Monitor Agent (AMA) to be installed on the VM
+                # Host metrics are collected by Azure infrastructure automatically
                 metric_names = [
-                    "Percentage CPU",
-                    "Available Memory Bytes",
-                    "Network In Total",
-                    "Network Out Total"
+                    "Percentage CPU",         # Host: CPU usage percentage
+                    "Network In Total",       # Host: Total bytes received
+                    "Network Out Total",      # Host: Total bytes sent
+                    "Disk Read Bytes",        # Host: Bytes read from disk
+                    "Disk Write Bytes"        # Host: Bytes written to disk
                 ]
         elif "/microsoft.containerservice/managedclusters/" in resource_id_lower:
             resource_type = "AKS"
@@ -4234,10 +4309,10 @@ def _get_slo_container():
     try:
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-        from utils.cosmos_cache import cosmos_cache
-        cosmos_cache._ensure_initialized()
-        if cosmos_cache.initialized:
-            return cosmos_cache.get_container(
+        from utils.cosmos_cache import base_cosmos
+        base_cosmos._ensure_initialized()
+        if base_cosmos.initialized:
+            return base_cosmos.get_container(
                 container_id="slo_definitions",
                 partition_path="/service_name",
                 offer_throughput=400,

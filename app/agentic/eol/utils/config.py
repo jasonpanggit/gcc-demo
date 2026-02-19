@@ -4,8 +4,8 @@ Centralized configuration management for the EOL Multi-Agent App
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -55,6 +55,63 @@ class AzureAISREConfig:
     enabled: bool
 
 
+@dataclass
+class InventoryConfig:
+    """Resource inventory discovery and caching configuration"""
+
+    # Feature flags
+    enable_inventory: bool = field(
+        default_factory=lambda: os.getenv("INVENTORY_ENABLE", "true").lower() == "true"
+    )
+    startup_blocking: bool = False  # Non-blocking startup
+
+    # Cache TTL settings (seconds)
+    default_l1_ttl: int = 300  # 5 minutes
+    default_l2_ttl: int = 3600  # 1 hour
+    resource_type_ttl_overrides: Dict[str, int] = field(default_factory=lambda: {
+        "Microsoft.Compute/virtualMachines": 1800,       # 30 min
+        "Microsoft.Network/virtualNetworks": 86400,      # 24 hr
+        "Microsoft.Storage/storageAccounts": 3600,       # 1 hr
+        "Microsoft.Web/sites": 1800,                     # 30 min
+        "Microsoft.Sql/servers": 7200,                   # 2 hr
+    })
+
+    # Discovery settings
+    full_scan_schedule_cron: str = "0 2 * * *"  # Daily at 2 AM
+    incremental_scan_interval_minutes: int = 5
+    relationship_depth: int = 2
+
+    # Incremental logic
+    detect_created_resources: bool = True
+    detect_modified_resources: bool = True
+    detect_deleted_resources: bool = True
+
+    # Security
+    filter_sensitive_tags: bool = True
+    sensitive_tag_keywords: List[str] = field(default_factory=lambda: [
+        "password", "secret", "token", "key", "credential",
+        "apikey", "api_key", "connectionstring", "connection_string"
+    ])
+
+    # Property storage
+    store_selective_properties: bool = True
+    stored_properties: List[str] = field(default_factory=lambda: [
+        "provisioningState", "location", "sku", "kind", "type",
+        "vmSize", "powerState", "osType", "availabilityZone",
+        "status", "state", "tier", "replicationStatus"
+    ])
+
+    # Error handling
+    skip_failed_subscriptions: bool = True
+    max_retry_attempts: int = 3
+
+    # Cosmos DB
+    cosmos_container_inventory: str = "resource_inventory"
+    cosmos_container_metadata: str = "resource_inventory_metadata"
+    cosmos_autoscale_min_ru: int = 400
+    cosmos_autoscale_max_ru: int = 4000
+
+
 class ConfigManager:
     """Centralized configuration manager"""
 
@@ -63,6 +120,7 @@ class ConfigManager:
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._azure_ai_sre_config: Optional[AzureAISREConfig] = None
+        self._inventory_config: Optional[InventoryConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
     def _load_appsettings(self) -> Dict[str, Any]:
@@ -163,6 +221,58 @@ class ConfigManager:
             )
         return self._azure_ai_sre_config
 
+    @property
+    def inventory(self) -> InventoryConfig:
+        """Get resource inventory configuration"""
+        if self._inventory_config is None:
+            # Load from environment with defaults from the dataclass
+            inv = InventoryConfig()
+
+            # Override from environment variables where applicable
+            l1_ttl = os.getenv("INVENTORY_DEFAULT_L1_TTL")
+            if l1_ttl is not None:
+                inv.default_l1_ttl = int(l1_ttl)
+
+            l2_ttl = os.getenv("INVENTORY_DEFAULT_L2_TTL")
+            if l2_ttl is not None:
+                inv.default_l2_ttl = int(l2_ttl)
+
+            cron = os.getenv("INVENTORY_FULL_SCAN_CRON")
+            if cron is not None:
+                inv.full_scan_schedule_cron = cron
+
+            inc_interval = os.getenv("INVENTORY_INCREMENTAL_INTERVAL_MINUTES")
+            if inc_interval is not None:
+                inv.incremental_scan_interval_minutes = int(inc_interval)
+
+            rel_depth = os.getenv("INVENTORY_RELATIONSHIP_DEPTH")
+            if rel_depth is not None:
+                inv.relationship_depth = int(rel_depth)
+
+            max_retries = os.getenv("INVENTORY_MAX_RETRY_ATTEMPTS")
+            if max_retries is not None:
+                inv.max_retry_attempts = int(max_retries)
+
+            # Cosmos DB container overrides
+            container_inv = os.getenv("INVENTORY_COSMOS_CONTAINER")
+            if container_inv is not None:
+                inv.cosmos_container_inventory = container_inv
+
+            container_meta = os.getenv("INVENTORY_COSMOS_METADATA_CONTAINER")
+            if container_meta is not None:
+                inv.cosmos_container_metadata = container_meta
+
+            min_ru = os.getenv("INVENTORY_COSMOS_AUTOSCALE_MIN_RU")
+            if min_ru is not None:
+                inv.cosmos_autoscale_min_ru = int(min_ru)
+
+            max_ru = os.getenv("INVENTORY_COSMOS_AUTOSCALE_MAX_RU")
+            if max_ru is not None:
+                inv.cosmos_autoscale_max_ru = int(max_ru)
+
+            self._inventory_config = inv
+        return self._inventory_config
+
     def validate_config(self) -> Dict[str, Any]:
         """
         Validate configuration and return status
@@ -193,11 +303,21 @@ class ConfigManager:
         for service, value in optional_services.items():
             is_configured = bool(value)
             validation_results["services"][service] = is_configured
-            
+
             if not is_configured:
                 warning_msg = f"Optional service not configured: {service}"
                 validation_results["warnings"].append(warning_msg)
-        
+
+        # Check resource inventory configuration
+        inv = self.inventory
+        validation_results["services"]["inventory_enabled"] = inv.enable_inventory
+        if inv.enable_inventory:
+            if not self.azure.cosmos_endpoint:
+                validation_results["warnings"].append(
+                    "Resource inventory enabled but Cosmos DB endpoint not configured"
+                )
+            validation_results["services"]["inventory_startup_blocking"] = inv.startup_blocking
+
         return validation_results
     
     def get_environment_summary(self) -> Dict[str, str]:
@@ -206,7 +326,9 @@ class ConfigManager:
             "AZURE_OPENAI_ENDPOINT": "✅" if self.azure.aoai_endpoint else "❌",
             "LOG_ANALYTICS_WORKSPACE_ID": "✅" if self.azure.log_analytics_workspace_id else "❌",
             "AZURE_COSMOS_DB_ENDPOINT": "✅" if self.azure.cosmos_endpoint else "❌",
-            "DEBUG_MODE": "✅" if self.app.debug_mode else "❌"
+            "DEBUG_MODE": "✅" if self.app.debug_mode else "❌",
+            "INVENTORY_ENABLED": "✅" if self.inventory.enable_inventory else "❌",
+            "INVENTORY_STARTUP_BLOCKING": "✅" if self.inventory.startup_blocking else "❌",
         }
 
 

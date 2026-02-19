@@ -253,7 +253,11 @@ class SREResponseFormatter:
         Returns:
             HTML-formatted health status message
         """
-        availability = health_data.get("availability_state", "Unknown")
+        availability = (
+            health_data.get("availability_state")
+            or health_data.get("health_status")
+            or "Unknown"
+        )
         reason = health_data.get("reason_type", "")
         summary = health_data.get("summary", "")
 
@@ -341,6 +345,75 @@ class SREResponseFormatter:
 
         return "\n".join(html_parts)
 
+    def format_cost_recommendations(
+        self,
+        recommendation_data: Dict[str, Any]
+    ) -> str:
+        """Format cost recommendation results into user-friendly HTML."""
+        recommendations = recommendation_data.get("recommendations", []) or []
+        recommendation_count = recommendation_data.get("recommendation_count", len(recommendations))
+
+        def _to_float(value: Any) -> float:
+            if value is None:
+                return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            text = str(value).strip()
+            if not text or text.upper() == "N/A":
+                return 0.0
+            text = text.replace(",", "")
+            try:
+                return float(text)
+            except ValueError:
+                return 0.0
+
+        total_monthly_savings = 0.0
+        for rec in recommendations:
+            if not isinstance(rec, dict):
+                continue
+
+            monthly = _to_float(
+                rec.get("monthly_savings_amount")
+                or rec.get("monthly_savings")
+                or rec.get("estimated_monthly_savings")
+            )
+            if monthly > 0:
+                total_monthly_savings += monthly
+                continue
+
+            annual = _to_float(rec.get("savings_amount") or rec.get("annual_savings_amount"))
+            if annual > 0:
+                total_monthly_savings += annual / 12.0
+
+        html_parts = [
+            "<h4>💡 Cost Recommendations</h4>",
+            f"<p><strong>Recommendations Found:</strong> {int(recommendation_count)}</p>",
+            f"<p><strong>Estimated Potential Savings (monthly):</strong> ${total_monthly_savings:,.2f}</p>",
+        ]
+
+        if recommendations:
+            html_parts.append("<ul>")
+            for rec in recommendations[:10]:
+                if not isinstance(rec, dict):
+                    continue
+
+                problem = html.escape(str(rec.get("problem", "Optimization opportunity")))
+                solution = html.escape(str(rec.get("solution", "Review Azure Advisor guidance")))
+                impacted = html.escape(str(rec.get("impacted_value", "")))
+                savings_amount = rec.get("savings_amount", "N/A")
+                savings_currency = rec.get("savings_currency", "USD")
+
+                line = f"<li><strong>{problem}</strong><br>"
+                line += f"Action: {solution}"
+                if impacted:
+                    line += f"<br>Impacted: {impacted}"
+                line += f"<br>Estimated annual savings: {html.escape(str(savings_currency))} {html.escape(str(savings_amount))}</li>"
+                html_parts.append(line)
+
+            html_parts.append("</ul>")
+
+        return "\n".join(html_parts)
+
     def format_performance_metrics(
         self,
         resource_name: str,
@@ -358,6 +431,39 @@ class SREResponseFormatter:
         html_parts = [
             f"<h4>📊 Performance Metrics: {html.escape(resource_name)}</h4>",
         ]
+
+        # Check if metrics data is empty or unavailable
+        metrics_list = metrics.get("metrics", [])
+        if not metrics_list and isinstance(metrics_list, list):
+            # No metrics data available - provide helpful message
+            time_range = metrics.get("time_range", {})
+            hours = time_range.get("hours", "N/A")
+
+            html_parts.append(
+                "<p>ℹ️ <strong>No performance metrics data available for the requested time period.</strong></p>"
+            )
+            html_parts.append(
+                f"<p>Time range queried: {html.escape(str(hours))} hour(s)</p>"
+            )
+            html_parts.append(
+                "<p><strong>Possible reasons:</strong></p>"
+                "<ul>"
+                "<li>The resource was recently started and metrics haven't been collected yet (metrics typically appear after 5-15 minutes)</li>"
+                "<li>Diagnostic settings may not be configured for this resource</li>"
+                "<li>The resource may be stopped or deallocated</li>"
+                "<li>Metrics collection may be disabled</li>"
+                "</ul>"
+            )
+            html_parts.append(
+                "<p><strong>Suggestions:</strong></p>"
+                "<ul>"
+                "<li>Wait a few minutes and try again if the resource was recently started</li>"
+                "<li>Verify the resource is running: <code>az vm show</code> or check Azure Portal</li>"
+                "<li>Check diagnostic settings in Azure Portal → Resource → Diagnostic settings</li>"
+                "<li>Enable Azure Monitor metrics collection for this resource</li>"
+                "</ul>"
+            )
+            return "\n".join(html_parts)
 
         # CPU metrics
         cpu = metrics.get("cpu_percent")
@@ -386,7 +492,7 @@ class SREResponseFormatter:
             for rec in recommendations:
                 html_parts.append(f"<li>{html.escape(rec)}</li>")
             html_parts.append("</ul>")
-        elif not bottlenecks:
+        elif not bottlenecks and cpu is None and memory is None:
             html_parts.append(
                 "<p>✅ Performance looks good! No immediate issues detected.</p>"
             )
@@ -597,39 +703,73 @@ def format_tool_result(
     Returns:
         HTML-formatted message
     """
+    # Normalize wrapped MCP/client responses.
+    # Common shapes:
+    # 1) {"success": true, "parsed": {...}, ...}
+    # 2) {"status": "success", "result": {...}}
+    normalized_result = result
+    if isinstance(result, dict):
+        if isinstance(result.get("parsed"), dict):
+            normalized_result = result["parsed"]
+        elif isinstance(result.get("result"), dict):
+            inner = result["result"]
+            normalized_result = inner.get("parsed", inner) if isinstance(inner, dict) else result
+
     # Health check tools
     if "health" in tool_name.lower():
-        resource_name = result.get("resource_name", "Unknown Resource")
-        health_data = result.get("health_status", result)
+        resource_id = normalized_result.get("resource_id", "")
+        resource_name = (
+            normalized_result.get("resource_name")
+            or normalized_result.get("container_app_name")
+            or (resource_id.split("/")[-1] if resource_id else "Unknown Resource")
+        )
+        health_data = (
+            normalized_result.get("health_data")
+            or normalized_result.get("health_status")
+            or normalized_result
+        )
         return _formatter.format_health_status(resource_name, health_data)
 
-    # Cost tools
-    if "cost" in tool_name.lower():
-        return _formatter.format_cost_summary(result)
+    # Cost analysis tools (avoid rendering unrelated cost tools as $0.00 summaries)
+    if tool_name == "get_cost_analysis":
+        return _formatter.format_cost_summary(normalized_result)
+
+    if tool_name == "get_cost_recommendations":
+        return _formatter.format_cost_recommendations(normalized_result)
+
+    if "cost" in tool_name.lower() and isinstance(normalized_result, dict):
+        if any(k in normalized_result for k in ("total_cost", "cost_breakdown", "breakdown")):
+            return _formatter.format_cost_summary(normalized_result)
 
     # Performance tools
     if "performance" in tool_name.lower() or "metrics" in tool_name.lower():
-        resource_name = result.get("resource_name", "Unknown Resource")
-        return _formatter.format_performance_metrics(resource_name, result)
+        # Extract resource name from resource_id if available
+        resource_id = normalized_result.get("resource_id", "")
+        if resource_id:
+            # Extract resource name from the resource ID (last segment)
+            resource_name = resource_id.split("/")[-1] if "/" in resource_id else resource_id
+        else:
+            resource_name = normalized_result.get("resource_name", "Unknown Resource")
+        return _formatter.format_performance_metrics(resource_name, normalized_result)
 
     # Incident tools
     if "incident" in tool_name.lower() or "triage" in tool_name.lower():
-        incident_id = result.get("incident_id", "Unknown Incident")
-        return _formatter.format_incident_summary(incident_id, result)
+        incident_id = normalized_result.get("incident_id", "Unknown Incident")
+        return _formatter.format_incident_summary(incident_id, normalized_result)
 
     # Generic success message
-    if result.get("status") == "success":
-        action = result.get("message", "Operation completed successfully")
-        details = result.get("details")
+    if normalized_result.get("status") == "success":
+        action = normalized_result.get("message", "Operation completed successfully")
+        details = normalized_result.get("details")
         return _formatter.format_success_message(action, details)
 
     # Generic error message
-    if result.get("status") == "error":
-        error = result.get("error", "An error occurred")
-        suggestions = result.get("suggestions")
+    if normalized_result.get("status") == "error":
+        error = normalized_result.get("error", "An error occurred")
+        suggestions = normalized_result.get("suggestions")
         return _formatter.format_error_message(error, suggestions)
 
     # Fallback: format as JSON in a code block
     import json
-    json_str = json.dumps(result, indent=2)
+    json_str = json.dumps(normalized_result, indent=2)
     return f'<pre><code>{html.escape(json_str)}</code></pre>'

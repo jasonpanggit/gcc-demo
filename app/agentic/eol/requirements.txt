@@ -57,6 +57,7 @@ mcp==1.25.0
 python-dotenv==1.2.1
 # Microsoft Teams notifications for SRE agent
 pymsteams==0.2.2
+apscheduler>=3.10.4  # Scheduler for SRE periodic tasks (Phase 3)
 sse-starlette==3.0.3
 uvloop==0.22.1
 websockets==15.0.1

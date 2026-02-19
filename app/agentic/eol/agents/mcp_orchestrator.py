@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import time
 import uuid
 from contextlib import asynccontextmanager, nullcontext
@@ -97,6 +98,28 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
 
         class SREMCPDisabledError(RuntimeError):  # type: ignore[override]
             """Fallback disabled error when SRE MCP helper is unavailable."""
+
+_sre_inventory_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _sre_inventory_import_error = exc
+    try:
+        from utils.sre_inventory_integration import get_sre_inventory_integration  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _sre_inventory_import_error = fallback_exc
+        get_sre_inventory_integration = None  # type: ignore[assignment]
+
+_resource_inventory_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _resource_inventory_import_error = exc
+    try:
+        from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _resource_inventory_import_error = fallback_exc
+        get_resource_inventory_client = None  # type: ignore[assignment]
 
 try:
     from app.agentic.eol.utils.mcp_composite_client import CompositeMCPClient  # type: ignore[import-not-found]
@@ -400,8 +423,9 @@ FORMATTING:
         # Disambiguation for commonly confused Azure services
         disambiguation = (
             "\n\nSERVICE DISAMBIGUATION (read carefully):"
-            "\n• 'Container Apps' (Azure Container Apps) → use azure_cli_execute_command with 'az containerapp list'. "
+            "\n• 'Container Apps' (Azure Container Apps) → use inventory-grounded discovery (cached resource inventory) first, then SRE health/perf tools. "
             "Do NOT use ACR, App Service, App Config, or Function App tools."
+            "\n• 'Virtual Machines' (Azure Compute VMs) → use inventory-grounded discovery first, then SRE health/perf tools."
             "\n• 'Container Registry' (ACR) → use the acr/container_registries tools."
             "\n• 'App Service' (Web Apps) → use the appservice tools."
             "\n• 'App Configuration' → use the appconfig tools."
@@ -446,7 +470,7 @@ FORMATTING:
             "\n→ Use list_security_recommendations for actionable security findings."
             "\n→ Use check_compliance_status for Azure Policy compliance (CIS, NIST, PCI-DSS)."
             "\n\nCOMMON SRE WORKFLOWS:"
-            "\n• Health check for Container Apps → First: azure_cli_execute_command('az containerapp list'), Then: check_resource_health(resource_id)"
+            "\n• Health check for Container Apps → First: inventory-grounded discovery for container apps, Then: check_resource_health(resource_id)"
             "\n• Health check for any Azure resource → If you don't have the resource ID, list/search resources first, Then: check_resource_health(resource_id)"
             "\n• Incident investigation → triage_incident (auto-gathers logs and correlates events), Then: get_diagnostic_logs for detailed analysis"
             "\n• Performance issue → get_performance_metrics (last 24h by default), Then: identify_bottlenecks to analyze patterns"
@@ -482,7 +506,36 @@ FORMATTING:
         self._dynamic_system_prompt: str = self._SYSTEM_PROMPT  # Will be updated when tools are loaded
         self._monitor_agent: Optional[Any] = None  # Lazy-initialized MonitorAgent
         self._monitor_history: List[Dict[str, str]] = []  # Prior monitor delegation request/response pairs
+        self.inventory_integration: Optional[Any] = None
+        self.resource_inventory_client: Optional[Any] = None
         self._initialise_message_log()
+
+        # Resource inventory grounding (same integration strategy as SRE orchestrator)
+        if get_sre_inventory_integration is not None:
+            try:
+                self.inventory_integration = get_sre_inventory_integration()
+                logger.info("MCP orchestrator inventory integration initialized")
+            except Exception as exc:
+                logger.warning("Inventory integration unavailable in MCP orchestrator: %s", exc)
+                self.inventory_integration = None
+        else:
+            logger.debug(
+                "SRE inventory integration helper unavailable; proceeding without grounding (error=%s)",
+                _sre_inventory_import_error,
+            )
+
+        if get_resource_inventory_client is not None:
+            try:
+                self.resource_inventory_client = get_resource_inventory_client()
+                logger.info("MCP orchestrator resource inventory client initialized")
+            except Exception as exc:
+                logger.warning("Resource inventory client unavailable in MCP orchestrator: %s", exc)
+                self.resource_inventory_client = None
+        else:
+            logger.debug(
+                "Resource inventory client helper unavailable; CLI discovery interception disabled (error=%s)",
+                _resource_inventory_import_error,
+            )
 
         # Initialize communication queue lazily to avoid event loop issues
         self.communication_queue: Optional[asyncio.Queue[Dict[str, Any]]] = None
@@ -947,72 +1000,16 @@ FORMATTING:
                     # Single tool - execute sequentially
                     call = tool_group[0]
                     tool_calls_made += 1
-                    arguments = self._parse_call_arguments(call)
                     tool_name = call.name or "unknown_tool"
-                    logger.debug(
-                        "Invoking MCP tool '%s' with arguments: %s",
+                    arguments = self._parse_call_arguments(call)
+                    tool_result = await self._execute_single_tool(
+                        call,
+                        arguments,
                         tool_name,
-                        json.dumps(arguments, ensure_ascii=False)[:500],
-                    )
-                    try:
-                        serialized_args = json.dumps(arguments, ensure_ascii=False)[:500]
-                    except (TypeError, ValueError):  # pragma: no cover - defensive guard
-                        serialized_args = str(arguments)
-                    logger.info(
-                        "🧰 Tool request %d: %s args=%s",
+                        iteration,
                         tool_calls_made,
-                        tool_name,
-                        serialized_args,
                     )
-                    tool_result = await self._invoke_mcp_tool(tool_name, arguments)
-                    if isinstance(tool_result, dict):
-                        self._last_tool_output = {
-                            "tool": tool_name,
-                            "result": tool_result,
-                        }
-                        try:
-                            logger.info(
-                                "MCP tool '%s' response: %s",
-                                tool_name,
-                                json.dumps(tool_result, ensure_ascii=False)[:2000],
-                            )
-                        except Exception:  # pragma: no cover - logging safety
-                            logger.info("MCP tool '%s' response: %s", tool_name, tool_result)
                     observation_success = bool(tool_result.get("success")) if isinstance(tool_result, dict) else False
-
-                    if isinstance(tool_result, dict):
-                        if observation_success:
-                            self._last_tool_failure = None
-                            logger.debug("Tool '%s' succeeded", tool_name)
-                        else:
-                            error_text = str(tool_result.get("error") or "Unknown error")
-                            self._last_tool_failure = {
-                                "tool": tool_name,
-                                "error": error_text,
-                            }
-                            logger.warning("MCP tool '%s' failed: %s", tool_name, error_text)
-                            await self._push_event(
-                                "error",
-                                f"Tool '{tool_name}' failed",
-                                iteration=iteration,
-                                tool_name=tool_name,
-                                error=error_text,
-                            )
-                    else:
-                        if observation_success:
-                            self._last_tool_failure = None
-                            logger.debug("Tool '%s' succeeded", tool_name)
-                        else:
-                            error_text = str(tool_result)
-                            self._last_tool_failure = {"tool": tool_name, "error": error_text}
-                            logger.warning("MCP tool '%s' failed: %s", tool_name, error_text)
-                            await self._push_event(
-                                "error",
-                                f"Tool '{tool_name}' failed",
-                                iteration=iteration,
-                                tool_name=tool_name,
-                                error=error_text,
-                            )
 
                     reasoning_trace.append(
                         {
@@ -1021,22 +1018,6 @@ FORMATTING:
                             "tool": tool_name,
                             "success": observation_success,
                         }
-                    )
-
-                    # Extract CLI command if this is azure_cli_execute_command
-                    cli_command = None
-                    if tool_name == "azure_cli_execute_command" and isinstance(arguments, dict):
-                        cli_command = arguments.get("command")
-
-                    await self._push_event(
-                        "observation",
-                        "Tool execution completed",
-                        iteration=iteration,
-                        tool_name=tool_name,
-                        tool_parameters=arguments,
-                        cli_command=cli_command,
-                        tool_result=tool_result,
-                        is_error=not observation_success,
                     )
 
                     result_message = self._create_tool_result_message(call.call_id, tool_result)
@@ -1922,6 +1903,49 @@ FORMATTING:
                         return True
         
         return False
+
+    async def _prepare_tool_arguments_with_inventory(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Optional[str], Optional[Dict[str, Any]]]:
+        """Ground tool arguments using cached inventory and run preflight checks.
+
+        Returns:
+            Tuple(enriched_arguments, warning_message, blocked_result)
+        """
+        prepared_args = dict(arguments or {})
+        if not self.inventory_integration:
+            return prepared_args, None, None
+
+        warning_message: Optional[str] = None
+        blocked_result: Optional[Dict[str, Any]] = None
+
+        try:
+            prepared_args = await self.inventory_integration.enrich_tool_parameters(
+                tool_name,
+                prepared_args,
+                {
+                    "query": self._message_to_text(self._message_log[-1]) if self._message_log else "",
+                },
+            )
+
+            preflight = await self.inventory_integration.preflight_resource_check(
+                tool_name,
+                prepared_args,
+            )
+
+            if not preflight.get("ok", True):
+                blocked_result = preflight.get("result") or {
+                    "success": False,
+                    "tool_name": tool_name,
+                    "error": "Inventory preflight check failed",
+                }
+            warning_message = preflight.get("warning")
+        except Exception as exc:  # pragma: no cover - inventory is best-effort
+            logger.debug("Inventory grounding skipped for tool '%s': %s", tool_name, exc)
+
+        return prepared_args, warning_message, blocked_result
     
     async def _execute_single_tool(
         self,
@@ -1932,10 +1956,15 @@ FORMATTING:
         tool_number: int,
     ) -> Dict[str, Any]:
         """Execute a single tool and return its result with logging."""
+        prepared_arguments, inventory_warning, blocked_result = await self._prepare_tool_arguments_with_inventory(
+            tool_name,
+            arguments,
+        )
+
         try:
-            serialized_args = json.dumps(arguments, ensure_ascii=False)[:500]
+            serialized_args = json.dumps(prepared_arguments, ensure_ascii=False)[:500]
         except (TypeError, ValueError):
-            serialized_args = str(arguments)
+            serialized_args = str(prepared_arguments)
         
         logger.info(
             "🧰 Tool request %d: %s args=%s",
@@ -1943,8 +1972,18 @@ FORMATTING:
             tool_name,
             serialized_args,
         )
-        
-        tool_result = await self._invoke_mcp_tool(tool_name, arguments)
+
+        if inventory_warning:
+            logger.info("Inventory preflight note for '%s': %s", tool_name, inventory_warning)
+
+        if blocked_result is not None:
+            tool_result = blocked_result
+        elif tool_name == "azure_cli_execute_command":
+            tool_result = await self._maybe_handle_inventory_cli_discovery(prepared_arguments)
+            if tool_result is None:
+                tool_result = await self._invoke_mcp_tool(tool_name, prepared_arguments)
+        else:
+            tool_result = await self._invoke_mcp_tool(tool_name, prepared_arguments)
         
         if isinstance(tool_result, dict):
             self._last_tool_output = {
@@ -1981,21 +2020,119 @@ FORMATTING:
         
         # Extract CLI command if applicable
         cli_command = None
-        if tool_name == "azure_cli_execute_command" and isinstance(arguments, dict):
-            cli_command = arguments.get("command")
+        if tool_name == "azure_cli_execute_command" and isinstance(prepared_arguments, dict):
+            cli_command = prepared_arguments.get("command")
         
         await self._push_event(
             "observation",
             "Tool execution completed",
             iteration=iteration,
             tool_name=tool_name,
-            tool_parameters=arguments,
+            tool_parameters=prepared_arguments,
             cli_command=cli_command,
             tool_result=tool_result,
             is_error=not observation_success,
         )
         
         return tool_result
+
+    async def _maybe_handle_inventory_cli_discovery(
+        self,
+        prepared_arguments: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Intercept selected az list commands and answer from cached resource inventory."""
+        if not self.resource_inventory_client:
+            return None
+
+        command = str(prepared_arguments.get("command") or "").strip()
+        if not command:
+            return None
+
+        command_lower = command.lower()
+        resource_type: Optional[str] = None
+        source_hint: Optional[str] = None
+
+        if "az containerapp list" in command_lower:
+            resource_type = "Microsoft.App/containerApps"
+            source_hint = "containerapps"
+        elif "az vm list" in command_lower:
+            resource_type = "Microsoft.Compute/virtualMachines"
+            source_hint = "virtualmachines"
+        elif "az resource list" in command_lower:
+            if "microsoft.app/containerapps" in command_lower:
+                resource_type = "Microsoft.App/containerApps"
+                source_hint = "containerapps"
+            elif "microsoft.compute/virtualmachines" in command_lower:
+                resource_type = "Microsoft.Compute/virtualMachines"
+                source_hint = "virtualmachines"
+
+        if not resource_type:
+            return None
+
+        filters: Dict[str, Any] = {}
+        resource_group = prepared_arguments.get("resource_group")
+        if (not isinstance(resource_group, str) or not resource_group.strip()) and "az resource list" in command_lower:
+            resource_group = self._extract_cli_option_value(command, ["--resource-group", "-g"])
+        if isinstance(resource_group, str) and resource_group.strip():
+            filters["resource_group"] = resource_group.strip()
+
+        subscription_id = prepared_arguments.get("subscription_id")
+        if (not isinstance(subscription_id, str) or not subscription_id.strip()) and "az resource list" in command_lower:
+            subscription_id = self._extract_cli_option_value(command, ["--subscription"])
+        if not isinstance(subscription_id, str) or not subscription_id.strip():
+            subscription_id = None
+
+        try:
+            resources = await self.resource_inventory_client.get_resources(
+                resource_type=resource_type,
+                subscription_id=subscription_id,
+                filters=filters if filters else None,
+            )
+        except Exception as exc:  # pragma: no cover - inventory should be best-effort
+            logger.debug("Inventory discovery interception failed for command '%s': %s", command, exc)
+            return None
+
+        logger.info(
+            "Inventory-first routing: intercepted CLI discovery command '%s' and returned %d cached resources",
+            command,
+            len(resources),
+        )
+
+        return {
+            "success": True,
+            "tool_name": "inventory_cached_discovery",
+            "source": "resource_inventory_cache",
+            "intercepted_cli_command": command,
+            "resource_type": resource_type,
+            "resource_count": len(resources),
+            "items": resources,
+            "note": (
+                f"Resolved {source_hint or 'resources'} from cached resource inventory instead of CLI discovery."
+            ),
+        }
+
+    @staticmethod
+    def _extract_cli_option_value(command: str, option_names: Sequence[str]) -> Optional[str]:
+        """Extract a CLI option value from a command string.
+
+        Supports both `--option value` and `--option=value` forms.
+        """
+        try:
+            tokens = shlex.split(command)
+        except Exception:
+            tokens = command.split()
+
+        options = set(option_names)
+        for idx, token in enumerate(tokens):
+            for opt in options:
+                if token == opt and idx + 1 < len(tokens):
+                    next_token = tokens[idx + 1]
+                    if not next_token.startswith("-"):
+                        return next_token
+                if token.startswith(f"{opt}="):
+                    value = token.split("=", 1)[1]
+                    return value.strip("\"'") if value else None
+        return None
 
     async def _maybe_aclose(self, resource: Any) -> None:
         if not resource:

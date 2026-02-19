@@ -22,13 +22,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
-    from app.agentic.eol.agents.sre_orchestrator_agent import SREOrchestratorAgent
+    from app.agentic.eol.agents.sre_orchestrator import SREOrchestratorAgent
     from app.agentic.eol.agents.incident_response_agent import IncidentResponseAgent
     from app.agentic.eol.utils.agent_registry import get_agent_registry
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.response_models import StandardResponse
 except ModuleNotFoundError:
-    from agents.sre_orchestrator_agent import SREOrchestratorAgent
+    from agents.sre_orchestrator import SREOrchestratorAgent
     from agents.incident_response_agent import IncidentResponseAgent
     from utils.agent_registry import get_agent_registry
     from utils.logger import get_logger
@@ -171,8 +171,10 @@ async def execute_sre_request(request: SREExecuteRequest):
                 detail=result.get("error", "Unknown error")
             )
 
-        # Extract results
-        results_data = result.get("results", {})
+        # Extract results from BaseSREAgent wrapper payload
+        # BaseSREAgent.handle_request() returns the agent output under "result"
+        # (not "results"). Keep a fallback to "results" for compatibility.
+        results_data = result.get("result") or result.get("results", {})
 
         # Check if user interaction is required
         if results_data.get("user_interaction_required"):
@@ -192,16 +194,31 @@ async def execute_sre_request(request: SREExecuteRequest):
             )
 
         # Check if formatted response exists
+        # `results_data` can be the full orchestrator envelope:
+        # {
+        #   "workflow_id": ..., "intent": ..., "tools_executed": ...,
+        #   "results": { ..., "formatted_response": "<html>..." }
+        # }
         formatted_response = results_data.get("formatted_response")
+        if not formatted_response and isinstance(results_data.get("results"), dict):
+            formatted_response = results_data["results"].get("formatted_response")
         if formatted_response:
             # Return formatted HTML response
             return StandardResponse(
                 success=True,
                 data={
                     "formatted_html": formatted_response,
-                    "raw_results": results_data.get("results", []),
-                    "summary": results_data.get("summary", {}),
-                    "workflow_id": result.get("workflow_id")
+                    "raw_results": (
+                        results_data.get("results", [])
+                        if isinstance(results_data.get("results"), list)
+                        else results_data.get("results", {}).get("results", [])
+                    ),
+                    "summary": (
+                        results_data.get("summary", {})
+                        if isinstance(results_data.get("summary"), dict)
+                        else results_data.get("results", {}).get("summary", {})
+                    ),
+                    "workflow_id": result.get("workflow_id") or results_data.get("workflow_id")
                 },
                 message=f"Successfully processed query: {request.query[:50]}..."
             )

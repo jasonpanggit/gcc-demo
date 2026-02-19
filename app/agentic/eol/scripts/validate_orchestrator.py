@@ -22,7 +22,7 @@ def test_imports():
         ("Agent Registry", "utils.agent_registry", "AgentRegistry"),
         ("Context Store", "utils.agent_context_store", "AgentContextStore"),
         ("Message Bus", "utils.agent_message_bus", "AgentMessageBus"),
-        ("Orchestrator", "agents.sre_orchestrator_agent", "SREOrchestratorAgent"),
+        ("Orchestrator", "agents.sre_orchestrator", "SREOrchestratorAgent"),
     ]
 
     passed = 0
@@ -151,7 +151,7 @@ async def test_orchestrator_basic():
     print("=" * 60)
 
     try:
-        from agents.sre_orchestrator_agent import SREOrchestratorAgent
+        from agents.sre_orchestrator import SREOrchestratorAgent
 
         # Create orchestrator
         orchestrator = SREOrchestratorAgent()

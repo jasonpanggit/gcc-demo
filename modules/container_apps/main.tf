@@ -430,12 +430,21 @@ resource "azurerm_container_app" "app" {
   tags = var.tags
 }
 
-# Diagnostic settings for Container App (metrics only - logs are at Environment level)
+# Diagnostic settings for Container App (logs and metrics)
 resource "azurerm_monitor_diagnostic_setting" "container_app" {
   count                      = var.deploy_container_apps ? 1 : 0
-  name                       = "containerapp-metrics"
+  name                       = "containerapp-diagnostics"
   target_resource_id         = azurerm_container_app.app[0].id
   log_analytics_workspace_id = var.create_log_analytics_workspace ? azurerm_log_analytics_workspace.law[0].id : var.workspace_resource_id
+
+  # Container App logs (application-specific)
+  enabled_log {
+    category = "ContainerAppConsoleLogs"
+  }
+
+  enabled_log {
+    category = "ContainerAppSystemLogs"
+  }
 
   enabled_metric {
     category = "AllMetrics"

@@ -31,6 +31,11 @@ except ModuleNotFoundError:
         get_interaction_handler,
     )
 
+try:
+    from app.agentic.eol.agents.sre_orchestrator import SREOrchestratorAgent
+except ModuleNotFoundError:
+    from agents.sre_orchestrator import SREOrchestratorAgent
+
 
 # ============================================================================
 # Response Formatter Tests
@@ -138,6 +143,36 @@ class TestSREResponseFormatter:
         assert "Virtual Machines" in result
         assert "Potential Savings" in result
         assert "250.00" in result
+
+    def test_format_cost_recommendations_tool_result(self):
+        """Test formatting cost recommendations into readable HTML (not raw JSON)."""
+        result = {
+            "recommendation_count": 2,
+            "recommendations": [
+                {
+                    "problem": "Underutilized VM",
+                    "solution": "Resize to smaller SKU",
+                    "impacted_value": "vm-prod-01",
+                    "savings_amount": "1200",
+                    "savings_currency": "USD",
+                },
+                {
+                    "problem": "Idle public IP",
+                    "solution": "Delete unattached IP",
+                    "impacted_value": "pip-unused-01",
+                    "savings_amount": "600",
+                    "savings_currency": "USD",
+                },
+            ],
+        }
+
+        formatted = format_tool_result("get_cost_recommendations", result)
+
+        assert "Cost Recommendations" in formatted
+        assert "Underutilized VM" in formatted
+        assert "Resize to smaller SKU" in formatted
+        # (1200 + 600) / 12 = 150 monthly
+        assert "150.00" in formatted
 
     def test_format_performance_metrics(self):
         """Test formatting performance metrics."""
@@ -444,6 +479,29 @@ class TestSREIntegration:
 
         assert "500.00" in formatted
         assert "Cost" in formatted or "💰" in formatted
+
+    def test_summarize_cost_includes_recommendation_savings(self):
+        """Potential savings should include summed recommendation savings."""
+        orchestrator = SREOrchestratorAgent()
+
+        results = [
+            {
+                "tool": "get_cost_recommendations",
+                "status": "success",
+                "result": {
+                    "parsed": {
+                        "recommendations": [
+                            {"savings_amount": "1200"},
+                            {"savings_amount": "600"},
+                        ]
+                    }
+                },
+            }
+        ]
+
+        summary = orchestrator._summarize_cost(results)
+
+        assert summary["potential_savings"] == "$150.00"
 
     def test_format_resource_selection_wrapper(self):
         """Test the format_resource_selection wrapper function."""
