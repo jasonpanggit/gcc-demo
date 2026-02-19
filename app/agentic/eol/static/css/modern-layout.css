@@ -1420,3 +1420,116 @@ html.dark-mode .border-start {
 html.dark-mode .border-end {
     border-right-color: var(--border-primary) !important;
 }
+
+/* ============================================================
+   AGENT COMMUNICATION DARK MODE
+   ============================================================ */
+
+html.dark-mode .agent-communication {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .task-summary {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .task-summary-header {
+    color: var(--color-primary);
+}
+
+html.dark-mode .comm-timestamp {
+    color: var(--text-muted);
+}
+
+html.dark-mode .comm-agent-name {
+    color: var(--text-primary);
+}
+
+html.dark-mode .comm-type {
+    color: var(--text-secondary);
+}
+
+html.dark-mode .comm-content {
+    color: var(--text-primary);
+}
+
+html.dark-mode .tool-name {
+    color: var(--color-primary);
+}
+
+html.dark-mode .tool-args,
+html.dark-mode .tool-result {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .success-status {
+    background: var(--color-success-light) !important;
+    color: var(--color-success);
+}
+
+html.dark-mode .error-status {
+    background: var(--color-error-light) !important;
+    color: var(--color-error);
+}
+
+html.dark-mode .info-status {
+    background: var(--color-info-light) !important;
+    color: var(--color-info);
+}
+
+html.dark-mode .neutral-status {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-secondary);
+}
+
+html.dark-mode .communication-panel {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .communication-item {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .interaction-card {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .interaction-header {
+    background: var(--bg-secondary) !important;
+    border-bottom-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .interaction-body {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .message-communication,
+html.dark-mode .general-communication,
+html.dark-mode .basic-communication {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .agent-flow {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .agent-node {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .communications-stream {
+    background: var(--bg-secondary) !important;
+}
