@@ -731,3 +731,91 @@
         display: none;
     }
 }
+
+/* ============================================================
+   DARK MODE OVERRIDES
+   ============================================================ */
+
+html.light-mode .topbar,
+html:not(.dark-mode) .topbar {
+    background: rgba(255, 255, 255, 0.95);
+    border-bottom-color: #e5e7eb;
+}
+
+html.light-mode .sidebar,
+html:not(.dark-mode) .sidebar {
+    background: #ffffff;
+    border-right-color: #e5e7eb;
+}
+
+html.light-mode .main-content,
+html:not(.dark-mode) .main-content {
+    background: #f9fafb;
+}
+
+html.light-mode .widget,
+html.light-mode .stat-widget,
+html:not(.dark-mode) .widget,
+html:not(.dark-mode) .stat-widget {
+    background: #ffffff;
+    border-color: #e5e7eb;
+}
+
+html.dark-mode .topbar {
+    background: rgba(15, 23, 42, 0.95);
+    border-bottom-color: var(--border-primary);
+}
+
+html.dark-mode .sidebar {
+    background: var(--bg-secondary);
+    border-right-color: var(--border-primary);
+}
+
+html.dark-mode .sidebar-brand {
+    border-bottom-color: var(--border-primary);
+}
+
+html.dark-mode .main-content {
+    background: var(--bg-primary);
+}
+
+html.dark-mode .widget,
+html.dark-mode .stat-widget {
+    background: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .quick-action {
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+}
+
+html.dark-mode .quick-action:hover {
+    border-color: var(--color-primary);
+}
+
+html.dark-mode .topbar-search input {
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+    color: var(--text-primary);
+}
+
+html.dark-mode .topbar-search input::placeholder {
+    color: var(--text-tertiary);
+}
+
+html.dark-mode .topbar-user {
+    border-color: var(--border-secondary);
+}
+
+html.dark-mode .nav-item:hover {
+    background: var(--bg-tertiary);
+}
+
+html.dark-mode .nav-item.active {
+    background: var(--color-primary-pale);
+}
+
+html.dark-mode .sidebar-footer {
+    border-top-color: var(--border-primary);
+}
