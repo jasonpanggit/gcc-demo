@@ -171,7 +171,7 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
 {% macro chat_init_script(mode='mcp', agent_name='mcp-orchestrator') %}
 <script>
     // Auto-initialize agent communication handler
-    let agentCommHandler;
+    // Note: agentCommHandler is already declared in agent-communication.js
 
     document.addEventListener('DOMContentLoaded', function() {
         const config = {
@@ -186,9 +186,9 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
         };
 
         // Initialize handler (requires agent-communication.js to be loaded)
-        if (typeof AgentCommunicationHandler !== 'undefined') {
-            agentCommHandler = new AgentCommunicationHandler(config);
-            agentCommHandler.initialize();
+        if (typeof AgentCommunicationHandler !== 'undefined' && typeof window.agentCommHandler !== 'undefined') {
+            // agentCommHandler is already created in agent-communication.js
+            console.log('Agent communication handler initialized from agent-communication.js');
         } else {
             console.warn('AgentCommunicationHandler not loaded. Include agent-communication.js first.');
         }
