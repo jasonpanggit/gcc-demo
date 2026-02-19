@@ -824,6 +824,10 @@ html.dark-mode .sidebar-footer {
 html.dark-mode .table {
     color: var(--text-primary);
     border-color: var(--border-primary);
+    --bs-table-bg: var(--bg-secondary);
+    --bs-table-striped-bg: var(--bg-tertiary);
+    --bs-table-hover-bg: var(--bg-tertiary);
+    --bs-table-active-bg: var(--bg-tertiary);
 }
 
 html.dark-mode .table thead th {
@@ -834,19 +838,49 @@ html.dark-mode .table thead th {
 
 html.dark-mode .table tbody tr {
     border-color: var(--border-primary);
+    background-color: var(--bg-secondary);
 }
 
 html.dark-mode .table tbody td {
     color: var(--text-primary);
     border-color: var(--border-primary);
+    background-color: transparent;
 }
 
 html.dark-mode .table-hover tbody tr:hover {
     background-color: var(--bg-tertiary);
+    --bs-table-hover-bg: var(--bg-tertiary);
+}
+
+html.dark-mode .table-hover tbody tr:hover td {
+    background-color: transparent;
 }
 
 html.dark-mode .table-responsive {
     border-color: var(--border-primary);
+}
+
+html.dark-mode .widget .table,
+html.dark-mode .widget .table tbody tr,
+html.dark-mode .widget .table tbody td {
+    background-color: transparent;
+}
+
+html.dark-mode .widget .table-hover tbody tr:hover {
+    background-color: var(--bg-tertiary);
+}
+
+html.dark-mode .table > :not(caption) > * > * {
+    background-color: transparent;
+    border-bottom-color: var(--border-primary);
+}
+
+html.dark-mode .table > thead {
+    background-color: transparent;
+}
+
+html.dark-mode .table > tbody {
+    background-color: transparent;
 }
 
 /* Badges */
