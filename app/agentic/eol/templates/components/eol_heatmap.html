@@ -1,0 +1,418 @@
+{#
+  EOL Risk Heatmap Component
+
+  Visualizes End-of-Life risk across resources in a color-coded heatmap.
+  Shows time-to-EOL for different resource types and vendors.
+
+  Usage:
+    {% include 'components/eol_heatmap.html' %}
+    <script>
+      EOLHeatmap.init('heatmap-container', {
+        data: [
+          { name: 'Windows Server 2012', vendor: 'Microsoft', daysToEOL: 30, type: 'OS' },
+          { name: 'Ubuntu 18.04', vendor: 'Ubuntu', daysToEOL: 180, type: 'OS' },
+        ]
+      });
+    </script>
+#}
+
+<style>
+  .eol-heatmap-container {
+    width: 100%;
+    overflow-x: auto;
+    background: var(--bg-primary, #ffffff);
+    border-radius: var(--radius-md, 8px);
+    padding: var(--spacing-md, 16px);
+  }
+
+  .eol-heatmap {
+    min-width: 600px;
+    display: grid;
+    gap: var(--spacing-xs, 8px);
+  }
+
+  .eol-heatmap-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md, 16px);
+  }
+
+  .eol-heatmap-title {
+    font-size: var(--font-size-lg, 20px);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--text-primary, #111827);
+    margin: 0;
+  }
+
+  .eol-heatmap-legend {
+    display: flex;
+    gap: var(--spacing-sm, 12px);
+    align-items: center;
+    font-size: var(--font-size-sm, 14px);
+  }
+
+  .eol-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .eol-legend-color {
+    width: 20px;
+    height: 12px;
+    border-radius: var(--radius-sm, 4px);
+    border: 1px solid var(--border-primary, #e5e7eb);
+  }
+
+  .eol-legend-label {
+    color: var(--text-secondary, #4b5563);
+    white-space: nowrap;
+  }
+
+  .eol-heatmap-grid {
+    display: grid;
+    gap: var(--spacing-xs, 8px);
+  }
+
+  .eol-heatmap-row {
+    display: grid;
+    grid-template-columns: 200px 120px 1fr 80px;
+    gap: var(--spacing-xs, 8px);
+    align-items: center;
+    padding: var(--spacing-sm, 12px);
+    background: var(--bg-secondary, #f9fafb);
+    border-radius: var(--radius-sm, 4px);
+    transition: var(--transition-base, 200ms ease);
+  }
+
+  .eol-heatmap-row:hover {
+    background: var(--gray-100, #f3f4f6);
+    box-shadow: var(--shadow-sm);
+    transform: translateX(2px);
+  }
+
+  .eol-heatmap-cell {
+    font-size: var(--font-size-sm, 14px);
+  }
+
+  .eol-cell-name {
+    font-weight: var(--font-weight-medium, 500);
+    color: var(--text-primary, #111827);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .eol-cell-vendor {
+    color: var(--text-secondary, #4b5563);
+    font-size: var(--font-size-xs, 12px);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .eol-cell-bar {
+    position: relative;
+    height: 24px;
+    background: var(--gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    overflow: hidden;
+  }
+
+  .eol-cell-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-sm, 4px);
+    transition: width 300ms ease;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold, 600);
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .eol-cell-days {
+    text-align: right;
+    font-weight: var(--font-weight-semibold, 600);
+    font-size: var(--font-size-base, 16px);
+    white-space: nowrap;
+  }
+
+  /* Risk level colors */
+  .eol-risk-critical {
+    background-color: var(--color-error, #dc2626);
+  }
+
+  .eol-risk-high {
+    background-color: var(--color-warning, #f59e0b);
+  }
+
+  .eol-risk-medium {
+    background-color: var(--color-info, #0891b2);
+  }
+
+  .eol-risk-low {
+    background-color: var(--color-success, #0a8754);
+  }
+
+  .eol-risk-safe {
+    background-color: var(--color-primary-light, #50a7ff);
+  }
+
+  /* Empty state */
+  .eol-heatmap-empty {
+    text-align: center;
+    padding: var(--spacing-2xl, 48px);
+    color: var(--text-muted, #6b7280);
+  }
+
+  .eol-heatmap-empty-icon {
+    font-size: 48px;
+    color: var(--gray-300, #d1d5db);
+    margin-bottom: var(--spacing-md, 16px);
+  }
+
+  /* Loading state */
+  .eol-heatmap-loading {
+    text-align: center;
+    padding: var(--spacing-xl, 32px);
+  }
+
+  .eol-heatmap-spinner {
+    border: 3px solid var(--gray-200, #e5e7eb);
+    border-top-color: var(--color-primary, #0078d4);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto var(--spacing-md, 16px);
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .eol-heatmap-row {
+      grid-template-columns: 1fr;
+      gap: var(--spacing-unit, 4px);
+    }
+
+    .eol-cell-vendor {
+      margin-top: -4px;
+    }
+
+    .eol-heatmap-legend {
+      flex-wrap: wrap;
+    }
+  }
+</style>
+
+<script>
+/**
+ * EOL Risk Heatmap Component
+ * Visualizes End-of-Life risk across resources
+ */
+const EOLHeatmap = (function() {
+  'use strict';
+
+  // Risk thresholds (days to EOL)
+  const RISK_LEVELS = {
+    CRITICAL: { max: 30, label: 'Critical (< 30 days)', color: 'var(--color-error, #dc2626)' },
+    HIGH: { max: 90, label: 'High (30-90 days)', color: 'var(--color-warning, #f59e0b)' },
+    MEDIUM: { max: 180, label: 'Medium (90-180 days)', color: 'var(--color-info, #0891b2)' },
+    LOW: { max: 365, label: 'Low (180-365 days)', color: 'var(--color-success, #0a8754)' },
+    SAFE: { max: Infinity, label: 'Safe (> 365 days)', color: 'var(--color-primary-light, #50a7ff)' }
+  };
+
+  /**
+   * Determine risk level based on days to EOL
+   */
+  function getRiskLevel(daysToEOL) {
+    if (daysToEOL < 0) return { level: 'CRITICAL', ...RISK_LEVELS.CRITICAL };
+    if (daysToEOL <= RISK_LEVELS.CRITICAL.max) return { level: 'CRITICAL', ...RISK_LEVELS.CRITICAL };
+    if (daysToEOL <= RISK_LEVELS.HIGH.max) return { level: 'HIGH', ...RISK_LEVELS.HIGH };
+    if (daysToEOL <= RISK_LEVELS.MEDIUM.max) return { level: 'MEDIUM', ...RISK_LEVELS.MEDIUM };
+    if (daysToEOL <= RISK_LEVELS.LOW.max) return { level: 'LOW', ...RISK_LEVELS.LOW };
+    return { level: 'SAFE', ...RISK_LEVELS.SAFE };
+  }
+
+  /**
+   * Format days to readable string
+   */
+  function formatDays(days) {
+    if (days < 0) return 'EXPIRED';
+    if (days === 0) return 'TODAY';
+    if (days === 1) return '1 day';
+    if (days < 30) return `${days} days`;
+    if (days < 365) return `${Math.floor(days / 30)} months`;
+    return `${Math.floor(days / 365)} years`;
+  }
+
+  /**
+   * Initialize heatmap in the specified container
+   */
+  function init(containerId, options = {}) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.error(`EOLHeatmap: Container "${containerId}" not found`);
+      return;
+    }
+
+    const config = {
+      data: [],
+      title: 'EOL Risk Heatmap',
+      showLegend: true,
+      sortBy: 'daysToEOL', // 'daysToEOL', 'name', 'vendor'
+      filterType: null, // null or 'OS', 'Software', etc.
+      maxItems: 50,
+      ...options
+    };
+
+    render(container, config);
+  }
+
+  /**
+   * Render the heatmap
+   */
+  function render(container, config) {
+    container.className = 'eol-heatmap-container';
+
+    // Filter and sort data
+    let data = [...config.data];
+    if (config.filterType) {
+      data = data.filter(item => item.type === config.filterType);
+    }
+    data.sort((a, b) => {
+      if (config.sortBy === 'daysToEOL') return a.daysToEOL - b.daysToEOL;
+      if (config.sortBy === 'name') return a.name.localeCompare(b.name);
+      if (config.sortBy === 'vendor') return a.vendor.localeCompare(b.vendor);
+      return 0;
+    });
+    data = data.slice(0, config.maxItems);
+
+    // Create HTML
+    const html = `
+      <div class="eol-heatmap">
+        <div class="eol-heatmap-header">
+          <h3 class="eol-heatmap-title">${config.title}</h3>
+          ${config.showLegend ? renderLegend() : ''}
+        </div>
+        <div class="eol-heatmap-grid" role="list" aria-label="EOL risk items">
+          ${data.length > 0 ? data.map(item => renderRow(item)).join('') : renderEmpty()}
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+  }
+
+  /**
+   * Render legend
+   */
+  function renderLegend() {
+    return `
+      <div class="eol-heatmap-legend" role="img" aria-label="Risk level legend">
+        ${Object.values(RISK_LEVELS).map(level => `
+          <div class="eol-legend-item">
+            <div class="eol-legend-color" style="background-color: ${level.color}"></div>
+            <span class="eol-legend-label">${level.label}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Render a single row
+   */
+  function renderRow(item) {
+    const risk = getRiskLevel(item.daysToEOL);
+    const percentage = Math.min(100, Math.max(0, (item.daysToEOL / 365) * 100));
+    const formattedDays = formatDays(item.daysToEOL);
+
+    return `
+      <div class="eol-heatmap-row" role="listitem">
+        <div class="eol-heatmap-cell eol-cell-name" title="${item.name}">
+          ${item.name}
+        </div>
+        <div class="eol-heatmap-cell eol-cell-vendor">
+          ${item.vendor}
+        </div>
+        <div class="eol-heatmap-cell eol-cell-bar">
+          <div class="eol-cell-bar-fill eol-risk-${risk.level.toLowerCase()}"
+               style="width: ${percentage}%"
+               role="progressbar"
+               aria-valuenow="${item.daysToEOL}"
+               aria-valuemin="0"
+               aria-valuemax="365"
+               aria-label="Days to EOL: ${item.daysToEOL}">
+            ${item.daysToEOL < 0 ? 'EXPIRED' : ''}
+          </div>
+        </div>
+        <div class="eol-heatmap-cell eol-cell-days" style="color: ${risk.color}">
+          ${formattedDays}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render empty state
+   */
+  function renderEmpty() {
+    return `
+      <div class="eol-heatmap-empty">
+        <div class="eol-heatmap-empty-icon">
+          <i class="fas fa-calendar-check"></i>
+        </div>
+        <p>No EOL data available</p>
+      </div>
+    `;
+  }
+
+  /**
+   * Render loading state
+   */
+  function renderLoading(container) {
+    container.innerHTML = `
+      <div class="eol-heatmap-loading">
+        <div class="eol-heatmap-spinner"></div>
+        <p>Loading EOL risk data...</p>
+      </div>
+    `;
+  }
+
+  /**
+   * Update existing heatmap with new data
+   */
+  function update(containerId, newData) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Extract current config from container
+    const config = container._eolHeatmapConfig || { data: newData };
+    config.data = newData;
+    container._eolHeatmapConfig = config;
+
+    render(container, config);
+  }
+
+  // Public API
+  return {
+    init,
+    update,
+    renderLoading,
+    getRiskLevel,
+    formatDays,
+    RISK_LEVELS
+  };
+})();
+
+// Export to global scope
+if (typeof window !== 'undefined') {
+  window.EOLHeatmap = EOLHeatmap;
+}
+</script>

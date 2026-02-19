@@ -1,0 +1,419 @@
+/**
+ * Chart and Visualization Components Styles
+ *
+ * Styles for all chart components including:
+ * - Agent metrics dashboard
+ * - Token usage visualization
+ * - Sparklines
+ * - EOL heatmap (has inline styles)
+ *
+ * Uses design tokens from design-tokens.css
+ * Version: 1.0.0
+ */
+
+/* ====================================
+   Metric Cards
+   ==================================== */
+
+.metric-card {
+    border: 1px solid var(--border-primary, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition-base);
+    height: 100%;
+}
+
+.metric-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.metric-card .card-body {
+    padding: var(--spacing-lg, 24px);
+}
+
+.metric-label {
+    font-size: var(--font-size-sm, 14px);
+    color: var(--text-secondary, #4b5563);
+    font-weight: var(--font-weight-medium, 500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-xs, 8px);
+}
+
+.metric-value {
+    font-size: var(--font-size-2xl, 30px);
+    font-weight: var(--font-weight-bold, 700);
+    color: var(--text-primary, #111827);
+    line-height: var(--line-height-tight, 1.25);
+}
+
+.metric-sublabel {
+    font-size: var(--font-size-xs, 12px);
+    color: var(--text-muted, #6b7280);
+    margin-top: var(--spacing-xs, 8px);
+}
+
+.metric-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md, 8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-xl, 24px);
+    color: white;
+}
+
+.metric-icon.bg-primary {
+    background: linear-gradient(135deg, var(--color-primary, #0078d4), var(--color-primary-dark, #005a9e));
+}
+
+.metric-icon.bg-success {
+    background: linear-gradient(135deg, var(--color-success, #0a8754), #087f4f);
+}
+
+.metric-icon.bg-info {
+    background: linear-gradient(135deg, var(--color-info, #0891b2), #0e7490);
+}
+
+.metric-icon.bg-warning {
+    background: linear-gradient(135deg, var(--color-warning, #f59e0b), #d97706);
+}
+
+.metric-icon.bg-error {
+    background: linear-gradient(135deg, var(--color-error, #dc2626), #b91c1c);
+}
+
+.metric-sparkline {
+    margin-top: var(--spacing-sm, 12px);
+    height: 40px;
+}
+
+/* ====================================
+   Chart Containers
+   ==================================== */
+
+.chart-container {
+    position: relative;
+    width: 100%;
+    min-height: 300px;
+}
+
+.chart-container canvas {
+    max-width: 100%;
+    height: auto !important;
+}
+
+.card .chart-container {
+    padding: var(--spacing-md, 16px);
+}
+
+/* Chart loading state */
+.chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--text-muted, #6b7280);
+}
+
+.chart-loading-spinner {
+    border: 3px solid var(--gray-200, #e5e7eb);
+    border-top-color: var(--color-primary, #0078d4);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto var(--spacing-md, 16px);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Chart error state */
+.chart-error {
+    padding: var(--spacing-xl, 32px);
+    text-align: center;
+    color: var(--color-error, #dc2626);
+    background: var(--color-error-light, #f8d7da);
+    border-radius: var(--radius-md, 8px);
+}
+
+.chart-error-icon {
+    font-size: 48px;
+    margin-bottom: var(--spacing-md, 16px);
+}
+
+/* ====================================
+   Sparklines
+   ==================================== */
+
+.sparkline-container {
+    display: inline-block;
+    vertical-align: middle;
+    position: relative;
+}
+
+.sparkline-container svg {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Sparkline in table cells */
+td .sparkline-container,
+th .sparkline-container {
+    display: block;
+    margin: 0 auto;
+}
+
+/* ====================================
+   Dashboard Layouts
+   ==================================== */
+
+.agent-metrics-dashboard,
+.token-usage-viz {
+    padding: var(--spacing-md, 16px);
+}
+
+.agent-metrics-dashboard .card,
+.token-usage-viz .card {
+    margin-bottom: var(--spacing-lg, 24px);
+    border: 1px solid var(--border-primary, #e5e7eb);
+    box-shadow: var(--shadow-sm);
+}
+
+.agent-metrics-dashboard .card-header,
+.token-usage-viz .card-header {
+    background: var(--bg-secondary, #f9fafb);
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+    padding: var(--spacing-md, 16px) var(--spacing-lg, 24px);
+}
+
+.agent-metrics-dashboard .card-header h5,
+.token-usage-viz .card-header h5 {
+    margin: 0;
+    font-size: var(--font-size-lg, 20px);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--text-primary, #111827);
+}
+
+.agent-metrics-dashboard .card-body,
+.token-usage-viz .card-body {
+    padding: var(--spacing-lg, 24px);
+}
+
+/* ====================================
+   Period Selector (Token Usage)
+   ==================================== */
+
+.period-btn {
+    transition: var(--transition-base);
+}
+
+.period-btn.active {
+    background-color: var(--color-primary, #0078d4);
+    color: white;
+    border-color: var(--color-primary, #0078d4);
+}
+
+.period-btn:hover:not(.active) {
+    background-color: var(--color-primary-pale, #e6f3ff);
+    border-color: var(--color-primary-light, #50a7ff);
+}
+
+/* ====================================
+   Cost Table Styling
+   ==================================== */
+
+#token-cost-table {
+    font-size: var(--font-size-sm, 14px);
+}
+
+#token-cost-table thead {
+    background: var(--bg-secondary, #f9fafb);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--text-primary, #111827);
+    text-transform: uppercase;
+    font-size: var(--font-size-xs, 12px);
+    letter-spacing: 0.05em;
+}
+
+#token-cost-table tbody tr {
+    transition: var(--transition-base);
+}
+
+#token-cost-table tbody tr:hover {
+    background: var(--gray-50, #f9fafb);
+}
+
+#token-cost-table td {
+    vertical-align: middle;
+    padding: var(--spacing-sm, 12px);
+}
+
+/* ====================================
+   Responsive Design
+   ==================================== */
+
+@media (max-width: 768px) {
+    .metric-value {
+        font-size: var(--font-size-xl, 24px);
+    }
+
+    .metric-icon {
+        width: 40px;
+        height: 40px;
+        font-size: var(--font-size-lg, 20px);
+    }
+
+    .chart-container {
+        min-height: 200px;
+    }
+
+    .agent-metrics-dashboard,
+    .token-usage-viz {
+        padding: var(--spacing-sm, 12px);
+    }
+
+    .agent-metrics-dashboard .card-body,
+    .token-usage-viz .card-body {
+        padding: var(--spacing-md, 16px);
+    }
+
+    /* Make period selector stack on mobile */
+    .btn-group[role="group"] {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .period-btn {
+        width: 100%;
+        border-radius: var(--radius-sm, 4px) !important;
+        margin-bottom: var(--spacing-xs, 8px);
+    }
+
+    /* Stack table horizontally scroll on mobile */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ====================================
+   Chart Accessibility
+   ==================================== */
+
+/* Focus states for chart controls */
+.chart-container button:focus-visible,
+.period-btn:focus-visible {
+    outline: 2px solid var(--border-focus, #0078d4);
+    outline-offset: 2px;
+}
+
+/* Screen reader only labels for charts */
+.chart-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .metric-card {
+        border-width: 2px;
+    }
+
+    .metric-icon {
+        border: 2px solid currentColor;
+    }
+
+    .chart-container canvas {
+        filter: contrast(1.2);
+    }
+}
+
+/* ====================================
+   Print Styles
+   ==================================== */
+
+@media print {
+    .agent-metrics-dashboard,
+    .token-usage-viz {
+        padding: 0;
+    }
+
+    .metric-card {
+        box-shadow: none;
+        border: 1px solid var(--gray-300, #d1d5db);
+        page-break-inside: avoid;
+    }
+
+    .card {
+        box-shadow: none;
+        border: 1px solid var(--gray-300, #d1d5db);
+        page-break-inside: avoid;
+    }
+
+    .chart-container {
+        page-break-inside: avoid;
+    }
+
+    /* Hide interactive elements */
+    .period-btn,
+    .btn[onclick*="export"],
+    .btn[onclick*="refresh"] {
+        display: none;
+    }
+}
+
+/* ====================================
+   Animation Utilities
+   ==================================== */
+
+.fade-in-chart {
+    animation: fadeInChart 0.5s ease-in;
+}
+
+@keyframes fadeInChart {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.slide-in-chart {
+    animation: slideInChart 0.4s ease-out;
+}
+
+@keyframes slideInChart {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ====================================
+   Dark Mode Support (Future)
+   ==================================== */
+
+@media (prefers-color-scheme: dark) {
+    /* Will be implemented in Task #7 */
+    /* Placeholder for dark mode chart styles */
+}
