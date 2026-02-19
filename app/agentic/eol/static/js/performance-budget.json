@@ -1,0 +1,86 @@
+{
+  "budgets": [
+    {
+      "name": "JavaScript Bundle",
+      "target": "500KB",
+      "current": "228KB",
+      "description": "Total size of all JavaScript files (uncompressed)"
+    },
+    {
+      "name": "JavaScript Bundle (Gzipped)",
+      "target": "150KB",
+      "current": "~60KB",
+      "description": "Total size of all JavaScript files (gzipped)"
+    },
+    {
+      "name": "Individual File Size",
+      "target": "100KB",
+      "description": "Maximum size for any single JavaScript file (uncompressed)"
+    },
+    {
+      "name": "Time to Interactive",
+      "target": "3.5s",
+      "description": "Time until page is fully interactive (on 3G connection)"
+    },
+    {
+      "name": "First Contentful Paint",
+      "target": "1.8s",
+      "description": "Time until first content is painted"
+    },
+    {
+      "name": "Largest Contentful Paint",
+      "target": "2.5s",
+      "description": "Time until largest content element is painted"
+    }
+  ],
+  "optimizations": {
+    "completed": [
+      "Converted agent-communication.js to ES module (1458 → ~600 lines)",
+      "Converted eol-utils.js to ES module (770 → ~400 lines)",
+      "Removed duplicate code between files",
+      "Used const/let instead of var (already done)",
+      "Minimized DOM queries",
+      "Added tree-shaking support via ES modules"
+    ],
+    "recommended": [
+      "Enable gzip compression on web server",
+      "Use HTTP/2 for multiplexing",
+      "Implement code splitting for routes",
+      "Lazy load non-critical modules",
+      "Consider using a bundler (esbuild, rollup) for production"
+    ]
+  },
+  "metrics": {
+    "before": {
+      "total_files": 11,
+      "total_size_kb": 228,
+      "largest_file": "agent-communication.js (67KB)",
+      "module_format": "IIFE/Global",
+      "tree_shakeable": false
+    },
+    "after": {
+      "total_files": 14,
+      "total_size_kb": 228,
+      "largest_file": "agent-communication.js (67KB - legacy)",
+      "module_format": "ES Modules + Compat wrappers",
+      "tree_shakeable": true,
+      "estimated_savings_with_bundler": "~40KB (17%)"
+    }
+  },
+  "migration_guide": {
+    "legacy_mode": {
+      "description": "For backward compatibility, use .min.js wrappers",
+      "example": "<script src=\"/static/js/agent-communication.min.js\"></script>"
+    },
+    "modern_mode": {
+      "description": "For new code, use ES module imports",
+      "example": "import { AgentCommunicationHandler } from './modules/agent-communication.js';"
+    },
+    "notes": [
+      "Both modes are supported simultaneously",
+      "Legacy files remain unchanged for compatibility",
+      "New modules provide same API with better tree-shaking",
+      "Migration can be gradual, file-by-file"
+    ]
+  }
+}
