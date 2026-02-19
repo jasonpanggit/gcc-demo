@@ -7,6 +7,37 @@
 <!-- DataTables via CDN -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.min.css">
+<style>
+html.dark-mode #status-bar .badge.bg-secondary,
+html.dark-mode #status-bar .badge.bg-success,
+html.dark-mode #status-bar .badge.bg-primary {
+    color: #ffffff !important;
+}
+
+html.dark-mode .dataTables_wrapper,
+html.dark-mode .dataTables_wrapper .dataTables_length,
+html.dark-mode .dataTables_wrapper .dataTables_filter,
+html.dark-mode .dataTables_wrapper .dataTables_info,
+html.dark-mode .dataTables_wrapper .dataTables_paginate {
+    color: var(--gray-100) !important;
+}
+
+html.dark-mode .dataTables_wrapper input,
+html.dark-mode .dataTables_wrapper select,
+html.dark-mode .dataTables_wrapper .form-control,
+html.dark-mode .dataTables_wrapper .form-select {
+    background: var(--gray-700) !important;
+    border-color: var(--gray-600) !important;
+    color: var(--gray-100) !important;
+}
+
+html.dark-mode .dataTables_wrapper .paginate_button .page-link,
+html.dark-mode .dataTables_wrapper .page-item .page-link {
+    background: var(--gray-700) !important;
+    border-color: var(--gray-600) !important;
+    color: var(--gray-100) !important;
+}
+</style>
 {% endblock %}
 
 {% block content %}

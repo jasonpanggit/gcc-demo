@@ -120,7 +120,7 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 this.interactions.push(interaction);
                 console.log(`🎯 addInteraction: Total interactions now: ${this.interactions.length}`);
                 
-                this.updateAgentFlow(agent);
+                this.updateAgentFlow(agent, metadata);
                 this.displayInteractions();
 
                 return interaction.id;
@@ -176,7 +176,7 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
              * Update the agent flow visualization with a new agent.
              * @param {string} agent - The agent name to add to the flow
              */
-            updateAgentFlow(agent) {
+            updateAgentFlow(agent, metadata = {}) {
                 const cleanAgent = this.cleanAgentName(agent);
 
                 // Skip system nodes and avoid duplicates
@@ -184,6 +184,130 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                     (!this.agentFlow.length || this.agentFlow[this.agentFlow.length - 1] !== cleanAgent)) {
                     this.agentFlow.push(cleanAgent);
                 }
+
+                const phase = this.extractPhaseName(metadata);
+                if (phase) {
+                    const phaseNode = `Phase: ${phase}`;
+                    if (!this.agentFlow.length || this.agentFlow[this.agentFlow.length - 1] !== phaseNode) {
+                        this.agentFlow.push(phaseNode);
+                    }
+                }
+
+                const toolNodes = this.extractToolFlowNodes(metadata, phase);
+                toolNodes.forEach((toolNode) => {
+                    if (!this.agentFlow.length || this.agentFlow[this.agentFlow.length - 1] !== toolNode) {
+                        this.agentFlow.push(toolNode);
+                    }
+                });
+            }
+
+            /**
+             * Extract normalized phase from metadata for flow visualization.
+             * @param {Object} metadata - Interaction metadata
+             * @returns {string|null} Capitalized phase name or null
+             */
+            extractPhaseName(metadata = {}) {
+                const rawPhase = typeof metadata.action === 'string' ? metadata.action.trim().toLowerCase() : '';
+                const allowed = ['planning', 'action', 'observation', 'reflection', 'synthesis'];
+                if (!allowed.includes(rawPhase)) {
+                    return null;
+                }
+                return rawPhase.charAt(0).toUpperCase() + rawPhase.slice(1);
+            }
+
+            /**
+             * Extract MCP/agent tool call names from metadata to enrich flow visualization.
+             * @param {Object} metadata - Interaction metadata
+             * @returns {string[]} Array of normalized tool labels
+             */
+            extractToolFlowNodes(metadata = {}, phase = null) {
+                const labels = [];
+
+                // Tool usage should be shown during action phase in orchestrator flow.
+                // If phase is unknown (non-orchestrator payloads), still attempt extraction.
+                const shouldExtract = !phase || phase.toLowerCase() === 'action';
+                if (!shouldExtract) {
+                    return labels;
+                }
+
+                const addLabel = (rawName) => {
+                    const name = this.normalizeToolName(rawName);
+                    if (!name) return;
+                    const label = `Tool: ${name}`;
+                    if (!labels.includes(label)) {
+                        labels.push(label);
+                    }
+                };
+
+                const details = metadata.toolDetails;
+                if (Array.isArray(details)) {
+                    details.forEach((entry) => addLabel(entry));
+                }
+
+                const input = metadata.input;
+                if (Array.isArray(input)) {
+                    input.forEach((entry) => addLabel(entry));
+                }
+
+                if (input && typeof input === 'object') {
+                    addLabel(input.toolName || input.tool || input.name || input.function || input.command);
+                }
+
+                addLabel(metadata.toolName || metadata.tool || metadata.command);
+
+                return labels;
+            }
+
+            /**
+             * Normalize tool names from strings/objects into compact readable labels.
+             * @param {any} candidate - Potential tool descriptor
+             * @returns {string|null} Normalized tool name or null
+             */
+            normalizeToolName(candidate) {
+                if (!candidate) return null;
+
+                if (typeof candidate === 'object') {
+                    const nested = candidate.toolName || candidate.tool || candidate.name || candidate.function || candidate.command;
+                    return this.normalizeToolName(nested);
+                }
+
+                const raw = String(candidate).trim();
+                if (!raw) return null;
+
+                const cleaned = raw
+                    .replace(/^[^a-zA-Z0-9]+/, '')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+
+                if (!cleaned) return null;
+
+                const prefixedToolMatch = cleaned.match(/^(?:tool|command)\s*[:=-]\s*([a-zA-Z0-9_.:/-]+)/i);
+                if (prefixedToolMatch && prefixedToolMatch[1]) {
+                    return prefixedToolMatch[1];
+                }
+
+                const explicitToolMatch = cleaned.match(/tool\s*[:=-]\s*([a-zA-Z0-9_.:/-]+)/i);
+                if (explicitToolMatch && explicitToolMatch[1]) {
+                    return explicitToolMatch[1];
+                }
+
+                const namespacedMatch = cleaned.match(/([a-zA-Z0-9_-]+\.[a-zA-Z0-9_.:/-]+)/);
+                if (namespacedMatch && namespacedMatch[1]) {
+                    return namespacedMatch[1];
+                }
+
+                // e.g. "azure monitor metrics list" / "az monitor metrics list"
+                const commandPhraseMatch = cleaned.match(/^([a-zA-Z0-9_.:/-]+(?:\s+[a-zA-Z0-9_.:/-]+){1,4})/);
+                if (commandPhraseMatch && commandPhraseMatch[1]) {
+                    return commandPhraseMatch[1];
+                }
+
+                const tokenMatch = cleaned.match(/^([a-zA-Z0-9_.:/-]{2,})/);
+                if (tokenMatch && tokenMatch[1]) {
+                    return tokenMatch[1];
+                }
+
+                return null;
             }
 
             /**
@@ -667,9 +791,24 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 this.agentFlow.forEach((agent, index) => {
                     const color = agentColors[agent] || '#f5f5f5';
                     const isLast = index === this.agentFlow.length - 1;
+                    const text = String(agent || '');
+                    const isPhaseNode = text.startsWith('Phase:');
+                    const isToolNode = text.startsWith('Tool:');
+
+                    let nodeClass = 'flow-node';
+                    let styleAttr = ` style="background-color: ${color}"`;
+
+                    if (isPhaseNode) {
+                        const phaseKey = text.replace('Phase:', '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+                        nodeClass += ` phase-node phase-${phaseKey}`;
+                        styleAttr = '';
+                    } else if (isToolNode) {
+                        nodeClass += ' tool-node';
+                        styleAttr = '';
+                    }
 
                     flowHtml += `
-                <div class="flow-node" style="background-color: ${color}">
+                <div class="${nodeClass}"${styleAttr}>
                     <div class="node-content">
                         ${agent}
                     </div>
@@ -933,9 +1072,39 @@ function createAgentCommHandler(containerId, opts = {}) {
         // ignore
     }
 
-    // If a handler already exists and is not a noop placeholder, return it immediately
+    // If a handler already exists and is not a noop placeholder, allow option reconfiguration
+    // (important when navigating between pages that use different layouts for the same container id).
     if (window.agentCommHandlers[key] && !window.agentCommHandlers[key].__isAgentCommNoop) {
-        return window.agentCommHandlers[key];
+        const existing = window.agentCommHandlers[key];
+        let shouldRerender = false;
+
+        if (typeof mergedOpts.showFlow === 'boolean' && existing.showFlow !== mergedOpts.showFlow) {
+            existing.showFlow = mergedOpts.showFlow;
+            shouldRerender = true;
+        }
+
+        if (typeof mergedOpts.autoExpand === 'boolean') {
+            existing.autoExpand = mergedOpts.autoExpand;
+        }
+
+        if (typeof mergedOpts.autoScroll === 'boolean') {
+            existing.autoScroll = mergedOpts.autoScroll;
+        }
+
+        if (mergedOpts.titles && typeof mergedOpts.titles === 'object') {
+            existing.titles = Object.assign({}, existing.titles || {}, mergedOpts.titles);
+            shouldRerender = true;
+        }
+
+        if (shouldRerender && typeof existing.displayInteractions === 'function') {
+            try {
+                existing.displayInteractions();
+            } catch (e) {
+                console.warn('AgentComm: failed to re-render existing handler after option update', e);
+            }
+        }
+
+        return existing;
     }
 
     if (!window.agentCommHandlers[key]) {
@@ -1173,6 +1342,10 @@ function displayAgentCommunications(communications, options = {}) {
             
             handler.addInteraction(agentName, content, 'text', {
                 action: comm.action,
+                toolName: comm.toolName || comm.tool_name || comm.tool || comm.command,
+                tool: comm.tool || comm.tool_name || comm.toolName,
+                command: comm.command,
+                toolDetails: comm.toolDetails || comm.tool_details,
                 status: actualStatus,
                 timestamp: comm.timestamp,
                 input: inputData,

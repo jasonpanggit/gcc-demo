@@ -258,3 +258,21 @@
         margin-bottom: 4px;
     }
 }
+
+/* ------------------------------------------------------------------ */
+/* Dark mode - interactive/state refinements                           */
+/* ------------------------------------------------------------------ */
+html.dark-mode .details-panel {
+    background: var(--bg-secondary) !important;
+    border-left: 1px solid var(--border-primary);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+html.dark-mode #resource-table tbody tr:hover {
+    background: var(--bg-dark) !important;
+}
+
+html.dark-mode #resource-table tbody tr:hover td {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}

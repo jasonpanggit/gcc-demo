@@ -184,10 +184,130 @@ function addMessage(content, type = 'agent') {
 
     const messageDiv = document.createElement('div');
     messageDiv.className = `chat-message ${type}`;
-    messageDiv.innerHTML = content;
+
+    const iconByType = {
+        user: 'fa-user',
+        agent: 'fa-robot',
+        error: 'fa-exclamation-triangle',
+        status: 'fa-circle-info'
+    };
+
+    const labelByType = {
+        user: 'You',
+        agent: 'Assistant',
+        error: 'Assistant',
+        status: 'Assistant'
+    };
+
+    const iconClass = iconByType[type] || 'fa-robot';
+    const label = labelByType[type] || 'Assistant';
+    const timestamp = new Date().toLocaleTimeString();
+
+    messageDiv.innerHTML = `
+        <div class="chat-message-header">
+            <span class="chat-message-label"><i class="fas ${iconClass}"></i>${label}</span>
+            <span class="chat-message-time">${timestamp}</span>
+        </div>
+        <div class="chat-message-content">${content}</div>
+    `;
 
     chatHistory.appendChild(messageDiv);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+/**
+ * Ensure the Agent Communication section is visible.
+ */
+function showAgentCommsSection() {
+    const section = document.getElementById('agent-comms-section');
+    const btn = document.getElementById('toggle-comms-btn');
+
+    if (section && section.style.display === 'none') {
+        section.style.display = 'block';
+    }
+
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Hide';
+    }
+}
+
+/**
+ * Normalize agent communications from different response shapes.
+ */
+function extractAgentCommunications(payload) {
+    if (!payload || typeof payload !== 'object') {
+        return [];
+    }
+
+    const directCandidates = [
+        payload.agent_communications,
+        payload.communications,
+        payload.communication_history,
+        payload.interactions,
+        payload.trace,
+        payload.execution_trace,
+        payload.raw_results && payload.raw_results.agent_communications,
+        payload.raw_results && payload.raw_results.communications,
+        payload.results && payload.results.agent_communications,
+        payload.results && payload.results.communications,
+        payload.results && payload.results.communication_history,
+    ];
+
+    for (const candidate of directCandidates) {
+        if (Array.isArray(candidate) && candidate.length > 0) {
+            return candidate;
+        }
+    }
+
+    const toolResults = Array.isArray(payload.results)
+        ? payload.results
+        : (Array.isArray(payload.raw_results) ? payload.raw_results : []);
+
+    if (toolResults.length > 0) {
+        return toolResults.map((entry, index) => ({
+            agent_name: entry.agent || entry.agent_name || 'sre-orchestrator',
+            action: entry.action || entry.tool || `tool_step_${index + 1}`,
+            tool: entry.tool || entry.tool_name || entry.toolName || entry.command || null,
+            input: entry.input || entry.request || entry.parameters || null,
+            output: entry.output || entry.result || entry.response || null,
+            error: entry.error || null,
+            status: entry.status || null,
+            timestamp: entry.timestamp || new Date().toISOString(),
+        }));
+    }
+
+    return [];
+}
+
+/**
+ * Render agent communications in the shared communications panel.
+ */
+function renderAgentCommunications(payload) {
+    const communications = extractAgentCommunications(payload);
+    if (!communications.length) {
+        return;
+    }
+
+    showAgentCommsSection();
+
+    if (window.AgentComm && typeof window.AgentComm.display === 'function') {
+        window.AgentComm.display(communications, {
+            containerId: 'communicationsStream',
+            showFlow: true,
+            autoExpand: false,
+            autoScroll: true,
+        });
+        return;
+    }
+
+    if (typeof displayAgentCommunications === 'function') {
+        displayAgentCommunications(communications, {
+            containerId: 'communicationsStream',
+            showFlow: true,
+            autoExpand: false,
+            autoScroll: true,
+        });
+    }
 }
 
 /**
@@ -263,6 +383,7 @@ function sendMessage() {
             }
 
             addMessage(responseContent, 'agent');
+            renderAgentCommunications(data.data || {});
         } else {
             addMessage(`<i class="fas fa-exclamation-circle me-2"></i>${data.error || 'Request failed'}`, 'error');
         }

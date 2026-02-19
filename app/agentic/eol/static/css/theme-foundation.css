@@ -1,0 +1,213 @@
+/* ============================================================
+   THEME FOUNDATION (FINAL OVERRIDES)
+   Loaded last from base.html so template-level styles still follow
+   centralized light/dark tokens for layout surfaces.
+   ============================================================ */
+
+/* Light mode baseline */
+html body .card,
+html body .modern-card,
+html body .modal-content,
+html body .offcanvas,
+html body .dropdown-menu,
+html body .list-group-item,
+html body .accordion-item,
+html body .toast,
+html body [class$="-card"]:not(.hero-section):not(.summary-icon):not(.stat-icon),
+html body [class$="-panel"],
+html body [class*=" card-"] {
+    background: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .card-header,
+html body .modal-header,
+html body .offcanvas-header,
+html body .accordion-button,
+html body .table thead th,
+html body .section-header,
+html body .demo-section-header,
+html body [class*="-header"]:not(.hero-section):not(.hero-title):not(.hero-subtitle) {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .card-body,
+html body .modal-body,
+html body .offcanvas-body,
+html body .accordion-body,
+html body .table,
+html body .table td,
+html body .table th {
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html body .form-control,
+html body .form-select,
+html body .input-group-text,
+html body textarea,
+html body select,
+html body input {
+    background: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .text-muted,
+html body .form-text,
+html body .stat-label,
+html body .section-title,
+html body .timestamp,
+html body .comm-timestamp,
+html body .comm-action {
+    color: var(--text-muted) !important;
+}
+
+html body .card-title,
+html body .modal-title,
+html body .offcanvas-title,
+html body .stat-value,
+html body .summary-value,
+html body .config-title,
+html body .agent-name,
+html body .setting-label,
+html body .frequency-label,
+html body h1,
+html body h2,
+html body h3,
+html body h4,
+html body h5,
+html body h6 {
+    color: var(--text-primary);
+}
+
+/* Dark mode final normalization */
+html.dark-mode body .card,
+html.dark-mode body .modern-card,
+html.dark-mode body .modal-content,
+html.dark-mode body .offcanvas,
+html.dark-mode body .dropdown-menu,
+html.dark-mode body .list-group-item,
+html.dark-mode body .accordion-item,
+html.dark-mode body .toast,
+html.dark-mode body [class$="-card"]:not(.hero-section):not(.summary-icon):not(.stat-icon),
+html.dark-mode body [class$="-panel"],
+html.dark-mode body [class*=" card-"] {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .card-header,
+html.dark-mode body .modal-header,
+html.dark-mode body .offcanvas-header,
+html.dark-mode body .accordion-button,
+html.dark-mode body .table thead th,
+html.dark-mode body .section-header,
+html.dark-mode body .demo-section-header,
+html.dark-mode body [class*="-header"]:not(.hero-section):not(.hero-title):not(.hero-subtitle) {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .card-body,
+html.dark-mode body .modal-body,
+html.dark-mode body .offcanvas-body,
+html.dark-mode body .accordion-body,
+html.dark-mode body .table,
+html.dark-mode body .table td,
+html.dark-mode body .table th {
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode body .form-control,
+html.dark-mode body .form-select,
+html.dark-mode body .input-group-text,
+html.dark-mode body textarea,
+html.dark-mode body select,
+html.dark-mode body input {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .bg-light,
+html.dark-mode body .alert-light,
+html.dark-mode body .badge.bg-light {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .text-dark,
+html.dark-mode body .bg-light .text-dark {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .badge.text-dark,
+html.dark-mode body .bg-warning.text-dark,
+html.dark-mode body .bg-info.text-dark,
+html.dark-mode body .bg-success.text-dark,
+html.dark-mode body .bg-light.text-dark {
+    color: var(--gray-900) !important;
+}
+
+html.dark-mode body .alert-info {
+    background: rgba(14, 165, 233, 0.18) !important;
+    border-color: rgba(14, 165, 233, 0.35) !important;
+    color: #bae6fd !important;
+}
+
+html.dark-mode body .alert-warning {
+    background: rgba(245, 158, 11, 0.2) !important;
+    border-color: rgba(245, 158, 11, 0.35) !important;
+    color: #fde68a !important;
+}
+
+html.dark-mode body .bg-white,
+html.dark-mode body .table-light,
+html.dark-mode body .list-group-item-light {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body [style*="background: white"],
+html.dark-mode body [style*="background-color: white"],
+html.dark-mode body [style*="background:#fff"],
+html.dark-mode body [style*="background: #fff"],
+html.dark-mode body [style*="background-color:#fff"],
+html.dark-mode body [style*="background-color: #fff"],
+html.dark-mode body [style*="#f8f9fa"],
+html.dark-mode body [style*="#ffffff"] {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .stats-card,
+html.dark-mode body .task-summary,
+html.dark-mode body .rule-item,
+html.dark-mode body .agent-communications,
+html.dark-mode body .inventory-table-container,
+html.dark-mode body .pagination-modern,
+html.dark-mode body .eol-detail-section,
+html.dark-mode body .eol-stat-card,
+html.dark-mode body .agent-detail-card,
+html.dark-mode body .url-performance-card,
+html.dark-mode body .performance-metric,
+html.dark-mode body #capabilities-section,
+html.dark-mode body #capabilities-container,
+html.dark-mode body .capability-category,
+html.dark-mode body .capability-item,
+html.dark-mode body .chat-main,
+html.dark-mode body .chat-messages {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}

@@ -12,7 +12,7 @@
     /* Alert Management Styles */
 
     .alert-config-panel {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-lg);
         border: 1px solid var(--gray-200);
@@ -36,7 +36,7 @@
         padding: var(--spacing-lg);
         border: 1px solid var(--gray-200);
         border-radius: var(--radius-lg);
-        background: var(--gray-50);
+        background: var(--bg-secondary);
     }
 
     .config-section:last-child {
@@ -79,7 +79,7 @@
     }
 
     .alert-preview-panel {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-lg);
         border: 1px solid var(--gray-200);
@@ -174,7 +174,7 @@
     }
 
     .summary-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-lg);
         text-align: center;
@@ -305,7 +305,7 @@
         width: 18px;
         left: 3px;
         bottom: 3px;
-        background-color: white;
+        background-color: var(--bg-primary);
         transition: .4s;
         border-radius: 50%;
     }
@@ -352,7 +352,7 @@
 
     /* Notification History Styles */
     .notification-stat-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-lg);
         box-shadow: var(--shadow-sm);
@@ -399,14 +399,14 @@
     }
 
     .notification-filters {
-        background: #f8f9fa;
+        background: var(--bg-secondary);
         padding: var(--spacing-lg);
         border-radius: var(--radius-lg);
         border: 1px solid var(--gray-200);
     }
 
     .notification-history-table {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         overflow: hidden;
         box-shadow: var(--shadow-sm);
@@ -428,7 +428,7 @@
     }
 
     .notification-history-table tbody tr:hover {
-        background: #f8f9fa;
+        background: var(--bg-secondary);
     }
 
     .alert-type-badge {
@@ -500,6 +500,56 @@
     .section-actions {
         display: flex;
         gap: 0.5rem;
+    }
+
+    html.dark-mode .os-preview-table th {
+        background-color: var(--gray-700);
+        color: var(--gray-100);
+        border-bottom-color: var(--gray-600);
+    }
+
+    html.dark-mode .os-preview-table td,
+    html.dark-mode .notification-history-table tbody td {
+        background: var(--gray-800) !important;
+        border-color: var(--gray-600) !important;
+        color: var(--gray-100) !important;
+    }
+
+    html.dark-mode .notification-history-table tbody tr {
+        background: var(--gray-800) !important;
+    }
+
+    html.dark-mode .os-preview-table tbody tr:hover,
+    html.dark-mode .notification-history-table tbody tr:hover {
+        background: var(--gray-700) !important;
+    }
+
+    html.dark-mode .alert.alert-info {
+        background: rgba(14, 165, 233, 0.18) !important;
+        border-color: rgba(14, 165, 233, 0.35) !important;
+        color: #bae6fd !important;
+    }
+
+    html.dark-mode .alert.alert-warning {
+        background: rgba(245, 158, 11, 0.2) !important;
+        border-color: rgba(245, 158, 11, 0.35) !important;
+        color: #fde68a !important;
+    }
+
+    html.dark-mode .status-success {
+        background: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+    }
+
+    html.dark-mode .status-failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+    }
+
+    html.dark-mode #preview-count.badge.bg-light {
+        background: var(--gray-700) !important;
+        color: var(--gray-100) !important;
+        border: 1px solid var(--gray-600) !important;
     }
 </style>
 {% endblock %}
@@ -875,7 +925,7 @@
                 Alert Preview
             </h4>
             <div>
-                <span class="badge bg-light text-dark" id="preview-count">0 OS instances</span>
+                <span class="badge bg-light" id="preview-count">0 OS instances</span>
             </div>
         </div>
         <div class="preview-body">

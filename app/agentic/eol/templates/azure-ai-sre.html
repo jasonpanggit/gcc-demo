@@ -51,7 +51,7 @@
     <!-- Agent Communication Section -->
     <div class="row">
         <div class="col-12 mb-4">
-            {{ render_agent_comms(mode='sre') }}
+            {{ render_agent_comms(mode='sre', custom_config={'show_flow': False}) }}
         </div>
     </div>
 
@@ -79,17 +79,61 @@
 {{ chat_init_script(mode='sre', agent_name='sre-orchestrator') }}
 
 <style>
+.chat-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
 .chat-container {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: min(60vh, 720px);
+    padding-right: 0.25rem;
 }
 
 .chat-message {
     padding: 1rem;
     border-radius: 8px;
-    max-width: 80%;
+    width: 100%;
+    max-width: 100%;
     animation: fadeIn 0.3s ease-in;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.chat-message-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.chat-message-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.chat-message-time {
+    font-size: 0.8rem;
+}
+
+.chat-message pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-card-body .input-group {
+    flex-shrink: 0;
+    margin-top: 0.25rem;
 }
 
 @keyframes fadeIn {
@@ -98,24 +142,18 @@
 }
 
 .chat-message.user {
-    align-self: flex-end;
-    background-color: #0078d4;
-    color: white;
-    margin-left: auto;
+    align-self: stretch;
+    margin-left: 0;
 }
 
 .chat-message.agent {
-    align-self: flex-start;
-    background-color: #f3f2f1;
-    color: #323130;
-    border-left: 4px solid #0078d4;
+    align-self: stretch;
+    max-width: 100%;
 }
 
 .chat-message.error {
-    align-self: flex-start;
-    background-color: #fde7e9;
-    color: #a4262c;
-    border-left: 4px solid #a4262c;
+    align-self: stretch;
+    max-width: 100%;
 }
 
 .chat-message.status {
@@ -144,6 +182,21 @@
     color: #0078d4;
 }
 
+html.dark-mode .capability-item {
+    background-color: var(--bg-tertiary);
+    border-left-color: var(--color-primary);
+    color: var(--text-primary);
+}
+
+html.dark-mode .capability-item strong {
+    color: var(--color-primary-light);
+}
+
+html.dark-mode .capability-item small,
+html.dark-mode #capabilities-container .text-muted {
+    color: var(--text-muted) !important;
+}
+
 .stat-card {
     background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%);
     color: white;
@@ -161,9 +214,28 @@
     font-size: 0.9rem;
     opacity: 0.9;
 }
+
+html.dark-mode #chat-history .alert-light,
+html.dark-mode #chat-history .bg-light {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode #chat-history .text-muted {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode #chat-history pre {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-primary);
+}
 </style>
+
+<link rel="stylesheet" href="/static/css/agent_communication.css">
 
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>
-<script src="/static/js/azure-ai-sre.js?v=20260216-05"></script>
+<script src="/static/js/azure-ai-sre.js"></script>
 {% endblock %}

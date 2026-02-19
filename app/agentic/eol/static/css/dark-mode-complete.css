@@ -331,6 +331,24 @@ html.dark-mode .flow-node.completion {
     border-color: rgba(34, 197, 94, 0.3) !important;
 }
 
+html.dark-mode .flow-node.phase-node {
+    background: rgba(59, 130, 246, 0.22) !important;
+    color: #93c5fd !important;
+    border-color: rgba(59, 130, 246, 0.45) !important;
+}
+
+html.dark-mode .flow-node.phase-node.phase-action {
+    background: rgba(245, 158, 11, 0.2) !important;
+    color: #fcd34d !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+html.dark-mode .flow-node.tool-node {
+    background: rgba(124, 58, 237, 0.24) !important;
+    color: #c4b5fd !important;
+    border-color: rgba(124, 58, 237, 0.45) !important;
+}
+
 html.dark-mode .flow-arrow {
     color: var(--text-muted) !important;
 }
@@ -791,6 +809,345 @@ html.dark-mode .text-truncate {
 html.dark-mode hr {
     border-color: var(--border-primary) !important;
     opacity: 1;
+}
+
+/* ============================================================
+   TEMPLATE VISIBILITY SAFEGUARDS (CROSS-TEMPLATE)
+   ============================================================ */
+
+html.dark-mode .bg-warning,
+html.dark-mode .text-bg-warning,
+html.dark-mode .badge.bg-warning,
+html.dark-mode .alert-warning,
+html.dark-mode .card-header.bg-warning,
+html.dark-mode .progress-bar.bg-warning {
+    color: #111827 !important;
+}
+
+html.dark-mode .bg-info,
+html.dark-mode .text-bg-info,
+html.dark-mode .badge.bg-info,
+html.dark-mode .alert-info,
+html.dark-mode .card-header.bg-info,
+html.dark-mode .progress-bar.bg-info {
+    color: #0f172a !important;
+}
+
+html.dark-mode .bg-light,
+html.dark-mode .badge.bg-light,
+html.dark-mode .alert-light {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-dark,
+html.dark-mode .bg-warning .text-dark,
+html.dark-mode .bg-info .text-dark,
+html.dark-mode .bg-light .text-dark {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-white-50 {
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark-mode .badge-soft-success {
+    background: rgba(34, 197, 94, 0.18) !important;
+    color: #86efac !important;
+    border-color: rgba(34, 197, 94, 0.35) !important;
+}
+
+html.dark-mode .badge-soft-warning {
+    background: rgba(251, 146, 60, 0.2) !important;
+    color: #fdba74 !important;
+    border-color: rgba(251, 146, 60, 0.4) !important;
+}
+
+html.dark-mode .badge-soft-danger {
+    background: rgba(239, 68, 68, 0.18) !important;
+    color: #fca5a5 !important;
+    border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+html.dark-mode .badge-soft-secondary {
+    background: rgba(148, 163, 184, 0.2) !important;
+    color: #cbd5e1 !important;
+    border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+html.dark-mode .section-header,
+html.dark-mode .demo-section-header {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .agent-detail-card,
+html.dark-mode .detail-card,
+html.dark-mode .cache-card {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .stats-card,
+html.dark-mode .filter-card,
+html.dark-mode .rule-item,
+html.dark-mode .url-performance-card,
+html.dark-mode .task-summary,
+html.dark-mode .performance-metric,
+html.dark-mode .request-item,
+html.dark-mode .dash-metric-card {
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .request-time,
+html.dark-mode .stats-label,
+html.dark-mode .dash-metric-label {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .performance-badge,
+html.dark-mode .status-badge {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .agent-detail-card .card-header,
+html.dark-mode .detail-card .card-header,
+html.dark-mode .cache-card .card-header {
+    border-bottom-color: var(--border-primary) !important;
+}
+
+html.dark-mode .table {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .table > :not(caption) > * > * {
+    background-color: transparent !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .table-striped > tbody > tr:nth-of-type(odd) > * {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .table-hover > tbody > tr:hover > * {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .input-group-text {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .offcanvas,
+html.dark-mode .offcanvas-header,
+html.dark-mode .offcanvas-body {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .toast,
+html.dark-mode .toast-header,
+html.dark-mode .toast-body {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .multi-select-dropdown-menu,
+html.dark-mode .multi-select-dropdown-menu .dropdown-item {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .multi-select-dropdown-menu .dropdown-item:hover,
+html.dark-mode .multi-select-dropdown-menu .dropdown-item:focus {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dataTables_wrapper,
+html.dark-mode .dataTables_wrapper .dataTables_length,
+html.dark-mode .dataTables_wrapper .dataTables_filter,
+html.dark-mode .dataTables_wrapper .dataTables_info,
+html.dark-mode .dataTables_wrapper .dataTables_processing,
+html.dark-mode .dataTables_wrapper .dataTables_paginate {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dataTables_wrapper .form-control,
+html.dark-mode .dataTables_wrapper .form-select,
+html.dark-mode .dataTables_wrapper input,
+html.dark-mode .dataTables_wrapper select {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dataTables_wrapper .paginate_button .page-link,
+html.dark-mode .dataTables_wrapper .page-item .page-link {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dataTables_wrapper .paginate_button.active .page-link,
+html.dark-mode .dataTables_wrapper .page-item.active .page-link {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: #ffffff !important;
+}
+
+/* ============================================================
+   THEME FOUNDATION (DARK MODE)
+   Centralized dark defaults for shared components.
+   ============================================================ */
+
+html.dark-mode .card,
+html.dark-mode .modal-content,
+html.dark-mode .offcanvas,
+html.dark-mode .dropdown-menu,
+html.dark-mode .list-group-item,
+html.dark-mode .accordion-item,
+html.dark-mode .toast {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .card-header,
+html.dark-mode .modal-header,
+html.dark-mode .offcanvas-header,
+html.dark-mode .accordion-button,
+html.dark-mode .table thead th,
+html.dark-mode .section-header,
+html.dark-mode .demo-section-header {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .card-body,
+html.dark-mode .modal-body,
+html.dark-mode .offcanvas-body,
+html.dark-mode .accordion-body,
+html.dark-mode .table,
+html.dark-mode .table td,
+html.dark-mode .table th {
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .form-control,
+html.dark-mode .form-select,
+html.dark-mode .input-group-text,
+html.dark-mode textarea,
+html.dark-mode select,
+html.dark-mode input {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-muted,
+html.dark-mode .form-text,
+html.dark-mode .stat-label,
+html.dark-mode .section-title,
+html.dark-mode .timestamp,
+html.dark-mode .comm-timestamp,
+html.dark-mode .comm-action {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .card-title,
+html.dark-mode .modal-title,
+html.dark-mode .offcanvas-title,
+html.dark-mode .stat-value,
+html.dark-mode .summary-value,
+html.dark-mode .config-title,
+html.dark-mode .agent-name,
+html.dark-mode .setting-label,
+html.dark-mode .frequency-label {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .bg-light,
+html.dark-mode .alert-light,
+html.dark-mode .badge.bg-light {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-dark,
+html.dark-mode .bg-light .text-dark,
+html.dark-mode .bg-warning .text-dark,
+html.dark-mode .bg-info .text-dark {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .alert-info {
+    background: rgba(14, 165, 233, 0.18) !important;
+    border-color: rgba(14, 165, 233, 0.35) !important;
+    color: #bae6fd !important;
+}
+
+html.dark-mode .alert-warning {
+    background: rgba(245, 158, 11, 0.2) !important;
+    border-color: rgba(245, 158, 11, 0.35) !important;
+    color: #fde68a !important;
+}
+
+/* Inline hardcoded color normalization (template-level style attributes) */
+html.dark-mode [style*="background: #f8f9fa"],
+html.dark-mode [style*="background:#f8f9fa"],
+html.dark-mode [style*="background-color: #f8f9fa"],
+html.dark-mode [style*="background-color:#f8f9fa"],
+html.dark-mode [style*="background: white"],
+html.dark-mode [style*="background:white"],
+html.dark-mode [style*="background-color: white"],
+html.dark-mode [style*="background-color:white"],
+html.dark-mode [style*="background: #ffffff"],
+html.dark-mode [style*="background:#ffffff"],
+html.dark-mode [style*="background-color: #ffffff"],
+html.dark-mode [style*="background-color:#ffffff"] {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode [style*="color: #495057"],
+html.dark-mode [style*="color:#495057"],
+html.dark-mode [style*="color: #343a40"],
+html.dark-mode [style*="color:#343a40"],
+html.dark-mode [style*="color: #212529"],
+html.dark-mode [style*="color:#212529"],
+html.dark-mode [style*="color: #111827"],
+html.dark-mode [style*="color:#111827"] {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode [style*="color: #6c757d"],
+html.dark-mode [style*="color:#6c757d"],
+html.dark-mode [style*="color: #9ca3af"],
+html.dark-mode [style*="color:#9ca3af"] {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode [style*="color: #f8f9fa"],
+html.dark-mode [style*="color:#f8f9fa"],
+html.dark-mode [style*="color: #ffffff"],
+html.dark-mode [style*="color:#ffffff"],
+html.dark-mode [style*="color: white"],
+html.dark-mode [style*="color:white"] {
+    color: var(--text-primary) !important;
 }
 
 /* ============================================================

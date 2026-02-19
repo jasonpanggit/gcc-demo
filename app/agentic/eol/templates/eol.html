@@ -576,6 +576,17 @@ Legacy format handling has been removed as all agents now use the standardized f
         .search-history-section {
             margin: 0 0 var(--spacing-xl) 0;
         }
+
+        html.dark-mode #searchHistory .list-group-item,
+        html.dark-mode #searchHistory .list-group-item:hover {
+            background-color: var(--gray-700) !important;
+            border-color: var(--gray-600) !important;
+            color: var(--gray-100) !important;
+        }
+
+        html.dark-mode .rule-item {
+            border-color: var(--gray-600);
+        }
     </style>
 
     <!-- Use shared agent communications stylesheet to avoid duplication -->
@@ -891,7 +902,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             const dateStr = String(date);
 
             if (dateStr === 'Available') {
-                return '<span class="badge badge-success" style="color: #f8f9fa;">Available</span>';
+                return '<span class="badge badge-success">Available</span>';
             }
 
             // Extract just the date part if there's additional text
@@ -902,9 +913,9 @@ Legacy format handling has been removed as all agents now use the standardized f
 
             const expired = isDateExpired(dateOnly);
             if (expired) {
-                return `<span class="badge badge-danger" style="color: #f8f9fa; font-weight: bold;">${dateOnly}</span>`;
+                return `<span class="badge badge-danger fw-bold">${dateOnly}</span>`;
             } else {
-                return `<span class="badge ${baseClass}" style="color: #f8f9fa;">${dateOnly}</span>`;
+                return `<span class="badge ${baseClass}">${dateOnly}</span>`;
             }
         }
 
@@ -947,7 +958,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                     const includeInternetFlag = search.search_include_internet || search.searchIncludeInternet || search.search_mode === 'agents_plus_internet';
                     const agentOnlyFlag = search.search_agent_only || search.searchAgentOnly || search.search_mode === 'agent_only' || (!internetOnlyFlag && !includeInternetFlag);
                     const searchModeBadge = internetOnlyFlag ?
-                        '<span class="badge bg-info text-dark ms-2" style="font-size: 0.7em;">Internet Only</span>' :
+                        '<span class="badge bg-info ms-2" style="font-size: 0.7em;">Internet Only</span>' :
                         (includeInternetFlag ? '<span class="badge bg-primary text-light ms-2" style="font-size: 0.7em;">Agents + Internet</span>' : '<span class="badge bg-secondary text-light ms-2" style="font-size: 0.7em;">Agents Only</span>');
 
                     const ignoreCacheBadge = search.search_ignore_cache ? '<span class="badge bg-dark text-light ms-2" style="font-size: 0.7em;">Ignore Cache</span>' : '';
@@ -974,7 +985,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                                             ${searchModeBadge}
                                             ${ignoreCacheBadge}
                                             ${fromInventory ?
-                                                '<span class="badge bg-info text-dark" style="font-size: 0.7em;" title="Searched from inventory page"><i class="fas fa-list me-1"></i>Inventory</span>' :
+                                                '<span class="badge bg-info" style="font-size: 0.7em;" title="Searched from inventory page"><i class="fas fa-list me-1"></i>Inventory</span>' :
                                                 ''
                                             }
                                         </div>
@@ -987,7 +998,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                                     <div class="d-flex align-items-center justify-content-md-end justify-content-start gap-2">
                                         ${hasResult ?
                                             '<span class="badge bg-success text-light"><i class="fas fa-check me-1"></i>Found</span>' :
-                                            '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>No data</span>'
+                                            '<span class="badge bg-warning"><i class="fas fa-exclamation-triangle me-1"></i>No data</span>'
                                         }
                                         <button class="btn btn-sm btn-outline-primary" 
                                                 onclick="repeatSearch('${search.software_name.replace(/'/g, "\\'")}', '${(search.software_version || '').replace(/'/g, "\\'")}', ${internetOnlyFlag ? 'true' : 'false'}, ${includeInternetFlag ? 'true' : 'false'}, ${agentOnlyFlag ? 'true' : 'false'}, ${search.search_ignore_cache ? 'true' : 'false'})" 
@@ -2080,7 +2091,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                             <div class="mt-2">
                                 <small class="text-muted d-block">Other minor versions:</small>
                                 <div class="d-flex flex-wrap gap-2 mt-1">
-                                    ${minorVersions.map(v => `<span class="badge bg-light text-dark border">${v}</span>`).join('')}
+                                    ${minorVersions.map(v => `<span class="badge bg-light border">${v}</span>`).join('')}
                                 </div>
                             </div>
                         ` : ''}
@@ -2362,8 +2373,8 @@ Legacy format handling has been removed as all agents now use the standardized f
             let badgeClass = 'bg-secondary text-light';
 
             if (percentage >= 80) badgeClass = 'bg-success text-light';
-            else if (percentage >= 60) badgeClass = 'bg-info text-dark';
-            else if (percentage >= 40) badgeClass = 'bg-warning text-dark';
+            else if (percentage >= 60) badgeClass = 'bg-info';
+            else if (percentage >= 40) badgeClass = 'bg-warning';
             else badgeClass = 'bg-danger text-light';
 
             return `<span class="badge ${badgeClass} me-2" title="Search confidence">${percentage}%</span>`;
@@ -2392,20 +2403,20 @@ Legacy format handling has been removed as all agents now use the standardized f
                 'red_hat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
 
                 // Ubuntu agents
-                'ubuntu': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntu_agent': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntueol': { class: 'bg-warning text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL' },
+                'ubuntu': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
+                'ubuntu_agent': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
+                'ubuntueol': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL' },
 
                 // EndOfLife.date agents
-                'endoflife': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflife_agent': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflifeeol': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'eol_agent': { class: 'bg-info text-dark', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'endoflife': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'endoflife_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'endoflifeeol': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                'eol_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
 
                 // Oracle agents
-                'oracle': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle' },
-                'oracle_agent': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle' },
-                'oracleeol': { class: 'bg-warning text-dark', icon: 'fas fa-database', name: 'Oracle EOL' },
+                'oracle': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
+                'oracle_agent': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
+                'oracleeol': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle EOL' },
 
                 // VMware agents
                 'vmware': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
@@ -2433,9 +2444,9 @@ Legacy format handling has been removed as all agents now use the standardized f
                 'phpeol': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP EOL' },
 
                 // Python agents
-                'python': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python' },
-                'python_agent': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python' },
-                'pythoneol': { class: 'bg-warning text-dark', icon: 'fab fa-python', name: 'Python EOL' },
+                'python': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
+                'python_agent': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
+                'pythoneol': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python EOL' },
 
                 // Azure AI Agent Service (Modern replacement for Bing Search)
                 'azure_ai': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
@@ -2444,8 +2455,8 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                 // Generic/fallback agents
                 'general': { class: 'bg-secondary text-light', icon: 'fas fa-robot', name: 'General Agent' },
-                'web_search': { class: 'bg-info text-dark', icon: 'fas fa-search', name: 'Web Search' },
-                'websearch': { class: 'bg-info text-dark', icon: 'fas fa-search', name: 'Web Search' }
+                'web_search': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' },
+                'websearch': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' }
             };
 
             // Check for exact match first
@@ -2518,11 +2529,11 @@ Legacy format handling has been removed as all agents now use the standardized f
         function getRiskBadge(riskLevel) {
             const risk = (riskLevel && typeof riskLevel === 'string' ? riskLevel : 'unknown').toLowerCase();
             const badges = {
-                'critical': '<span class="badge badge-danger" style="color: #f8f9fa; font-weight: bold;">Critical</span>',
-                'high': '<span class="badge badge-warning" style="color: #212529; font-weight: bold;">High</span>',
-                'medium': '<span class="badge badge-info" style="color: #212529;">Medium</span>',
-                'low': '<span class="badge badge-success" style="color: #f8f9fa;">Low</span>',
-                'unknown': '<span class="badge badge-secondary" style="color: #f8f9fa;">Unknown</span>'
+                'critical': '<span class="badge badge-danger fw-bold">Critical</span>',
+                'high': '<span class="badge badge-warning fw-bold">High</span>',
+                'medium': '<span class="badge badge-info">Medium</span>',
+                'low': '<span class="badge badge-success">Low</span>',
+                'unknown': '<span class="badge badge-secondary">Unknown</span>'
             };
             return badges[risk] || badges['unknown'];
         }
@@ -3163,5 +3174,5 @@ Legacy format handling has been removed as all agents now use the standardized f
 
     {% block extra_scripts %}
     <!-- eol-utils.js already loaded in base.html -->
-    <script src="/static/js/agent-communication.js?v=20251021-10"></script>
+    <script src="/static/js/agent-communication.js"></script>
     {% endblock %}

@@ -7,7 +7,7 @@
     /* Inventory Management Styles */
 
     .filter-panel {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -50,7 +50,7 @@
     }
 
     .stat-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-lg);
         text-align: center;
@@ -91,7 +91,7 @@
     }
 
     .inventory-table-container {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-xl);
         overflow: hidden;
         box-shadow: var(--shadow-lg);
@@ -256,7 +256,7 @@
     }
 
     .pagination-modern {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-lg);
         margin: var(--spacing-lg) 0;
@@ -689,7 +689,7 @@
 
     /* EOL Detail Section Styles */
     .eol-detail-section {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -709,7 +709,7 @@
     }
 
     .eol-stat-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-lg);
         box-shadow: var(--shadow-sm);
@@ -781,14 +781,14 @@
     }
 
     .eol-items-table-container {
-        background: #f8f9fa;
+        background: var(--bg-secondary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-md);
         margin-top: var(--spacing-lg);
     }
 
     .eol-items-table {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         overflow: hidden;
         box-shadow: var(--shadow-sm);
@@ -811,7 +811,7 @@
     }
 
     .eol-items-table tbody tr:hover {
-        background: #f8f9fa;
+        background: var(--bg-secondary);
     }
 
     .eol-priority-badge {
@@ -845,7 +845,7 @@
 
     /* Loading Spinner Styles */
     #eol-loading {
-        background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+        background: var(--bg-secondary);
         border-radius: 10px;
         margin: 20px;
         transition: opacity 0.3s ease;
@@ -860,7 +860,7 @@
     #eol-loading span {
         font-size: 1.1rem;
         font-weight: 500;
-        color: #6c757d;
+        color: var(--text-secondary);
     }
 
     /* Fade in animation for content */
@@ -899,6 +899,95 @@
     .eol-days-info {
         background: #d1ecf1;
         color: #0c5460;
+    }
+
+    html.dark-mode .filter-header,
+    html.dark-mode .inventory-table th,
+    html.dark-mode .inventory-table-header,
+    html.dark-mode .eol-detail-header {
+        border-color: var(--border-primary) !important;
+    }
+
+    html.dark-mode .filter-header {
+        background: var(--bg-tertiary) !important;
+    }
+
+    html.dark-mode .inventory-table td {
+        border-bottom-color: var(--border-primary) !important;
+        border-right-color: var(--border-primary) !important;
+        color: var(--text-primary) !important;
+    }
+
+    html.dark-mode .inventory-table tr:hover {
+        background: var(--bg-tertiary) !important;
+        box-shadow: none;
+    }
+
+    html.dark-mode .pagination .page-link {
+        background: var(--bg-secondary) !important;
+        border-color: var(--border-primary) !important;
+        color: var(--text-primary) !important;
+    }
+
+    html.dark-mode .pagination .page-link:hover {
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+    }
+
+    html.dark-mode .pagination .page-item.active .page-link {
+        background: var(--color-primary) !important;
+        border-color: var(--color-primary) !important;
+        color: #ffffff !important;
+    }
+
+    html.dark-mode .pagination .page-item.disabled .page-link {
+        background: var(--bg-tertiary) !important;
+        color: var(--text-muted) !important;
+    }
+
+    html.dark-mode .loading-overlay,
+    html.dark-mode #eol-loading {
+        background: var(--bg-secondary) !important;
+        border-color: var(--border-primary) !important;
+    }
+
+    html.dark-mode .status-active {
+        background-color: rgba(34, 197, 94, 0.18) !important;
+        color: #86efac !important;
+        border-color: rgba(34, 197, 94, 0.35) !important;
+    }
+
+    html.dark-mode .status-eol {
+        background-color: rgba(239, 68, 68, 0.18) !important;
+        color: #fca5a5 !important;
+        border-color: rgba(239, 68, 68, 0.35) !important;
+    }
+
+    html.dark-mode .status-warning {
+        background-color: rgba(251, 146, 60, 0.2) !important;
+        color: #fdba74 !important;
+        border-color: rgba(251, 146, 60, 0.4) !important;
+    }
+
+    html.dark-mode .status-unknown {
+        background-color: rgba(148, 163, 184, 0.2) !important;
+        color: #cbd5e1 !important;
+        border-color: rgba(148, 163, 184, 0.35) !important;
+    }
+
+    html.dark-mode .eol-days-expired {
+        background: rgba(239, 68, 68, 0.18) !important;
+        color: #fca5a5 !important;
+    }
+
+    html.dark-mode .eol-days-warning {
+        background: rgba(251, 146, 60, 0.2) !important;
+        color: #fdba74 !important;
+    }
+
+    html.dark-mode .eol-days-info {
+        background: rgba(59, 130, 246, 0.2) !important;
+        color: #93c5fd !important;
     }
 </style>
 {% endblock %}
@@ -1449,7 +1538,7 @@
         const normalizedType = softwareType.toLowerCase();
         if (normalizedType && normalizedType !== 'application' && normalizedType !== 'operating system') {
             statusElement.innerHTML = `
-            <span class="badge bg-light text-dark">
+            <span class="badge bg-light">
                 <i class="fas fa-minus me-1"></i>
                 N/A
             </span>
@@ -1472,7 +1561,7 @@
 
             if (!rawName) {
                 statusElement.innerHTML = `
-                <span class="badge bg-warning text-dark">
+                <span class="badge bg-warning">
                     <i class="fas fa-exclamation-triangle me-1"></i>
                     No name
                 </span>
@@ -1512,7 +1601,7 @@
 
             if (timeout || (response && response.status === 504)) {
                 statusElement.innerHTML = `
-                <span class="badge bg-warning text-dark" title="EOL service timed out">
+                <span class="badge bg-warning" title="EOL service timed out">
                     <i class="fas fa-clock me-1"></i>
                     Timeout
                 </span>
@@ -1522,7 +1611,7 @@
 
             if (!response || !response.ok) {
                 statusElement.innerHTML = `
-                <span class="badge bg-warning text-dark" title="EOL service error${response ? ` (${response.status})` : ''}">
+                <span class="badge bg-warning" title="EOL service error${response ? ` (${response.status})` : ''}">
                     <i class="fas fa-exclamation-triangle me-1"></i>
                     Service error
                 </span>
@@ -1553,7 +1642,7 @@
 
                 if (timeout || (response && response.status === 504)) {
                     statusElement.innerHTML = `
-                    <span class="badge bg-warning text-dark" title="EOL service timed out">
+                    <span class="badge bg-warning" title="EOL service timed out">
                         <i class="fas fa-clock me-1"></i>
                         Timeout
                     </span>
@@ -1563,7 +1652,7 @@
 
                 if (!response || !response.ok) {
                     statusElement.innerHTML = `
-                    <span class="badge bg-warning text-dark" title="EOL service error${response ? ` (${response.status})` : ''}">
+                    <span class="badge bg-warning" title="EOL service error${response ? ` (${response.status})` : ''}">
                         <i class="fas fa-exclamation-triangle me-1"></i>
                         Service error
                     </span>
@@ -1586,7 +1675,7 @@
             } else {
                 // No EOL data found - but check if we have any helpful status info
                 let statusText = 'No data';
-                let statusClass = 'bg-light text-dark';
+                let statusClass = 'bg-light';
 
                 // Check if we have any indication this software is still supported
                 if (eolInfo && eolInfo.additional_info) {
@@ -1611,7 +1700,7 @@
         } catch (error) {
             console.error('Error checking EOL:', error);
             statusElement.innerHTML = `
-            <span class="badge bg-warning text-dark" title="Error occurred while checking EOL data">
+            <span class="badge bg-warning" title="Error occurred while checking EOL data">
                 <i class="fas fa-exclamation-triangle me-1"></i>
                 Error
             </span>
@@ -1777,14 +1866,14 @@
                 } else if (daysDiff <= 90) {
                     // EOL within 90 days
                     status = 'warning';
-                    badgeClass = 'bg-warning text-dark';
+                    badgeClass = 'bg-warning';
                     icon = 'fas fa-exclamation-triangle';
                     text = `${daysDiff}d (${formattedDate})`;
                     title = `End-of-life in ${daysDiff} days: ${eolDate}`;
                 } else if (daysDiff <= 365) {
                     // EOL within 1 year
                     status = 'caution';
-                    badgeClass = 'bg-info text-dark';
+                    badgeClass = 'bg-info';
                     icon = 'fas fa-clock';
                     text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
                     title = `End-of-life in ${daysDiff} days: ${eolDate}`;
@@ -1814,7 +1903,7 @@
             // Check for extended support if no EOL date
             if (extendedSupportDate === true || extendedSupportDate === 'Available') {
                 status = 'extended';
-                badgeClass = 'bg-info text-dark';
+                badgeClass = 'bg-info';
                 icon = 'fas fa-shield-alt';
                 text = 'Extended Support';
                 title = 'Extended support available';
@@ -1897,14 +1986,14 @@
                     } else if (daysDiff <= 90) {
                         // EOL within 90 days
                         status = 'warning';
-                        badgeClass = 'bg-warning text-dark';
+                        badgeClass = 'bg-warning';
                         icon = 'fas fa-exclamation-triangle';
                         text = `${daysDiff}d (${formattedDate})`;
                         title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
                     } else if (daysDiff <= 365) {
                         // EOL within 1 year
                         status = 'caution';
-                        badgeClass = 'bg-info text-dark';
+                        badgeClass = 'bg-info';
                         icon = 'fas fa-clock';
                         text = `${Math.ceil(daysDiff / 30)}mo (${formattedDate})`;
                         title = `End-of-life in ${daysDiff} days: ${eolInfo.eol_date}`;
@@ -2538,7 +2627,7 @@
                 }
 
                 cacheTimestampSpan.innerHTML = `
-                <span class="badge bg-info text-dark me-1">
+                <span class="badge bg-info me-1">
                     <i class="fas fa-database me-1"></i>Cache Status
                 </span>
                 ${cacheText}${timestampText}
@@ -2549,7 +2638,7 @@
                     cacheStatusDiv.style.display = 'block';
                 }
                 cacheTimestampSpan.innerHTML = `
-                <span class="badge bg-success text-dark me-1">
+                <span class="badge bg-success me-1">
                     <i class="fas fa-sync me-1"></i>Fresh Data
                 </span>
                 ${softwareCount} software + ${osCount} OS items (live data)
@@ -2903,7 +2992,7 @@
                     if (cacheTimestampSpan) {
                         const existingContent = cacheTimestampSpan.innerHTML;
                         cacheTimestampSpan.innerHTML = `${existingContent} 
-                            <span class="badge bg-warning text-dark ms-2" style="cursor: pointer;" 
+                            <span class="badge bg-warning ms-2" style="cursor: pointer;" 
                                   onclick="clearInventoryCache()" 
                                   title="Click to refresh data - cache inconsistency detected">
                                 <i class="fas fa-exclamation-triangle me-1"></i>Refresh Recommended

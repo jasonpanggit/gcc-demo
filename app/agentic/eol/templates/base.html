@@ -37,6 +37,8 @@
     <link href="/static/css/dark-mode-complete.css" rel="stylesheet">
 
     {% block extra_head %}{% endblock %}
+    <!-- Theme Foundation - MUST load after extra_head to enforce centralized light/dark consistency -->
+    <link href="/static/css/theme-foundation.css" rel="stylesheet">
 </head>
 
 <body>
@@ -51,7 +53,7 @@
             </button>
             <div class="topbar-search">
                 <i class="fas fa-search"></i>
-                <input type="text" placeholder="Search (Ctrl+K)..." id="globalSearch" aria-label="Global search">
+                <input type="text" placeholder="Search (Ctrl+K)...(TODO)" id="globalSearch" aria-label="Global search">
             </div>
         </div>
         <div class="topbar-right">
@@ -66,10 +68,10 @@
                     <i class="fas fa-chevron-down" style="font-size: 10px; opacity: 0.6;"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                    <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile (TODO)</a></li>
+                    <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings (TODO)</a></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="#"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                    <li><a class="dropdown-item" href="#"><i class="fas fa-sign-out-alt me-2"></i>Logout (TODO)</a></li>
                 </ul>
             </div>
             <button class="topbar-icon" id="themeToggle" aria-label="Toggle dark mode">
@@ -199,9 +201,9 @@
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <!-- Custom JS -->
-    <script src="/static/js/eol-utils.js?v=20251021-10" defer></script>
-    <script src="/static/js/agent-config.js?v=20251021-10" defer></script>
-    <script src="/static/js/app.js?v=20251021-10" defer></script>
+    <script src="/static/js/eol-utils.js" defer></script>
+    <script src="/static/js/agent-config.js" defer></script>
+    <script src="/static/js/app.js" defer></script>
 
     <!-- Modern Layout JavaScript -->
     <script>

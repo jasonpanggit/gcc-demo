@@ -40,7 +40,7 @@
     <!-- Agent Communication Section -->
     <div class="row">
         <div class="col-12 mb-4">
-            {{ render_agent_comms(mode='mcp') }}
+            {{ render_agent_comms(mode='mcp', custom_config={'show_flow': False}) }}
         </div>
     </div>
 
@@ -255,7 +255,7 @@
                     html += `
                         <div class="col-12 mb-3">
                             <div class="card">
-                                <div class="card-header bg-warning text-dark">
+                                <div class="card-header bg-warning">
                                     <h6 class="mb-0"><i class="fas fa-bell me-2"></i>Alerts (${data.metadata.alerts.length} categories)</h6>
                                 </div>
                                 <div class="card-body" style="max-height: 500px; overflow-y: auto;">
@@ -509,7 +509,7 @@
                     <div class="card shadow-sm mb-0">
                         <div class="card-header d-flex justify-content-between align-items-center ${isConnected ? 'bg-success text-white' : 'bg-warning'}">
                             <span><i class="fas ${isConnected ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>${isConnected ? 'Connected to Azure MCP Orchestrator' : 'Disconnected from Azure MCP Orchestrator'}</span>
-                            <span class="badge ${isConnected ? 'bg-light text-dark' : 'bg-dark text-white'}"><i class="fas fa-terminal me-1"></i>Stdio (npx)</span>
+                            <span class="badge ${isConnected ? 'bg-light' : 'bg-dark text-white'}"><i class="fas fa-terminal me-1"></i>Stdio (npx)</span>
                         </div>
                         <div class="card-body">
                             <div class="row g-3">
@@ -614,7 +614,7 @@
                                 <div class="d-flex w-100 justify-content-between align-items-center">
                                     <h6 class="mb-1"><code>${tool.name}</code></h6>
                                     <div class="d-flex gap-2">
-                                        ${originalName ? `<span class="badge bg-light text-dark">${escapeHtml(originalName)}</span>` : ''}
+                                        ${originalName ? `<span class="badge bg-light">${escapeHtml(originalName)}</span>` : ''}
                                         <span class="badge bg-secondary text-uppercase" style="font-size: 0.7rem;">${friendlySource}</span>
                                     </div>
                                 </div>
@@ -2067,6 +2067,9 @@
             if (data.success && data.data && data.data.length > 0) {
                 const result = data.data[0];
                 appendMessage('assistant', result.response);
+                addAgentComm('synthesis', result.response || 'Response generated', {
+                    strategy: 'direct-response'
+                });
             } else {
                 appendMessage('error', data.error || 'Failed to get response');
             }
@@ -2088,38 +2091,27 @@
         messageDiv.className = `chat-message ${role}-message mb-3`;
 
         let icon = '';
-        let bgColor = '';
-        let textColor = '';
+        let roleLabel = 'Assistant';
 
         if (role === 'user') {
             icon = '<i class="fas fa-user me-2"></i>';
-            bgColor = '#e3f2fd';
-            textColor = '#1976d2';
+            roleLabel = 'You';
         } else if (role === 'assistant') {
             icon = '<i class="fas fa-robot me-2"></i>';
-            bgColor = '#f3e5f5';
-            textColor = '#7b1fa2';
+            roleLabel = 'Assistant';
         } else if (role === 'error') {
             icon = '<i class="fas fa-exclamation-triangle me-2"></i>';
-            bgColor = '#ffebee';
-            textColor = '#c62828';
-        } else {
-            bgColor = '#eceff1';
-            textColor = '#37474f';
+            roleLabel = 'Error';
         }
 
         const wrapper = document.createElement('div');
-        wrapper.className = 'chat-message-wrapper';
-        wrapper.style.backgroundColor = bgColor;
-        wrapper.style.borderLeft = `4px solid ${textColor}`;
+        wrapper.className = `chat-message-wrapper ${role}-card`;
 
         const header = document.createElement('div');
-        header.className = 'chat-message-header';
-        header.style.color = textColor;
-        header.innerHTML = `${icon}${role === 'user' ? 'You' : 'Assistant'}`;
+        header.className = `chat-message-header ${role}-header`;
+        header.innerHTML = `${icon}${roleLabel}`;
         const body = document.createElement('div');
         body.className = 'chat-message-body';
-        body.style.color = '#333';
 
         const { html, hasRichContent } = formatContent(content);
 
@@ -2566,13 +2558,11 @@
     }
 
     function clearAgentComms() {
-        const stream = document.getElementById('agent-comms-stream');
-        stream.innerHTML = `
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-brain fa-3x mb-3" style="color: #6c757d;"></i>
-                <p style="color: #6c757d;">Agent activity will appear here when processing requests...</p>
-            </div>
-        `;
+        if (window.AgentComm && typeof window.AgentComm.clearAllCommunications === 'function') {
+            window.AgentComm.clearAllCommunications('communicationsStream');
+        } else if (window.agentCommHandler && typeof window.agentCommHandler.clearAllCommunications === 'function') {
+            window.agentCommHandler.clearAllCommunications();
+        }
         
         // Reset stats
         agentCommStats = {
@@ -2582,23 +2572,43 @@
             duration: 0
         };
         updateAgentStats();
-        document.getElementById('reasoning-stats').style.display = 'none';
+
+        const statsContainer = document.getElementById('reasoning-stats');
+        if (statsContainer) {
+            statsContainer.style.display = 'none';
+        }
     }
 
     function updateAgentStats() {
-        document.getElementById('stat-iterations').textContent = agentCommStats.iterations;
-        document.getElementById('stat-tools').textContent = agentCommStats.toolCalls;
-        document.getElementById('stat-strategy').textContent = agentCommStats.strategy;
-        document.getElementById('stat-duration').textContent = agentCommStats.duration + 's';
+        const statIterations = document.getElementById('stat-iterations');
+        const statTools = document.getElementById('stat-tools');
+        const statStrategy = document.getElementById('stat-strategy');
+        const statDuration = document.getElementById('stat-duration');
+
+        if (statIterations) statIterations.textContent = agentCommStats.iterations;
+        if (statTools) statTools.textContent = agentCommStats.toolCalls;
+        if (statStrategy) statStrategy.textContent = agentCommStats.strategy;
+        if (statDuration) statDuration.textContent = agentCommStats.duration + 's';
+    }
+
+    function ensureAgentCommsVisible() {
+        const section = document.getElementById('agent-comms-section');
+        const btn = document.getElementById('toggle-comms-btn');
+
+        if (section && section.style.display === 'none') {
+            section.style.display = 'block';
+        }
+
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Hide';
+        }
     }
 
     function addAgentComm(phase, content, metadata = {}) {
-        const stream = document.getElementById('agent-comms-stream');
+        ensureAgentCommsVisible();
+
         const statsDiv = document.getElementById('reasoning-stats');
-        
-        // Remove placeholder if present
-        if (stream.querySelector('.text-center.text-muted')) {
-            stream.innerHTML = '';
+        if (statsDiv && statsDiv.style.display === 'none') {
             statsDiv.style.display = 'flex';
             agentCommStartTime = Date.now();
         }
@@ -2622,76 +2632,59 @@
             agentCommStats.duration = ((Date.now() - agentCommStartTime) / 1000).toFixed(1);
         }
         updateAgentStats();
-        
-        // Create comm entry
-        const entry = document.createElement('div');
-        entry.className = 'agent-comm-entry';
-        
-        const timestamp = new Date().toLocaleTimeString();
-        const iteration = metadata.iteration ? `<span class="reasoning-iteration">Iteration ${metadata.iteration}</span>` : '';
-        
-        let html = `
-            <div class="agent-comm-header">
-                <div class="agent-comm-header-left">
-                    <span class="agent-comm-phase phase-${phase}">${phase}</span>
-                    ${iteration}
-                </div>
-                <span class="agent-comm-timestamp">${timestamp}</span>
+
+        const handler = (window.AgentComm && typeof window.AgentComm.createHandler === 'function')
+            ? window.AgentComm.createHandler('communicationsStream', { showFlow: true, autoExpand: false, autoScroll: true })
+            : window.agentCommHandler;
+
+        if (!handler || typeof handler.addInteraction !== 'function') {
+            return;
+        }
+
+        const toolDetailsHtml = Array.isArray(metadata.toolDetails) && metadata.toolDetails.length > 0
+            ? `<div><strong>Tools:</strong><br>${metadata.toolDetails.map(detail => `• ${escapeHtml(String(detail))}`).join('<br>')}</div>`
+            : '';
+
+        const toolResultText = metadata.toolResult
+            ? (typeof metadata.toolResult === 'string'
+                ? metadata.toolResult
+                : JSON.stringify(metadata.toolResult, null, 2))
+            : '';
+
+        const resultHtml = toolResultText
+            ? `<div><strong>Result:</strong><pre class="json-display">${escapeHtml(toolResultText)}</pre></div>`
+            : '';
+
+        const interactionHtml = `
+            <div class="generic-response">
+                <div class="comm-action"><strong>Phase:</strong> ${escapeHtml(String(phase || 'unknown'))}</div>
+                <div class="text-content mt-2">${escapeHtml(String(content || ''))}</div>
+                ${toolDetailsHtml}
+                ${resultHtml}
             </div>
-            <div class="agent-comm-content">${escapeHtml(content)}</div>
         `;
-        
-        // Add tool call details
-        if (phase === 'action') {
-            // Show detailed tool information if available
-            if (metadata.toolDetails && Array.isArray(metadata.toolDetails)) {
-                html += '<div class="tool-call-details">';
-                metadata.toolDetails.forEach(detail => {
-                    const isCliCommand = detail.includes('🔧');
-                    if (isCliCommand) {
-                        // CLI command - show in monospace with copy button
-                        const command = detail.split(': ').slice(1).join(': ').trim();
-                        html += `
-                            <div class="cli-command-display">
-                                <div class="cli-command-label">Command:</div>
-                                <code class="cli-command">${escapeHtml(command)}</code>
-                            </div>
-                        `;
-                    } else {
-                        // Other tool details
-                        html += `<div class="tool-detail">${escapeHtml(detail)}</div>`;
-                    }
-                });
-                html += '</div>';
-            } else if (metadata.toolName) {
-                // Fallback to legacy display
-                html += `
-                    <div class="tool-call">
-                        <div class="tool-name">🔧 ${escapeHtml(metadata.toolName)}</div>
-                        ${metadata.toolParams ? `<div class="tool-params">Parameters: ${escapeHtml(JSON.stringify(metadata.toolParams, null, 2))}</div>` : ''}
-                    </div>
-                `;
+
+        const interactionType = phase === 'error' || metadata.isError ? 'error' : 'text';
+        const status = phase === 'error' || metadata.isError
+            ? 'failed'
+            : (phase === 'action' ? 'in_progress' : 'completed');
+
+        handler.addInteraction('mcp-orchestrator', interactionHtml, interactionType, {
+            action: phase,
+            status,
+            input: metadata.toolParams || metadata.toolDetails || null,
+            output: metadata.toolResult || null,
+            timestamp: new Date().toISOString(),
+        });
+
+        const normalizedPhase = String(phase || '').toLowerCase();
+        const isTerminalPhase = ['synthesis', 'complete', 'completed', 'done', 'final', 'finalize', 'finished'].includes(normalizedPhase);
+        if (isTerminalPhase) {
+            handler.taskCompleted = true;
+            if (typeof handler.displayInteractions === 'function') {
+                handler.displayInteractions();
             }
         }
-        
-        // Add tool result
-        if (phase === 'observation' && metadata.toolResult) {
-            const resultClass = metadata.isError ? 'tool-error' : 'tool-result';
-            const resultText = typeof metadata.toolResult === 'string' 
-                ? metadata.toolResult 
-                : JSON.stringify(metadata.toolResult, null, 2);
-            html += `
-                <div class="${resultClass}">
-                    ${metadata.isError ? '❌' : '✅'} Result: ${escapeHtml(resultText)}
-                </div>
-            `;
-        }
-        
-        entry.innerHTML = html;
-        stream.appendChild(entry);
-        
-        // Auto-scroll to bottom
-        stream.scrollTop = stream.scrollHeight;
     }
 
     // Connect to agent communication stream (SSE)
@@ -2886,7 +2879,10 @@
         padding: 12px;
         border-radius: 8px;
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02);
+        border-left-width: 4px;
+        border-left-style: solid;
     }
+
 
     .chat-message-header {
         font-weight: 600;
@@ -2900,113 +2896,33 @@
         line-height: 1.6;
     }
 
-    .chat-text-content {
-        white-space: pre-line;
-        word-wrap: break-word;
+    html.dark-mode #monitor-resources-container .accordion-item {
+        background: var(--bg-secondary) !important;
+        border-color: var(--border-primary) !important;
     }
 
-    .chat-html-content {
-        white-space: normal;
-        overflow-x: auto;
+    html.dark-mode #monitor-resources-container .accordion-button {
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
     }
 
-    /* Reduced font sizes for headers in orchestrator responses */
-    .chat-html-content h1 {
-        font-size: 1.5rem;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
+    html.dark-mode #monitor-resources-container .accordion-button:not(.collapsed) {
+        background: var(--bg-secondary) !important;
+        color: var(--text-primary) !important;
+        box-shadow: inset 0 -1px 0 var(--border-primary) !important;
     }
 
-    .chat-html-content h2 {
-        font-size: 1.25rem;
-        margin-top: 0.875rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
+    html.dark-mode #monitor-resources-container .accordion-button strong {
+        color: inherit !important;
     }
 
-    .chat-html-content h3 {
-        font-size: 1.1rem;
-        margin-top: 0.75rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
+    html.dark-mode #monitor-resources-container .accordion-button::after {
+        filter: brightness(1.2);
     }
 
-    .chat-html-content h4 {
-        font-size: 1rem;
-        margin-top: 0.625rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-    }
-
-    .chat-html-content h5 {
-        font-size: 0.95rem;
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-    }
-
-    .chat-html-content h6 {
-        font-size: 0.875rem;
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-    }
-
-    .chat-html-content table {
-        width: 100%;
-        margin: 1rem 0;
-        border-collapse: separate;
-        border-spacing: 0;
-        background-color: #ffffff;
-        border: 1px solid #e9ecef;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    }
-
-    .chat-html-content th {
-        background-color: #343a40;
-        color: #ffffff;
-        font-weight: 600;
-        padding: 12px 16px;
-        text-align: left;
-        border-bottom: 2px solid #495057;
-        border-right: 1px solid #495057;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-
-    .chat-html-content td {
-        padding: 12px 16px;
-        border-bottom: 1px solid #e9ecef;
-        border-right: 1px solid #e9ecef;
-        color: #374151;
-        background-color: #ffffff;
-    }
-
-    .chat-html-content table tr:hover {
-        background-color: #f8f9fa;
-    }
-
-    .chat-html-content table th:last-child,
-    .chat-html-content table td:last-child {
-        border-right: none;
-    }
-
-    .chat-html-content table tbody tr:last-child td {
-        border-bottom: none;
-    }
-
-    @keyframes slideIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+    html.dark-mode #monitor-resources-container .accordion-body {
+        background: var(--bg-secondary) !important;
+        color: var(--text-primary) !important;
     }
 
     #chat-input:focus {
@@ -3024,10 +2940,6 @@
 
     .error-message {
         text-align: center;
-    }
-
-    .assistant-message .chat-message-wrapper {
-        border-left-width: 4px;
     }
 
     /* Agent Communication Styles */
@@ -3229,6 +3141,8 @@
         margin-left: 0.5rem;
     }
 </style>
+
+<link rel="stylesheet" href="/static/css/agent_communication.css">
 
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>

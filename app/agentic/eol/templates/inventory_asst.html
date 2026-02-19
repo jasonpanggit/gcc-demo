@@ -51,15 +51,7 @@
     }
 
     .message-user {
-        background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-        color: white;
         margin-left: auto;
-    }
-
-    .message-assistant {
-        background: white;
-        border: 1px solid var(--gray-200);
-        color: var(--gray-800);
     }
 
     .message-bubble {
@@ -71,17 +63,12 @@
         animation: fadeIn 0.3s ease;
     }
 
-    .message-user .message-bubble {
-        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-        color: white;
+    .message-bubble.message-user {
         margin-left: auto;
         text-align: left;
     }
 
-    .message-assistant .message-bubble {
-        background: white;
-        color: #374151;
-        border: 1px solid #e5e7eb;
+    .message-bubble.message-assistant {
         margin-right: auto;
     }
 
@@ -104,14 +91,6 @@
         font-size: var(--font-size-xs);
         color: var(--gray-500);
         margin-left: auto;
-    }
-
-    .message-user .message-time {
-        color: rgba(255, 255, 255, 0.8);
-    }
-
-    .message-assistant .message-time {
-        color: #9ca3af;
     }
 
     .message-system .message-time {
@@ -271,11 +250,11 @@
             min-height: 300px;
         }
 
-        .message-user .message-bubble {
+        .message-bubble.message-user {
             max-width: 85%;
         }
 
-        .message-assistant .message-bubble {
+        .message-bubble.message-assistant {
             max-width: 85%;
         }
 
@@ -1063,6 +1042,48 @@
     .content-summary {
         font-weight: bold;
         margin-bottom: 0.5rem;
+    }
+
+    .content-summary.layout-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .large-response-title-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .large-response-icon {
+        color: var(--color-warning);
+        font-size: 1.2em;
+    }
+
+    .large-response-title {
+        font-weight: 700;
+        color: #92400e;
+    }
+
+    .large-response-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.9rem;
+        color: #b45309;
+    }
+
+    .large-response-footnote {
+        text-align: center;
+        font-size: 0.9em;
+        color: #a16207;
+    }
+
+    .pagination-summary-icon {
+        color: var(--color-primary);
+        margin-right: 0.5rem;
     }
 
     .paginated-content-area {
@@ -1902,7 +1923,7 @@
                     Conversation
                 </h5>
                 <div>
-                    <span class="badge bg-light text-dark me-2" id="conversationStats">Ready to start</span>
+                    <span class="badge bg-light me-2" id="conversationStats">Ready to start</span>
                     <button class="btn btn-sm btn-outline-light" onclick="clearConversation()">
                         <i class="fas fa-trash me-1"></i>Clear
                     </button>
@@ -1970,7 +1991,7 @@
                     </button>
                 </div>
             </div>
-            <div id="communicationsDebugInfo" style="font-size: 0.8em; color: #6c757d; margin-top: 0.5rem; display: none;">
+            <div id="communicationsDebugInfo" style="font-size: 0.8em; margin-top: 0.5rem; display: none;">
                 🔄 Polling: <span id="pollingStatus">Inactive</span> |
                 📊 Count: <span id="communicationCount">0</span> |
                 🕒 Last Update: <span id="lastUpdate">Never</span>
@@ -2542,24 +2563,22 @@
         // Content preview for context
         const contentPreview = document.createElement('div');
         contentPreview.className = 'content-preview';
-        contentPreview.style.background = 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)';
-        contentPreview.style.border = '1px solid #f59e0b';
         contentPreview.style.borderRadius = '8px';
         contentPreview.style.padding = '1rem';
         contentPreview.style.marginBottom = '1rem';
         contentPreview.innerHTML = `
-            <div class="content-summary" style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="fas fa-file-text" style="color: #d97706; font-size: 1.2em;"></i>
-                    <span style="font-weight: 700; color: #92400e;">Large Response</span>
+            <div class="content-summary layout-row">
+                <div class="large-response-title-wrap">
+                    <i class="fas fa-file-text large-response-icon"></i>
+                    <span class="large-response-title">Large Response</span>
                 </div>
-                <div style="display: flex; gap: 1rem; font-size: 0.9rem; color: #b45309;">
+                <div class="large-response-stats">
                     <span><i class="fas fa-layer-group" style="margin-right: 0.25rem;"></i>${pages.length} pages</span>
                     <span><i class="fas fa-list-ol" style="margin-right: 0.25rem;"></i>${content.split('\n').length} lines</span>
                     <span><i class="fas fa-font" style="margin-right: 0.25rem;"></i>${content.split(' ').length} words</span>
                 </div>
             </div>
-            <div style="text-align: center; font-size: 0.9em; color: #a16207;">
+            <div class="large-response-footnote">
                 <i class="fas fa-info-circle" style="margin-right: 0.5rem;"></i>
                 Content has been paginated for better readability. Use the navigation controls below.
             </div>
@@ -2584,7 +2603,7 @@
             summary.className = 'pagination-summary';
             summary.innerHTML = `
                 <span class="pagination-summary-title">
-                    <i class="fas fa-file-alt" style="color: #3b82f6; margin-right: 0.5rem;"></i>
+                    <i class="fas fa-file-alt pagination-summary-icon"></i>
                     Pagination Overview
                 </span>
             `;
@@ -2992,5 +3011,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/agent-communication.js?v=20251021-10"></script>
+<script src="/static/js/agent-communication.js"></script>
 {% endblock %}

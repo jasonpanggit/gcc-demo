@@ -122,6 +122,30 @@
         background-color: #f8d7da;
         color: #721c24;
     }
+
+    html.dark-mode .request-item {
+        border-bottom-color: var(--gray-600);
+    }
+
+    html.dark-mode .request-time,
+    html.dark-mode .text-muted {
+        color: var(--gray-300) !important;
+    }
+
+    html.dark-mode .request-status.hit {
+        background-color: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+    }
+
+    html.dark-mode .request-status.miss {
+        background-color: rgba(245, 158, 11, 0.2);
+        color: #fde68a;
+    }
+
+    html.dark-mode .request-status.error {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+    }
 </style>
 <!-- Note: agent-config.js is already included in base.html -->
 {% endblock %}

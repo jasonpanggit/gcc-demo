@@ -16,7 +16,7 @@
 
     /* Agent Cards */
     .agent-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -45,7 +45,7 @@
     .agent-name {
         font-size: var(--font-size-xl);
         font-weight: 600;
-        color: var(--gray-800);
+        color: var(--text-primary);
         margin: 0;
     }
 
@@ -73,7 +73,7 @@
     }
 
     .agent-description {
-        color: var(--gray-600);
+        color: var(--text-secondary);
         margin: 0;
         font-size: var(--font-size-sm);
     }
@@ -130,14 +130,14 @@
 
     .stat-label {
         font-size: var(--font-size-xs);
-        color: var(--gray-600);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
 
     /* System Overview Cards */
     .system-overview-card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -160,7 +160,7 @@
     }
 
     .system-overview-card .card-text {
-        color: var(--gray-600);
+        color: var(--text-secondary);
         font-size: var(--font-size-sm);
         margin: 0;
     }
@@ -173,7 +173,7 @@
     .no-urls {
         text-align: center;
         padding: 2rem;
-        color: var(--gray-600);
+        color: var(--text-secondary);
     }
 
     .add-url-btn {
@@ -197,7 +197,7 @@
     }
 
     .notification-config {
-        background: #f8f9fa !important;
+        background: var(--bg-secondary) !important;
         border-radius: 8px;
         padding: 1rem;
         margin: 0.75rem;
@@ -210,7 +210,7 @@
     }
 
     .notification-type {
-        background: white;
+        background: var(--bg-primary);
         border-radius: 8px;
         padding: 1rem;
         border-left: 4px solid;
@@ -252,19 +252,19 @@
         justify-content: space-between;
         align-items: center;
         padding: 0.5rem;
-        background: #f8f9fa;
+        background: var(--bg-secondary);
         border-radius: 4px;
         font-size: 0.875rem;
     }
 
     .frequency-label {
         font-weight: 600;
-        color: #495057;
+        color: var(--text-secondary);
         min-width: 80px;
     }
 
     .frequency-schedule {
-        color: #6c757d;
+        color: var(--text-muted);
         text-align: right;
         flex: 1;
         margin-left: 1rem;
@@ -275,18 +275,18 @@
         align-items: center;
         gap: 0.5rem;
         padding: 0.5rem;
-        background: #e9ecef;
+        background: var(--bg-tertiary);
         border-radius: 4px;
         font-size: 0.875rem;
     }
 
     .setting-label {
         font-weight: 600;
-        color: #495057;
+        color: var(--text-secondary);
     }
 
     .notification-note {
-        border-top: 1px solid #dee2e6;
+        border-top: 1px solid var(--border-primary);
         padding-top: 1rem;
         margin-top: 1rem;
     }
@@ -295,7 +295,7 @@
     .filter-controls {
         margin-bottom: 2rem;
         padding: 1.5rem;
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -352,8 +352,8 @@
     /* URL Action Buttons */
     .url-action-btn {
         background: none;
-        border: 1px solid var(--gray-200);
-        color: var(--gray-600);
+        border: 1px solid var(--border-primary);
+        color: var(--text-secondary);
         padding: 0.25rem 0.5rem;
         border-radius: 4px;
         cursor: pointer;
@@ -362,7 +362,7 @@
     }
 
     .url-action-btn:hover {
-        background: var(--gray-50);
+        background: var(--bg-tertiary);
     }
 
     .url-action-btn.btn-test:hover {
@@ -393,7 +393,7 @@
 
     .url-description {
         font-size: 0.75rem;
-        color: var(--gray-600);
+        color: var(--text-muted);
         margin-top: 0.25rem;
     }
 
@@ -479,7 +479,7 @@
     }
 
     .text-muted {
-        color: var(--gray-600) !important;
+        color: var(--text-muted) !important;
     }
 
     .text-light {
@@ -597,7 +597,7 @@
     }
 
     .card {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--gray-200);
@@ -634,11 +634,11 @@
     }
 
     .text-secondary {
-        color: var(--gray-600) !important;
+        color: var(--text-secondary) !important;
     }
 
     .text-dark {
-        color: var(--gray-900) !important;
+        color: var(--text-primary) !important;
     }
 
     /* Responsive Design */
@@ -738,7 +738,7 @@
     .section-title {
         font-size: 1rem;
         font-weight: 600;
-        color: var(--gray-900);
+        color: var(--text-primary);
         margin: 0;
         display: flex;
         align-items: center;
@@ -756,15 +756,15 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.75rem;
-        background: var(--gray-50);
+        background: var(--bg-secondary);
         border-radius: var(--radius-lg);
         margin-bottom: 0.5rem;
-        border: 1px solid var(--gray-200);
+        border: 1px solid var(--border-primary);
         transition: var(--transition);
     }
 
     .url-item:hover {
-        background: #e9ecef;
+        background: var(--bg-tertiary);
     }
 
     .url-info {
@@ -792,7 +792,7 @@
 
     .url-meta span {
         font-size: 0.75rem;
-        color: var(--secondary);
+        color: var(--text-muted);
     }
 
     .url-actions {
@@ -807,9 +807,9 @@
         flex-wrap: wrap;
         gap: 0.75rem;
         padding: 0.5rem 0.75rem;
-        background: var(--gray-50);
+        background: var(--bg-secondary);
         border-radius: 6px;
-        border: 1px solid var(--gray-200);
+        border: 1px solid var(--border-primary);
         margin-top: 0.75rem;
         align-items: center;
         justify-content: space-between;
@@ -832,7 +832,7 @@
 
     .url-stat-label {
         font-size: 0.65rem;
-        color: var(--secondary);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.5px;
         white-space: nowrap;
@@ -870,7 +870,7 @@
         .url-stat-item {
             justify-content: space-between;
             padding: 0.25rem 0;
-            border-bottom: 1px solid #e9ecef;
+            border-bottom: 1px solid var(--border-primary);
         }
         
         .url-stat-item:last-child {
@@ -892,10 +892,10 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.75rem;
-        background: var(--gray-50);
+        background: var(--bg-secondary);
         border-radius: var(--radius-lg);
         margin-bottom: 0.5rem;
-        border: 1px solid var(--gray-200);
+        border: 1px solid var(--border-primary);
     }
 
     .eol-info {
@@ -904,13 +904,13 @@
 
     .eol-name {
         font-weight: 500;
-        color: var(--gray-900);
+        color: var(--text-primary);
         margin-bottom: 0.25rem;
     }
 
     .eol-version {
         font-size: 0.875rem;
-        color: var(--secondary);
+        color: var(--text-secondary);
     }
 
     .eol-status {
@@ -928,7 +928,7 @@
 
     .eol-deprecated {
         background: var(--warning-color);
-        color: var(--gray-900);
+        color: var(--text-primary);
     }
 
     .eol-eol {
@@ -944,7 +944,7 @@
     .form-label {
         font-weight: 500;
         margin-bottom: 0.5rem;
-        color: var(--gray-900);
+        color: var(--text-primary);
     }
 
     .form-control {
@@ -1065,7 +1065,7 @@
     .alert-warning {
         background: rgba(255, 193, 7, 0.1);
         border-color: rgba(255, 193, 7, 0.2);
-        color: #856404;
+        color: var(--warning-color);
     }
 
     /* Modals */
@@ -1083,7 +1083,7 @@
     }
 
     .modal-content {
-        background: white;
+        background: var(--bg-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-lg);
         max-width: 500px;
@@ -1270,13 +1270,13 @@
 
     .parse-mode-note {
         font-size: 0.875rem;
-        color: var(--gray-600);
+        color: var(--text-secondary);
         margin-bottom: var(--spacing-lg);
     }
 
     .parse-result {
-        background: var(--gray-50);
-        border: 1px solid var(--gray-200);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius-lg);
         padding: var(--spacing-md);
         height: 360px;
@@ -1299,7 +1299,7 @@
         justify-content: space-between;
         margin-top: var(--spacing-md);
         padding: var(--spacing-md);
-        background: var(--gray-50);
+        background: var(--bg-secondary);
         border-radius: var(--radius-lg);
         gap: var(--spacing-md);
         flex-wrap: wrap;
@@ -1307,7 +1307,7 @@
 
     .parse-pagination-info {
         font-size: 0.875rem;
-        color: var(--gray-600);
+        color: var(--text-secondary);
     }
 
     .parse-pagination-controls {
@@ -1319,15 +1319,15 @@
     .parse-pagination-controls select {
         padding: 0.375rem 0.75rem;
         border-radius: var(--radius-md);
-        border: 1px solid var(--gray-200);
+        border: 1px solid var(--border-primary);
         font-size: 0.875rem;
     }
 
     .parse-pagination-controls button {
         padding: 0.375rem 0.75rem;
         border-radius: var(--radius-md);
-        border: 1px solid var(--gray-200);
-        background: white;
+        border: 1px solid var(--border-primary);
+        background: var(--bg-primary);
         cursor: pointer;
         font-size: 0.875rem;
         transition: var(--transition);
@@ -1340,6 +1340,68 @@
     .parse-pagination-controls button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    html.dark-mode .notification-note {
+        border-top-color: var(--border-primary);
+    }
+
+    html.dark-mode .url-action-btn,
+    html.dark-mode .parse-pagination-controls button,
+    html.dark-mode .parse-pagination-controls select {
+        background: var(--bg-tertiary);
+        border-color: var(--border-primary);
+        color: var(--text-secondary);
+    }
+
+    html.dark-mode .url-action-btn:hover,
+    html.dark-mode .parse-pagination-controls button:hover:not(:disabled) {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    html.dark-mode .alert-warning {
+        background: rgba(245, 158, 11, 0.2);
+        border-color: rgba(245, 158, 11, 0.35);
+        color: #fde68a;
+    }
+
+    html.dark-mode .badge.bg-warning,
+    html.dark-mode .bg-warning {
+        color: var(--gray-900) !important;
+    }
+
+    html.dark-mode .modal-header.bg-info,
+    html.dark-mode .modal-header.bg-dark {
+        border-bottom-color: var(--border-primary);
+    }
+
+    html.dark-mode .notification-config,
+    html.dark-mode .notification-config[style],
+    html.dark-mode .notification-type,
+    html.dark-mode .frequency-item,
+    html.dark-mode .current-setting,
+    html.dark-mode .no-urls,
+    html.dark-mode .message-bar {
+        background: var(--bg-secondary) !important;
+        border-color: var(--border-primary) !important;
+        color: var(--text-primary) !important;
+    }
+
+    html.dark-mode .notification-config .alert-info,
+    html.dark-mode .alert.alert-info {
+        background: rgba(14, 165, 233, 0.18) !important;
+        border-color: rgba(14, 165, 233, 0.35) !important;
+        color: #bae6fd !important;
+    }
+
+    html.dark-mode .frequency-item,
+    html.dark-mode .frequency-label,
+    html.dark-mode .frequency-schedule,
+    html.dark-mode .setting-label,
+    html.dark-mode .no-urls p,
+    html.dark-mode .no-urls small {
+        color: var(--text-secondary) !important;
     }
 </style>
 {% endblock %}
@@ -2773,7 +2835,6 @@
                         <div class="agent-title">
                             <div>
                                 <h3 class="agent-name">${agent.name}</h3>
-                                <p class="text-light opacity-75 mb-0">${agent.type}</p>
                             </div>
                             <span class="agent-status ${agent.active ? 'status-active' : 'status-inactive'}">
                                 ${agent.active ? 'Active' : 'Inactive'}
@@ -2870,7 +2931,7 @@
                             </div>
 
                             <div class="collapse" id="notifications-${agent.id}">
-                                <div class="notification-config" style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin: 0.75rem;">
+                                <div class="notification-config" style="padding: 1rem; border-radius: 8px; margin: 0.75rem;">
                                     <div class="alert alert-info mb-3" style="font-size: 0.875rem;">
                                         <i class="fas fa-info-circle me-2"></i>
                                         Notifications are checked once daily at 9:00 AM UTC. Alerts will be sent based on the frequency settings below.
@@ -2908,7 +2969,7 @@
                                                 </div>
                                                 <div class="current-setting">
                                                     <span class="setting-label">Current Setting:</span>
-                                                    <span class="badge bg-warning text-dark">Weekly (Default)</span>
+                                                    <span class="badge bg-warning">Weekly (Default)</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -2917,7 +2978,7 @@
                                             <div class="type-header">
                                                 <i class="fas fa-exclamation-circle text-warning me-2"></i>
                                                 <strong>Warning Alerts</strong>
-                                                <span class="badge bg-warning text-dark ms-2">Medium Priority</span>
+                                                <span class="badge bg-warning ms-2">Medium Priority</span>
                                             </div>
                                             <div class="frequency-info">
                                                 <div class="frequency-grid">
@@ -3006,6 +3067,10 @@
             const successRate = stats.success_rate || 0; // Already a percentage (0-100)
             const accuracyRate = stats.accuracy_rate || 0; // Already a percentage (0-100)
             const lastUsed = stats.last_used ? new Date(stats.last_used).toLocaleDateString() : 'Never';
+            const successRateClass = successRate >= 90 ? 'text-success' : (successRate >= 70 ? 'text-warning' : 'text-danger');
+            const cacheHitRate = stats.cache_hit_rate || 0;
+            const cacheHitClass = cacheHitRate >= 80 ? 'text-success' : (cacheHitRate >= 50 ? 'text-warning' : 'text-secondary');
+            const parseErrorClass = (stats.error_count || 0) > 0 ? 'text-danger' : 'text-success';
             
             return `
             <div class="url-item" style="flex-direction: column; padding: 1rem;">
@@ -3060,31 +3125,31 @@
                 <div class="url-stats-grid">
                     <div class="url-stat-item">
                         <div class="url-stat-label">Records Extracted:</div>
-                        <div class="url-stat-value" style="color: #0d6efd; font-weight: 700;">${(stats.records_extracted || 0).toLocaleString()}</div>
+                        <div class="url-stat-value text-primary fw-bold">${(stats.records_extracted || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Parse Requests:</div>
-                        <div class="url-stat-value" style="color: #6610f2;">${(stats.query_count || 0).toLocaleString()}</div>
+                        <div class="url-stat-value text-info">${(stats.query_count || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Success Rate:</div>
-                        <div class="url-stat-value" style="color: ${(stats.success_rate || 0) >= 90 ? '#198754' : (stats.success_rate || 0) >= 70 ? '#ffc107' : '#dc3545'};">${(stats.success_rate || 0).toFixed(1)}%</div>
+                        <div class="url-stat-value ${successRateClass}">${(stats.success_rate || 0).toFixed(1)}%</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Cache Hit Rate:</div>
-                        <div class="url-stat-value" style="color: ${(stats.cache_hit_rate || 0) >= 80 ? '#198754' : (stats.cache_hit_rate || 0) >= 50 ? '#ffc107' : '#6c757d'};">${(stats.cache_hit_rate || 0).toFixed(1)}%</div>
+                        <div class="url-stat-value ${cacheHitClass}">${(stats.cache_hit_rate || 0).toFixed(1)}%</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Avg Response:</div>
-                        <div class="url-stat-value" style="color: #6f42c1;">${(stats.avg_response_time || 0).toFixed(2)}ms</div>
+                        <div class="url-stat-value text-info">${(stats.avg_response_time || 0).toFixed(2)}ms</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Parse Errors:</div>
-                        <div class="url-stat-value" style="color: ${(stats.error_count || 0) > 0 ? '#dc3545' : '#198754'};">${(stats.error_count || 0).toLocaleString()}</div>
+                        <div class="url-stat-value ${parseErrorClass}">${(stats.error_count || 0).toLocaleString()}</div>
                     </div>
                     <div class="url-stat-item">
                         <div class="url-stat-label">Last Parsed:</div>
-                        <div class="url-stat-value" style="color: #20c997; font-size: 0.75rem;">${lastUsed}</div>
+                        <div class="url-stat-value text-muted" style="font-size: 0.75rem;">${lastUsed}</div>
                     </div>
                 </div>
             </div>

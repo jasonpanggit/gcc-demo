@@ -4,6 +4,7 @@
 {% block extra_head %}
 <!-- Chart.js for visualizations -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<script src="/static/js/chart-theme.js" defer></script>
 <style>
     .stat-pill {
         display: inline-flex;
@@ -29,10 +30,13 @@
     .chart-container {
         min-height: 300px;
     }
-    /* Compact variant for the pie chart so it doesn't dominate the row */
+    /* Compact variant for pie/doughnut charts */
     .chart-container.pie-compact {
         min-height: 220px;
         max-height: 260px;
+    }
+    .chart-container.distribution-wide {
+        min-height: 320px;
     }
     .badge-soft {
         border-radius: 999px;
@@ -47,6 +51,38 @@
     .table th { font-size: 0.9rem; }
     .table td { font-size: 0.9rem; }
     .table thead th { position: sticky; top: 0; z-index: 5; }
+    .timeline-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        margin-top: 10px;
+    }
+    .timeline-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8rem;
+        color: var(--text-secondary, #4b5563);
+        border: 1px solid var(--border-primary, #e5e7eb);
+        border-radius: 999px;
+        background: var(--bg-secondary, #f9fafb);
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .timeline-legend-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .timeline-legend-item.is-inactive {
+        opacity: 0.45;
+    }
+    .timeline-legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        display: inline-block;
+    }
 </style>
 {% endblock %}
 
@@ -66,7 +102,7 @@
             <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
                 <div class="d-flex flex-lg-column gap-2 justify-content-end align-items-lg-end">
                     <div class="text-white-50 small">Last updated: <span id="lastUpdated">Never</span></div>
-                    <div class="badge bg-light text-dark" id="loadStatus">Idle</div>
+                    <div class="badge bg-light" id="loadStatus">Idle</div>
                 </div>
             </div>
         </div>
@@ -126,19 +162,19 @@
                     </div>
                     <div class="card-body">
                         <div class="row g-3">
-                            <div class="col-md-4">
-                                <div class="text-muted small mb-2">By resource group</div>
-                                <div class="chart-container pie-compact">
-                                    <canvas id="osTypeChart" aria-label="Resource group distribution"></canvas>
+                            <div class="col-md-7">
+                                <div class="text-muted small mb-2">By resource group (Top 8)</div>
+                                <div class="chart-container distribution-wide">
+                                    <canvas id="osGroupChart" aria-label="Resource group distribution"></canvas>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-5">
                                 <div class="text-muted small mb-2">By OS family</div>
                                 <div class="chart-container pie-compact">
                                     <canvas id="osFamilyChart" aria-label="OS type distribution"></canvas>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-12">
                                 <div class="text-muted small mb-2">Windows Server versions</div>
                                 <div class="chart-container pie-compact">
                                     <canvas id="windowsServerChart" aria-label="Windows Server version distribution"></canvas>
@@ -160,6 +196,13 @@
                     <div class="card-body">
                         <div class="chart-container">
                             <canvas id="eolTimelineChart" aria-label="EOL timeline"></canvas>
+                        </div>
+                        <div class="timeline-legend" aria-label="EOL risk legend" id="timelineLegend">
+                            <button type="button" class="timeline-legend-item" data-bucket="expired"><span class="timeline-legend-dot" style="background: var(--color-error, #dc2626);"></span>Expired / Critical</button>
+                            <button type="button" class="timeline-legend-item" data-bucket="high"><span class="timeline-legend-dot" style="background: var(--color-warning, #f59e0b);"></span>High (0-180 days)</button>
+                            <button type="button" class="timeline-legend-item" data-bucket="medium"><span class="timeline-legend-dot" style="background: var(--color-info, #0891b2);"></span>Medium (181-365 days)</button>
+                            <button type="button" class="timeline-legend-item" data-bucket="low"><span class="timeline-legend-dot" style="background: var(--color-success, #0a8754);"></span>Low (&gt;365 days)</button>
+                            <button type="button" class="timeline-legend-item" data-bucket="unknown"><span class="timeline-legend-dot" style="background: var(--gray-500, #6c757d);"></span>Unknown</button>
                         </div>
                     </div>
                 </div>
@@ -210,7 +253,14 @@
     const state = {
         inventory: [],
         filtered: [],
-        charts: {}
+        charts: {},
+        timelineVisibility: {
+            expired: true,
+            high: true,
+            medium: true,
+            low: true,
+            unknown: true
+        }
     };
 
     const elements = {
@@ -228,7 +278,8 @@
         statExpiring: document.getElementById('stat-expiring'),
         statAzure: document.getElementById('stat-azure'),
         tableBody: document.getElementById('osTableBody'),
-        tableCount: document.getElementById('tableCount')
+        tableCount: document.getElementById('tableCount'),
+        timelineLegend: document.getElementById('timelineLegend')
     };
 
     function setStatus(text, variant = 'bg-secondary') {
@@ -412,15 +463,22 @@
             }
         });
 
-        upsertChart('osTypeChart', 'doughnut', {
+        upsertChart('osGroupChart', 'bar', {
             labels,
             datasets: [{
                 label: 'Systems',
                 data: values,
-                backgroundColor: ['#0d6efd', '#20c997', '#6f42c1', '#fd7e14', '#0dcaf0', '#198754', '#ffc107', '#6c757d', '#adb5bd']
+                backgroundColor: labels.map((_, idx) => getPaletteColor(idx, 0.78)),
+                borderColor: labels.map((_, idx) => getPaletteColor(idx, 1)),
+                borderWidth: 1,
+                borderRadius: 6
             }]
         }, {
-            plugins: { pieCountLabels: { display: true } }
+            indexAxis: 'y',
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+            plugins: {
+                legend: { display: false }
+            }
         });
 
         upsertChart('osFamilyChart', 'doughnut', {
@@ -428,9 +486,16 @@
             datasets: [{
                 label: 'Systems',
                 data: Object.values(typeBuckets),
-                backgroundColor: ['#0d6efd', '#20c997', '#6c757d']
+                backgroundColor: [
+                    chartThemeColor('primary', '#0d6efd'),
+                    chartThemeColor('success', '#20c997'),
+                    chartThemeColor('gray500', '#6c757d')
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
             }]
         }, {
+            cutout: '62%',
             plugins: { pieCountLabels: { display: true } }
         });
 
@@ -441,9 +506,12 @@
             datasets: [{
                 label: 'Systems',
                 data: windowsServerValues.length ? windowsServerValues : [0],
-                backgroundColor: ['#0d6efd', '#6f42c1', '#20c997', '#fd7e14', '#0dcaf0', '#198754', '#ffc107', '#6c757d']
+                backgroundColor: (windowsServerValues.length ? windowsServerValues : [0]).map((_, idx) => getPaletteColor(idx, 0.82)),
+                borderWidth: 2,
+                borderColor: '#ffffff'
             }]
         }, {
+            cutout: '58%',
             plugins: { pieCountLabels: { display: true } }
         });
 
@@ -452,18 +520,55 @@
             datasets: [{
                 label: 'Systems',
                 data: [
-                    eolBuckets.expired,
-                    eolBuckets['0-90'],
-                    eolBuckets['91-180'],
-                    eolBuckets['181-365'],
-                    eolBuckets['>365'],
-                    eolBuckets.unknown
+                    state.timelineVisibility.expired ? eolBuckets.expired : 0,
+                    state.timelineVisibility.high ? eolBuckets['0-90'] : 0,
+                    state.timelineVisibility.high ? eolBuckets['91-180'] : 0,
+                    state.timelineVisibility.medium ? eolBuckets['181-365'] : 0,
+                    state.timelineVisibility.low ? eolBuckets['>365'] : 0,
+                    state.timelineVisibility.unknown ? eolBuckets.unknown : 0
                 ],
-                backgroundColor: '#6610f2'
+                backgroundColor: [
+                    state.timelineVisibility.expired ? chartThemeColor('error', '#dc2626') : getPaletteColor(3, 0.2),
+                    state.timelineVisibility.high ? chartThemeColor('warning', '#f59e0b') : getPaletteColor(2, 0.2),
+                    state.timelineVisibility.high ? chartThemeColor('warning', '#f59e0b') : getPaletteColor(2, 0.2),
+                    state.timelineVisibility.medium ? chartThemeColor('info', '#0891b2') : getPaletteColor(4, 0.2),
+                    state.timelineVisibility.low ? chartThemeColor('success', '#0a8754') : getPaletteColor(1, 0.2),
+                    state.timelineVisibility.unknown ? chartThemeColor('gray500', '#6c757d') : getPaletteColor(7, 0.2)
+                ],
+                borderColor: [
+                    chartThemeColor('error', '#dc2626'),
+                    chartThemeColor('warning', '#f59e0b'),
+                    chartThemeColor('warning', '#f59e0b'),
+                    chartThemeColor('info', '#0891b2'),
+                    chartThemeColor('success', '#0a8754'),
+                    chartThemeColor('gray500', '#6c757d')
+                ],
+                borderWidth: 1,
+                borderRadius: 6
             }]
         }, {
             scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         });
+
+        updateTimelineLegendUI();
+    }
+
+    function updateTimelineLegendUI() {
+        if (!elements.timelineLegend) return;
+        elements.timelineLegend.querySelectorAll('.timeline-legend-item[data-bucket]').forEach(item => {
+            const bucket = item.getAttribute('data-bucket');
+            const isVisible = state.timelineVisibility[bucket] !== false;
+            item.classList.toggle('is-inactive', !isVisible);
+            item.setAttribute('aria-pressed', String(isVisible));
+        });
+    }
+
+    function toggleTimelineBucket(bucket) {
+        if (!Object.prototype.hasOwnProperty.call(state.timelineVisibility, bucket)) {
+            return;
+        }
+        state.timelineVisibility[bucket] = !state.timelineVisibility[bucket];
+        renderCharts();
     }
 
     const pieCountLabels = {
@@ -475,7 +580,7 @@
 
             const { ctx, data } = chart;
             ctx.save();
-            ctx.fillStyle = '#1f2937';
+            ctx.fillStyle = chartThemeColor('gray700', '#374151');
             ctx.font = '600 12px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -495,13 +600,48 @@
         if (typeof Chart === 'undefined') return;
         if (state.charts[id]) {
             state.charts[id].data = data;
-            state.charts[id].options = options;
+            state.charts[id].options = maybeApplyTheme({ type, data, options }).options;
             state.charts[id].update();
             return;
         }
         const ctx = document.getElementById(id);
         if (!ctx) return;
-        state.charts[id] = new Chart(ctx, { type, data, options, plugins: [pieCountLabels] });
+        const usePieLabels = options?.plugins?.pieCountLabels?.display === true;
+        const baseConfig = { type, data, options };
+        const chartConfig = maybeApplyTheme(baseConfig);
+        state.charts[id] = new Chart(ctx, {
+            ...chartConfig,
+            plugins: usePieLabels ? [pieCountLabels] : []
+        });
+    }
+
+    function maybeApplyTheme(config) {
+        if (typeof applyChartTheme === 'function') {
+            return applyChartTheme(config);
+        }
+        return config;
+    }
+
+    function chartThemeColor(token, fallback) {
+        if (typeof ChartColors !== 'undefined' && ChartColors[token]) {
+            return ChartColors[token];
+        }
+        return fallback;
+    }
+
+    function getPaletteColor(index, alpha = 1) {
+        if (typeof getChartColor === 'function') {
+            return getChartColor(index, alpha);
+        }
+        const fallback = [
+            '#0d6efd', '#20c997', '#6f42c1', '#fd7e14', '#0dcaf0', '#198754', '#ffc107', '#6c757d', '#adb5bd'
+        ];
+        const color = fallback[index % fallback.length];
+        if (alpha >= 1) return color;
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function formatDate(dateStr) {
@@ -580,6 +720,12 @@
         elements.reset?.addEventListener('click', resetFilters);
         elements.refresh?.addEventListener('click', loadInventory);
         elements.lookback?.addEventListener('change', loadInventory);
+        elements.timelineLegend?.addEventListener('click', (event) => {
+            const target = event.target.closest('.timeline-legend-item[data-bucket]');
+            if (!target) return;
+            const bucket = target.getAttribute('data-bucket');
+            toggleTimelineBucket(bucket);
+        });
         loadInventory();
     });
 })();

@@ -567,6 +567,245 @@
 }
 
 /* ============================================================
+   UNIFIED CONVERSATION CARDS
+   Shared query/response card styling across Azure MCP, SRE, Inventory
+   ============================================================ */
+
+#chat-history .chat-message-wrapper {
+    border-left-width: 4px;
+    border-left-style: solid;
+    border-radius: var(--radius-md);
+}
+
+#chat-history .chat-message-wrapper.user-card,
+#chatMessages .message-bubble.message-user,
+#chat-history .chat-message.user {
+    background: var(--gray-100);
+    color: var(--gray-800);
+    border: 1px solid var(--gray-300);
+    border-left-color: var(--primary-color);
+}
+
+#chat-history .chat-message-wrapper.assistant-card,
+#chatMessages .message-bubble.message-assistant,
+#chat-history .chat-message.agent {
+    background: var(--gray-50);
+    color: var(--gray-800);
+    border: 1px solid var(--gray-300);
+    border-left-color: var(--gray-400);
+}
+
+#chat-history .chat-message-wrapper.error-card,
+#chat-history .chat-message.error {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-left-color: #dc2626;
+}
+
+#chat-history .chat-message-header.user-header,
+#chat-history .chat-message.user .chat-message-label,
+#chatMessages .message-bubble.message-user .message-sender {
+    color: var(--primary-color);
+}
+
+#chat-history .chat-message-header.assistant-header,
+#chat-history .chat-message.agent .chat-message-label,
+#chatMessages .message-bubble.message-assistant .message-sender {
+    color: var(--gray-700);
+}
+
+#chat-history .chat-message-header.error-header {
+    color: #b91c1c;
+}
+
+#chat-history .chat-message-body,
+#chat-history .chat-message-content,
+#chatMessages .message-content {
+    color: var(--gray-800);
+}
+
+#chat-history .chat-message-time,
+#chatMessages .message-time {
+    color: var(--gray-600);
+}
+
+html.dark-mode #chat-history .chat-message-wrapper.user-card,
+html.dark-mode #chatMessages .message-bubble.message-user,
+html.dark-mode #chat-history .chat-message.user {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+    border-left-color: var(--color-primary);
+}
+
+html.dark-mode #chat-history .chat-message-wrapper.assistant-card,
+html.dark-mode #chatMessages .message-bubble.message-assistant,
+html.dark-mode #chat-history .chat-message.agent {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+    border-left-color: var(--border-primary);
+}
+
+html.dark-mode #chat-history .chat-message-wrapper.error-card,
+html.dark-mode #chat-history .chat-message.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.4);
+    border-left-color: rgba(239, 68, 68, 0.5);
+}
+
+html.dark-mode #chat-history .chat-message-header.user-header,
+html.dark-mode #chat-history .chat-message.user .chat-message-label,
+html.dark-mode #chatMessages .message-bubble.message-user .message-sender {
+    color: var(--color-primary-light);
+}
+
+html.dark-mode #chat-history .chat-message-header.assistant-header,
+html.dark-mode #chat-history .chat-message.agent .chat-message-label,
+html.dark-mode #chatMessages .message-bubble.message-assistant .message-sender {
+    color: var(--text-primary);
+}
+
+html.dark-mode #chat-history .chat-message-header.error-header {
+    color: #fca5a5;
+}
+
+html.dark-mode #chat-history .chat-message-body,
+html.dark-mode #chat-history .chat-message-content,
+html.dark-mode #chatMessages .message-content {
+    color: var(--text-primary);
+}
+
+html.dark-mode #chat-history .chat-message-time,
+html.dark-mode #chatMessages .message-time {
+    color: var(--text-muted);
+}
+
+/* Rich content formatting inside conversation cards */
+#chat-history .chat-html-content {
+    white-space: normal;
+    overflow-x: auto;
+}
+
+#chat-history .chat-text-content {
+    white-space: pre-line;
+    word-wrap: break-word;
+}
+
+#chat-history .chat-html-content h1 {
+    font-size: 1.5rem;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content h2 {
+    font-size: 1.25rem;
+    margin-top: 0.875rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content h3 {
+    font-size: 1.1rem;
+    margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content h4 {
+    font-size: 1rem;
+    margin-top: 0.625rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content h5 {
+    font-size: 0.95rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content h6 {
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#chat-history .chat-html-content table {
+    width: 100%;
+    margin: 1rem 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    background-color: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+#chat-history .chat-html-content th {
+    background-color: #343a40;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 2px solid #495057;
+    border-right: 1px solid #495057;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+#chat-history .chat-html-content td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e9ecef;
+    border-right: 1px solid #e9ecef;
+    color: #374151;
+    background-color: #ffffff;
+}
+
+#chat-history .chat-html-content table tr:hover {
+    background-color: #f8f9fa;
+}
+
+#chat-history .chat-html-content table th:last-child,
+#chat-history .chat-html-content table td:last-child {
+    border-right: none;
+}
+
+#chat-history .chat-html-content table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+html.dark-mode #chat-history .chat-html-content table {
+    background: var(--bg-tertiary);
+    border-color: rgba(148, 163, 184, 0.45) !important;
+    box-shadow: none;
+}
+
+html.dark-mode #chat-history .chat-html-content th {
+    background: rgba(91, 33, 182, 0.3);
+    border-bottom-color: rgba(148, 163, 184, 0.5) !important;
+    border-right-color: rgba(148, 163, 184, 0.5) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode #chat-history .chat-html-content td {
+    background: var(--bg-tertiary);
+    border-bottom-color: rgba(148, 163, 184, 0.45) !important;
+    border-right-color: rgba(148, 163, 184, 0.45) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode #chat-history .chat-html-content table tr:hover {
+    background: rgba(91, 33, 182, 0.2);
+}
+
+/* ============================================================
    UTILITY CLASSES
    ============================================================ */
 .text-truncate-2 {
@@ -610,4 +849,118 @@
     .hide-sm {
         display: none !important;
     }
+}
+
+/* ============================================================
+   THEME FOUNDATION (LIGHT MODE)
+   Centralized defaults for surfaces, labels, cards, tags, forms, and tables.
+   ============================================================ */
+
+body {
+    color: var(--text-primary);
+    background: var(--bg-primary);
+}
+
+.card,
+.modal-content,
+.offcanvas,
+.dropdown-menu,
+.list-group-item,
+.accordion-item,
+.toast {
+    background: var(--bg-primary);
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
+.card-header,
+.modal-header,
+.offcanvas-header,
+.accordion-button,
+.table thead th,
+.section-header,
+.demo-section-header {
+    background: var(--bg-secondary);
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
+.card-body,
+.modal-body,
+.offcanvas-body,
+.accordion-body,
+.table,
+.table td,
+.table th {
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+}
+
+.form-control,
+.form-select,
+.input-group-text,
+textarea,
+select,
+input {
+    background: var(--bg-primary);
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus,
+input:focus,
+select:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 0.2rem rgba(0, 120, 212, 0.2);
+}
+
+.text-muted,
+.form-text,
+.stat-label,
+.section-title,
+.timestamp,
+.comm-timestamp,
+.comm-action {
+    color: var(--text-muted) !important;
+}
+
+.card-title,
+.modal-title,
+.offcanvas-title,
+.stat-value,
+.summary-value,
+.config-title,
+.agent-name,
+.setting-label,
+.frequency-label {
+    color: var(--text-primary) !important;
+}
+
+.bg-light,
+.alert-light,
+.badge.bg-light {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+.text-dark,
+.bg-light .text-dark,
+.bg-warning .text-dark,
+.bg-info .text-dark {
+    color: var(--text-primary) !important;
+}
+
+.alert-info {
+    background: rgba(8, 145, 178, 0.14);
+    border-color: rgba(8, 145, 178, 0.3);
+    color: #0b6177;
+}
+
+.alert-warning {
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(245, 158, 11, 0.32);
+    color: #8b5e00;
 }
