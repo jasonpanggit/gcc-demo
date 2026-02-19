@@ -1,0 +1,176 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Toggle sidebar" [ref=e5] [cursor=pointer]:
+        - generic [ref=e6]: 
+      - generic [ref=e7]:
+        - generic [ref=e8]: 
+        - textbox "Global search" [ref=e9]:
+          - /placeholder: Search (Ctrl+K)...
+    - generic [ref=e10]:
+      - button "Notifications" [ref=e11] [cursor=pointer]:
+        - generic [ref=e12]: 
+        - generic [ref=e13]: "0"
+      - generic [ref=e14]:
+        - button "User menu" [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: A
+          - generic [ref=e17]: Admin
+          - generic [ref=e18]: 
+        - text:   
+      - button "Toggle dark mode" [ref=e19] [cursor=pointer]:
+        - generic [ref=e20]: 
+  - complementary [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]: 
+      - generic [ref=e24]: Azure Agentic
+    - navigation [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]: Main
+        - link " Dashboard" [ref=e28] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e29]: 
+          - generic [ref=e30]: Dashboard
+        - link " Analytics" [ref=e31] [cursor=pointer]:
+          - /url: /visualizations
+          - generic [ref=e32]: 
+          - generic [ref=e33]: Analytics
+      - generic [ref=e34]:
+        - generic [ref=e35]: AI Assistants
+        - link " Azure MCP AI" [ref=e36] [cursor=pointer]:
+          - /url: /azure-mcp
+          - generic [ref=e37]: 
+          - generic [ref=e38]: Azure MCP
+          - generic [ref=e39]: AI
+        - link " SRE Assistant AI" [ref=e40] [cursor=pointer]:
+          - /url: /azure-ai-sre
+          - generic [ref=e41]: 
+          - generic [ref=e42]: SRE Assistant
+          - generic [ref=e43]: AI
+        - link " Inventory AI" [ref=e44] [cursor=pointer]:
+          - /url: /inventory-assistant
+          - generic [ref=e45]: 
+          - generic [ref=e46]: Inventory
+          - generic [ref=e47]: AI
+        - link " EOL Search" [ref=e48] [cursor=pointer]:
+          - /url: /eol-search
+          - generic [ref=e49]: 
+          - generic [ref=e50]: EOL Search
+      - generic [ref=e51]:
+        - generic [ref=e52]: Resources
+        - link " Azure Resources" [ref=e53] [cursor=pointer]:
+          - /url: /resource-inventory
+          - generic [ref=e54]: 
+          - generic [ref=e55]: Azure Resources
+        - link " Software Inventory" [ref=e56] [cursor=pointer]:
+          - /url: /inventory
+          - generic [ref=e57]: 
+          - generic [ref=e58]: Software Inventory
+        - link " EOL Database" [ref=e59] [cursor=pointer]:
+          - /url: /eol-inventory
+          - generic [ref=e60]: 
+          - generic [ref=e61]: EOL Database
+        - link " Search History" [ref=e62] [cursor=pointer]:
+          - /url: /eol-searches
+          - generic [ref=e63]: 
+          - generic [ref=e64]: Search History
+        - link " OS EOL Tracker" [ref=e65] [cursor=pointer]:
+          - /url: /eol-management
+          - generic [ref=e66]: 
+          - generic [ref=e67]: OS EOL Tracker
+      - generic [ref=e68]:
+        - generic [ref=e69]: Management
+        - link " Alerts" [ref=e70] [cursor=pointer]:
+          - /url: /alerts
+          - generic [ref=e71]: 
+          - generic [ref=e72]: Alerts
+        - link " Cache" [ref=e73] [cursor=pointer]:
+          - /url: /cache
+          - generic [ref=e74]: 
+          - generic [ref=e75]: Cache
+        - link " Agents" [ref=e76] [cursor=pointer]:
+          - /url: /agents
+          - generic [ref=e77]: 
+          - generic [ref=e78]: Agents
+    - link " System Health" [ref=e80] [cursor=pointer]:
+      - /url: /health
+      - generic [ref=e81]: 
+      - generic [ref=e82]: System Health
+  - main [ref=e83]:
+    - generic [ref=e87]:
+      - heading " Azure MCP Assistant" [level=1] [ref=e88]:
+        - generic [ref=e90]: 
+        - text: Azure MCP Assistant
+      - paragraph [ref=e91]: Explore and manage Azure resources through the Azure Agentic Platform using Model Context Protocol tooling.
+    - generic [ref=e92]:
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - heading " Conversation" [level=5] [ref=e97]:
+            - generic [ref=e98]: 
+            - text: Conversation
+          - button " Clear Chat" [ref=e99] [cursor=pointer]:
+            - generic [ref=e100]: 
+            - text: Clear Chat
+        - generic [ref=e101]:
+          - generic [ref=e103]:
+            - generic [ref=e104]: 
+            - paragraph [ref=e105]: Ask me anything about your Azure resources!
+          - generic [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]: 
+              - text: "Quick Examples:"
+            - generic [ref=e109]:
+              - combobox [ref=e111]:
+                - option "Select a server..." [selected]
+                - option "Azure CLI Executor"
+                - option "Azure MCP Server"
+                - option "Azure Monitor Community Resources"
+                - option "Log Analytics Inventory"
+                - option "Microsoft Learn"
+                - option "Operating System EOL"
+                - option "SRE MCP Server"
+              - combobox [disabled] [ref=e113]:
+                - option "Select a server first..." [selected]
+              - combobox [disabled] [ref=e115]:
+                - option "Select a tool first..." [selected]
+          - generic [ref=e116]:
+            - textbox "Type your question about Azure resources..." [ref=e117]
+            - button " Send" [ref=e118] [cursor=pointer]:
+              - generic [ref=e119]: 
+              - text: Send
+      - generic [ref=e122]:
+        - generic [ref=e123]:
+          - heading " Agent Communication & Reasoning" [level=5] [ref=e124]:
+            - generic [ref=e125]: 
+            - text: Agent Communication & Reasoning
+          - generic [ref=e126]:
+            - button " Show" [ref=e127] [cursor=pointer]:
+              - generic [ref=e128]: 
+              - text: Show
+            - button " Stats" [ref=e129] [cursor=pointer]:
+              - generic [ref=e130]: 
+              - text: Stats
+        - text:   
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - heading " MCP Servers & Tools" [level=5] [ref=e135]:
+            - generic [ref=e136]: 
+            - text: MCP Servers & Tools
+          - button " Expand" [ref=e137] [cursor=pointer]:
+            - generic [ref=e138]: 
+            - text: Expand
+        - text:        
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - heading " Azure Monitor Community Resources" [level=5] [ref=e143]:
+            - generic [ref=e144]: 
+            - text: Azure Monitor Community Resources
+          - button " Expand" [ref=e145] [cursor=pointer]:
+            - generic [ref=e146]: 
+            - text: Expand
+        - text:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+```
