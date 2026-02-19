@@ -1,0 +1,799 @@
+/* ============================================================
+   COMPREHENSIVE DARK MODE OVERRIDES
+   Complete dark mode support for all components
+   Generated: 2026-02-19
+
+   This file systematically overrides all hardcoded light colors
+   found across the entire CSS codebase.
+   ============================================================ */
+
+/* ============================================================
+   CRITICAL PRIORITY - BACKGROUNDS (WHITE/LIGHT)
+   ============================================================ */
+
+/* Containers & Cards */
+html.dark-mode .pagination-container,
+html.dark-mode .paginated-content-area,
+html.dark-mode .agent-communication,
+html.dark-mode .interactions-column,
+html.dark-mode .flow-column,
+html.dark-mode .interaction-card,
+html.dark-mode .interaction-content,
+html.dark-mode .modern-card,
+html.dark-mode .stat-card,
+html.dark-mode .feature-card,
+html.dark-mode .response-item,
+html.dark-mode .details-panel,
+html.dark-mode .chart-container {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+/* Interaction Headers with Gradients */
+html.dark-mode .interaction-header {
+    background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%) !important;
+    border-bottom-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+/* Form Elements */
+html.dark-mode .pagination-nav-btn,
+html.dark-mode .pagination-page-indicator,
+html.dark-mode .pagination-quick-jump,
+html.dark-mode .pagination-jump-input,
+html.dark-mode .pagination .page-link,
+html.dark-mode .chat-input,
+html.dark-mode .chat-input-area {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+/* Tables */
+html.dark-mode .mcp-table {
+    background-color: var(--bg-secondary) !important;
+    border-color: var(--color-primary) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .mcp-table thead {
+    background: rgba(91, 33, 182, 0.3) !important;
+    color: var(--text-primary);
+}
+
+html.dark-mode .mcp-table tbody tr:nth-child(even) {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .mcp-table tbody tr:hover {
+    background: rgba(91, 33, 182, 0.2) !important;
+}
+
+html.dark-mode .mcp-table th,
+html.dark-mode .mcp-table td {
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+/* Message Bubbles */
+html.dark-mode .message.assistant .message-bubble {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+/* Communication Sections */
+html.dark-mode .comm-request-section,
+html.dark-mode .comm-response-section {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary);
+}
+
+/* ============================================================
+   CRITICAL PRIORITY - TEXT/FOREGROUND (BLACK/DARK)
+   ============================================================ */
+
+html.dark-mode .comm-timestamp,
+html.dark-mode .comm-agent,
+html.dark-mode .comm-action,
+html.dark-mode .section-title,
+html.dark-mode .agent-info strong,
+html.dark-mode .timestamp,
+html.dark-mode .content-summary-title,
+html.dark-mode .content-summary-stats,
+html.dark-mode .stat-value,
+html.dark-mode .stat-label,
+html.dark-mode .dash-metric-value,
+html.dark-mode .dash-metric-label,
+html.dark-mode .text-content,
+html.dark-mode .response-header,
+html.dark-mode .eol-response,
+html.dark-mode .generic-response {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-timestamp,
+html.dark-mode .timestamp,
+html.dark-mode .comm-action {
+    color: var(--text-muted) !important;
+}
+
+/* ============================================================
+   MEDIUM PRIORITY - BADGES & LABELS
+   ============================================================ */
+
+/* Status Badges - Maintain semantic colors with dark mode variants */
+html.dark-mode .status-badge.status-completed {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #86efac !important;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+html.dark-mode .status-badge.status-failed {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #fca5a5 !important;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+html.dark-mode .status-badge.status-progress,
+html.dark-mode .status-badge.status-in_progress {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #93c5fd !important;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+html.dark-mode .status-badge.status-unknown {
+    background: rgba(107, 114, 128, 0.2) !important;
+    color: #d1d5db !important;
+    border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+/* Task Type Badges */
+html.dark-mode .task-type-badge.task-inventory {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #93c5fd !important;
+}
+
+html.dark-mode .task-type-badge.task-eol {
+    background: rgba(251, 146, 60, 0.2) !important;
+    color: #fdba74 !important;
+}
+
+html.dark-mode .task-type-badge.task-tool {
+    background: rgba(168, 85, 247, 0.2) !important;
+    color: #d8b4fe !important;
+}
+
+html.dark-mode .task-type-badge.task-comm {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #86efac !important;
+}
+
+html.dark-mode .task-type-badge.task-error {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #fca5a5 !important;
+}
+
+html.dark-mode .task-type-badge.task-complete {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #86efac !important;
+}
+
+html.dark-mode .task-type-badge.task-general {
+    background: rgba(107, 114, 128, 0.2) !important;
+    color: #d1d5db !important;
+}
+
+/* Agent Badges - Keep vibrant colors but adjust for dark background */
+html.dark-mode .agent-badge {
+    color: white !important;
+    opacity: 0.95;
+}
+
+html.dark-mode .agent-badge i {
+    color: #ffffff !important;
+}
+
+/* ============================================================
+   MEDIUM PRIORITY - MESSAGES & ALERTS
+   ============================================================ */
+
+html.dark-mode .completion-message {
+    background: rgba(34, 197, 94, 0.15) !important;
+    color: #86efac !important;
+    border-color: rgba(34, 197, 94, 0.3) !important;
+}
+
+html.dark-mode .error-message {
+    background: rgba(239, 68, 68, 0.15) !important;
+    color: #fca5a5 !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+html.dark-mode .comm-data {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-message {
+    background: var(--bg-tertiary) !important;
+    border-left-color: var(--color-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .task-summary {
+    background: rgba(59, 130, 246, 0.15) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .task-summary-header {
+    color: #93c5fd !important;
+}
+
+/* ============================================================
+   MEDIUM PRIORITY - BUTTONS
+   ============================================================ */
+
+html.dark-mode .btn-primary {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .btn-primary:hover {
+    background: var(--color-primary-light) !important;
+    border-color: var(--color-primary-light) !important;
+    color: white !important;
+}
+
+html.dark-mode .btn-secondary {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .btn-secondary:hover {
+    background: var(--bg-dark) !important;
+}
+
+html.dark-mode .btn-outline-primary {
+    border-color: var(--color-primary) !important;
+    color: var(--color-primary) !important;
+    background: transparent !important;
+}
+
+html.dark-mode .btn-outline-primary:hover {
+    background: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .pagination-nav-btn:hover {
+    background: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .pagination .page-link:hover {
+    background: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .chat-send-btn {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+}
+
+html.dark-mode .chat-send-btn:hover {
+    background: var(--color-primary-light) !important;
+}
+
+html.dark-mode .period-btn.active {
+    background: var(--color-primary) !important;
+    color: white !important;
+}
+
+/* ============================================================
+   MEDIUM PRIORITY - SPECIAL COMPONENTS
+   ============================================================ */
+
+/* JSON Display */
+html.dark-mode .json-display {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Response Details */
+html.dark-mode .response-details > div,
+html.dark-mode .input-section,
+html.dark-mode .output-section {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Flow Diagram */
+html.dark-mode .flow-diagram {
+    background: transparent !important;
+}
+
+html.dark-mode .flow-node {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .flow-node.completion {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #86efac !important;
+    border-color: rgba(34, 197, 94, 0.3) !important;
+}
+
+html.dark-mode .flow-arrow {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .flow-arrow.completion {
+    color: #86efac !important;
+}
+
+html.dark-mode .no-flow,
+html.dark-mode .no-interactions {
+    color: var(--text-muted) !important;
+}
+
+/* ============================================================
+   MEDIUM PRIORITY - CONTENT PREVIEW & GRADIENTS
+   ============================================================ */
+
+html.dark-mode .content-preview {
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(251, 146, 60, 0.1) 100%) !important;
+    border-color: rgba(251, 146, 60, 0.3) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ============================================================
+   LOW PRIORITY - BORDERS (GLOBAL)
+   ============================================================ */
+
+html.dark-mode .border {
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-top {
+    border-top-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-bottom {
+    border-bottom-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-start {
+    border-left-color: var(--border-primary) !important;
+}
+
+html.dark-mode .border-end {
+    border-right-color: var(--border-primary) !important;
+}
+
+/* ============================================================
+   LOW PRIORITY - UTILITY CLASSES
+   ============================================================ */
+
+html.dark-mode .bg-light {
+    background-color: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .bg-white {
+    background-color: var(--bg-secondary) !important;
+}
+
+html.dark-mode .bg-dark {
+    background-color: var(--bg-dark) !important;
+}
+
+html.dark-mode .text-dark {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-white {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-muted {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .text-warning {
+    color: #fdba74 !important;
+}
+
+html.dark-mode .text-info {
+    color: #93c5fd !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - METRICS & DASHBOARDS
+   ============================================================ */
+
+html.dark-mode .dash-metric-card {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .indicator-dot {
+    background: var(--text-muted) !important;
+}
+
+html.dark-mode .metric-icon {
+    color: white !important;
+}
+
+html.dark-mode .details-header {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - HERO & LARGE SECTIONS
+   ============================================================ */
+
+html.dark-mode .hero-icon {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .hero-subtitle {
+    color: var(--text-secondary) !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - INTERACTIVE ELEMENTS
+   ============================================================ */
+
+html.dark-mode .interaction-toggle {
+    color: var(--text-muted) !important;
+}
+
+html.dark-mode .agent-communications-container {
+    background: transparent !important;
+}
+
+html.dark-mode .communications-stream {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode #communicationsStream {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode #communicationsDebugInfo {
+    color: var(--text-muted) !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - REQUEST/RESPONSE ITEMS
+   ============================================================ */
+
+html.dark-mode .request-content,
+html.dark-mode .response-content {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .request-item,
+html.dark-mode .response-item {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .comm-request-response {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .section-header {
+    color: var(--text-primary) !important;
+    border-bottom-color: var(--border-primary) !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - CODE BLOCKS
+   ============================================================ */
+
+html.dark-mode .comm-content pre,
+html.dark-mode .comm-content code,
+html.dark-mode pre,
+html.dark-mode code {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - CONFIDENCE & STATUS
+   ============================================================ */
+
+html.dark-mode .confidence-badge {
+    background: rgba(34, 197, 94, 0.3) !important;
+    color: #86efac !important;
+}
+
+html.dark-mode .eol-date,
+html.dark-mode .support-date {
+    color: #fca5a5 !important;
+}
+
+html.dark-mode .status-completed .response-item:first-child {
+    color: #86efac !important;
+}
+
+html.dark-mode .status-failed .response-item:first-child {
+    color: #fca5a5 !important;
+}
+
+html.dark-mode .status-in_progress .response-item:first-child {
+    color: #fdba74 !important;
+}
+
+/* ============================================================
+   SPECIAL CASES - ARIA & ACCESSIBILITY DEBUG
+   ============================================================ */
+
+html.dark-mode .a11y-debug [aria-live]::before {
+    background: rgba(251, 146, 60, 0.3) !important;
+    color: #fdba74 !important;
+}
+
+/* ============================================================
+   PAGINATION SPECIFIC
+   ============================================================ */
+
+html.dark-mode .pagination .page-item.active .page-link {
+    background-color: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .pagination .page-item.disabled .page-link {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-muted) !important;
+}
+
+/* ============================================================
+   CHAT INTERFACE SPECIFIC
+   ============================================================ */
+
+html.dark-mode .chat-container {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .message.user .message-bubble {
+    background: var(--color-primary) !important;
+    color: white !important;
+}
+
+html.dark-mode .chat-card-body {
+    background: var(--bg-secondary) !important;
+}
+
+/* ============================================================
+   FORM CONTROLS
+   ============================================================ */
+
+html.dark-mode .form-control,
+html.dark-mode .form-select,
+html.dark-mode textarea {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .form-control:focus,
+html.dark-mode .form-select:focus,
+html.dark-mode textarea:focus {
+    background: var(--bg-secondary) !important;
+    border-color: var(--color-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .form-label,
+html.dark-mode .form-check-label {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .form-text {
+    color: var(--text-muted) !important;
+}
+
+/* ============================================================
+   DROPDOWNS
+   ============================================================ */
+
+html.dark-mode .dropdown-menu {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .dropdown-item {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dropdown-item:hover {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .dropdown-divider {
+    border-top-color: var(--border-primary) !important;
+}
+
+/* ============================================================
+   MODALS
+   ============================================================ */
+
+html.dark-mode .modal-content {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .modal-header {
+    background: var(--bg-tertiary) !important;
+    border-bottom-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .modal-body {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .modal-footer {
+    border-top-color: var(--border-primary) !important;
+}
+
+html.dark-mode .btn-close {
+    filter: invert(1);
+}
+
+/* ============================================================
+   TOOLTIPS & POPOVERS
+   ============================================================ */
+
+html.dark-mode .tooltip-inner {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .popover {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .popover-header {
+    background: var(--bg-tertiary) !important;
+    border-bottom-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .popover-body {
+    color: var(--text-primary) !important;
+}
+
+/* ============================================================
+   PROGRESS BARS
+   ============================================================ */
+
+html.dark-mode .progress {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .progress-bar {
+    background: var(--color-primary) !important;
+}
+
+/* ============================================================
+   LIST GROUPS
+   ============================================================ */
+
+html.dark-mode .list-group-item {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .list-group-item:hover {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .list-group-item.active {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+}
+
+/* ============================================================
+   ACCORDIONS
+   ============================================================ */
+
+html.dark-mode .accordion-item {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode .accordion-button {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .accordion-button:not(.collapsed) {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .accordion-body {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ============================================================
+   ALERTS (Bootstrap)
+   ============================================================ */
+
+html.dark-mode .alert-success {
+    background: rgba(34, 197, 94, 0.15) !important;
+    border-color: rgba(34, 197, 94, 0.3) !important;
+    color: #86efac !important;
+}
+
+html.dark-mode .alert-danger {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    color: #fca5a5 !important;
+}
+
+html.dark-mode .alert-warning {
+    background: rgba(251, 146, 60, 0.15) !important;
+    border-color: rgba(251, 146, 60, 0.3) !important;
+    color: #fdba74 !important;
+}
+
+html.dark-mode .alert-info {
+    background: rgba(59, 130, 246, 0.15) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+    color: #93c5fd !important;
+}
+
+/* ============================================================
+   STRONG & EMPHASIS
+   ============================================================ */
+
+html.dark-mode strong,
+html.dark-mode b {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode em,
+html.dark-mode i:not([class*="fa"]) {
+    color: var(--text-secondary) !important;
+}
+
+/* ============================================================
+   TRUNCATED TEXT
+   ============================================================ */
+
+html.dark-mode .text-truncate {
+    color: var(--text-primary) !important;
+}
+
+/* ============================================================
+   HR DIVIDERS
+   ============================================================ */
+
+html.dark-mode hr {
+    border-color: var(--border-primary) !important;
+    opacity: 1;
+}
+
+/* ============================================================
+   END OF COMPREHENSIVE DARK MODE OVERRIDES
+   Total: ~800 lines of systematic dark mode support
+   ============================================================ */
