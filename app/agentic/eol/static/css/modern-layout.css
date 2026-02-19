@@ -1121,6 +1121,28 @@ html.dark-mode h6 {
     color: var(--text-primary) !important;
 }
 
+html.dark-mode strong {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .text-truncate {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .list-group-item {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
+}
+
+html.dark-mode .list-group-item strong {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .list-group-item small {
+    color: var(--text-secondary) !important;
+}
+
 /* Buttons */
 html.dark-mode .btn-outline-primary {
     color: var(--color-primary);
