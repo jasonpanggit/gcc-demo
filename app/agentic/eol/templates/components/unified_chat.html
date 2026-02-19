@@ -102,6 +102,9 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
                 <button class="btn btn-sm btn-outline-primary" onclick="toggleAgentComms()" id="toggle-comms-btn">
                     <i class="fas fa-eye me-1"></i>Show
                 </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearAgentComms()" id="clear-comms-btn">
+                    <i class="fas fa-broom me-1"></i>Clear
+                </button>
                 {% if config.show_token_stats %}
                 <button class="btn btn-sm btn-outline-info" onclick="toggleTokenStats()" id="toggle-stats-btn">
                     <i class="fas fa-chart-bar me-1"></i>Stats
@@ -216,6 +219,23 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
         } else {
             container.style.display = 'none';
             btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Stats';
+        }
+    }
+
+    function clearAgentComms() {
+        const commsContainer = document.getElementById('{{ chat_config_dict(mode).comms_container_id }}');
+        if (commsContainer) {
+            commsContainer.innerHTML = `
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-satellite-dish fa-2x mb-2"></i>
+                    <p class="mb-0">Agent communications will appear here</p>
+                </div>
+            `;
+        }
+
+        // Reset agent handler if available
+        if (typeof window.agentCommHandler !== 'undefined' && window.agentCommHandler) {
+            window.agentCommHandler.initialize();
         }
     }
 

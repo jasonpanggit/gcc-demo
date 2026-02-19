@@ -1066,29 +1066,59 @@ html.dark-mode .card-footer {
 /* Forms */
 html.dark-mode .form-control,
 html.dark-mode .form-select {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-color: var(--border-secondary);
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-secondary) !important;
 }
 
 html.dark-mode .form-control:focus,
 html.dark-mode .form-select:focus {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border-color: var(--color-primary);
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--color-primary) !important;
     box-shadow: 0 0 0 0.2rem rgba(96, 165, 250, 0.25);
 }
 
 html.dark-mode .form-control::placeholder {
-    color: var(--text-muted);
+    color: var(--text-muted) !important;
 }
 
 html.dark-mode .form-label {
-    color: var(--text-primary);
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .form-text {
-    color: var(--text-secondary);
+    color: var(--text-secondary) !important;
+}
+
+html.dark-mode .form-check-label {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .form-check-label strong {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .form-check-label small {
+    color: var(--text-secondary) !important;
+}
+
+html.dark-mode .form-check-input {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-secondary);
+}
+
+html.dark-mode .form-check-input:checked {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+html.dark-mode .fw-bold {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode h6 {
+    color: var(--text-primary) !important;
 }
 
 /* Buttons */
