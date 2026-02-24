@@ -211,3 +211,31 @@ html.dark-mode body .chat-messages {
     border-color: var(--border-primary) !important;
     color: var(--text-primary) !important;
 }
+
+/* Global header neutralization: remove tinted/gradient header backgrounds */
+html body .card-header,
+html body .modal-header,
+html body .offcanvas-header,
+html body .toast-header,
+html body .popover-header,
+html body .accordion-header,
+html body .accordion-button,
+html body .section-header,
+html body .demo-section-header,
+html body .task-summary-header,
+html body .interaction-header,
+html body .response-header,
+html body .details-header,
+html body .widget-header,
+html body .panel-header,
+html body .preview-header,
+html body .filter-header,
+html body .inventory-table-header,
+html body .eol-detail-header,
+html body .comm-header,
+html body .chat-message-header,
+html body [class*="-header"]:not(.hero-section):not(.hero-title):not(.hero-subtitle):not(.navbar-brand) {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+}

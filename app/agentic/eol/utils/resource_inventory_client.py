@@ -327,7 +327,14 @@ class ResourceInventoryClient:
                     )
 
         # -- resource_group from environment fallback --
-        if not resolved.get("resource_group"):
+        # ONLY apply when the tool is targeting a specific resource (resource_id
+        # or resource_name present). List/enumerate tools omit these params by
+        # design — injecting resource_group would incorrectly scope them to a
+        # single RG instead of returning all resources in the subscription.
+        is_specific_resource_call = bool(
+            resolved.get("resource_id") or resolved.get("resource_name")
+        )
+        if not resolved.get("resource_group") and is_specific_resource_call:
             env_rg = os.getenv("AZURE_RESOURCE_GROUP") or getattr(
                 config.azure, "resource_group_name", None
             )

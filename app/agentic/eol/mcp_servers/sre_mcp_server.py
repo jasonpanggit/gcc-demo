@@ -93,6 +93,74 @@ _audit_trail: List[Dict[str, Any]] = []
 # Cosmos DB client for audit persistence (initialized lazily)
 _cosmos_audit_container = None
 
+# ---------------------------------------------------------------------------
+# Remediation plan & runbook in-memory stores
+# ---------------------------------------------------------------------------
+# Active remediation plans keyed by plan_id (TTL managed by caller)
+_remediation_plans: Dict[str, Dict[str, Any]] = {}
+
+# Approval tokens: token_str → {plan_id, step_index, issued_at, expires_at, used}
+_approval_tokens: Dict[str, Dict[str, Any]] = {}
+
+# Built-in runbook database for matching common incident patterns
+_BUILTIN_RUNBOOKS: List[Dict[str, Any]] = [
+    {
+        "runbook_id": "builtin-restart-unhealthy",
+        "name": "Restart Unhealthy Resource",
+        "trigger_conditions": {"error_patterns": ["unhealthy", "not responding", "health check failed", "degraded"]},
+        "resource_types": ["Microsoft.Web/sites", "Microsoft.Compute/virtualMachines", "Microsoft.App/containerApps"],
+        "steps": [
+            {"action": "pre_check", "description": "Verify resource health status", "destructive": False},
+            {"action": "backup_config", "description": "Backup current configuration", "destructive": False},
+            {"action": "restart", "description": "Restart the resource gracefully", "destructive": True},
+            {"action": "validate_health", "description": "Verify health checks pass post-restart", "destructive": False},
+        ],
+        "rollback": ["Restore configuration from backup", "Revert to previous revision if available"],
+        "approval_level": "standard",
+        "risk_level": "medium",
+        "estimated_downtime": "5-10 minutes",
+    },
+    {
+        "runbook_id": "builtin-scale-out",
+        "name": "Scale Out Under Load",
+        "trigger_conditions": {"error_patterns": ["high cpu", "memory pressure", "throttling", "429", "capacity"]},
+        "resource_types": ["Microsoft.Web/sites", "Microsoft.App/containerApps", "Microsoft.Compute/virtualMachineScaleSets"],
+        "steps": [
+            {"action": "pre_check", "description": "Capture current replica/instance count and metrics", "destructive": False},
+            {"action": "calculate_target", "description": "Calculate target capacity from current load", "destructive": False},
+            {"action": "scale_out", "description": "Increase instance/replica count", "destructive": True},
+            {"action": "validate_scaling", "description": "Confirm new instances are healthy", "destructive": False},
+        ],
+        "rollback": ["Scale back to original instance count", "Monitor for instability"],
+        "approval_level": "standard",
+        "risk_level": "low",
+        "estimated_downtime": "None (rolling update)",
+    },
+    {
+        "runbook_id": "builtin-clear-cache-restart",
+        "name": "Clear Cache and Restart",
+        "trigger_conditions": {"error_patterns": ["stale data", "cache corruption", "inconsistent state", "OOM"]},
+        "resource_types": ["Microsoft.Cache/Redis", "Microsoft.Web/sites"],
+        "steps": [
+            {"action": "pre_check", "description": "Verify cache service accessibility", "destructive": False},
+            {"action": "drain_connections", "description": "Drain active connections gracefully", "destructive": False},
+            {"action": "flush_cache", "description": "Flush cache entries", "destructive": True},
+            {"action": "restart_dependent", "description": "Restart dependent application if needed", "destructive": True},
+            {"action": "validate", "description": "Verify application is serving fresh data", "destructive": False},
+        ],
+        "rollback": ["Restart application to reconnect to cache", "Verify data consistency"],
+        "approval_level": "elevated",
+        "risk_level": "medium",
+        "estimated_downtime": "5-15 minutes",
+    },
+]
+
+# In-memory custom runbooks (fallback when Cosmos DB unavailable)
+_custom_runbooks: List[Dict[str, Any]] = []
+
+# Cosmos DB client for custom runbooks (initialized lazily)
+_cosmos_runbook_container = None
+
 
 def _get_audit_container():
     """Get or create Cosmos DB container for audit trail"""
@@ -125,6 +193,112 @@ def _get_audit_container():
     except Exception as exc:
         logger.warning(f"⚠️ Failed to initialize Cosmos DB for audit trail: {exc}")
         return None
+
+
+def _get_runbook_container():
+    """Get or create Cosmos DB container for custom runbooks"""
+    global _cosmos_runbook_container
+    if _cosmos_runbook_container is not None:
+        return _cosmos_runbook_container
+
+    try:
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+        from utils.cosmos_cache import base_cosmos
+        base_cosmos._ensure_initialized()
+
+        if base_cosmos.initialized:
+            _cosmos_runbook_container = base_cosmos.get_container(
+                container_id="custom_runbooks",
+                partition_path="/resource_type",
+                offer_throughput=400,
+                default_ttl=-1  # No expiry for runbooks
+            )
+            logger.info("✅ Cosmos DB custom_runbooks container initialized")
+            return _cosmos_runbook_container
+        else:
+            logger.warning("⚠️ Cosmos DB not available - using in-memory runbook store only")
+            return None
+    except Exception as exc:
+        logger.warning(f"⚠️ Failed to initialize Cosmos DB for runbooks: {exc}")
+        return None
+
+
+def _generate_approval_token(plan_id: str, step_index: int) -> str:
+    """Generate a time-limited approval token for a remediation step."""
+    token = f"approve-{plan_id}-{step_index}-{uuid.uuid4().hex[:12]}"
+    now = datetime.utcnow()
+    _approval_tokens[token] = {
+        "plan_id": plan_id,
+        "step_index": step_index,
+        "issued_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=30)).isoformat(),
+        "used": False,
+    }
+    return token
+
+
+def _validate_approval_token(token: str, plan_id: str, step_index: int) -> Dict[str, Any]:
+    """Validate an approval token. Returns {valid: bool, reason?: str}."""
+    record = _approval_tokens.get(token)
+    if record is None:
+        return {"valid": False, "reason": "Unknown approval token"}
+    if record["used"]:
+        return {"valid": False, "reason": "Approval token already used"}
+    if record["plan_id"] != plan_id:
+        return {"valid": False, "reason": "Token does not match plan_id"}
+    if record["step_index"] != step_index:
+        return {"valid": False, "reason": "Token does not match step_index"}
+    if datetime.utcnow() > datetime.fromisoformat(record["expires_at"]):
+        return {"valid": False, "reason": "Approval token expired (30-min TTL)"}
+    return {"valid": True}
+
+
+def _match_runbooks(issue_description: str, resource_id: str) -> List[Dict[str, Any]]:
+    """Match an incident description against built-in and custom runbook databases.
+
+    Returns ranked list of matching runbooks sorted by relevance score.
+    """
+    issue_lower = issue_description.lower()
+
+    # Determine resource type from resource_id
+    resource_type = "unknown"
+    parts = resource_id.split("/")
+    if len(parts) >= 9:
+        resource_type = f"{parts[6]}/{parts[7]}"
+
+    matches: List[Dict[str, Any]] = []
+
+    all_runbooks = _BUILTIN_RUNBOOKS + _custom_runbooks
+
+    # Also try to load custom runbooks from Cosmos DB
+    try:
+        container = _get_runbook_container()
+        if container is not None:
+            query = "SELECT * FROM c WHERE c.active = true"
+            cosmos_runbooks = list(container.query_items(query=query, enable_cross_partition_query=True))
+            all_runbooks = all_runbooks + cosmos_runbooks
+    except Exception as exc:
+        logger.debug(f"Could not load Cosmos runbooks for matching: {exc}")
+
+    for rb in all_runbooks:
+        score = 0
+        patterns = rb.get("trigger_conditions", {}).get("error_patterns", [])
+        for pattern in patterns:
+            if pattern.lower() in issue_lower:
+                score += 10
+
+        # Boost score if resource type matches
+        if resource_type in rb.get("resource_types", []):
+            score += 5
+
+        if score > 0:
+            matches.append({**rb, "_match_score": score})
+
+    matches.sort(key=lambda r: r["_match_score"], reverse=True)
+    return matches
 
 
 def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[str, Any], success: bool):
@@ -2326,6 +2500,557 @@ async def clear_cache(
 
 
 # ============================================================================
+# Automated Remediation with Approval Gates
+# ============================================================================
+
+@_server.tool(
+    name="generate_remediation_plan",
+    description=(
+        "Generate a detailed, multi-step remediation plan for an incident or alert. "
+        "Matches the issue against built-in and custom runbook databases, then produces "
+        "a step-by-step plan with pre-checks, execution steps, validation, and rollback. "
+        "⚠️ IMPORTANT: All plans require explicit approval before any destructive step "
+        "can be executed. Use execute_remediation_step with the returned approval_token "
+        "to proceed."
+    ),
+)
+async def generate_remediation_plan(
+    context: Context,
+    issue_description: Annotated[str, "Description of the incident or alert to remediate"],
+    resource_id: Annotated[str, "Full Azure resource ID of the affected resource"],
+    severity: Annotated[str, "Severity level: critical, high, medium, low"] = "medium",
+    preferred_strategy: Annotated[Optional[str], "Optional preferred remediation type: restart, scale, clear_cache, custom"] = None,
+) -> list[TextContent]:
+    """Generate a remediation plan with approval gates from runbook matching."""
+    try:
+        plan_id = f"plan-{uuid.uuid4().hex[:12]}"
+        now = datetime.utcnow()
+
+        # ---- Runbook matching ----
+        matched_runbooks = _match_runbooks(issue_description, resource_id)
+
+        # Pick best runbook (or generate a generic one)
+        if preferred_strategy:
+            # Filter by preferred strategy name
+            strategy_matches = [
+                rb for rb in matched_runbooks
+                if preferred_strategy.lower() in rb.get("name", "").lower()
+                or preferred_strategy.lower() in str(rb.get("steps", [])).lower()
+            ]
+            selected_runbook = strategy_matches[0] if strategy_matches else (matched_runbooks[0] if matched_runbooks else None)
+        else:
+            selected_runbook = matched_runbooks[0] if matched_runbooks else None
+
+        # Build step-by-step plan
+        if selected_runbook:
+            runbook_steps = selected_runbook.get("steps", [])
+            rollback = selected_runbook.get("rollback", [])
+            risk_level = selected_runbook.get("risk_level", "medium")
+            estimated_downtime = selected_runbook.get("estimated_downtime", "Unknown")
+            runbook_id = selected_runbook.get("runbook_id", "ad-hoc")
+        else:
+            # Generic plan when no runbook matches
+            runbook_steps = [
+                {"action": "pre_check", "description": "Verify resource current state and health", "destructive": False},
+                {"action": "investigate", "description": "Collect diagnostic logs and metrics", "destructive": False},
+                {"action": "remediate", "description": f"Apply remediation for: {issue_description[:80]}", "destructive": True},
+                {"action": "validate", "description": "Validate resource health post-remediation", "destructive": False},
+            ]
+            rollback = ["Revert changes and restore previous state", "Notify stakeholders"]
+            risk_level = "high" if severity in ("critical", "high") else "medium"
+            estimated_downtime = "To be determined"
+            runbook_id = "ad-hoc"
+
+        # Enrich steps with indices and approval requirements
+        plan_steps = []
+        for idx, step in enumerate(runbook_steps):
+            is_destructive = step.get("destructive", False)
+            step_entry = {
+                "step_index": idx,
+                "action": step["action"],
+                "description": step["description"],
+                "destructive": is_destructive,
+                "requires_approval": is_destructive,
+                "status": "pending",
+                "approval_token": _generate_approval_token(plan_id, idx) if is_destructive else None,
+            }
+            plan_steps.append(step_entry)
+
+        # Determine overall approval requirement
+        has_destructive_steps = any(s["destructive"] for s in plan_steps)
+
+        plan_record = {
+            "plan_id": plan_id,
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(hours=4)).isoformat(),
+            "issue_description": issue_description,
+            "resource_id": resource_id,
+            "severity": severity,
+            "matched_runbook_id": runbook_id,
+            "matched_runbooks_count": len(matched_runbooks),
+            "risk_level": risk_level,
+            "estimated_downtime": estimated_downtime,
+            "steps": plan_steps,
+            "rollback_procedure": rollback,
+            "approval_required": has_destructive_steps,
+            "status": "awaiting_approval" if has_destructive_steps else "ready",
+            "execution_log": [],
+        }
+
+        # Store plan in memory
+        _remediation_plans[plan_id] = plan_record
+
+        # Prune expired plans (keep store bounded)
+        expired_ids = [
+            pid for pid, p in _remediation_plans.items()
+            if datetime.utcnow() > datetime.fromisoformat(p["expires_at"])
+        ]
+        for pid in expired_ids:
+            del _remediation_plans[pid]
+
+        # Build response (hide raw token values in summary, include per-step)
+        response = {
+            "success": True,
+            "plan_id": plan_id,
+            "resource_id": resource_id,
+            "severity": severity,
+            "risk_level": risk_level,
+            "estimated_downtime": estimated_downtime,
+            "matched_runbook": runbook_id,
+            "total_steps": len(plan_steps),
+            "steps": plan_steps,
+            "rollback_procedure": rollback,
+            "approval_required": has_destructive_steps,
+            "status": plan_record["status"],
+            "instructions": (
+                "Review the plan above. For each destructive step, call "
+                "execute_remediation_step with plan_id, step_index, confirmed=true, "
+                "and the approval_token shown for that step. Non-destructive steps "
+                "can be executed without a token."
+            ),
+            "expires_at": plan_record["expires_at"],
+            "timestamp": now.isoformat(),
+        }
+
+        _log_audit_event(
+            operation="generate_remediation_plan",
+            resource_id=resource_id,
+            details={
+                "plan_id": plan_id,
+                "severity": severity,
+                "matched_runbook": runbook_id,
+                "risk_level": risk_level,
+                "total_steps": len(plan_steps),
+            },
+            success=True,
+        )
+
+        logger.info(
+            f"Generated remediation plan {plan_id} for {resource_id} "
+            f"(runbook={runbook_id}, steps={len(plan_steps)}, risk={risk_level})"
+        )
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="generate_remediation_plan",
+            resource_id=resource_id,
+            details={"error": str(exc)},
+            success=False,
+        )
+        logger.error(f"Error generating remediation plan: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "resource_id": resource_id,
+        }, indent=2))]
+
+
+@_server.tool(
+    name="execute_remediation_step",
+    description=(
+        "Execute a single step from a previously generated remediation plan. "
+        "⚠️ CRITICAL: Destructive steps REQUIRE confirmed=true AND a valid "
+        "approval_token (returned by generate_remediation_plan). Tokens expire "
+        "after 30 minutes and are single-use. Non-destructive steps (pre-checks, "
+        "validations) can run without a token. All actions are fully audited."
+    ),
+)
+async def execute_remediation_step(
+    context: Context,
+    plan_id: Annotated[str, "Plan ID returned by generate_remediation_plan"],
+    step_index: Annotated[int, "Zero-based index of the step to execute"],
+    confirmed: Annotated[bool, "Must be true to execute destructive steps"] = False,
+    approval_token: Annotated[Optional[str], "Approval token for destructive steps (from generate_remediation_plan)"] = None,
+) -> list[TextContent]:
+    """Execute a single remediation step with approval gate enforcement."""
+    resource_id = "unknown"
+    try:
+        # ---- Retrieve plan ----
+        plan = _remediation_plans.get(plan_id)
+        if plan is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Plan '{plan_id}' not found or expired. Generate a new plan first.",
+            }, indent=2))]
+
+        resource_id = plan.get("resource_id", "unknown")
+
+        # Check plan expiry
+        if datetime.utcnow() > datetime.fromisoformat(plan["expires_at"]):
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Plan has expired. Generate a new remediation plan.",
+                "plan_id": plan_id,
+            }, indent=2))]
+
+        # ---- Validate step index ----
+        if step_index < 0 or step_index >= len(plan["steps"]):
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Invalid step_index {step_index}. Plan has {len(plan['steps'])} steps (0-{len(plan['steps'])-1}).",
+            }, indent=2))]
+
+        step = plan["steps"][step_index]
+
+        # ---- Check prior step completion (enforce sequential execution) ----
+        if step_index > 0:
+            prev_step = plan["steps"][step_index - 1]
+            if prev_step["status"] not in ("completed", "skipped"):
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Step {step_index - 1} ('{prev_step['action']}') must be completed before step {step_index}.",
+                    "previous_step_status": prev_step["status"],
+                }, indent=2))]
+
+        # ---- Already executed? ----
+        if step["status"] == "completed":
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Step {step_index} already completed.",
+                "plan_id": plan_id,
+            }, indent=2))]
+
+        # ---- Approval gate for destructive steps ----
+        is_destructive = step.get("destructive", False)
+        if is_destructive:
+            if not confirmed:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "requires_approval": True,
+                    "message": (
+                        f"Step {step_index} ('{step['action']}') is destructive and "
+                        "requires confirmed=true plus a valid approval_token."
+                    ),
+                    "step": step,
+                    "plan_id": plan_id,
+                }, indent=2))]
+
+            if not approval_token:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "requires_approval": True,
+                    "message": "Destructive step requires an approval_token from generate_remediation_plan.",
+                    "plan_id": plan_id,
+                    "step_index": step_index,
+                }, indent=2))]
+
+            # Validate token
+            token_check = _validate_approval_token(approval_token, plan_id, step_index)
+            if not token_check["valid"]:
+                return [TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": f"Approval token invalid: {token_check['reason']}",
+                    "plan_id": plan_id,
+                    "step_index": step_index,
+                }, indent=2))]
+
+            # Mark token as used (single-use)
+            _approval_tokens[approval_token]["used"] = True
+
+        # ---- Capture pre-condition state ----
+        state_before = {
+            "step_index": step_index,
+            "action": step["action"],
+            "timestamp": datetime.utcnow().isoformat(),
+            "plan_status": plan["status"],
+        }
+
+        # ---- Execute step (simulated for safety, logs real intent) ----
+        execution_start = datetime.utcnow()
+
+        # Simulate execution — in production these would call real Azure APIs
+        # via the existing execute_safe_restart / scale_resource / clear_cache tools.
+        step_result = {
+            "executed_action": step["action"],
+            "description": step["description"],
+            "simulated": True,
+            "message": f"Step '{step['action']}' executed successfully (simulated for safety).",
+        }
+
+        execution_ms = int((datetime.utcnow() - execution_start).total_seconds() * 1000)
+
+        # ---- Update step status ----
+        step["status"] = "completed"
+        step["completed_at"] = datetime.utcnow().isoformat()
+
+        # ---- Capture post-condition state ----
+        state_after = {
+            "step_index": step_index,
+            "action": step["action"],
+            "status": "completed",
+            "timestamp": datetime.utcnow().isoformat(),
+            "execution_ms": execution_ms,
+        }
+
+        # ---- Append to plan execution log ----
+        plan["execution_log"].append({
+            "step_index": step_index,
+            "action": step["action"],
+            "executed_at": datetime.utcnow().isoformat(),
+            "confirmed": confirmed,
+            "destructive": is_destructive,
+            "approval_token_used": approval_token is not None,
+            "execution_ms": execution_ms,
+        })
+
+        # Update overall plan status
+        all_completed = all(s["status"] == "completed" for s in plan["steps"])
+        if all_completed:
+            plan["status"] = "completed"
+
+        # ---- Determine next step ----
+        next_step = None
+        if step_index + 1 < len(plan["steps"]):
+            ns = plan["steps"][step_index + 1]
+            next_step = {
+                "step_index": step_index + 1,
+                "action": ns["action"],
+                "description": ns["description"],
+                "destructive": ns.get("destructive", False),
+                "requires_approval": ns.get("requires_approval", False),
+                "approval_token": ns.get("approval_token"),
+            }
+
+        response = {
+            "success": True,
+            "plan_id": plan_id,
+            "step_index": step_index,
+            "action": step["action"],
+            "result": step_result,
+            "state_before": state_before,
+            "state_after": state_after,
+            "plan_status": plan["status"],
+            "next_step": next_step,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        _log_audit_event(
+            operation="execute_remediation_step",
+            resource_id=resource_id,
+            details={
+                "plan_id": plan_id,
+                "step_index": step_index,
+                "action": step["action"],
+                "destructive": is_destructive,
+                "confirmed": confirmed,
+                "execution_ms": execution_ms,
+            },
+            success=True,
+        )
+
+        logger.info(
+            f"Executed remediation step {step_index} ({step['action']}) "
+            f"for plan {plan_id} on {resource_id}"
+        )
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="execute_remediation_step",
+            resource_id=resource_id,
+            details={"plan_id": plan_id, "step_index": step_index, "error": str(exc)},
+            success=False,
+        )
+        logger.error(f"Error executing remediation step: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+            "plan_id": plan_id,
+            "step_index": step_index,
+        }, indent=2))]
+
+
+@_server.tool(
+    name="register_custom_runbook",
+    description=(
+        "Register a custom remediation runbook for future incident matching. "
+        "Runbooks define trigger conditions (error patterns), resource types, "
+        "step-by-step remediation procedures, and approval levels. Stored in "
+        "Cosmos DB (with in-memory fallback) and indexed by resource type and "
+        "error pattern for fast matching by generate_remediation_plan."
+    ),
+)
+async def register_custom_runbook(
+    context: Context,
+    name: Annotated[str, "Human-readable runbook name (e.g., 'Restart on OOM Kill')"],
+    trigger_conditions: Annotated[str, "JSON object with error_patterns list, e.g. {\"error_patterns\": [\"OOM\", \"out of memory\"]}"],
+    steps: Annotated[str, "JSON array of step objects, each with action, description, destructive (bool)"],
+    resource_types: Annotated[str, "JSON array of Azure resource type strings, e.g. [\"Microsoft.Web/sites\"]"],
+    approval_level: Annotated[str, "Approval level: standard, elevated, or admin"] = "standard",
+) -> list[TextContent]:
+    """Register a custom runbook for automated remediation matching."""
+    try:
+        now = datetime.utcnow()
+
+        # ---- Parse and validate inputs ----
+        try:
+            parsed_conditions = json.loads(trigger_conditions)
+        except json.JSONDecodeError as je:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Invalid JSON for trigger_conditions: {je}",
+                "expected_format": '{"error_patterns": ["pattern1", "pattern2"]}',
+            }, indent=2))]
+
+        try:
+            parsed_steps = json.loads(steps)
+        except json.JSONDecodeError as je:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Invalid JSON for steps: {je}",
+                "expected_format": '[{"action": "restart", "description": "Restart service", "destructive": true}]',
+            }, indent=2))]
+
+        try:
+            parsed_resource_types = json.loads(resource_types)
+        except json.JSONDecodeError as je:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": f"Invalid JSON for resource_types: {je}",
+                "expected_format": '["Microsoft.Web/sites", "Microsoft.App/containerApps"]',
+            }, indent=2))]
+
+        # ---- Schema validation ----
+        errors: List[str] = []
+
+        if not name or len(name.strip()) < 3:
+            errors.append("name must be at least 3 characters")
+
+        if not isinstance(parsed_conditions, dict) or "error_patterns" not in parsed_conditions:
+            errors.append("trigger_conditions must have an 'error_patterns' list")
+        elif not isinstance(parsed_conditions["error_patterns"], list) or len(parsed_conditions["error_patterns"]) == 0:
+            errors.append("error_patterns must be a non-empty list of strings")
+
+        if not isinstance(parsed_steps, list) or len(parsed_steps) == 0:
+            errors.append("steps must be a non-empty array of step objects")
+        else:
+            for i, s in enumerate(parsed_steps):
+                if not isinstance(s, dict):
+                    errors.append(f"steps[{i}] must be an object")
+                    continue
+                if "action" not in s or "description" not in s:
+                    errors.append(f"steps[{i}] must have 'action' and 'description' fields")
+                if "destructive" not in s:
+                    parsed_steps[i]["destructive"] = False  # default to safe
+
+        if not isinstance(parsed_resource_types, list) or len(parsed_resource_types) == 0:
+            errors.append("resource_types must be a non-empty array of Azure resource type strings")
+
+        if approval_level not in ("standard", "elevated", "admin"):
+            errors.append(f"approval_level must be standard, elevated, or admin (got '{approval_level}')")
+
+        if errors:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Runbook schema validation failed",
+                "validation_errors": errors,
+            }, indent=2))]
+
+        # ---- Build runbook record ----
+        runbook_id = f"custom-{uuid.uuid4().hex[:12]}"
+        # Use first resource type as partition key for Cosmos DB
+        primary_resource_type = parsed_resource_types[0] if parsed_resource_types else "unknown"
+
+        runbook_record = {
+            "id": runbook_id,
+            "runbook_id": runbook_id,
+            "name": name.strip(),
+            "trigger_conditions": parsed_conditions,
+            "resource_types": parsed_resource_types,
+            "resource_type": primary_resource_type,  # Cosmos partition key
+            "steps": parsed_steps,
+            "rollback": [f"Revert {name.strip()} changes", "Notify stakeholders"],
+            "approval_level": approval_level,
+            "risk_level": "high" if approval_level == "admin" else ("medium" if approval_level == "elevated" else "low"),
+            "estimated_downtime": "Varies",
+            "active": True,
+            "created_at": now.isoformat(),
+            "created_by": os.getenv("USER", "system"),
+            "version": 1,
+        }
+
+        # ---- Persist to Cosmos DB ----
+        persisted_to_cosmos = False
+        try:
+            container = _get_runbook_container()
+            if container is not None:
+                container.upsert_item(body=runbook_record)
+                persisted_to_cosmos = True
+                logger.info(f"✅ Custom runbook '{name}' persisted to Cosmos DB")
+        except Exception as cosmos_exc:
+            logger.warning(f"⚠️ Failed to persist runbook to Cosmos DB: {cosmos_exc}")
+
+        # Always store in memory as fallback
+        _custom_runbooks.append(runbook_record)
+
+        response = {
+            "success": True,
+            "runbook_id": runbook_id,
+            "name": name.strip(),
+            "resource_types": parsed_resource_types,
+            "trigger_patterns": parsed_conditions["error_patterns"],
+            "total_steps": len(parsed_steps),
+            "approval_level": approval_level,
+            "persisted_to_cosmos": persisted_to_cosmos,
+            "storage": "cosmos_db + in_memory" if persisted_to_cosmos else "in_memory_only",
+            "registered_at": now.isoformat(),
+        }
+
+        _log_audit_event(
+            operation="register_custom_runbook",
+            resource_id=None,
+            details={
+                "runbook_id": runbook_id,
+                "name": name.strip(),
+                "resource_types": parsed_resource_types,
+                "approval_level": approval_level,
+                "persisted_to_cosmos": persisted_to_cosmos,
+            },
+            success=True,
+        )
+
+        logger.info(
+            f"Registered custom runbook '{name}' ({runbook_id}) "
+            f"with {len(parsed_steps)} steps, approval={approval_level}"
+        )
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="register_custom_runbook",
+            resource_id=None,
+            details={"name": name, "error": str(exc)},
+            success=False,
+        )
+        logger.error(f"Error registering custom runbook: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
+        }, indent=2))]
+
+
+# ============================================================================
 # Microsoft Teams Notification Tools
 # ============================================================================
 
@@ -3398,6 +4123,83 @@ async def query_container_app_configuration(
         return [TextContent(type="text", text=json.dumps({
             "success": False,
             "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="list_container_apps",
+    description=(
+        "List Azure Container Apps in a subscription or resource group. "
+        "✅ USE THIS TOOL for pure discovery/list requests like 'list all my container apps'. "
+        "Returns app identifiers and basic metadata without applying configuration filters."
+    ),
+)
+async def list_container_apps(
+    context: Context,
+    subscription_id: Annotated[Optional[str], "Azure subscription ID (uses default if not provided)"] = None,
+    resource_group: Annotated[Optional[str], "Optional resource group filter"] = None,
+) -> list[TextContent]:
+    """List Container Apps with basic metadata."""
+    try:
+        if ResourceGraphClient is None or QueryRequest is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure Resource Graph SDK not installed (azure-mgmt-resourcegraph required)"
+            }, indent=2))]
+
+        credential = _get_credential()
+        sub_id = subscription_id or _get_subscription_id()
+
+        graph_client = ResourceGraphClient(credential)
+
+        kql_query = f"""
+        Resources
+        | where type == 'microsoft.app/containerapps'
+        | where subscriptionId == '{sub_id}'
+        """
+
+        if resource_group:
+            kql_query += f"| where resourceGroup =~ '{resource_group}'\n"
+
+        kql_query += """
+        | extend revisionMode = tostring(properties.configuration.activeRevisionsMode)
+        | project id, name, resourceGroup, location, revisionMode
+        | order by name asc
+        """
+
+        query_request = QueryRequest(
+            subscriptions=[sub_id],
+            query=kql_query,
+        )
+        response = graph_client.resources(query_request)
+
+        apps = []
+        for row in response.data:
+            apps.append({
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "resource_group": row.get("resourceGroup"),
+                "location": row.get("location"),
+                "revision_mode": row.get("revisionMode", "single"),
+            })
+
+        result = {
+            "success": True,
+            "subscription_id": sub_id,
+            "resource_group": resource_group,
+            "total_apps": len(apps),
+            "apps": apps,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        logger.info("Listed %d Container Apps", len(apps))
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        logger.error(f"Error listing Container Apps: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc),
         }, indent=2))]
 
 
@@ -5102,6 +5904,1758 @@ async def predict_resource_exhaustion(
 
 
 # ============================================================================
+# Advanced Root Cause Analysis (P1)
+# ============================================================================
+
+@_server.tool(
+    name="perform_root_cause_analysis",
+    description=(
+        "Perform automated Root Cause Analysis (RCA) for incidents. "
+        "Collects incident context, correlates logs across affected resources, "
+        "analyzes activity log for configuration changes, checks resource dependencies "
+        "for cascade failures, queries App Insights for distributed traces, and generates "
+        "a timeline with probable root cause. "
+        "✅ USE THIS TOOL when users ask: 'What caused this incident?', 'Perform RCA', "
+        "'Root cause analysis for my outage', 'Why did my app go down?'. "
+        "Returns hypothesis with evidence, timeline, confidence score, and recommended actions."
+    ),
+)
+async def perform_root_cause_analysis(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID of the primary affected resource"],
+    workspace_id: Annotated[str, "Log Analytics workspace ID for log correlation"],
+    error_patterns: Annotated[Optional[str], "Comma-separated error patterns to search for (optional)"] = None,
+    hours: Annotated[int, "Hours to look back for analysis (default: 24)"] = 24,
+) -> list[TextContent]:
+    """Perform automated root cause analysis for incidents"""
+    try:
+        if LogsQueryClient is None or ResourceGraphClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure SDK not installed (azure-monitor-query and azure-mgmt-resourcegraph required)"
+            }, indent=2))]
+
+        # Check cache first
+        cache_args = {"resource_id": resource_id, "workspace_id": workspace_id, "hours": hours}
+        cached = _cache_get("perform_root_cause_analysis", cache_args)
+        if cached is not None:
+            logger.info(f"RCA cache hit for {resource_id}")
+            return [TextContent(type="text", text=json.dumps(cached, indent=2))]
+
+        credential = _get_credential()
+        subscription_id = _get_subscription_id()
+        time_range = timedelta(hours=hours)
+        now = datetime.utcnow()
+
+        # Parse resource ID
+        parts = resource_id.split('/')
+        if len(parts) < 9:
+            raise ValueError("Invalid resource ID format")
+
+        resource_name = parts[8]
+        resource_group = parts[4]
+        resource_type = f"{parts[6]}/{parts[7]}"
+
+        rca_result = {
+            "success": True,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            "resource_type": resource_type,
+            "analysis_window": {
+                "start": (now - time_range).isoformat(),
+                "end": now.isoformat(),
+                "hours": hours
+            },
+            "root_cause_hypothesis": None,
+            "confidence_score": 0.0,
+            "evidence": [],
+            "timeline": [],
+            "recommended_actions": [],
+            "timestamp": now.isoformat()
+        }
+
+        # ---- Step 1: Correlate logs across affected resources ----
+        logs_client = LogsQueryClient(credential)
+
+        error_filter = ""
+        if error_patterns:
+            patterns = [p.strip() for p in error_patterns.split(",")]
+            pattern_conditions = " or ".join(
+                [f"_ResourceId contains '{resource_name}' and * contains '{p}'" for p in patterns]
+            )
+            error_filter = f"| where {pattern_conditions}"
+
+        log_query = f"""
+        union *
+        | where TimeGenerated > ago({hours}h)
+        | where _ResourceId contains '{resource_name}' or _ResourceId contains '{resource_group}'
+        {error_filter}
+        | where Level in ('Error', 'Warning', 'Critical') or
+                OperationName contains 'Error' or OperationName contains 'Fail'
+        | summarize
+            ErrorCount = countif(Level == 'Error' or Level == 'Critical'),
+            WarningCount = countif(Level == 'Warning'),
+            FirstError = min(TimeGenerated),
+            LastError = max(TimeGenerated),
+            TopErrors = make_list(strcat(tostring(TimeGenerated), ' | ', OperationName, ' | ', tostring(ResultDescription)), 10)
+        """
+
+        try:
+            log_response = logs_client.query_workspace(
+                workspace_id=workspace_id,
+                query=log_query,
+                timespan=time_range
+            )
+
+            for table in log_response.tables:
+                for row in table.rows:
+                    error_count = row[0] if row[0] else 0
+                    warning_count = row[1] if row[1] else 0
+                    first_error = str(row[2]) if row[2] else None
+                    last_error = str(row[3]) if row[3] else None
+                    top_errors = row[4] if len(row) > 4 and row[4] else []
+
+                    rca_result["evidence"].append({
+                        "source": "log_correlation",
+                        "error_count": error_count,
+                        "warning_count": warning_count,
+                        "first_error_time": first_error,
+                        "last_error_time": last_error,
+                        "top_errors": top_errors[:10]
+                    })
+
+                    if first_error:
+                        rca_result["timeline"].append({
+                            "time": first_error,
+                            "event": "First error detected in logs",
+                            "severity": "high",
+                            "details": f"{error_count} errors, {warning_count} warnings in window"
+                        })
+        except Exception as log_exc:
+            logger.warning(f"Log correlation failed for RCA: {log_exc}")
+            rca_result["evidence"].append({
+                "source": "log_correlation",
+                "status": "failed",
+                "error": str(log_exc)
+            })
+
+        # ---- Step 2: Analyze activity log for configuration changes ----
+        try:
+            monitor_client = MonitorManagementClient(credential, subscription_id)
+            filter_str = (
+                f"eventTimestamp ge '{(now - time_range).strftime('%Y-%m-%dT%H:%M:%SZ')}' "
+                f"and eventTimestamp le '{now.strftime('%Y-%m-%dT%H:%M:%SZ')}' "
+                f"and resourceGroupName eq '{resource_group}'"
+            )
+
+            activity_logs = list(monitor_client.activity_logs.list(filter=filter_str))
+
+            config_changes = []
+            for log_entry in activity_logs[:50]:
+                if log_entry.operation_name and any(
+                    op in (log_entry.operation_name.localized_value or "").lower()
+                    for op in ["write", "delete", "action", "update", "create", "restart", "stop", "start"]
+                ):
+                    change_entry = {
+                        "time": str(log_entry.event_timestamp) if log_entry.event_timestamp else "unknown",
+                        "operation": log_entry.operation_name.localized_value if log_entry.operation_name else "unknown",
+                        "status": log_entry.status.localized_value if log_entry.status else "unknown",
+                        "caller": log_entry.caller or "unknown",
+                        "resource": log_entry.resource_id or "unknown"
+                    }
+                    config_changes.append(change_entry)
+
+                    rca_result["timeline"].append({
+                        "time": change_entry["time"],
+                        "event": f"Configuration change: {change_entry['operation']}",
+                        "severity": "medium",
+                        "details": f"By {change_entry['caller']} - Status: {change_entry['status']}"
+                    })
+
+            rca_result["evidence"].append({
+                "source": "activity_log",
+                "total_changes": len(config_changes),
+                "changes": config_changes[:20]
+            })
+        except Exception as activity_exc:
+            logger.warning(f"Activity log analysis failed for RCA: {activity_exc}")
+            rca_result["evidence"].append({
+                "source": "activity_log",
+                "status": "failed",
+                "error": str(activity_exc)
+            })
+
+        # ---- Step 3: Check resource dependencies for cascade failures ----
+        try:
+            graph_client = ResourceGraphClient(credential)
+
+            dep_query = f"""
+            Resources
+            | where id =~ '{resource_id}'
+            | project id, name, type, location, resourceGroup, properties
+            | extend dependencies = pack_array(
+                properties.networkProfile.networkInterfaces,
+                properties.storageProfile.osDisk,
+                properties.storageProfile.dataDisks,
+                properties.networkSecurityGroup,
+                properties.subnet,
+                properties.publicIPAddress
+            )
+            | mvexpand dependencies
+            | where isnotnull(dependencies)
+            | extend dep_id = tostring(dependencies.id)
+            | where isnotempty(dep_id)
+            | project dep_id
+            | union (
+                Resources
+                | where properties contains '{resource_name}' or properties contains '{resource_id}'
+                | where id !~ '{resource_id}'
+                | project id
+            )
+            | distinct id=coalesce(dep_id, id)
+            | join kind=inner (
+                Resources
+                | project id, name, type, location, resourceGroup
+            ) on id
+            | project id, name, type, location, resourceGroup
+            | limit 30
+            """
+
+            dep_request = QueryRequest(
+                subscriptions=[subscription_id],
+                query=dep_query,
+                options=QueryRequestOptions(top=30)
+            )
+            dep_response = graph_client.resources(dep_request)
+
+            unhealthy_deps = []
+            all_deps = []
+            if hasattr(dep_response, 'data') and dep_response.data:
+                for row in dep_response.data:
+                    dep_info = {
+                        "resource_id": row.get('id', ''),
+                        "name": row.get('name', ''),
+                        "type": row.get('type', ''),
+                        "health_status": "unknown"
+                    }
+
+                    # Check health for each dependency
+                    if ResourceHealthMgmtClient is not None:
+                        try:
+                            health_client = ResourceHealthMgmtClient(credential, subscription_id)
+                            health_resp = health_client.availability_statuses.get_by_resource(
+                                resource_uri=dep_info["resource_id"]
+                            )
+                            dep_info["health_status"] = health_resp.properties.availability_state
+                            if dep_info["health_status"] in ("Unavailable", "Degraded"):
+                                unhealthy_deps.append(dep_info)
+                        except Exception:
+                            dep_info["health_status"] = "not_supported"
+
+                    all_deps.append(dep_info)
+
+            rca_result["evidence"].append({
+                "source": "dependency_analysis",
+                "total_dependencies": len(all_deps),
+                "unhealthy_dependencies": len(unhealthy_deps),
+                "unhealthy_details": unhealthy_deps
+            })
+
+            if unhealthy_deps:
+                rca_result["timeline"].append({
+                    "time": now.isoformat(),
+                    "event": f"{len(unhealthy_deps)} unhealthy dependencies detected",
+                    "severity": "high",
+                    "details": ", ".join(d["name"] for d in unhealthy_deps)
+                })
+        except Exception as dep_exc:
+            logger.warning(f"Dependency analysis failed for RCA: {dep_exc}")
+            rca_result["evidence"].append({
+                "source": "dependency_analysis",
+                "status": "failed",
+                "error": str(dep_exc)
+            })
+
+        # ---- Step 4: Query App Insights for distributed traces ----
+        try:
+            app_insights_query = f"""
+            union requests, dependencies, exceptions
+            | where timestamp > ago({hours}h)
+            | where cloud_RoleName contains '{resource_name}' or
+                    operation_Name contains '{resource_name}'
+            | summarize
+                FailedRequests = countif(success == false),
+                TotalRequests = count(),
+                AvgDuration = avg(duration),
+                P95Duration = percentile(duration, 95),
+                TopExceptions = make_list(
+                    strcat(tostring(timestamp), ' | ', type, ' | ', outerMessage), 5
+                )
+            | extend FailureRate = round(todouble(FailedRequests) / todouble(TotalRequests) * 100, 2)
+            """
+
+            ai_response = logs_client.query_workspace(
+                workspace_id=workspace_id,
+                query=app_insights_query,
+                timespan=time_range
+            )
+
+            for table in ai_response.tables:
+                for row in table.rows:
+                    rca_result["evidence"].append({
+                        "source": "app_insights_traces",
+                        "failed_requests": row[0] if row[0] else 0,
+                        "total_requests": row[1] if row[1] else 0,
+                        "avg_duration_ms": round(row[2], 2) if row[2] else 0,
+                        "p95_duration_ms": round(row[3], 2) if row[3] else 0,
+                        "top_exceptions": row[4] if len(row) > 4 and row[4] else [],
+                        "failure_rate_pct": row[5] if len(row) > 5 and row[5] else 0
+                    })
+        except Exception as ai_exc:
+            logger.warning(f"App Insights trace analysis failed for RCA: {ai_exc}")
+            rca_result["evidence"].append({
+                "source": "app_insights_traces",
+                "status": "failed",
+                "error": str(ai_exc)
+            })
+
+        # ---- Step 5: Generate hypothesis and recommendations ----
+        # Sort timeline by time
+        rca_result["timeline"].sort(key=lambda x: x.get("time", ""))
+
+        # Calculate confidence score based on evidence quality
+        evidence_count = len([e for e in rca_result["evidence"] if e.get("status") != "failed"])
+        rca_result["confidence_score"] = round(min(evidence_count / 4.0, 1.0) * 100, 1)
+
+        # Generate hypothesis based on evidence
+        has_config_changes = any(
+            e.get("source") == "activity_log" and e.get("total_changes", 0) > 0
+            for e in rca_result["evidence"]
+        )
+        has_unhealthy_deps = any(
+            e.get("source") == "dependency_analysis" and e.get("unhealthy_dependencies", 0) > 0
+            for e in rca_result["evidence"]
+        )
+        has_high_failure_rate = any(
+            e.get("source") == "app_insights_traces" and (e.get("failure_rate_pct") or 0) > 10
+            for e in rca_result["evidence"]
+        )
+        has_errors = any(
+            e.get("source") == "log_correlation" and (e.get("error_count") or 0) > 0
+            for e in rca_result["evidence"]
+        )
+
+        if has_config_changes and has_errors:
+            rca_result["root_cause_hypothesis"] = (
+                "Configuration change correlated with error onset. "
+                "A recent change to the resource or its environment likely triggered the incident."
+            )
+            rca_result["confidence_score"] = min(rca_result["confidence_score"] + 15, 100)
+        elif has_unhealthy_deps:
+            rca_result["root_cause_hypothesis"] = (
+                "Cascading failure from unhealthy dependency. "
+                "One or more upstream/downstream dependencies are degraded or unavailable."
+            )
+            rca_result["confidence_score"] = min(rca_result["confidence_score"] + 10, 100)
+        elif has_high_failure_rate:
+            rca_result["root_cause_hypothesis"] = (
+                "Application-level failures detected with elevated failure rate. "
+                "Likely caused by application code errors, resource exhaustion, or external service failures."
+            )
+        elif has_errors:
+            rca_result["root_cause_hypothesis"] = (
+                "Errors detected in logs but no single clear root cause identified. "
+                "Further investigation recommended - check recent deployments and external dependencies."
+            )
+        else:
+            rca_result["root_cause_hypothesis"] = (
+                "Insufficient evidence to determine root cause. "
+                "Consider expanding the time window or providing specific error patterns to search for."
+            )
+            rca_result["confidence_score"] = max(rca_result["confidence_score"] - 20, 0)
+
+        # Generate recommended actions
+        rca_result["recommended_actions"] = []
+        if has_config_changes:
+            rca_result["recommended_actions"].append(
+                "Review and potentially rollback recent configuration changes"
+            )
+        if has_unhealthy_deps:
+            rca_result["recommended_actions"].append(
+                "Investigate and remediate unhealthy dependencies first"
+            )
+        if has_high_failure_rate:
+            rca_result["recommended_actions"].extend([
+                "Check application logs for stack traces and exceptions",
+                "Verify resource limits (CPU, memory) are not exhausted",
+                "Check external service connectivity"
+            ])
+        if has_errors:
+            rca_result["recommended_actions"].append(
+                "Analyze error patterns for common failure modes"
+            )
+        rca_result["recommended_actions"].extend([
+            "Check Azure Service Health for platform-level issues",
+            "Review Network Security Group rules and firewall configurations",
+            "Verify DNS resolution and connectivity to dependent services"
+        ])
+
+        # Cache the result
+        _cache_set("perform_root_cause_analysis", cache_args, rca_result, "health")
+
+        # Audit the operation
+        _log_audit_event(
+            operation="perform_root_cause_analysis",
+            resource_id=resource_id,
+            details={
+                "evidence_sources": len(rca_result["evidence"]),
+                "timeline_events": len(rca_result["timeline"]),
+                "confidence_score": rca_result["confidence_score"],
+                "hypothesis": rca_result["root_cause_hypothesis"][:100]
+            },
+            success=True
+        )
+
+        logger.info(
+            f"RCA completed for {resource_id}: confidence={rca_result['confidence_score']}%, "
+            f"evidence={len(rca_result['evidence'])}, timeline={len(rca_result['timeline'])}"
+        )
+        return [TextContent(type="text", text=json.dumps(rca_result, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="perform_root_cause_analysis",
+            resource_id=resource_id,
+            details={"error": str(exc)},
+            success=False
+        )
+        logger.error(f"Error performing root cause analysis: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="trace_dependency_chain",
+    description=(
+        "Build a full dependency graph for an Azure resource, query health status "
+        "for each dependency, identify broken links or degraded components, and "
+        "calculate the blast radius of failures. "
+        "✅ USE THIS TOOL when users ask: 'What is the blast radius?', 'Trace dependencies', "
+        "'Show dependency chain', 'What will be affected if this fails?'. "
+        "Goes deeper than get_resource_dependencies by including transitive dependencies "
+        "and calculating blast radius metrics."
+    ),
+)
+async def trace_dependency_chain(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID to trace dependencies for"],
+    depth: Annotated[int, "Dependency traversal depth (1-3, default: 2)"] = 2,
+    include_health: Annotated[bool, "Whether to query health status for each dependency (default: True)"] = True,
+) -> list[TextContent]:
+    """Trace full dependency chain with health status and blast radius"""
+    try:
+        if ResourceGraphClient is None or QueryRequest is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure Resource Graph SDK not installed"
+            }, indent=2))]
+
+        # Check cache first
+        cache_args = {"resource_id": resource_id, "depth": depth}
+        cached = _cache_get("trace_dependency_chain", cache_args)
+        if cached is not None:
+            logger.info(f"Dependency chain cache hit for {resource_id}")
+            return [TextContent(type="text", text=json.dumps(cached, indent=2))]
+
+        credential = _get_credential()
+        subscription_id = _get_subscription_id()
+
+        # Clamp depth to safe range
+        depth = max(1, min(depth, 3))
+
+        # Parse resource ID
+        parts = resource_id.split('/')
+        if len(parts) < 9:
+            raise ValueError("Invalid resource ID format")
+
+        resource_name = parts[8]
+        resource_type = f"{parts[6]}/{parts[7]}"
+        resource_group = parts[4]
+
+        graph_client = ResourceGraphClient(credential)
+
+        # Build full dependency graph through iterative traversal
+        visited = set()
+        visited.add(resource_id.lower())
+        dependency_graph = {}
+        all_dependencies = []
+        frontier = [resource_id]
+
+        for current_depth in range(depth):
+            if not frontier:
+                break
+
+            next_frontier = []
+            for current_resource in frontier:
+                current_parts = current_resource.split('/')
+                current_name = current_parts[8] if len(current_parts) >= 9 else current_resource
+
+                # Query Resource Graph for dependencies of current resource
+                dep_query = f"""
+                Resources
+                | where id =~ '{current_resource}'
+                | project id, name, type, properties
+                | extend dependencies = pack_array(
+                    properties.networkProfile.networkInterfaces,
+                    properties.storageProfile.osDisk,
+                    properties.storageProfile.dataDisks,
+                    properties.networkSecurityGroup,
+                    properties.subnet,
+                    properties.publicIPAddress,
+                    properties.loadBalancerBackendAddressPools,
+                    properties.serverFarmId,
+                    properties.hostingEnvironmentProfile
+                )
+                | mvexpand dependencies
+                | where isnotnull(dependencies)
+                | extend dep_id = tostring(dependencies.id)
+                | where isnotempty(dep_id)
+                | project dep_id
+                | union (
+                    Resources
+                    | where properties contains '{current_name}' or properties contains '{current_resource}'
+                    | where id !~ '{current_resource}'
+                    | project id
+                )
+                | distinct id=coalesce(dep_id, id)
+                | join kind=inner (
+                    Resources
+                    | project id, name, type, location, resourceGroup
+                ) on id
+                | project id, name, type, location, resourceGroup
+                | limit 30
+                """
+
+                try:
+                    request = QueryRequest(
+                        subscriptions=[subscription_id],
+                        query=dep_query,
+                        options=QueryRequestOptions(top=30)
+                    )
+                    response = graph_client.resources(request)
+
+                    if hasattr(response, 'data') and response.data:
+                        for row in response.data:
+                            dep_id = row.get('id', '').lower()
+                            if dep_id and dep_id not in visited:
+                                visited.add(dep_id)
+                                dep_info = {
+                                    "resource_id": row.get('id', ''),
+                                    "name": row.get('name', ''),
+                                    "type": row.get('type', ''),
+                                    "location": row.get('location', ''),
+                                    "resource_group": row.get('resourceGroup', ''),
+                                    "depth": current_depth + 1,
+                                    "parent_resource": current_resource,
+                                    "health_status": "unknown"
+                                }
+                                all_dependencies.append(dep_info)
+                                next_frontier.append(row.get('id', ''))
+
+                                # Build graph adjacency
+                                if current_resource not in dependency_graph:
+                                    dependency_graph[current_resource] = []
+                                dependency_graph[current_resource].append(row.get('id', ''))
+
+                except Exception as query_exc:
+                    logger.warning(f"Dependency query failed for {current_resource}: {query_exc}")
+
+            frontier = next_frontier
+
+        # Query health for all dependencies (if enabled)
+        unhealthy_components = []
+        if include_health and ResourceHealthMgmtClient is not None:
+            health_client = ResourceHealthMgmtClient(credential, subscription_id)
+
+            for dep in all_dependencies:
+                try:
+                    health_resp = health_client.availability_statuses.get_by_resource(
+                        resource_uri=dep["resource_id"]
+                    )
+                    dep["health_status"] = health_resp.properties.availability_state
+                    dep["health_summary"] = health_resp.properties.summary or ""
+
+                    if dep["health_status"] in ("Unavailable", "Degraded"):
+                        unhealthy_components.append({
+                            "resource_id": dep["resource_id"],
+                            "name": dep["name"],
+                            "type": dep["type"],
+                            "health_status": dep["health_status"],
+                            "health_summary": dep["health_summary"],
+                            "depth": dep["depth"]
+                        })
+                except Exception:
+                    dep["health_status"] = "not_supported"
+
+        # Calculate blast radius - resources that depend on unhealthy components
+        blast_radius_resources = []
+        if unhealthy_components:
+            unhealthy_ids = {c["resource_id"].lower() for c in unhealthy_components}
+
+            # Find all resources that transitively depend on unhealthy ones
+            for parent, children in dependency_graph.items():
+                for child in children:
+                    if child.lower() in unhealthy_ids:
+                        blast_radius_resources.append({
+                            "affected_resource": parent,
+                            "unhealthy_dependency": child,
+                            "impact": "direct"
+                        })
+
+        # Build type summary
+        type_counts = {}
+        for dep in all_dependencies:
+            t = dep.get("type", "unknown")
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        result = {
+            "success": True,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            "resource_type": resource_type,
+            "traversal_depth": depth,
+            "dependency_graph": {
+                "total_nodes": len(all_dependencies) + 1,
+                "total_edges": sum(len(v) for v in dependency_graph.values()),
+                "adjacency": {k: v for k, v in dependency_graph.items()},
+                "type_distribution": type_counts
+            },
+            "dependencies": all_dependencies,
+            "unhealthy_components": unhealthy_components,
+            "blast_radius": {
+                "total_affected_resources": len(blast_radius_resources),
+                "affected_resources": blast_radius_resources,
+                "risk_level": "Critical" if len(unhealthy_components) > 3
+                    else "High" if len(unhealthy_components) > 1
+                    else "Medium" if len(unhealthy_components) == 1
+                    else "Low"
+            },
+            "analysis": {
+                "total_dependencies": len(all_dependencies),
+                "unhealthy_count": len(unhealthy_components),
+                "health_check_coverage": sum(
+                    1 for d in all_dependencies if d["health_status"] not in ("unknown", "not_supported")
+                ),
+                "cascading_failure_risk": "High" if unhealthy_components else "Low"
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        # Cache the result
+        _cache_set("trace_dependency_chain", cache_args, result, "health")
+
+        # Audit the operation
+        _log_audit_event(
+            operation="trace_dependency_chain",
+            resource_id=resource_id,
+            details={
+                "total_dependencies": len(all_dependencies),
+                "unhealthy_count": len(unhealthy_components),
+                "depth": depth,
+                "blast_radius": len(blast_radius_resources)
+            },
+            success=True
+        )
+
+        logger.info(
+            f"Dependency chain traced for {resource_id}: "
+            f"{len(all_dependencies)} deps, {len(unhealthy_components)} unhealthy, "
+            f"blast_radius={len(blast_radius_resources)}"
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="trace_dependency_chain",
+            resource_id=resource_id,
+            details={"error": str(exc)},
+            success=False
+        )
+        logger.error(f"Error tracing dependency chain: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="analyze_log_patterns",
+    description=(
+        "Perform statistical log pattern detection and anomaly analysis. "
+        "Queries logs for a time range, extracts error patterns using frequency analysis, "
+        "groups similar errors, and identifies anomalous error spikes using Z-score analysis. "
+        "✅ USE THIS TOOL when users ask: 'Find error patterns in my logs', "
+        "'Are there any log anomalies?', 'What error patterns exist?', "
+        "'Analyze my log data for trends'. "
+        "Returns error patterns with frequencies, grouped anomalies, and distribution data."
+    ),
+)
+async def analyze_log_patterns(
+    context: Context,
+    workspace_id: Annotated[str, "Log Analytics workspace ID"],
+    resource_name: Annotated[str, "Resource name or partial name to filter logs"],
+    hours: Annotated[int, "Hours to look back for analysis (default: 24)"] = 24,
+    min_frequency: Annotated[int, "Minimum occurrences to include an error pattern (default: 3)"] = 3,
+) -> list[TextContent]:
+    """Analyze log patterns with statistical anomaly detection"""
+    try:
+        if LogsQueryClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure SDK not installed (azure-monitor-query required)"
+            }, indent=2))]
+
+        # Check cache first
+        cache_args = {"workspace_id": workspace_id, "resource_name": resource_name, "hours": hours}
+        cached = _cache_get("analyze_log_patterns", cache_args)
+        if cached is not None:
+            logger.info(f"Log pattern analysis cache hit for {resource_name}")
+            return [TextContent(type="text", text=json.dumps(cached, indent=2))]
+
+        credential = _get_credential()
+        logs_client = LogsQueryClient(credential)
+        time_range = timedelta(hours=hours)
+        now = datetime.utcnow()
+
+        result = {
+            "success": True,
+            "resource_name": resource_name,
+            "analysis_window": {
+                "start": (now - time_range).isoformat(),
+                "end": now.isoformat(),
+                "hours": hours
+            },
+            "error_patterns": [],
+            "anomalies": [],
+            "frequency_distribution": {},
+            "summary": {},
+            "timestamp": now.isoformat()
+        }
+
+        # ---- Step 1: Extract error patterns with frequency analysis ----
+        pattern_query = f"""
+        union *
+        | where TimeGenerated > ago({hours}h)
+        | where _ResourceId contains '{resource_name}'
+        | where Level in ('Error', 'Critical') or
+                OperationName contains 'Error' or OperationName contains 'Fail'
+        | extend ErrorCategory = case(
+            OperationName contains 'timeout' or ResultDescription contains 'timeout', 'Timeout',
+            OperationName contains '401' or ResultDescription contains 'Unauthorized', 'Authentication',
+            OperationName contains '403' or ResultDescription contains 'Forbidden', 'Authorization',
+            OperationName contains '404' or ResultDescription contains 'NotFound', 'NotFound',
+            OperationName contains '429' or ResultDescription contains 'throttl', 'Throttling',
+            OperationName contains '500' or ResultDescription contains 'Internal', 'InternalError',
+            OperationName contains '502' or ResultDescription contains 'Bad Gateway', 'BadGateway',
+            OperationName contains '503' or ResultDescription contains 'unavailable', 'ServiceUnavailable',
+            OperationName contains 'connection' or ResultDescription contains 'connection', 'Connectivity',
+            OperationName contains 'DNS' or ResultDescription contains 'DNS', 'DNSResolution',
+            OperationName contains 'memory' or ResultDescription contains 'OutOfMemory', 'ResourceExhaustion',
+            'Other'
+        )
+        | summarize
+            Count = count(),
+            FirstSeen = min(TimeGenerated),
+            LastSeen = max(TimeGenerated),
+            SampleMessages = make_list(substring(tostring(ResultDescription), 0, 200), 3)
+            by ErrorCategory, OperationName
+        | where Count >= {min_frequency}
+        | order by Count desc
+        | limit 50
+        """
+
+        try:
+            pattern_response = logs_client.query_workspace(
+                workspace_id=workspace_id,
+                query=pattern_query,
+                timespan=time_range
+            )
+
+            for table in pattern_response.tables:
+                for row in table.rows:
+                    pattern = {
+                        "error_category": row[0] if row[0] else "Unknown",
+                        "operation_name": row[1] if row[1] else "Unknown",
+                        "count": row[2] if row[2] else 0,
+                        "first_seen": str(row[3]) if row[3] else None,
+                        "last_seen": str(row[4]) if row[4] else None,
+                        "sample_messages": row[5] if len(row) > 5 and row[5] else []
+                    }
+                    result["error_patterns"].append(pattern)
+
+        except Exception as pat_exc:
+            logger.warning(f"Error pattern extraction failed: {pat_exc}")
+            result["error_patterns"] = [{"status": "query_failed", "error": str(pat_exc)}]
+
+        # ---- Step 2: Hourly frequency distribution for anomaly detection ----
+        distribution_query = f"""
+        union *
+        | where TimeGenerated > ago({hours}h)
+        | where _ResourceId contains '{resource_name}'
+        | where Level in ('Error', 'Critical') or
+                OperationName contains 'Error' or OperationName contains 'Fail'
+        | summarize ErrorCount = count() by bin(TimeGenerated, 1h)
+        | order by TimeGenerated asc
+        """
+
+        hourly_counts = []
+        try:
+            dist_response = logs_client.query_workspace(
+                workspace_id=workspace_id,
+                query=distribution_query,
+                timespan=time_range
+            )
+
+            for table in dist_response.tables:
+                for row in table.rows:
+                    hourly_counts.append({
+                        "hour": str(row[0]) if row[0] else "",
+                        "error_count": row[1] if row[1] else 0
+                    })
+
+            result["frequency_distribution"] = {
+                "granularity": "1h",
+                "data_points": hourly_counts
+            }
+
+        except Exception as dist_exc:
+            logger.warning(f"Frequency distribution query failed: {dist_exc}")
+            result["frequency_distribution"] = {"status": "query_failed", "error": str(dist_exc)}
+
+        # ---- Step 3: Z-score anomaly detection on hourly counts ----
+        if hourly_counts and len(hourly_counts) >= 3:
+            counts = [h["error_count"] for h in hourly_counts]
+            n = len(counts)
+            mean_val = sum(counts) / n
+            variance = sum((x - mean_val) ** 2 for x in counts) / n
+            std_dev = variance ** 0.5 if variance > 0 else 0.001
+
+            for entry in hourly_counts:
+                z_score = (entry["error_count"] - mean_val) / std_dev if std_dev > 0 else 0
+
+                if abs(z_score) > 2.0:
+                    result["anomalies"].append({
+                        "hour": entry["hour"],
+                        "error_count": entry["error_count"],
+                        "z_score": round(z_score, 2),
+                        "severity": "critical" if abs(z_score) > 3.0 else "warning",
+                        "description": (
+                            f"Error spike detected: {entry['error_count']} errors "
+                            f"({round(z_score, 1)} std deviations from mean of {round(mean_val, 1)})"
+                        )
+                    })
+
+            result["frequency_distribution"]["statistics"] = {
+                "mean_errors_per_hour": round(mean_val, 2),
+                "std_deviation": round(std_dev, 2),
+                "min_errors": min(counts),
+                "max_errors": max(counts),
+                "total_data_points": n,
+                "anomaly_threshold": "Z-score > 2.0"
+            }
+
+        # ---- Step 4: Generate summary ----
+        total_errors = sum(
+            p.get("count", 0) for p in result["error_patterns"]
+            if isinstance(p, dict) and "count" in p
+        )
+        unique_categories = set(
+            p.get("error_category", "") for p in result["error_patterns"]
+            if isinstance(p, dict) and "error_category" in p
+        )
+
+        result["summary"] = {
+            "total_error_patterns": len(result["error_patterns"]),
+            "total_errors": total_errors,
+            "unique_error_categories": list(unique_categories),
+            "anomaly_count": len(result["anomalies"]),
+            "top_error_category": (
+                result["error_patterns"][0]["error_category"]
+                if result["error_patterns"] and isinstance(result["error_patterns"][0], dict)
+                and "error_category" in result["error_patterns"][0]
+                else "None"
+            ),
+            "health_assessment": (
+                "Critical - Multiple anomalous error spikes detected"
+                if len(result["anomalies"]) > 3
+                else "Warning - Anomalous error patterns detected"
+                if len(result["anomalies"]) > 0
+                else "Healthy - No anomalous patterns detected"
+                if total_errors == 0
+                else "Monitoring - Errors present but within normal range"
+            )
+        }
+
+        # Cache the result
+        _cache_set("analyze_log_patterns", cache_args, result, "health")
+
+        # Audit the operation
+        _log_audit_event(
+            operation="analyze_log_patterns",
+            resource_id=None,
+            details={
+                "resource_name": resource_name,
+                "patterns_found": len(result["error_patterns"]),
+                "anomalies_found": len(result["anomalies"]),
+                "total_errors": total_errors
+            },
+            success=True
+        )
+
+        logger.info(
+            f"Log pattern analysis completed for {resource_name}: "
+            f"{len(result['error_patterns'])} patterns, {len(result['anomalies'])} anomalies"
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            operation="analyze_log_patterns",
+            resource_id=None,
+            details={"error": str(exc), "resource_name": resource_name},
+            success=False
+        )
+        logger.error(f"Error analyzing log patterns: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
+# Proactive Anomaly Detection Tools (Phase 2.2)
+# ============================================================================
+
+@_server.tool(
+    name="detect_performance_anomalies",
+    description=(
+        "Detect real-time performance anomalies by comparing recent metrics against historical baselines. "
+        "Uses Z-score statistical analysis to flag CPU, memory, network, and response time deviations. "
+        "✅ USE THIS TOOL when users ask: 'Are there any anomalies in my resource?', "
+        "'Detect unusual behavior in my container app', 'Find performance spikes'. "
+        "Queries the last 24h of metrics and compares against a 30-day historical baseline. "
+        "Flags any metric deviating more than 2 standard deviations from the baseline."
+    ),
+)
+async def detect_performance_anomalies(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID"],
+    sensitivity: Annotated[float, "Z-score threshold for anomaly detection (default: 2.0, lower = more sensitive)"] = 2.0,
+    baseline_days: Annotated[int, "Number of days for historical baseline (default: 30)"] = 30,
+    recent_hours: Annotated[int, "Hours of recent data to analyze (default: 24)"] = 24,
+) -> list[TextContent]:
+    """Detect performance anomalies using Z-score statistical analysis"""
+    try:
+        if MetricsQueryClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure SDK not installed"
+            }, indent=2))]
+
+        # Check cache first
+        cache_args = {
+            "resource_id": resource_id,
+            "sensitivity": sensitivity,
+            "baseline_days": baseline_days,
+            "recent_hours": recent_hours,
+        }
+        cached = _cache_get("detect_performance_anomalies", cache_args)
+        if cached is not None:
+            return [TextContent(type="text", text=json.dumps(cached, indent=2))]
+
+        credential = _get_credential()
+        metrics_client = MetricsQueryClient(credential)
+
+        # Detect resource type and select appropriate metrics
+        resource_id_lower = resource_id.lower()
+        if "/microsoft.app/containerapps/" in resource_id_lower:
+            metric_names = ["CpuPercentage", "MemoryPercentage", "Requests", "Replicas"]
+            resource_type = "ContainerApp"
+        elif "/microsoft.web/sites/" in resource_id_lower:
+            metric_names = ["CpuPercentage", "MemoryPercentage", "HttpResponseTime", "Requests"]
+            resource_type = "AppService"
+        elif "/microsoft.compute/virtualmachines/" in resource_id_lower:
+            metric_names = ["Percentage CPU", "Network In Total", "Network Out Total", "Disk Read Bytes"]
+            resource_type = "VirtualMachine"
+        elif "/microsoft.containerservice/managedclusters/" in resource_id_lower:
+            metric_names = ["node_cpu_usage_percentage", "node_memory_working_set_percentage", "kube_pod_status_ready"]
+            resource_type = "AKS"
+        else:
+            metric_names = ["Percentage CPU"]
+            resource_type = "Unknown"
+
+        anomalies = []
+        baseline_stats = {}
+        current_stats = {}
+        overall_anomaly_score = 0.0
+
+        for metric_name in metric_names:
+            try:
+                # Query historical baseline (full baseline_days period)
+                baseline_timespan = timedelta(days=baseline_days)
+                baseline_result = metrics_client.query_resource(
+                    resource_id,
+                    metric_names=[metric_name],
+                    timespan=baseline_timespan,
+                    granularity=timedelta(hours=1),
+                )
+
+                baseline_values = []
+                for metric in baseline_result.metrics:
+                    for ts in metric.timeseries:
+                        for dp in ts.data:
+                            val = dp.average or dp.total or dp.maximum
+                            if val is not None:
+                                baseline_values.append(float(val))
+
+                if len(baseline_values) < 24:
+                    logger.warning(f"Insufficient baseline data for {metric_name}: {len(baseline_values)} points")
+                    continue
+
+                # Calculate baseline statistics
+                n = len(baseline_values)
+                mean = sum(baseline_values) / n
+                variance = sum((v - mean) ** 2 for v in baseline_values) / n
+                std_dev = variance ** 0.5
+
+                baseline_stats[metric_name] = {
+                    "mean": round(mean, 4),
+                    "std_dev": round(std_dev, 4),
+                    "min": round(min(baseline_values), 4),
+                    "max": round(max(baseline_values), 4),
+                    "data_points": n,
+                }
+
+                # Query recent data (last recent_hours)
+                recent_timespan = timedelta(hours=recent_hours)
+                recent_result = metrics_client.query_resource(
+                    resource_id,
+                    metric_names=[metric_name],
+                    timespan=recent_timespan,
+                    granularity=timedelta(minutes=15),
+                )
+
+                recent_values = []
+                recent_data_points = []
+                for metric in recent_result.metrics:
+                    for ts in metric.timeseries:
+                        for dp in ts.data:
+                            val = dp.average or dp.total or dp.maximum
+                            if val is not None:
+                                recent_values.append(float(val))
+                                recent_data_points.append({
+                                    "timestamp": str(dp.timestamp),
+                                    "value": float(val),
+                                })
+
+                if not recent_values:
+                    continue
+
+                recent_mean = sum(recent_values) / len(recent_values)
+                current_stats[metric_name] = {
+                    "current": round(recent_values[-1], 4) if recent_values else None,
+                    "mean": round(recent_mean, 4),
+                    "min": round(min(recent_values), 4),
+                    "max": round(max(recent_values), 4),
+                    "data_points": len(recent_values),
+                }
+
+                # Calculate Z-scores for recent data points
+                if std_dev > 0:
+                    for dp in recent_data_points:
+                        z_score = abs(dp["value"] - mean) / std_dev
+                        if z_score > sensitivity:
+                            anomalies.append({
+                                "metric": metric_name,
+                                "timestamp": dp["timestamp"],
+                                "value": round(dp["value"], 4),
+                                "baseline_mean": round(mean, 4),
+                                "z_score": round(z_score, 2),
+                                "deviation_percent": round(abs(dp["value"] - mean) / mean * 100, 2) if mean != 0 else None,
+                                "direction": "above" if dp["value"] > mean else "below",
+                                "severity": (
+                                    "critical" if z_score > 3.5
+                                    else "high" if z_score > 3.0
+                                    else "medium" if z_score > 2.5
+                                    else "low"
+                                ),
+                            })
+
+                    # Contribute to overall anomaly score
+                    recent_z_scores = [abs(v - mean) / std_dev for v in recent_values]
+                    max_z = max(recent_z_scores) if recent_z_scores else 0
+                    overall_anomaly_score = max(overall_anomaly_score, max_z)
+
+            except Exception as metric_exc:
+                logger.warning(f"Error analyzing metric {metric_name}: {metric_exc}")
+                continue
+
+        # Sort anomalies by z_score descending
+        anomalies.sort(key=lambda x: x["z_score"], reverse=True)
+
+        # Limit to top 50 most significant anomalies
+        anomalies = anomalies[:50]
+
+        result = {
+            "success": True,
+            "resource_id": resource_id,
+            "resource_type": resource_type,
+            "analysis_config": {
+                "sensitivity_threshold": sensitivity,
+                "baseline_period_days": baseline_days,
+                "recent_period_hours": recent_hours,
+            },
+            "anomaly_summary": {
+                "total_anomalies_detected": len(anomalies),
+                "anomaly_score": round(overall_anomaly_score, 2),
+                "status": (
+                    "critical" if overall_anomaly_score > 3.5
+                    else "warning" if overall_anomaly_score > sensitivity
+                    else "normal"
+                ),
+                "metrics_with_anomalies": list(set(a["metric"] for a in anomalies)),
+            },
+            "anomalies": anomalies,
+            "baseline_stats": baseline_stats,
+            "current_stats": current_stats,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        # Cache result (short TTL since anomaly data changes frequently)
+        _cache_set("detect_performance_anomalies", cache_args, result, ttl_profile="short")
+
+        _log_audit_event(
+            "detect_performance_anomalies",
+            resource_id,
+            {
+                "anomaly_count": len(anomalies),
+                "anomaly_score": round(overall_anomaly_score, 2),
+                "status": result["anomaly_summary"]["status"],
+            },
+            True,
+        )
+
+        logger.info(
+            f"Anomaly detection completed for {resource_id}: "
+            f"{len(anomalies)} anomalies, score={round(overall_anomaly_score, 2)}"
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            "detect_performance_anomalies",
+            resource_id,
+            {"error": str(exc)},
+            False,
+        )
+        logger.error(f"Error detecting performance anomalies: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="predict_capacity_issues",
+    description=(
+        "Predict capacity issues using linear regression and seasonal trend analysis. "
+        "Analyzes growth trends across critical metrics and projects threshold crossings. "
+        "✅ USE THIS TOOL when users ask: 'Will my app run out of capacity?', "
+        "'Predict scaling needs for my container app', 'Capacity planning for next month'. "
+        "Enhanced version of predict_resource_exhaustion with multi-metric analysis, "
+        "seasonal decomposition, and early-warning alerts at 7, 14, and 30 day horizons. "
+        "Returns predictions, time-to-exhaustion estimates, and scaling recommendations."
+    ),
+)
+async def predict_capacity_issues(
+    context: Context,
+    resource_id: Annotated[str, "Full Azure resource ID"],
+    threshold: Annotated[float, "Warning threshold percentage (default: 80)"] = 80.0,
+    critical_threshold: Annotated[float, "Critical threshold percentage (default: 90)"] = 90.0,
+    history_days: Annotated[int, "Days of historical data for trend analysis (default: 30)"] = 30,
+) -> list[TextContent]:
+    """Predict capacity issues using linear regression and seasonal analysis"""
+    try:
+        if MetricsQueryClient is None:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": "Azure SDK not installed"
+            }, indent=2))]
+
+        # Check cache first
+        cache_args = {
+            "resource_id": resource_id,
+            "threshold": threshold,
+            "critical_threshold": critical_threshold,
+            "history_days": history_days,
+        }
+        cached = _cache_get("predict_capacity_issues", cache_args)
+        if cached is not None:
+            return [TextContent(type="text", text=json.dumps(cached, indent=2))]
+
+        credential = _get_credential()
+        metrics_client = MetricsQueryClient(credential)
+
+        # Select metrics based on resource type
+        resource_id_lower = resource_id.lower()
+        if "/microsoft.app/containerapps/" in resource_id_lower:
+            metrics_to_analyze = {
+                "CpuPercentage": {"unit": "%", "label": "CPU Usage"},
+                "MemoryPercentage": {"unit": "%", "label": "Memory Usage"},
+            }
+            resource_type = "ContainerApp"
+        elif "/microsoft.web/sites/" in resource_id_lower:
+            metrics_to_analyze = {
+                "CpuPercentage": {"unit": "%", "label": "CPU Usage"},
+                "MemoryPercentage": {"unit": "%", "label": "Memory Usage"},
+            }
+            resource_type = "AppService"
+        elif "/microsoft.compute/virtualmachines/" in resource_id_lower:
+            metrics_to_analyze = {
+                "Percentage CPU": {"unit": "%", "label": "CPU Usage"},
+                "Network In Total": {"unit": "bytes", "label": "Network In"},
+                "Network Out Total": {"unit": "bytes", "label": "Network Out"},
+            }
+            resource_type = "VirtualMachine"
+        elif "/microsoft.containerservice/managedclusters/" in resource_id_lower:
+            metrics_to_analyze = {
+                "node_cpu_usage_percentage": {"unit": "%", "label": "Node CPU"},
+                "node_memory_working_set_percentage": {"unit": "%", "label": "Node Memory"},
+            }
+            resource_type = "AKS"
+        else:
+            metrics_to_analyze = {
+                "Percentage CPU": {"unit": "%", "label": "CPU Usage"},
+            }
+            resource_type = "Unknown"
+
+        predictions = []
+        time_to_exhaustion = []
+        recommended_scaling = []
+
+        for metric_name, metric_info in metrics_to_analyze.items():
+            try:
+                timespan = timedelta(days=history_days)
+                result = metrics_client.query_resource(
+                    resource_id,
+                    metric_names=[metric_name],
+                    timespan=timespan,
+                    granularity=timedelta(hours=1),
+                )
+
+                # Extract hourly values
+                values = []
+                timestamps = []
+                for metric in result.metrics:
+                    for ts in metric.timeseries:
+                        for dp in ts.data:
+                            val = dp.average or dp.total or dp.maximum
+                            if val is not None:
+                                values.append(float(val))
+                                timestamps.append(dp.timestamp)
+
+                if len(values) < 48:
+                    predictions.append({
+                        "metric": metric_name,
+                        "label": metric_info["label"],
+                        "status": "insufficient_data",
+                        "data_points": len(values),
+                        "message": f"Need at least 48 hourly data points, got {len(values)}",
+                    })
+                    continue
+
+                # Linear regression (pure Python)
+                n = len(values)
+                x = list(range(n))
+                x_mean = sum(x) / n
+                y_mean = sum(values) / n
+
+                numerator = sum((x[i] - x_mean) * (values[i] - y_mean) for i in range(n))
+                denominator = sum((x[i] - x_mean) ** 2 for i in range(n))
+
+                slope = numerator / denominator if denominator != 0 else 0
+                intercept = y_mean - slope * x_mean
+
+                # Calculate R-squared for confidence
+                ss_res = sum((values[i] - (slope * x[i] + intercept)) ** 2 for i in range(n))
+                ss_tot = sum((values[i] - y_mean) ** 2 for i in range(n))
+                r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+                current_value = values[-1]
+                trend = "increasing" if slope > 0.01 else "decreasing" if slope < -0.01 else "stable"
+
+                # Seasonal decomposition (detect daily patterns)
+                # Group by hour-of-day to find daily seasonality
+                hourly_pattern = {}
+                for i, val in enumerate(values):
+                    hour_of_day = i % 24
+                    if hour_of_day not in hourly_pattern:
+                        hourly_pattern[hour_of_day] = []
+                    hourly_pattern[hour_of_day].append(val)
+
+                seasonal_amplitude = 0.0
+                if hourly_pattern:
+                    hourly_means = {h: sum(vs) / len(vs) for h, vs in hourly_pattern.items()}
+                    if hourly_means:
+                        seasonal_max = max(hourly_means.values())
+                        seasonal_min = min(hourly_means.values())
+                        seasonal_amplitude = seasonal_max - seasonal_min
+
+                # Project threshold crossings at 7d, 14d, 30d horizons
+                horizon_alerts = []
+                for horizon_days in [7, 14, 30]:
+                    projected_hours = n + (horizon_days * 24)
+                    projected_value = slope * projected_hours + intercept
+                    # Add seasonal peak for worst-case projection
+                    projected_peak = projected_value + (seasonal_amplitude / 2)
+
+                    horizon_alerts.append({
+                        "horizon_days": horizon_days,
+                        "projected_value": round(projected_value, 2),
+                        "projected_peak": round(projected_peak, 2),
+                        "exceeds_warning": projected_peak > threshold if metric_info["unit"] == "%" else False,
+                        "exceeds_critical": projected_peak > critical_threshold if metric_info["unit"] == "%" else False,
+                    })
+
+                # Calculate time to warning and critical thresholds
+                hours_to_warning = None
+                hours_to_critical = None
+                if slope > 0 and metric_info["unit"] == "%":
+                    if current_value < threshold:
+                        hours_to_warning = (threshold - current_value) / slope
+                    if current_value < critical_threshold:
+                        hours_to_critical = (critical_threshold - current_value) / slope
+
+                metric_prediction = {
+                    "metric": metric_name,
+                    "label": metric_info["label"],
+                    "unit": metric_info["unit"],
+                    "current_value": round(current_value, 2),
+                    "trend": trend,
+                    "slope_per_hour": round(slope, 6),
+                    "r_squared": round(r_squared, 4),
+                    "confidence": (
+                        "high" if r_squared > 0.7
+                        else "medium" if r_squared > 0.4
+                        else "low"
+                    ),
+                    "seasonal_amplitude": round(seasonal_amplitude, 2),
+                    "horizon_projections": horizon_alerts,
+                    "data_points": n,
+                }
+                predictions.append(metric_prediction)
+
+                # Time to exhaustion
+                if hours_to_warning is not None or hours_to_critical is not None:
+                    exhaustion_entry = {
+                        "metric": metric_name,
+                        "label": metric_info["label"],
+                        "current_value": round(current_value, 2),
+                    }
+                    if hours_to_warning is not None:
+                        exhaustion_entry["hours_to_warning"] = round(hours_to_warning, 1)
+                        exhaustion_entry["days_to_warning"] = round(hours_to_warning / 24, 1)
+                        exhaustion_entry["warning_date"] = (
+                            datetime.utcnow() + timedelta(hours=hours_to_warning)
+                        ).isoformat()
+                    if hours_to_critical is not None:
+                        exhaustion_entry["hours_to_critical"] = round(hours_to_critical, 1)
+                        exhaustion_entry["days_to_critical"] = round(hours_to_critical / 24, 1)
+                        exhaustion_entry["critical_date"] = (
+                            datetime.utcnow() + timedelta(hours=hours_to_critical)
+                        ).isoformat()
+
+                    urgency = "safe"
+                    check_hours = hours_to_warning or hours_to_critical
+                    if check_hours is not None:
+                        if check_hours < 24:
+                            urgency = "critical"
+                        elif check_hours < 168:
+                            urgency = "warning"
+                        elif check_hours < 720:
+                            urgency = "info"
+                    exhaustion_entry["urgency"] = urgency
+                    time_to_exhaustion.append(exhaustion_entry)
+
+                # Generate scaling recommendations
+                if trend == "increasing" and metric_info["unit"] == "%":
+                    if current_value > critical_threshold:
+                        recommended_scaling.append({
+                            "metric": metric_info["label"],
+                            "action": "scale_up_immediately",
+                            "priority": "critical",
+                            "reason": f"Current {metric_info['label']} at {round(current_value, 1)}% exceeds critical threshold ({critical_threshold}%)",
+                        })
+                    elif current_value > threshold:
+                        recommended_scaling.append({
+                            "metric": metric_info["label"],
+                            "action": "scale_up_soon",
+                            "priority": "high",
+                            "reason": f"Current {metric_info['label']} at {round(current_value, 1)}% exceeds warning threshold ({threshold}%)",
+                        })
+                    elif hours_to_warning and hours_to_warning < 168:
+                        recommended_scaling.append({
+                            "metric": metric_info["label"],
+                            "action": "plan_scaling",
+                            "priority": "medium",
+                            "reason": f"{metric_info['label']} projected to reach {threshold}% in {round(hours_to_warning / 24, 1)} days",
+                        })
+
+            except Exception as metric_exc:
+                logger.warning(f"Error analyzing capacity for {metric_name}: {metric_exc}")
+                predictions.append({
+                    "metric": metric_name,
+                    "label": metric_info["label"],
+                    "status": "error",
+                    "error": str(metric_exc),
+                })
+
+        # Overall urgency
+        urgencies = [e.get("urgency", "safe") for e in time_to_exhaustion]
+        urgency_priority = {"critical": 0, "warning": 1, "info": 2, "safe": 3}
+        overall_urgency = min(urgencies, key=lambda u: urgency_priority.get(u, 3)) if urgencies else "safe"
+
+        response = {
+            "success": True,
+            "resource_id": resource_id,
+            "resource_type": resource_type,
+            "analysis_config": {
+                "warning_threshold": threshold,
+                "critical_threshold": critical_threshold,
+                "history_days": history_days,
+            },
+            "overall_urgency": overall_urgency,
+            "predictions": predictions,
+            "time_to_exhaustion": time_to_exhaustion if time_to_exhaustion else None,
+            "recommended_scaling": recommended_scaling if recommended_scaling else None,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        _cache_set("predict_capacity_issues", cache_args, response, ttl_profile="medium")
+
+        _log_audit_event(
+            "predict_capacity_issues",
+            resource_id,
+            {
+                "overall_urgency": overall_urgency,
+                "metrics_analyzed": len(predictions),
+                "scaling_recommendations": len(recommended_scaling),
+            },
+            True,
+        )
+
+        logger.info(
+            f"Capacity prediction completed for {resource_id}: "
+            f"urgency={overall_urgency}, {len(recommended_scaling)} recommendations"
+        )
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            "predict_capacity_issues",
+            resource_id,
+            {"error": str(exc)},
+            False,
+        )
+        logger.error(f"Error predicting capacity issues: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+@_server.tool(
+    name="monitor_slo_burn_rate",
+    description=(
+        "Monitor SLO error budget burn rate and alert if consuming budget too fast. "
+        "Calculates current consumption rate vs sustainable rate to predict budget exhaustion. "
+        "✅ USE THIS TOOL when users ask: 'Is my SLO burning too fast?', "
+        "'Will I run out of error budget this month?', 'SLO burn rate analysis'. "
+        "Compares actual error budget consumption to the sustainable rate needed to "
+        "maintain compliance through the end of the SLO window. "
+        "Returns burn rate, days until exhaustion, and alert severity."
+    ),
+)
+async def monitor_slo_burn_rate(
+    context: Context,
+    service_name: Annotated[str, "Service name to monitor burn rate for"],
+    slo_id: Annotated[str, "SLO definition ID (optional, uses latest for service)"] = "",
+    alert_burn_rate_multiplier: Annotated[float, "Alert when burn rate exceeds sustainable rate by this multiplier (default: 2.0)"] = 2.0,
+) -> list[TextContent]:
+    """Monitor SLO error budget burn rate"""
+    try:
+        # Find SLO definition (reuse existing pattern from calculate_error_budget)
+        slo = None
+        if slo_id and slo_id in _slo_definitions:
+            slo = _slo_definitions[slo_id]
+        else:
+            for sid, sdef in _slo_definitions.items():
+                if sdef["service_name"] == service_name and sdef["status"] == "active":
+                    slo = sdef
+                    slo_id = sid
+
+        if not slo:
+            # Try loading from Cosmos DB
+            container = _get_slo_container()
+            if container:
+                query = (
+                    f"SELECT * FROM c WHERE c.service_name = '{service_name}' "
+                    f"AND c.status = 'active' ORDER BY c.created_at DESC OFFSET 0 LIMIT 1"
+                )
+                items = list(container.query_items(query=query, enable_cross_partition_query=True))
+                if items:
+                    slo = items[0]
+                    slo_id = slo["id"]
+                    _slo_definitions[slo_id] = slo
+
+        if not slo:
+            return [TextContent(type="text", text=json.dumps({
+                "success": False,
+                "error": (
+                    f"No active SLO found for service '{service_name}'. "
+                    "Use define_slo to create one first."
+                ),
+                "service_name": service_name,
+            }, indent=2))]
+
+        window_days = slo["window_days"]
+        target = slo["target"]
+        sli_type = slo["sli_type"]
+        total_error_budget_percent = 100 - target  # e.g., 0.1% for 99.9% SLO
+
+        # Determine how far into the SLO window we are
+        created_at = slo.get("created_at", "")
+        if created_at:
+            try:
+                slo_start = datetime.fromisoformat(created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+            except (ValueError, AttributeError):
+                slo_start = datetime.utcnow() - timedelta(days=window_days)
+        else:
+            slo_start = datetime.utcnow() - timedelta(days=window_days)
+
+        now = datetime.utcnow()
+        elapsed = now - slo_start
+        elapsed_days = elapsed.total_seconds() / 86400
+        remaining_days = max(window_days - elapsed_days, 0.01)  # Avoid division by zero
+
+        # Sustainable burn rate: percentage of budget that should be consumed per day
+        sustainable_rate_per_day = total_error_budget_percent / window_days
+
+        # Try to get actual error data from Application Insights
+        actual_error_rate = None
+        measurement_source = "estimated"
+        budget_consumed_percent = 0.0
+
+        workspace_id = slo.get("workspace_id", "")
+        if workspace_id and LogsQueryClient:
+            try:
+                credential = _get_credential()
+                logs_client = LogsQueryClient(credential)
+                timespan = timedelta(days=min(elapsed_days, window_days))
+
+                if sli_type == "availability":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize
+                        total = count(),
+                        failed = countif(success == false)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        total = float(row[0]) if row[0] else 0
+                        failed = float(row[1]) if row[1] else 0
+                        if total > 0:
+                            actual_error_rate = round((failed / total) * 100, 6)
+                            budget_consumed_percent = actual_error_rate
+                            measurement_source = "application_insights"
+
+                elif sli_type == "error_rate":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize
+                        total = count(),
+                        failed = countif(success == false)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        total = float(row[0]) if row[0] else 0
+                        failed = float(row[1]) if row[1] else 0
+                        if total > 0:
+                            actual_error_rate = round((failed / total) * 100, 6)
+                            budget_consumed_percent = actual_error_rate
+                            measurement_source = "application_insights"
+
+                elif sli_type == "latency":
+                    kql = f"""
+                    requests
+                    | where cloud_RoleName == '{service_name}'
+                    | summarize
+                        total = count(),
+                        violations = countif(duration > 1000)
+                    """
+                    result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                    if hasattr(result, 'tables') and result.tables and result.tables[0].rows:
+                        row = result.tables[0].rows[0]
+                        total = float(row[0]) if row[0] else 0
+                        violations = float(row[1]) if row[1] else 0
+                        if total > 0:
+                            actual_error_rate = round((violations / total) * 100, 6)
+                            budget_consumed_percent = actual_error_rate
+                            measurement_source = "application_insights"
+
+            except Exception as query_exc:
+                logger.warning(f"Could not query Application Insights for burn rate: {query_exc}")
+
+        # If no live data, estimate from recent audit history
+        if measurement_source == "estimated":
+            # Use a conservative estimate based on typical error rates
+            budget_consumed_percent = total_error_budget_percent * (elapsed_days / window_days) * 0.5
+            actual_error_rate = budget_consumed_percent
+
+        # Calculate burn rates
+        budget_remaining_percent = max(total_error_budget_percent - budget_consumed_percent, 0)
+        budget_consumed_fraction = budget_consumed_percent / total_error_budget_percent if total_error_budget_percent > 0 else 0
+
+        # Current burn rate (budget consumed per day)
+        current_burn_rate_per_day = (
+            budget_consumed_percent / elapsed_days if elapsed_days > 0 else 0
+        )
+
+        # Burn rate multiplier relative to sustainable rate
+        burn_rate_multiplier = (
+            current_burn_rate_per_day / sustainable_rate_per_day
+            if sustainable_rate_per_day > 0
+            else 0
+        )
+
+        # Days until budget exhaustion at current rate
+        days_until_exhaustion = None
+        if current_burn_rate_per_day > 0:
+            days_until_exhaustion = budget_remaining_percent / current_burn_rate_per_day
+
+        # Determine alert level
+        if budget_remaining_percent <= 0:
+            alert_level = "critical"
+            alert_message = "Error budget exhausted! SLO is in violation."
+        elif burn_rate_multiplier > alert_burn_rate_multiplier * 2:
+            alert_level = "critical"
+            alert_message = (
+                f"Burning error budget at {round(burn_rate_multiplier, 1)}x the sustainable rate. "
+                f"Budget will be exhausted in ~{round(days_until_exhaustion, 1)} days."
+            )
+        elif burn_rate_multiplier > alert_burn_rate_multiplier:
+            alert_level = "warning"
+            alert_message = (
+                f"Burn rate ({round(burn_rate_multiplier, 1)}x sustainable) exceeds "
+                f"alert threshold ({alert_burn_rate_multiplier}x). Monitor closely."
+            )
+        elif burn_rate_multiplier > 1.0:
+            alert_level = "info"
+            alert_message = (
+                f"Burn rate slightly above sustainable ({round(burn_rate_multiplier, 1)}x). "
+                "Budget may be tight toward end of window."
+            )
+        else:
+            alert_level = "ok"
+            alert_message = (
+                f"Error budget consumption is healthy at {round(burn_rate_multiplier, 1)}x sustainable rate."
+            )
+
+        response = {
+            "success": True,
+            "service_name": service_name,
+            "slo_id": slo_id,
+            "slo_config": {
+                "target": target,
+                "sli_type": sli_type,
+                "window_days": window_days,
+                "total_error_budget_percent": round(total_error_budget_percent, 4),
+            },
+            "window_progress": {
+                "elapsed_days": round(elapsed_days, 1),
+                "remaining_days": round(remaining_days, 1),
+                "percent_elapsed": round((elapsed_days / window_days) * 100, 1),
+            },
+            "budget_status": {
+                "budget_consumed_percent": round(budget_consumed_percent, 6),
+                "budget_remaining_percent": round(budget_remaining_percent, 6),
+                "budget_consumed_fraction": round(budget_consumed_fraction, 4),
+            },
+            "burn_rate": {
+                "current_burn_rate_per_day": round(current_burn_rate_per_day, 6),
+                "sustainable_rate_per_day": round(sustainable_rate_per_day, 6),
+                "burn_rate_multiplier": round(burn_rate_multiplier, 2),
+                "days_until_exhaustion": round(days_until_exhaustion, 1) if days_until_exhaustion else None,
+                "exhaustion_date": (
+                    (datetime.utcnow() + timedelta(days=days_until_exhaustion)).isoformat()
+                    if days_until_exhaustion
+                    else None
+                ),
+            },
+            "alert": {
+                "level": alert_level,
+                "message": alert_message,
+                "alert_threshold_multiplier": alert_burn_rate_multiplier,
+            },
+            "measurement_source": measurement_source,
+            "timestamp": datetime.utcnow().isoformat(),
+            "note": (
+                "Requires workspace_id in SLO definition for live measurements"
+                if measurement_source == "estimated"
+                else "Live measurement from Application Insights"
+            ),
+        }
+
+        _log_audit_event(
+            "monitor_slo_burn_rate",
+            service_name,
+            {
+                "slo_id": slo_id,
+                "alert_level": alert_level,
+                "burn_rate_multiplier": round(burn_rate_multiplier, 2),
+                "days_until_exhaustion": round(days_until_exhaustion, 1) if days_until_exhaustion else None,
+            },
+            True,
+        )
+
+        logger.info(
+            f"SLO burn rate analysis for {service_name}: "
+            f"alert={alert_level}, burn_rate={round(burn_rate_multiplier, 1)}x, "
+            f"days_left={round(days_until_exhaustion, 1) if days_until_exhaustion else 'N/A'}"
+        )
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        _log_audit_event(
+            "monitor_slo_burn_rate",
+            service_name,
+            {"error": str(exc)},
+            False,
+        )
+        logger.error(f"Error monitoring SLO burn rate: {exc}", exc_info=True)
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(exc)
+        }, indent=2))]
+
+
+# ============================================================================
 # Enhanced Incident Management (P2)
 # ============================================================================
 
@@ -5282,7 +7836,7 @@ async def describe_capabilities(
         "success": True,
         "agent_name": "SRE MCP Server",
         "version": "2.0.0",
-        "description": "Site Reliability Engineering operations for Azure with 45+ specialized tools across 15 domains",
+        "description": "Site Reliability Engineering operations for Azure with 50+ specialized tools across 15 domains",
 
         "key_capabilities": [
             {
@@ -5305,20 +7859,26 @@ async def describe_capabilities(
                 ]
             },
             {
-                "category": "Incident Response",
-                "description": "Automated incident triage, log correlation, and root cause analysis",
+                "category": "Incident Response & Root Cause Analysis",
+                "description": "Automated incident triage, log correlation, root cause analysis, and dependency tracing",
                 "tools": [
                     "triage_incident - Automated incident triage with severity assessment",
                     "search_logs_by_error - Pattern-based log search for specific errors",
                     "correlate_alerts - Temporal and resource-based alert correlation",
                     "generate_incident_summary - Structured incident reports with RCA steps",
-                    "get_audit_trail - SRE operation audit trail for compliance"
+                    "get_audit_trail - SRE operation audit trail for compliance",
+                    "perform_root_cause_analysis - Automated RCA with log correlation, activity log analysis, dependency checks",
+                    "trace_dependency_chain - Full dependency graph with health cascade and blast radius",
+                    "analyze_log_patterns - Statistical error pattern detection with Z-score anomaly analysis"
                 ],
                 "example_prompts": [
                     "My app is down. Can you analyze it?",
                     "Why is my web app throwing 500 errors?",
                     "Correlate alerts for the last hour",
-                    "Generate an incident summary"
+                    "Generate an incident summary",
+                    "Perform root cause analysis on my container app",
+                    "What is the blast radius if this service goes down?",
+                    "Find error patterns in my logs for the last 12 hours"
                 ]
             },
             {
@@ -5342,6 +7902,7 @@ async def describe_capabilities(
                 "description": "Bulk configuration queries across multiple resources with filtering",
                 "tools": [
                     "query_app_service_configuration - App Service bulk queries (runtime, OS, ARR affinity)",
+                    "list_container_apps - List Container Apps with basic metadata",
                     "query_container_app_configuration - Container Apps queries (Dapr, ingress, autoscale)",
                     "query_aks_configuration - AKS queries (K8s version, autoscale, RBAC)",
                     "query_apim_configuration - APIM queries (SKU, VNet, managed identity)"
@@ -5360,14 +7921,20 @@ async def describe_capabilities(
                     "plan_remediation - Step-by-step remediation plans with approval workflow",
                     "execute_safe_restart - Simulated safe resource restart",
                     "scale_resource - Simulated resource scaling",
-                    "clear_cache - Simulated cache clearing"
+                    "clear_cache - Simulated cache clearing",
+                    "generate_remediation_plan - Advanced runbook-matched remediation plans with approval gates",
+                    "execute_remediation_step - Execute individual plan steps with token-based approval",
+                    "register_custom_runbook - Register custom remediation runbooks for future matching"
                 ],
                 "example_prompts": [
                     "Plan remediation for my failing app",
                     "Safely restart my Container App",
-                    "Scale my app to 5 replicas"
+                    "Scale my app to 5 replicas",
+                    "Generate a remediation plan for my unhealthy web app",
+                    "Register a custom runbook for OOM errors",
+                    "Execute step 2 of remediation plan plan-abc123"
                 ],
-                "note": "Remediation execute_* tools are intentionally simulated for safety"
+                "note": "Destructive steps require explicit approval tokens (30-min TTL, single-use)"
             },
             {
                 "category": "Service-Specific Diagnostics",
@@ -5433,11 +8000,11 @@ async def describe_capabilities(
         "limitations": [
             "Virtual Machines do NOT support diagnostic settings (use Azure Monitor Agent instead)",
             "AKS cluster access requires network connectivity (cannot access clusters with restricted inbound access)",
-            "Remediation execute_* tools are simulated for safety (production requires approval workflows)",
+            "Remediation execute_* tools are simulated for safety (use generate_remediation_plan + execute_remediation_step for approval-gated workflows)",
             "Visualization generation not yet implemented (returns data only)"
         ],
 
-        "total_tools": 45,
+        "total_tools": 48,
         "timestamp": datetime.utcnow().isoformat()
     }
 

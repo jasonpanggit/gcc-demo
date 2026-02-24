@@ -1,6 +1,7 @@
 """
 EndOfLife.date Agent - Queries the endoflife.date API for EOL information
 """
+import re
 import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -75,6 +76,10 @@ class EndOfLifeAgent(BaseEOLAgent):
         4. Return best match with confidence score
         """
         
+        # Normalize names like "windows server 2016" -> name="windows server", version="2016"
+        # so the API lookup uses the correct product slug + cycle filter
+        software_name, version = self._normalize_versioned_name(software_name, version)
+
         # Record start time for statistics tracking
         start_time = datetime.now()
         
@@ -609,6 +614,33 @@ class EndOfLifeAgent(BaseEOLAgent):
 
         return sorted(cycles, key=sort_key)[0]
     
+    def _normalize_versioned_name(self, software_name: str, version: Optional[str]) -> tuple:
+        """Strip embedded version/year from product name for accurate API lookup.
+
+        Examples:
+            "windows server 2016" -> ("windows server", "2016")
+            "ubuntu 22.04"        -> ("ubuntu", "22.04")
+            "python 3.11"         -> ("python", "3.11")
+        """
+        import re
+        if version:
+            # Version already supplied by caller – nothing to extract
+            return software_name, version
+
+        name = software_name.strip()
+
+        # Year suffix (e.g. "windows server 2016", "office 2019")
+        year_match = re.search(r'\s+(20\d{2}|19\d{2})\s*$', name, re.IGNORECASE)
+        if year_match:
+            return name[:year_match.start()].strip(), year_match.group(1)
+
+        # Semver suffix (e.g. "ubuntu 22.04", "python 3.11", "node 18.0.0")
+        semver_match = re.search(r'\s+(\d+\.\d+(?:\.\d+)?)\s*$', name)
+        if semver_match:
+            return name[:semver_match.start()].strip(), semver_match.group(1)
+
+        return software_name, version
+
     def _transform_name_for_api(self, software_name: str) -> str:
         """Transform software name to endoflife.date API format with comprehensive mappings"""
         name_lower = software_name.lower().strip()

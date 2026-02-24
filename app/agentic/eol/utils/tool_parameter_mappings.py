@@ -629,6 +629,13 @@ _register(
 
 _register(
     ToolMapping(
+        tool_name="list_container_apps",
+        category="config",
+        description="List Container Apps with basic metadata",
+        parameters=[_SUBSCRIPTION_ID, _RESOURCE_GROUP],
+        resource_types=_CONTAINER_APP_TYPES,
+    ),
+    ToolMapping(
         tool_name="query_app_service_configuration",
         category="config",
         description="Query App Service configuration across web apps",

@@ -208,7 +208,7 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
              */
             extractPhaseName(metadata = {}) {
                 const rawPhase = typeof metadata.action === 'string' ? metadata.action.trim().toLowerCase() : '';
-                const allowed = ['planning', 'action', 'observation', 'reflection', 'synthesis'];
+                const allowed = ['planning', 'action', 'observation', 'reflection', 'synthesis', 'reasoning'];
                 if (!allowed.includes(rawPhase)) {
                     return null;
                 }
@@ -242,6 +242,11 @@ if (typeof window.AgentCommunicationHandler === 'undefined') {
                 const details = metadata.toolDetails;
                 if (Array.isArray(details)) {
                     details.forEach((entry) => addLabel(entry));
+                }
+
+                // toolNames array (pipeline plan events)
+                if (Array.isArray(metadata.toolNames)) {
+                    metadata.toolNames.forEach((entry) => addLabel(entry));
                 }
 
                 const input = metadata.input;
@@ -1329,7 +1334,9 @@ function displayAgentCommunications(communications, options = {}) {
                         ${shouldShowOutput ?
                         `<div class="output-section">
                                 <strong>Output:</strong>
-                                <pre class="json-display">${typeof outputData === 'string' ? outputData : JSON.stringify(outputData, null, 2)}</pre>
+                                ${typeof renderToolResult === 'function'
+                                    ? renderToolResult(outputData)
+                                    : `<pre class="json-display">${typeof outputData === 'string' ? outputData : JSON.stringify(outputData, null, 2)}</pre>`}
                             </div>` : ''}
                         <div><strong>Status:</strong> <span class="status-${actualStatus}">${formatStatus(actualStatus)}</span></div>
                     </div>

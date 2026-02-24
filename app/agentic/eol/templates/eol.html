@@ -254,6 +254,112 @@ Legacy format handling has been removed as all agents now use the standardized f
             transform: translateY(0);
         }
 
+        .search-mode-group .search-mode-option {
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            user-select: none;
+            border: 1px solid transparent;
+            border-radius: var(--radius-md);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            transition: var(--transition);
+        }
+
+        .search-mode-group .search-mode-option[data-search-mode].is-selected {
+            border-color: transparent;
+            background: transparent;
+        }
+
+        .search-mode-group .search-mode-option[data-search-mode].is-selected .form-check-label strong {
+            color: inherit;
+        }
+
+        .search-mode-group #searchIgnoreCacheOption.is-selected {
+            border-color: transparent;
+            background: transparent;
+        }
+
+        .search-mode-group #searchIgnoreCacheOption.is-selected .form-check-label strong {
+            color: inherit;
+        }
+
+        .search-mode-group .search-mode-option .form-check-input,
+        .search-mode-group .search-mode-option .form-check-label {
+            pointer-events: auto !important;
+            cursor: pointer;
+        }
+
+        .search-mode-group .search-mode-option .form-check-input[type="radio"] {
+            -webkit-appearance: radio;
+            appearance: auto;
+            width: 1rem;
+            height: 1rem;
+            margin-top: 0.18rem;
+            border: 1px solid var(--gray-400);
+            box-shadow: none;
+            accent-color: var(--primary-color);
+            background-image: none !important;
+        }
+
+        .search-mode-group .search-mode-option .form-check-input[type="radio"]:checked {
+            border-color: var(--primary-color);
+            background-image: none !important;
+        }
+
+        .search-mode-group .search-mode-option .form-check-input[type="radio"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.2);
+        }
+
+        .search-mode-group #searchIgnoreCacheOption .form-check-input[type="checkbox"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 1rem;
+            height: 1rem;
+            margin-top: 0.18rem;
+            border: 1px solid var(--gray-400);
+            border-radius: 50%;
+            background-color: transparent;
+            background-image: none !important;
+            box-shadow: none;
+            cursor: pointer;
+        }
+
+        .search-mode-group #searchIgnoreCacheOption .form-check-input[type="checkbox"]:checked {
+            border-color: var(--primary-color);
+            background-image: radial-gradient(circle, var(--primary-color) 0 45%, transparent 46%) !important;
+        }
+
+        .search-mode-group #searchIgnoreCacheOption .form-check-input[type="checkbox"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.2);
+        }
+
+        html.dark-mode .search-mode-group .search-mode-option .form-check-input[type="radio"] {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-secondary);
+        }
+
+        html.dark-mode .search-mode-group .search-mode-option .form-check-input[type="radio"]:checked {
+            border-color: var(--primary-color);
+            background-image: none !important;
+        }
+
+        html.dark-mode .search-mode-group #searchIgnoreCacheOption .form-check-input[type="checkbox"] {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-secondary);
+        }
+
+        html.dark-mode .search-mode-group #searchIgnoreCacheOption .form-check-input[type="checkbox"]:checked {
+            border-color: var(--primary-color);
+            background-image: radial-gradient(circle, var(--primary-color) 0 45%, transparent 46%) !important;
+        }
+
+        html.dark-mode .search-mode-group #searchIgnoreCacheOption.is-selected {
+            border-color: transparent;
+            background: transparent;
+        }
+
         /* Agent communications styling */
         .agent-communications {
             border-radius: var(--radius-md) !important;
@@ -577,11 +683,23 @@ Legacy format handling has been removed as all agents now use the standardized f
             margin: 0 0 var(--spacing-xl) 0;
         }
 
+        html.dark-mode .search-history-section .card-body,
+        html.dark-mode #searchHistory,
+        html.dark-mode #searchHistory .list-group {
+            background: var(--bg-secondary) !important;
+        }
+
+        html.dark-mode #searchHistory .list-group {
+            --bs-list-group-bg: var(--bg-tertiary);
+            --bs-list-group-color: var(--text-primary);
+            --bs-list-group-border-color: var(--border-primary);
+        }
+
         html.dark-mode #searchHistory .list-group-item,
         html.dark-mode #searchHistory .list-group-item:hover {
-            background-color: var(--gray-700) !important;
-            border-color: var(--gray-600) !important;
-            color: var(--gray-100) !important;
+            background-color: var(--bg-tertiary) !important;
+            border-color: var(--border-primary) !important;
+            color: var(--text-primary) !important;
         }
 
         html.dark-mode .rule-item {
@@ -633,9 +751,9 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                             <!-- Search Mode Options -->
                             <div class="col-12 mt-3">
-                                <div class="d-flex flex-column flex-md-row flex-wrap align-items-start gap-3">
-                                    <div class="form-check form-switch me-md-3">
-                                        <input class="form-check-input" type="checkbox" id="searchAgentsOnly" style="cursor: pointer;">
+                                <div class="d-flex flex-column flex-md-row flex-wrap align-items-start gap-3 search-mode-group" id="searchModeGroup">
+                                    <div class="form-check me-md-3 search-mode-option" data-search-mode="agent_only">
+                                        <input class="form-check-input" type="radio" name="searchMode" id="searchAgentsOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchAgentsOnly" style="cursor: pointer;">
                                             <i class="fas fa-robot me-1"></i>
                                             <strong>Agents Only</strong>
@@ -644,8 +762,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                                             </small>
                                         </label>
                                     </div>
-                                    <div class="form-check form-switch me-md-3">
-                                        <input class="form-check-input" type="checkbox" id="searchIncludeInternet" style="cursor: pointer;" checked>
+                                    <div class="form-check me-md-3 search-mode-option" data-search-mode="agents_plus_internet">
+                                        <input class="form-check-input" type="radio" name="searchMode" id="searchIncludeInternet" style="cursor: pointer;" checked>
                                         <label class="form-check-label" for="searchIncludeInternet" style="cursor: pointer;">
                                             <i class="fas fa-globe-asia me-1"></i>
                                             <strong>Agents + Web Search (default)</strong>
@@ -654,8 +772,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                                             </small>
                                         </label>
                                     </div>
-                                    <div class="form-check form-switch me-md-3">
-                                        <input class="form-check-input" type="checkbox" id="searchInternetOnly" style="cursor: pointer;">
+                                    <div class="form-check me-md-3 search-mode-option" data-search-mode="internet_only">
+                                        <input class="form-check-input" type="radio" name="searchMode" id="searchInternetOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchInternetOnly" style="cursor: pointer;">
                                             <i class="fas fa-globe me-1"></i>
                                             <strong>Web Search Only</strong>
@@ -664,7 +782,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                                             </small>
                                         </label>
                                     </div>
-                                    <div class="form-check form-switch me-md-3">
+                                    <div class="form-check me-md-3 search-mode-option" id="searchIgnoreCacheOption">
                                         <input class="form-check-input" type="checkbox" id="searchIgnoreCache" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchIgnoreCache" style="cursor: pointer;">
                                             <i class="fas fa-ban me-1"></i>
@@ -1469,12 +1587,12 @@ Legacy format handling has been removed as all agents now use the standardized f
 
             try {
                 // Determine search stages based on version availability
-                const searchStages = softwareVersion ?
-                    [
+                const searchStages = softwareVersion
+                    ? [
                         { type: 'name_and_version', hasVersion: true, stage: 1 },
                         { type: 'name_only', hasVersion: false, stage: 2 }
-                    ] :
-                    [
+                    ]
+                    : [
                         { type: 'name_only', hasVersion: false, stage: 1 }
                     ];
 
@@ -2867,6 +2985,81 @@ Legacy format handling has been removed as all agents now use the standardized f
 
         let internetToggleHandlersBound = false;
 
+        function setSearchMode(mode) {
+            const includeToggle = document.getElementById('searchIncludeInternet');
+            const onlyToggle = document.getElementById('searchInternetOnly');
+            const agentsOnlyToggle = document.getElementById('searchAgentsOnly');
+
+            if (!includeToggle || !onlyToggle || !agentsOnlyToggle) {
+                return;
+            }
+
+            includeToggle.checked = mode === 'agents_plus_internet';
+            onlyToggle.checked = mode === 'internet_only';
+            agentsOnlyToggle.checked = mode === 'agent_only';
+
+            updateSearchToggleVisualState();
+        }
+
+        function updateSearchToggleVisualState() {
+            const modeOptions = document.querySelectorAll('#searchModeGroup .search-mode-option[data-search-mode]');
+            modeOptions.forEach((option) => {
+                const mode = option.getAttribute('data-search-mode');
+                const isSelected =
+                    (mode === 'agents_plus_internet' && document.getElementById('searchIncludeInternet')?.checked) ||
+                    (mode === 'internet_only' && document.getElementById('searchInternetOnly')?.checked) ||
+                    (mode === 'agent_only' && document.getElementById('searchAgentsOnly')?.checked);
+                option.classList.toggle('is-selected', Boolean(isSelected));
+            });
+
+            const ignoreCacheOption = document.getElementById('searchIgnoreCacheOption');
+            const ignoreCacheToggle = document.getElementById('searchIgnoreCache');
+            if (ignoreCacheOption && ignoreCacheToggle) {
+                ignoreCacheOption.classList.toggle('is-selected', Boolean(ignoreCacheToggle.checked));
+            }
+        }
+
+        function initializeDefaultSearchMode() {
+            setSearchMode('agents_plus_internet');
+        }
+
+        function bindSearchModeOptionClicks() {
+            const options = document.querySelectorAll('#searchModeGroup .search-mode-option[data-search-mode]');
+            if (!options || options.length === 0) {
+                return;
+            }
+
+            options.forEach((option) => {
+                option.addEventListener('click', () => {
+                    const mode = option.getAttribute('data-search-mode');
+                    if (mode) {
+                        setSearchMode(mode);
+                    }
+                });
+            });
+
+            const ignoreCacheToggle = document.getElementById('searchIgnoreCache');
+            const ignoreCacheOption = document.getElementById('searchIgnoreCacheOption');
+            if (ignoreCacheToggle) {
+                ignoreCacheToggle.addEventListener('change', updateSearchToggleVisualState);
+            }
+
+            if (ignoreCacheOption && ignoreCacheToggle) {
+                ignoreCacheOption.addEventListener('click', (event) => {
+                    const isDirectControlClick = event.target.closest('input, label, a, button');
+                    if (isDirectControlClick) {
+                        setTimeout(updateSearchToggleVisualState, 0);
+                        return;
+                    }
+
+                    ignoreCacheToggle.checked = !ignoreCacheToggle.checked;
+                    ignoreCacheToggle.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            }
+
+            updateSearchToggleVisualState();
+        }
+
         // Ensure search mode toggles remain mutually exclusive
         function setupInternetSearchToggles() {
             const includeToggle = document.getElementById('searchIncludeInternet');
@@ -2879,53 +3072,42 @@ Legacy format handling has been removed as all agents now use the standardized f
             }
 
             const syncToggles = () => {
-                // Enforce single-selection behavior across three switches
-                if (onlyToggle.checked) {
-                    includeToggle.checked = false;
-                    agentsOnlyToggle.checked = false;
-                } else if (includeToggle.checked) {
-                    onlyToggle.checked = false;
-                    agentsOnlyToggle.checked = false;
-                } else if (agentsOnlyToggle.checked) {
-                    onlyToggle.checked = false;
-                    includeToggle.checked = false;
+                if (includeToggle.checked) {
+                    setSearchMode('agents_plus_internet');
+                    return;
                 }
 
-                // Default back to agents-only if nothing is selected
-                if (!onlyToggle.checked && !includeToggle.checked && !agentsOnlyToggle.checked) {
-                    agentsOnlyToggle.checked = true;
+                if (onlyToggle.checked) {
+                    setSearchMode('internet_only');
+                    return;
                 }
+
+                if (agentsOnlyToggle.checked) {
+                    setSearchMode('agent_only');
+                    return;
+                }
+
+                // Default when browser/autofill restores inconsistent checkbox state
+                setSearchMode('agents_plus_internet');
             };
 
             if (!internetToggleHandlersBound) {
                 includeToggle.addEventListener('change', () => {
-                    if (includeToggle.checked) {
-                        onlyToggle.checked = false;
-                        agentsOnlyToggle.checked = false;
-                    }
-                    if (!includeToggle.checked && !onlyToggle.checked) {
-                        agentsOnlyToggle.checked = true;
-                    }
+                        if (includeToggle.checked) {
+                            setSearchMode('agents_plus_internet');
+                        }
                 });
 
                 onlyToggle.addEventListener('change', () => {
-                    if (onlyToggle.checked) {
-                        includeToggle.checked = false;
-                        agentsOnlyToggle.checked = false;
-                    }
-                    if (!includeToggle.checked && !onlyToggle.checked) {
-                        agentsOnlyToggle.checked = true;
-                    }
+                        if (onlyToggle.checked) {
+                            setSearchMode('internet_only');
+                        }
                 });
 
                 agentsOnlyToggle.addEventListener('change', () => {
-                    if (agentsOnlyToggle.checked) {
-                        includeToggle.checked = false;
-                        onlyToggle.checked = false;
-                    }
-                    if (!agentsOnlyToggle.checked && !includeToggle.checked && !onlyToggle.checked) {
-                        agentsOnlyToggle.checked = true;
-                    }
+                        if (agentsOnlyToggle.checked) {
+                            setSearchMode('agent_only');
+                        }
                 });
 
                 internetToggleHandlersBound = true;
@@ -3007,7 +3189,9 @@ Legacy format handling has been removed as all agents now use the standardized f
             });
 
             // Wire up internet search toggle exclusivity
+            initializeDefaultSearchMode();
             setupInternetSearchToggles();
+            bindSearchModeOptionClicks();
 
             // Setup collapsible toggle functionality
             const orchestratorContent = document.getElementById('orchestratorLogicContent');

@@ -13,7 +13,8 @@ import shutil
 import sys
 import time
 from dataclasses import asdict, dataclass
-from typing import Annotated, Optional
+import re
+from typing import Annotated, Literal, Optional
 
 import logging
 from pathlib import Path
@@ -64,6 +65,41 @@ class CliExecutionResult:
 _server = FastMCP(name="azure-cli-executor")
 _login_lock = asyncio.Lock()
 _login_completed = False
+
+
+# ---------------------------------------------------------------------------
+# Command safety classification
+# ---------------------------------------------------------------------------
+
+_DESTRUCTIVE_VERBS: frozenset[str] = frozenset({
+    "create", "delete", "update", "set", "reset", "assign", "remove",
+    "add", "rotate", "regenerate", "import", "deploy", "publish",
+    "enable", "disable", "start", "stop", "restart", "scale",
+})
+
+# Hard-block patterns regardless of `confirmed` — irreversible / high blast radius
+_ALWAYS_BLOCK: re.Pattern[str] = re.compile(
+    r"\b(group\s+delete|ad\s+|role\s+assignment\s+create|lock\s+delete)\b",
+    re.IGNORECASE,
+)
+
+
+def _classify_command(command: str) -> Literal["read", "write", "blocked"]:
+    """Classify an Azure CLI command as safe-read, requires-confirmation-write, or blocked.
+
+    Returns:
+        "read"    — safe read-only command, executes immediately.
+        "write"   — mutating command, requires ``confirmed=True``.
+        "blocked" — irreversible high-blast-radius operation, always blocked.
+    """
+    if _ALWAYS_BLOCK.search(command):
+        return "blocked"
+    tokens = command.lower().split()
+    # Skip "az" at tokens[0]; check remaining tokens for destructive verbs
+    for token in tokens[1:]:
+        if token in _DESTRUCTIVE_VERBS:
+            return "write"
+    return "read"
 
 
 def _build_cli_command(command: str) -> list[str]:
@@ -206,8 +242,10 @@ async def _ensure_login() -> None:
         "Example: az monitor log-analytics query --workspace <id> --analytics-query '<KQL>'. "
         "The --query parameter is for JMESPath filtering of JSON output only. "
         "Returns JSON with stdout, stderr, exit code, and duration. "
-        "For destructive operations (create/update/delete), present the plan "
-        "to the user and wait for confirmation BEFORE executing."
+        "⚠️ DESTRUCTIVE OPERATIONS: Mutating commands (create/update/delete/etc.) require "
+        "confirmed=true. Present the plan to the user and wait for explicit confirmation "
+        "BEFORE setting confirmed=true. Some high-risk operations (e.g. 'az group delete', "
+        "'az ad') are always blocked regardless of confirmed."
     ),
 )
 async def execute_azure_cli_command(
@@ -221,10 +259,56 @@ async def execute_azure_cli_command(
         int,
         "Maximum time (seconds) to wait for the command to finish. Defaults to 300 seconds.",
     ] = 300,
+    confirmed: Annotated[
+        bool,
+        (
+            "Set to true only after presenting the plan to the user and receiving explicit "
+            "confirmation. Required for any mutating command (create/update/delete/etc.). "
+            "Ignored for read-only commands."
+        ),
+    ] = False,
 ) -> list[TextContent]:
     """Run the requested Azure CLI command and return the captured output."""
+    classification = _classify_command(command)
+
+    if classification == "blocked":
+        payload = json.dumps({
+            "success": False,
+            "blocked": True,
+            "command": command,
+            "reason": (
+                "This command is always blocked due to high blast radius or irreversibility "
+                "(e.g. 'az group delete', 'az ad', 'az role assignment create', 'az lock delete'). "
+                "These operations cannot be executed through this tool."
+            ),
+        }, ensure_ascii=False, indent=2)
+        return [TextContent(type="text", text=payload)]
+
+    if classification == "write" and not confirmed:
+        payload = json.dumps({
+            "success": False,
+            "requires_confirmation": True,
+            "command": command,
+            "message": (
+                "This command is mutating and requires explicit confirmation. "
+                "Present this plan to the user and set confirmed=true only after "
+                "they approve."
+            ),
+            "plan": {
+                "action": "execute",
+                "command": command,
+                "working_directory": working_directory,
+            },
+        }, ensure_ascii=False, indent=2)
+        return [TextContent(type="text", text=payload)]
+
     await _ensure_login()
     validated_command = _build_cli_command(command)
+    
+    logger.info("=" * 80)
+    logger.info("Executing Azure CLI command: %s", validated_command)
+    logger.info("=" * 80)
+
     result = await _run_subprocess(validated_command, cwd=working_directory, timeout=timeout_seconds)
 
     if result.exit_code != 0 and not result.stderr:

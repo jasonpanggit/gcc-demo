@@ -5,10 +5,12 @@ pydantic==2.12.4
 # OPTIONAL: Agent Framework (for workflow orchestrator only)
 # Only needed if USE_WORKFLOW_ORCHESTRATOR=true environment variable is set
 # Can be omitted for production deployments using legacy orchestrator
-agent-framework==1.0.0b260130  # Latest release (Jan 30, 2026)
-agent-framework-ag-ui==1.0.0b260130
-agent-framework-chatkit==1.0.0b260130
-# Constrain agent-framework sub-dependencies to avoid resolution issues
+agent-framework==1.0.0rc1  # Latest release (Feb 19, 2026)
+agent-framework-ag-ui==1.0.0b260219
+agent-framework-chatkit==1.0.0b260219
+# agent-framework-core==1.0.0rc1 requires opentelemetry-api>=1.39.0 — let pip resolve
+# Pin opentelemetry-semantic-conventions-ai to 0.4.13 — v0.4.14 removed LLM_SYSTEM which RC1 observability.py still uses
+opentelemetry-semantic-conventions-ai==0.4.13
 microsoft-agents-copilotstudio-client>=0.5.0,<0.7.0
 microsoft-agents-hosting-core>=0.5.0,<0.7.0
 microsoft-agents-activity>=0.5.0,<0.7.0
@@ -28,7 +30,7 @@ azure-mgmt-resourcegraph==8.0.1  # For dependency mapping in SRE MCP server
 azure-mgmt-web==7.0.0  # For App Service operations in SRE MCP server
 azure-mgmt-redis==14.0.0  # For Redis cache operations in SRE MCP server
 azure-mgmt-containerservice==20.0.0  # For AKS operations in SRE MCP server
-openai==2.7.1
+openai==2.21.0
 tiktoken==0.12.0
 a2a-sdk==0.3.12
 tqdm==4.67.1
@@ -48,8 +50,8 @@ email-validator==2.1.0
 PyYAML==6.0.2
 playwright==1.50.0
 # Azure AI Agent Service dependencies (Modern replacement for Bing Search)
-azure-ai-projects==2.0.0b1
-azure-ai-agents==1.2.0b5
+azure-ai-projects==2.0.0b3
+azure-ai-agents==1.2.0b5  # pinned by agent-framework-azure-ai==1.0.0rc1
 azure-search-documents==11.5.3
 html2text==2025.4.15
 # Azure MCP Server integration

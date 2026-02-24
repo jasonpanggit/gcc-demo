@@ -1167,29 +1167,51 @@ async def cache_eol_result(request: CacheEOLRequest):
 @readonly_endpoint(agent_name="eol_inventory_list", timeout_seconds=20)
 async def list_eol_inventory_records(
     limit: int = 100,
+    page: int = 1,
+    page_size: int = 25,
     software_name: Optional[str] = None,
     version: Optional[str] = None,
 ):
     """Return recent Cosmos EOL table entries for UI browsing."""
     try:
+        safe_page = max(1, page)
+        safe_page_size = max(1, min(page_size, 500))
+
+        # Backward compatibility: if legacy `limit` provided without pagination params,
+        # respect it by serving first page with that size.
+        if page == 1 and page_size == 25 and limit != 100:
+            safe_page_size = max(1, min(limit, 500))
+
+        offset = (safe_page - 1) * safe_page_size
+
         # list_recent returns a tuple (records, total_count)
         records, total_count = await eol_inventory.list_recent(
-            limit=limit,
+            limit=safe_page_size,
+            offset=offset,
             software_name=software_name,
             version=version,
         )
 
+        total_pages = (total_count + safe_page_size - 1) // safe_page_size if total_count > 0 else 1
+
         response = StandardResponse.success_response(
             data=records,
             metadata={
-                "limit": limit,
+                "limit": safe_page_size,
+                "page": safe_page,
+                "page_size": safe_page_size,
+                "offset": offset,
+                "total_pages": total_pages,
                 "total_count": total_count,
                 "returned_count": len(records) if isinstance(records, list) else 0,
                 "software_name": software_name,
                 "version": version,
             },
         )
-        return response.to_dict()
+        payload = response.to_dict()
+        payload["total_records"] = total_count
+        payload["returned_records"] = len(records) if isinstance(records, list) else 0
+        return payload
     except Exception as exc:
         logger.debug("EOL inventory list failed: %s", exc)
         response = StandardResponse.error_response(error=str(exc))
@@ -1258,6 +1280,33 @@ async def bulk_delete_eol_inventory_records(request: BulkDeleteRequest):
         data=[],
         metadata={"requested": len(items), **results},
         message=f"Deleted {deleted} record(s)" if deleted else "No records deleted",
+    )
+    return response.to_dict()
+
+
+@router.post("/api/eol-inventory/purge-all", response_model=StandardResponse)
+@write_endpoint(agent_name="eol_inventory_purge_all", timeout_seconds=60)
+async def purge_all_eol_inventory_records():
+    """Delete ALL records from the Cosmos eol_table container.
+
+    Also clears the orchestrator in-memory cache so stale data is not served
+    from memory after the Cosmos purge.
+    """
+    from main import get_eol_orchestrator
+    # Clear orchestrator in-memory cache first
+    try:
+        orchestrator = get_eol_orchestrator()
+        memory_cleared = len(orchestrator.eol_cache)
+        orchestrator.eol_cache.clear()
+    except Exception:
+        memory_cleared = 0
+
+    deleted = await eol_inventory.purge_all()
+
+    response = StandardResponse.success_response(
+        data=[],
+        metadata={"deleted": deleted, "memory_cleared": memory_cleared},
+        message=f"Purged {deleted} record(s) from EOL inventory",
     )
     return response.to_dict()
 

@@ -280,35 +280,37 @@ class MicrosoftEOLAgent(BaseEOLAgent):
         if cached_data:
             return cached_data
         
-        # # Get fresh data using our _fetch_eol_data method
-        # result_data = await self._fetch_eol_data(normalized_name, resolved_version)
-        
-        # if result_data:
-        #     # Add Microsoft-specific metadata
-        #     source_url = self._get_scraping_url(normalized_name) or "https://docs.microsoft.com/en-us/lifecycle/products/"
-        #     confidence = result_data.get("confidence", 70) / 100.0  # Convert to 0-1 scale
+        # Scrape fresh data from Microsoft official sources.
+        # _scrape_eol_data returns Optional[Dict] – a single matched record.
+        source_url = self._get_scraping_url(normalized_name) or "https://docs.microsoft.com/en-us/lifecycle/products/"
+        record = await self._scrape_eol_data(normalized_name, resolved_version)
 
-        #     # Prefer scraped/static version when caller did not provide one
-        #     result_version = resolved_version or result_data.get("version") or result_data.get("cycle")
+        if record:
+            confidence = record.get("confidence") or 0.7
+            try:
+                confidence = float(confidence)
+                if confidence > 1:
+                    confidence = confidence / 100.0
+            except (TypeError, ValueError):
+                confidence = 0.7
 
-        #     # Create standardized response
-        #     result = self.create_success_response(
-        #         software_name=normalized_name,
-        #         version=result_version,
-        #         eol_date=result_data.get("eol"),
-        #         support_end_date=result_data.get("support"),
-        #         confidence=confidence,
-        #         source_url=source_url,
-        #         additional_data={
-        #             "cycle": result_data.get("cycle"),
-        #             "extendedSupport": result_data.get("extendedSupport"),
-        #             "original_result": result_data
-        #         }
-        #     )
-            
-        #     # Cache the result
-        #     await self._cache_data(normalized_name, result_version, result, source_url=source_url)
-        #     return result
+            result_version = resolved_version or record.get("version") or record.get("cycle")
+
+            return self.create_success_response(
+                software_name=normalized_name,
+                version=result_version,
+                eol_date=record.get("eol"),
+                support_end_date=record.get("support") or record.get("support_end_date"),
+                release_date=record.get("release"),
+                confidence=confidence,
+                source_url=source_url,
+                additional_data={
+                    "cycle": record.get("cycle"),
+                    "extendedSupport": record.get("extendedSupport"),
+                    "original_result": record,
+                    "source": "microsoft_official",
+                },
+            )
 
         return self.create_failure_response(
             software_name=normalized_name,
@@ -376,22 +378,25 @@ class MicrosoftEOLAgent(BaseEOLAgent):
             
             soup = BeautifulSoup(response.content, 'html.parser')
 
+            # Normalize to hyphenated form so both "windows server" and "windows-server" match
+            name_lower = software_name.lower().replace(" ", "-")
+
             parsed: Optional[Dict[str, Any]] = None
-            if "windows-server" in software_name.lower():
+            if "windows-server" in name_lower:
                 parsed_rows = self._parse_windows_server_eol(soup, version)
                 if parsed_rows:
                     parsed = parsed_rows[0]
-            elif "sql-server" in software_name.lower():
+            elif "sql-server" in name_lower:
                 parsed = self._parse_sql_server_eol(soup, version)
                 if isinstance(parsed, list):
                     parsed = parsed[0] if parsed else None
-            elif "office" in software_name.lower():
+            elif "office" in name_lower:
                 parsed = self._parse_office_eol(soup, version)
-            elif "windows-10" in software_name.lower():
+            elif "windows-10" in name_lower:
                 parsed_rows = self._parse_windows_eol(soup, version)
                 if parsed_rows:
                     parsed = parsed_rows[0]
-            elif "windows-11" in software_name.lower():
+            elif "windows-11" in name_lower:
                 parsed_rows = self._parse_windows_eol(soup, version)
                 if parsed_rows:
                     parsed = parsed_rows[0]

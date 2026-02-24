@@ -245,9 +245,25 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
     memory_cleared = len(orchestrator.eol_cache)
     orchestrator.eol_cache.clear()
 
-    # Purge Cosmos + in-memory shared cache
+    # Purge Cosmos + in-memory shared cache (agent-level, eol_cache)
     cosmos_result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_type)
     deleted_count = cosmos_result.get("deleted_count", 0) if isinstance(cosmos_result, dict) else 0
+
+    # Also purge the orchestrator-level Cosmos EOL inventory (eol_table) when a
+    # specific software name is supplied.  Without this the UI replays stale
+    # per-agent comparison data that was baked into the stored record.
+    eol_inventory_deleted = 0
+    if software_name:
+        from utils.eol_inventory import eol_inventory as _eol_inventory
+        try:
+            eol_inventory_deleted = await _eol_inventory.invalidate(software_name, version)
+            if eol_inventory_deleted:
+                logger.info(
+                    "Purged %d eol_inventory record(s) for %s / %s",
+                    eol_inventory_deleted, software_name, version or "any"
+                )
+        except Exception as _exc:
+            logger.warning("eol_inventory purge skipped: %s", _exc)
 
     # Reset statistics so UI reflects fresh state
     if cache_stats_manager:
@@ -259,6 +275,7 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
     results = {
         agent_type or "all_agents": {
             "deleted_count": deleted_count,
+            "eol_inventory_deleted": eol_inventory_deleted,
             "memory_cleared": memory_cleared,
             "software_name": software_name,
             "version": version,
@@ -274,10 +291,11 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
             "software_name": software_name,
             "version": version,
             "deleted_count": deleted_count,
+            "eol_inventory_deleted": eol_inventory_deleted,
             "memory_cleared": memory_cleared,
             "timestamp": datetime.utcnow().isoformat()
         }],
-        "deleted_count": deleted_count,
+        "deleted_count": deleted_count + eol_inventory_deleted,
         "memory_cleared": memory_cleared
     }
 

@@ -99,6 +99,48 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         class SREMCPDisabledError(RuntimeError):  # type: ignore[override]
             """Fallback disabled error when SRE MCP helper is unavailable."""
 
+_network_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.network_mcp_client import get_network_mcp_client, NetworkMCPDisabledError  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _network_mcp_import_error = exc
+    try:
+        from utils.network_mcp_client import get_network_mcp_client, NetworkMCPDisabledError  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _network_mcp_import_error = fallback_exc
+        get_network_mcp_client = None  # type: ignore[assignment]
+
+        class NetworkMCPDisabledError(RuntimeError):  # type: ignore[override]
+            """Fallback disabled error when Network MCP helper is unavailable."""
+
+_compute_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.compute_mcp_client import get_compute_mcp_client, ComputeMCPDisabledError  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _compute_mcp_import_error = exc
+    try:
+        from utils.compute_mcp_client import get_compute_mcp_client, ComputeMCPDisabledError  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _compute_mcp_import_error = fallback_exc
+        get_compute_mcp_client = None  # type: ignore[assignment]
+
+        class ComputeMCPDisabledError(RuntimeError):  # type: ignore[override]
+            """Fallback disabled error when Compute MCP helper is unavailable."""
+
+_storage_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.storage_mcp_client import get_storage_mcp_client, StorageMCPDisabledError  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _storage_mcp_import_error = exc
+    try:
+        from utils.storage_mcp_client import get_storage_mcp_client, StorageMCPDisabledError  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _storage_mcp_import_error = fallback_exc
+        get_storage_mcp_client = None  # type: ignore[assignment]
+
+        class StorageMCPDisabledError(RuntimeError):  # type: ignore[override]
+            """Fallback disabled error when Storage MCP helper is unavailable."""
+
 _sre_inventory_import_error: Optional[BaseException] = None
 try:
     from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration  # type: ignore[import-not-found]
@@ -136,6 +178,77 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
         from agents.monitor_agent import MonitorAgent  # type: ignore[import-not-found]
     except ModuleNotFoundError:
         MonitorAgent = None  # type: ignore[assignment]
+
+try:
+    from app.agentic.eol.agents.sre_sub_agent import SRESubAgent, build_sre_meta_tool  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from agents.sre_sub_agent import SRESubAgent, build_sre_meta_tool  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        SRESubAgent = None  # type: ignore[assignment]
+        build_sre_meta_tool = None  # type: ignore[assignment]
+
+try:
+    from app.agentic.eol.utils.tool_router import ToolRouter  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from utils.tool_router import ToolRouter  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        ToolRouter = None  # type: ignore[assignment]
+
+try:
+    from app.agentic.eol.utils.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from utils.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        ToolEmbedder = None  # type: ignore[assignment]
+
+# Pipeline Router + ToolRetriever (Phase 4 — shadow mode only when MCP_PIPELINE_SHADOW=true)
+_pipeline_router_import_error: Optional[str] = None
+try:
+    from app.agentic.eol.utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
+except ModuleNotFoundError:
+    try:
+        from utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
+        from utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
+    except ModuleNotFoundError as _e:
+        PipelineRouter = None  # type: ignore[assignment,misc]
+        PipelineToolRetriever = None  # type: ignore[assignment,misc]
+        _pipeline_router_import_error = str(_e)
+
+# Phase 6 — full pipeline: Planner + Executor + Verifier + ResponseComposer
+_pipeline_full_import_error: Optional[str] = None
+try:
+    from app.agentic.eol.utils.planner import Planner as PipelinePlanner  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.executor import Executor as PipelineExecutor, StepResult as PipelineStepResult, ExecutionResult as PipelineExecutionResult  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.verifier import Verifier as PipelineVerifier  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.response_composer import ResponseComposer as PipelineResponseComposer  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.resource_inventory_service import (  # type: ignore[import-not-found]
+        ResourceInventoryService as PipelineInventoryService,
+        get_resource_inventory_service as get_pipeline_inventory_service,
+    )
+except ModuleNotFoundError:
+    try:
+        from utils.planner import Planner as PipelinePlanner  # type: ignore[import-not-found]
+        from utils.executor import Executor as PipelineExecutor, StepResult as PipelineStepResult, ExecutionResult as PipelineExecutionResult  # type: ignore[import-not-found]
+        from utils.verifier import Verifier as PipelineVerifier  # type: ignore[import-not-found]
+        from utils.response_composer import ResponseComposer as PipelineResponseComposer  # type: ignore[import-not-found]
+        from utils.resource_inventory_service import (  # type: ignore[import-not-found]
+            ResourceInventoryService as PipelineInventoryService,
+            get_resource_inventory_service as get_pipeline_inventory_service,
+        )
+    except ModuleNotFoundError as _e:
+        PipelinePlanner = None  # type: ignore[assignment,misc]
+        PipelineExecutor = None  # type: ignore[assignment,misc]
+        PipelineStepResult = None  # type: ignore[assignment,misc]
+        PipelineExecutionResult = None  # type: ignore[assignment,misc]
+        PipelineVerifier = None  # type: ignore[assignment,misc]
+        PipelineResponseComposer = None  # type: ignore[assignment,misc]
+        PipelineInventoryService = None  # type: ignore[assignment,misc]
+        get_pipeline_inventory_service = None  # type: ignore[assignment]
+        _pipeline_full_import_error = str(_e)
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing support only
@@ -251,237 +364,514 @@ Each tool's description tells you WHEN to use it — follow those descriptions t
 
 CRITICAL RULE — NO FABRICATION:
 You MUST call a tool before presenting ANY Azure resource data.
-NEVER generate fake subscription IDs, resource names, or example data.
-If no tool exists for the request, say so — do NOT invent a response.
-If a tool call fails, report the error — do NOT substitute made-up data.
+NEVER generate fake resource names, subscription IDs, or example data.
+If no tool exists for the request, say so. If a tool call fails, report the error.
 
 SAFETY — DESTRUCTIVE OPERATIONS:
 Before executing any tool that creates, updates, deletes, or deploys resources:
-1. Gather all required information first (via tool calls or intelligent defaults).
+1. Gather all required information first via tool calls.
 2. Present a COMPLETE plan to the user in ONE message.
 3. Ask for confirmation ONCE and WAIT — do NOT execute without approval.
 
-WORKFLOW — READ OPERATIONS:
-1. Call the appropriate MCP tool(s) FIRST to fetch real data.
+WORKFLOW:
+1. Call the appropriate tool(s) FIRST to fetch real data.
 2. Wait for tool results before responding.
 3. Format ONLY the data returned by tools into your response.
 
-SRE OPERATIONS:
-When users ask about resource health, incidents, troubleshooting, performance issues, or remediation:
-→ Use Azure SRE Agent tools for specialized SRE operations across 15 domains.
+LISTING QUERIES (show/list/display my X):
+- For any "show my X", "list X", or "display X" request: call ONE list/enumerate tool and immediately respond with that result.
+- Do NOT fan out — do NOT loop through each returned item calling per-item detail tools.
+- If the user explicitly asks for details on a specific item (by name or ID), THEN call a detail tool for that one item only.
 
-RESOURCE CONFIGURATION DISCOVERY:
-→ Bulk queries across resources: Use query_app_service_configuration, query_container_app_configuration, query_aks_configuration, query_apim_configuration
-→ Example prompts: "Which apps have Dapr enabled?", "Show me all web apps running .NET 6", "Which AKS clusters have autoscaling enabled?"
-
-HEALTH CHECKS & DIAGNOSTICS:
-→ Resource health: Use check_resource_health (requires full resource ID). For Container Apps: use check_container_app_health. For AKS: use check_aks_cluster_health.
-→ Service-specific diagnostics: Use diagnose_app_service for App Service issues, diagnose_apim for APIM issues
-→ Diagnostic logs: Use get_diagnostic_logs (requires workspace_id and resource_id)
-→ Performance metrics: ⚠️ ALWAYS use get_performance_metrics (SRE tool) - it auto-calculates time ranges dynamically. NEVER use 'az monitor metrics' CLI commands.
-
-INCIDENT RESPONSE:
-→ Automated triage: Use triage_incident for incident analysis, log correlation, and root cause investigation
-→ Log analysis: Use search_logs_by_error for pattern-based log search
-→ Alert correlation: Use correlate_alerts for temporal and resource-based correlation
-→ Incident reporting: Use generate_incident_summary for structured reports
-→ DORA metrics: Use calculate_mttr_metrics for Mean Time to Recovery and related metrics
-→ Postmortem: Use generate_postmortem for comprehensive post-incident review documents
-
-APPLICATION INSIGHTS & DISTRIBUTED TRACING:
-→ Use query_app_insights_traces for distributed tracing by operation ID — trace requests across microservices
-→ Use get_request_telemetry for request performance analysis (response times, failure rates, P95/P99 latencies)
-→ Use analyze_dependency_map for service-to-service dependency visualization
-→ Requires Log Analytics workspace with Application Insights connected
-
-COST OPTIMIZATION:
-→ Use get_cost_analysis for cost breakdown by resource group, service, tag, or location
-→ Use identify_orphaned_resources to find unused Azure resources (unattached disks, idle public IPs, empty NSGs)
-→ Use get_cost_recommendations for Azure Advisor cost savings suggestions (right-sizing, reserved instances)
-→ Use analyze_cost_anomalies for detecting unusual spending patterns and cost spikes
-
-SLO/SLI MANAGEMENT:
-→ Use define_slo to create service level objectives (availability, latency, error rate targets)
-→ Use calculate_error_budget to check remaining error budget against SLO targets
-→ Use get_slo_dashboard for SLO compliance report with burn rate and trend analysis
-
-SECURITY & COMPLIANCE:
-→ Use get_security_score for Microsoft Defender for Cloud secure score with control-level breakdown
-→ Use list_security_recommendations for actionable security findings by severity
-→ Use check_compliance_status for Azure Policy compliance status (CIS, NIST, PCI-DSS frameworks)
-
-SELF-DOCUMENTATION:
-→ If users ask "What can you help me with?" or "What are your capabilities?": Use describe_capabilities
-→ If users ask for example prompts: Use get_prompt_examples with category (app_service, container_apps, aks, apim, incident_response, performance, configuration, cost, slo, security, all)
-
-REMEDIATION & NOTIFICATIONS:
-→ For destructive remediation actions (restart, scale, clear_cache), ALWAYS present a plan with plan_remediation and wait for approval.
-→ Use send_teams_notification or send_teams_alert to notify teams about critical incidents.
-→ For REAL remediation (execute_restart_resource, execute_scale_resource): requires ALLOW_REAL_REMEDIATION=true env var AND user confirmation.
-
-IMPORTANT AZURE CLI USAGE:
-→ When using azure_cli_execute_command for Log Analytics queries, use --analytics-query (NOT --query) for KQL queries.
-→ NEVER use the 'speech' tool for SRE operations - it's only for Azure AI Services Speech (speech-to-text).
-
-AZURE DIAGNOSTIC SETTINGS:
-When users ask to enable diagnostic settings or logging for Azure resources:
-→ ⚠️ Virtual Machines (Microsoft.Compute/virtualMachines) do NOT support diagnostic settings for platform logs/metrics.
-→ For VMs: Use Azure Monitor Agent (AMA) for guest OS metrics, logs, and performance counters instead of diagnostic settings.
-→ For other resources: Use 'az monitor diagnostic-settings list --resource <resource-id>' to discover supported log/metric categories BEFORE creating settings.
-→ Common resources supporting diagnostic settings: Storage Accounts, Key Vaults, App Services, Container Apps, AKS, SQL Databases, Network Security Groups.
-→ Always verify supported categories first - attempting to configure unsupported categories will fail with BadRequest error.
+AZURE CLI:
+→ For Log Analytics KQL queries use --analytics-query (NOT --query).
+→ Container Apps use 'az containerapp' commands via azure_cli_execute_command.
+→ VMs do NOT support diagnostic settings — use Azure Monitor Agent (AMA) instead.
 
 FORMATTING:
-- Return responses as raw HTML (no markdown code blocks, no backticks).
-- Include at least one HTML <table> when presenting structured data.
-- After tables, add a brief <p> summary of key findings.
-- For utilization/performance data (CPU, memory, disk, network metrics):
-
-  CRITICAL: When you receive time-series data with multiple data points over time (timestamps with values), you MUST create ASCII/Unicode line charts.
-  DO NOT create summary tables showing Average/Current/Min/Max - users want to SEE the trend visually.
-
-  * **Current/snapshot metrics** (single point in time): Use HTML progress bars with gradient colors
-  * **Time-series/historical metrics** (multiple data points over time): MUST use ASCII/Unicode line charts to visualize trends
-
-- Example progress bar format for current resource utilization (single value):
-  <div style="margin: 10px 0;">
-    <strong>CPU Usage:</strong> 65%
-    <div style="background: #e0e0e0; border-radius: 4px; height: 20px; width: 100%; margin: 5px 0;">
-      <div style="background: linear-gradient(90deg, #4CAF50 0%, #FFC107 70%, #F44336 90%); height: 100%; width: 65%; border-radius: 4px;"></div>
-    </div>
-  </div>
-
-- Example line chart format for time-series utilization data (REQUIRED when you have timestamps):
-  <pre style="font-family: monospace; line-height: 1.2; background: #f5f5f5; padding: 10px; border-radius: 4px;">
-  CPU Usage Over Time (%)
-  100 │
-   90 │                    ╭─╮
-   80 │                ╭───╯ ╰─╮
-   70 │            ╭───╯       ╰──╮
-   60 │        ╭───╯              ╰──╮
-   50 │    ╭───╯                     ╰──╮
-   40 │╭───╯                            ╰──╮
-   30 ││                                   ╰──╮
-   20 ││                                      ╰─╮
-   10 ││                                        ╰─╮
-    0 ╰─────────────────────────────────────────╯
-      15:00  15:15  15:30  15:45  16:00  16:15
-
-  Memory Usage Over Time (%)
-  100 │                              ╭───╮
-   90 │                          ╭───╯   ╰─╮
-   80 │                      ╭───╯         ╰──╮
-   70 │                  ╭───╯                ╰──╮
-   60 │              ╭───╯                       ╰─╮
-   50 │          ╭───╯                             ╰─╮
-   40 │      ╭───╯                                   ╰─╮
-   30 │  ╭───╯                                         ╰─╮
-   20 │╭─╯                                              ╰─╮
-   10 ││                                                 ╰─╮
-    0 ╰─────────────────────────────────────────────────╯
-      15:00  15:15  15:30  15:45  16:00  16:15
-  </pre>
-
-- For line charts: Use Unicode box-drawing characters (│ ─ ╭ ╮ ╰ ╯) to create visual trend lines
-- Map each data point to the appropriate y-axis position based on its percentage value
-- Include timestamps on the x-axis showing the time range
-- Use color coding for progress bars: Green (0-60%), Yellow (60-80%), Red (80-100%)
-- NEVER use summary tables (Average/Current/Min/Max) for time-series metrics - always create line charts
+- Return responses as raw HTML (no markdown, no backticks).
+- Use an HTML <table> when presenting structured data; follow with a <p> summary.
+- Single-value metrics: use an HTML progress bar with gradient colors.
+- Time-series metrics (multiple timestamps): render a Chart.js line chart with a unique canvas id.
+  Colors: CPU=#2196F3, Memory=#4CAF50, Disk=#FF9800, Network=#9C27B0, Requests=#E91E63, Latency=#00BCD4.
+- NEVER nest <script> inside <pre> or markdown — emit live HTML only.
 - Your entire response must be valid HTML insertable into a webpage."""
 
-    @staticmethod
-    def _build_dynamic_system_prompt(tool_definitions: List[Dict[str, Any]], tool_source_map: Dict[str, str]) -> str:
-        """Build a dynamic system prompt with a concise tool catalog summary.
+    def _build_dynamic_system_prompt(self, tool_definitions: List[Dict[str, Any]], tool_source_map: Dict[str, str]) -> str:
+        """Build a dynamic system prompt appending tenant/subscription grounding and tool-source summary.
 
-        Tool routing logic now lives in each tool's description (set by
-        CompositeMCPClient), so this only adds a short inventory section.
+        Grounding order:
+          1. AZURE CONTEXT — tenant_id + subscription_id injected from env/config so the LLM
+             never needs to fabricate or discover them via a tool call.
+          2. RESOURCE INVENTORY CONTEXT — compact resource-group / resource-type summary.
+          3. AVAILABLE TOOL SOURCES — counts only (~50 tokens).
         """
         base_prompt = MCPOrchestratorAgent._SYSTEM_PROMPT
 
+        # ── 0. AZURE CONTEXT — tenant / subscription grounding ────────────
+        try:
+            from utils.config import config as _cfg
+        except ModuleNotFoundError:
+            try:
+                from app.agentic.eol.utils.config import config as _cfg  # type: ignore[import-not-found]
+            except ModuleNotFoundError:
+                _cfg = None  # type: ignore[assignment]
+
+        azure_context_lines: List[str] = []
+        if _cfg is not None:
+            tenant_id = getattr(getattr(_cfg, "azure", None), "tenant_id", "") or os.getenv("AZURE_TENANT_ID", os.getenv("TENANT_ID", ""))
+            subscription_id = getattr(getattr(_cfg, "azure", None), "subscription_id", "") or os.getenv("SUBSCRIPTION_ID", os.getenv("AZURE_SUBSCRIPTION_ID", ""))
+        else:
+            tenant_id = os.getenv("AZURE_TENANT_ID", os.getenv("TENANT_ID", ""))
+            subscription_id = os.getenv("SUBSCRIPTION_ID", os.getenv("AZURE_SUBSCRIPTION_ID", ""))
+
+        if tenant_id:
+            azure_context_lines.append(f"  • Tenant ID: {tenant_id}")
+        if subscription_id:
+            azure_context_lines.append(f"  • Default Subscription ID: {subscription_id}")
+
+        if azure_context_lines:
+            azure_context_section = (
+                "\n\nAZURE CONTEXT (pre-resolved from environment — trust these values):\n"
+                + "\n".join(azure_context_lines)
+                + "\n  • subscription_id is auto-populated into tool arguments by the orchestrator — you do NOT need to call a subscriptions/list tool solely to obtain the subscription ID."
+            )
+        else:
+            azure_context_section = ""
+
+        # ── 1. RESOURCE INVENTORY CONTEXT (async-populated, may be empty on first call) ──
+        inventory_section = ""
+        grounding = getattr(self, "_inventory_grounding_context", "")
+        if grounding:
+            inventory_section = "\n\nRESOURCE INVENTORY CONTEXT (use to resolve tool parameters without extra tool calls):\n" + grounding
+
         if not tool_definitions:
-            return base_prompt
+            return base_prompt + azure_context_section + inventory_section
 
-        # Group tools by source for a compact summary
-        tools_by_source: Dict[str, int] = {}
-        for tool in tool_definitions:
-            tool_name = tool.get("function", {}).get("name", "")
-            source = tool_source_map.get(tool_name, "unknown")
-            tools_by_source[source] = tools_by_source.get(source, 0) + 1
-
+        # ── 2. Group tools by source ──────────────────────────────────────
         source_labels = {
-            "azure": "Azure MCP Server",
+            "azure":     "Azure MCP Server",
             "azure_cli": "Azure CLI Executor",
-            "os_eol": "OS EOL Server",
+            "os_eol":    "OS EOL Server",
             "inventory": "Inventory Server",
-            "monitor": "Azure Monitor Community",
-            "sre": "Azure SRE Agent",
+            "monitor":   "Azure Monitor Community",
+            "sre":       "Azure SRE Agent",
+            "meta":      "Orchestration Meta-tools",
         }
 
-        catalog_lines = [f"  • {source_labels.get(src, src)}: {count} tools" for src, count in tools_by_source.items()]
+        tools_by_source: Dict[str, List[Dict[str, Any]]] = {}
+        for tool in tool_definitions:
+            fn = tool.get("function", {})
+            name = fn.get("name", "")
+            source = tool_source_map.get(name, "unknown")
+            tools_by_source.setdefault(source, []).append(tool)
+
+        # ── 3. AVAILABLE TOOL SOURCES summary (counts only, ~50 tokens) ──
+        catalog_lines = [
+            f"  • {source_labels.get(src, src)}: {len(tools)} tools"
+            for src, tools in tools_by_source.items()
+        ]
         catalog_section = "\n\nAVAILABLE TOOL SOURCES:\n" + "\n".join(catalog_lines)
 
-        # Disambiguation for commonly confused Azure services
-        disambiguation = (
-            "\n\nSERVICE DISAMBIGUATION (read carefully):"
-            "\n• 'Container Apps' (Azure Container Apps) → use inventory-grounded discovery (cached resource inventory) first, then SRE health/perf tools. "
-            "Do NOT use ACR, App Service, App Config, or Function App tools."
-            "\n• 'Virtual Machines' (Azure Compute VMs) → use inventory-grounded discovery first, then SRE health/perf tools."
-            "\n• 'Container Registry' (ACR) → use the acr/container_registries tools."
-            "\n• 'App Service' (Web Apps) → use the appservice tools."
-            "\n• 'App Configuration' → use the appconfig tools."
-            "\n• 'Function Apps' → use the functionapp tools."
-            "\n\n⚠️ CRITICAL TOOL ROUTING:"
-            "\n• The 'speech' tool is ONLY for Azure AI Services Speech (speech-to-text, text-to-speech)."
-            "\n• NEVER use 'speech' for resource health, diagnostics, SRE operations, or Azure resource management."
-            "\n• For resource health checks: use check_resource_health (SRE) or resourcehealth (Azure MCP)."
-            "\n• For SRE operations: use the sre_* tools (check_resource_health, triage_incident, get_diagnostic_logs, etc.)."
-            "\n\nMONITOR RESOURCES:"
-            "\nWhen the user asks about Azure Monitor resources, workbooks, alerts, queries, or monitoring for any service:"
-            "\n→ Call the monitor_agent tool with the user's full request. It handles discovery AND deployment."
-            "\n→ Do NOT try to call monitor tools directly — always delegate to monitor_agent."
-            "\n\nSRE OPERATIONS:"
-            "\nWhen the user asks about resource health, incidents, diagnostics, troubleshooting, performance issues, or remediation:"
-            "\n→ Use check_resource_health (SRE tool) for Azure resource availability and health status (requires full resource ID)."
-            "\n→ Use triage_incident for incident analysis, log correlation, and root cause investigation."
-            "\n→ Use get_performance_metrics and identify_bottlenecks for performance analysis."
-            "\n→ Use get_diagnostic_logs and search_logs_by_error for log analysis and error tracking."
-            "\n→ For remediation: plan_remediation (returns plan), execute_safe_restart, scale_resource (require approval)."
-            "\n→ Use send_teams_alert or send_teams_notification to notify on-call teams about critical incidents."
-            "\n→ ALWAYS require user confirmation before executing destructive SRE operations (restart, scale, remediation)."
-            "\n\nSRE COST & OPTIMIZATION:"
-            "\nWhen the user asks about cloud costs, spending, unused resources, or cost optimization:"
-            "\n→ Use get_cost_analysis for cost breakdown by resource group, service, tag, or location."
-            "\n→ Use identify_orphaned_resources to find unused Azure resources (unattached disks, idle public IPs)."
-            "\n→ Use get_cost_recommendations for Azure Advisor cost savings suggestions."
-            "\n→ Use analyze_cost_anomalies for detecting unusual spending patterns."
-            "\n\nSRE APPLICATION INSIGHTS:"
-            "\nWhen the user asks about traces, request performance, or service dependencies:"
-            "\n→ Use query_app_insights_traces for distributed tracing by operation ID."
-            "\n→ Use get_request_telemetry for request P95/P99 latencies and failure rates."
-            "\n→ Use analyze_dependency_map for service-to-service call analysis."
-            "\n\nSRE SLO/ERROR BUDGETS:"
-            "\nWhen the user asks about SLOs, service levels, error budgets, or reliability targets:"
-            "\n→ Use define_slo to create service level objectives."
-            "\n→ Use calculate_error_budget to check remaining error budget vs targets."
-            "\n→ Use get_slo_dashboard for compliance summary with burn rate."
-            "\n\nSRE SECURITY & COMPLIANCE:"
-            "\nWhen the user asks about security posture, compliance, or security recommendations:"
-            "\n→ Use get_security_score for Defender for Cloud secure score."
-            "\n→ Use list_security_recommendations for actionable security findings."
-            "\n→ Use check_compliance_status for Azure Policy compliance (CIS, NIST, PCI-DSS)."
-            "\n\nCOMMON SRE WORKFLOWS:"
-            "\n• Health check for Container Apps → First: inventory-grounded discovery for container apps, Then: check_resource_health(resource_id)"
-            "\n• Health check for any Azure resource → If you don't have the resource ID, list/search resources first, Then: check_resource_health(resource_id)"
-            "\n• Incident investigation → triage_incident (auto-gathers logs and correlates events), Then: get_diagnostic_logs for detailed analysis"
-            "\n• Performance issue → get_performance_metrics (last 24h by default), Then: identify_bottlenecks to analyze patterns"
-            "\n• Service restart → plan_remediation first (shows impact), Then: execute_safe_restart with user approval"
-            "\n• Cost review → get_cost_analysis (spending breakdown), Then: identify_orphaned_resources + get_cost_recommendations"
-            "\n• Distributed tracing → query_app_insights_traces(operation_id), Then: analyze_dependency_map for call chain"
-            "\n• SLO check → get_slo_dashboard (compliance overview), Then: calculate_error_budget for specific services"
-            "\n• Security audit → get_security_score (overall posture), Then: list_security_recommendations for action items"
+        return base_prompt + azure_context_section + inventory_section + catalog_section
+
+    def _build_openai_tools_payload(self, tool_definitions: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build OpenAI tool payload from all available tool definitions."""
+        if not tool_definitions:
+            return []
+
+        payload: List[Dict[str, Any]] = []
+        for tool in tool_definitions:
+            function_schema = tool.get("function", tool)
+            if not isinstance(function_schema, dict) or not function_schema.get("name"):
+                continue
+            payload.append({"type": "function", "function": function_schema})
+
+        if len(payload) > self._max_openai_tools:
+            logger.warning(
+                "⚠️ Tool payload exceeds Azure OpenAI limit (%d > %d); truncating payload",
+                len(payload),
+                self._max_openai_tools,
+            )
+            payload = payload[: self._max_openai_tools]
+
+        logger.info("Tool catalog: %d tools loaded", len(payload))
+        return payload
+
+    def _select_compact_tools_for_query(
+        self,
+        query: str,
+        candidates: Sequence[Dict[str, Any]],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Pick a compact, relevance-biased subset of candidate tools.
+
+        .. deprecated::
+            Routing now goes through :meth:`_get_active_tools_for_iteration`
+            which delegates to :class:`ToolRouter`.  This method is kept only
+            as a local heuristic fallback when the ToolRouter is unavailable.
+        """
+        if not candidates:
+            return []
+
+        import re
+
+        query_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9_]+", (query or "").lower())
+            if len(token) >= 3
+        }
+
+        scored: List[Tuple[int, Dict[str, Any]]] = []
+        for tool in candidates:
+            function = tool.get("function", tool)
+            if not isinstance(function, dict):
+                continue
+
+            name = str(function.get("name", ""))
+            description = str(function.get("description", ""))
+            corpus = f"{name} {description}".lower()
+
+            score = 0
+            if query_tokens and corpus:
+                score += sum(1 for token in query_tokens if token in corpus)
+
+            if name.startswith(("list_", "get_", "search_", "describe_")):
+                score += 1
+            if name in {"monitor_agent", "sre_agent", "describe_capabilities", "get_prompt_examples"}:
+                score += 2
+
+            scored.append((score, tool))
+
+        if not scored:
+            return []
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [tool for _, tool in scored[: max(1, limit)]]
+
+    def _enforce_routed_tool_budget(
+        self,
+        active_tools: Sequence[Dict[str, Any]],
+        full_catalog_count: int,
+    ) -> List[Dict[str, Any]]:
+        """Hard-cap routed tools to ``_routed_tool_budget``.
+
+        The ToolRouter already performs quality-based selection; this method
+        only applies the final budget ceiling so we never exceed the configured
+        maximum regardless of the router's own ``_MAX_TOOL_COUNT``.
+        """
+        tools = list(active_tools or [])
+        if not tools:
+            return []
+
+        if len(tools) <= self._routed_tool_budget:
+            return tools
+
+        original_count = len(tools)
+        tools = tools[: self._routed_tool_budget]
+        logger.warning(
+            "⚠️ Routed tool set exceeded budget (%d/%d from catalog %d); capped to %d",
+            original_count,
+            self._routed_tool_budget,
+            full_catalog_count,
+            len(tools),
+        )
+        return tools
+
+    def _get_active_tools_for_iteration(
+        self,
+        user_message: str,
+        prior_tool_names: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Return the tool subset to send to the LLM for this iteration.
+
+        Routing pipeline (in order):
+        1. ToolRouter intent-based filtering with per-iteration domain pinning.
+        2. If router returns nothing + prior tools exist → reuse prior sources.
+        3. If router unavailable → local heuristic fallback.
+        4. Apply ``_routed_tool_budget`` hard cap.
+        5. Return ``[]`` if no tools available (logs a warning).
+        """
+        if not self._tool_definitions:
+            return []
+
+        active_tools: List[Dict[str, Any]] = []
+
+        if self._tool_router:
+            active_tools = list(
+                self._tool_router.filter_tools_for_query(
+                    user_message,
+                    self._tool_definitions,
+                    self._tool_source_map,
+                    prior_tool_names=list(prior_tool_names or []),
+                ) or []
+            )
+            # If router returned nothing but we have prior tools, fall back to
+            # reusing their sources so the model can continue its current task.
+            if not active_tools and prior_tool_names:
+                prior_requested = set(prior_tool_names)
+                active_tools = [
+                    tool for tool in self._tool_definitions
+                    if isinstance(tool, dict)
+                    and isinstance(tool.get("function", tool), dict)
+                    and (tool.get("function", tool).get("name") in prior_requested)
+                ]
+                if active_tools:
+                    logger.info(
+                        "🔁 Router returned no tools; reusing %d prior requested tool(s): %s",
+                        len(active_tools),
+                        ", ".join(sorted(prior_requested)),
+                    )
+        else:
+            # ToolRouter unavailable — use local heuristic as fallback
+            logger.warning("⚠️ ToolRouter unavailable; using local heuristic fallback")
+            active_tools = self._select_compact_tools_for_query(
+                user_message,
+                self._tool_definitions,
+                self._routed_tool_budget,
+            )
+
+        if not active_tools:
+            logger.warning(
+                "⚠️ Routing produced no tools for query (strict mode); LLM will answer without tools"
+            )
+            return []
+
+        return self._enforce_routed_tool_budget(
+            active_tools,
+            len(self._tool_definitions),
         )
 
-        return base_prompt + catalog_section + disambiguation
+    async def _get_active_tools_for_iteration_async(
+        self,
+        user_message: str,
+        prior_tool_names: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Async version of _get_active_tools_for_iteration.
+
+        Phase 5 routing path (MCP_AGENT_PIPELINE=routing):
+            1. Router.route()            → List[DomainMatch]
+            2. ToolRetriever.retrieve()  → ≤15 semantically ranked tools
+            Falls back to legacy path if pipeline not initialized.
+
+        Legacy path (default / MCP_AGENT_PIPELINE not set):
+            Runs the synchronous ToolRouter pass first, then enriches the result with
+            semantic retrieval from ToolEmbedder when available.  Falls back to the
+            synchronous method result when the embedder is not ready.
+        """
+        # Phase 5: new routing pipeline path
+        if (
+            self._pipeline_routing
+            and self._pipeline_router is not None
+            and self._pipeline_retriever is not None
+        ):
+            try:
+                tool_source_map = self._mcp_client.get_tool_sources() if self._mcp_client else {}
+                domain_matches = await self._pipeline_router.route(
+                    user_message,
+                    prior_tool_names=list(prior_tool_names or []),
+                    tool_source_map=tool_source_map,
+                )
+                retrieval_result = await self._pipeline_retriever.retrieve(
+                    user_message,
+                    domain_matches,
+                )
+                if retrieval_result.tools:
+                    logger.debug(
+                        "🗺️ [ROUTING] %d tools returned (pool=%d) | domains=%s",
+                        len(retrieval_result.tools),
+                        retrieval_result.pool_size,
+                        [m.domain.value for m in domain_matches[:3]],
+                    )
+                    return retrieval_result.tools
+                # Fall through to legacy path if pipeline returned nothing
+                logger.warning(
+                    "🗺️ [ROUTING] pipeline returned 0 tools; falling back to legacy router"
+                )
+            except Exception as _pipe_exc:
+                logger.warning(
+                    "🗺️ [ROUTING] pipeline error (%s); falling back to legacy router", _pipe_exc
+                )
+
+        # Legacy path: ToolRouter (sync) + ToolEmbedder merge
+        router_tools = self._get_active_tools_for_iteration(user_message, prior_tool_names)
+
+        # Semantic enrichment (only when embedder index is ready)
+        if self._tool_embedder and self._tool_embedder.is_ready and user_message:
+            try:
+                semantic_tools = await self._tool_embedder.retrieve(
+                    user_message, top_k=self._routed_tool_budget
+                )
+                if semantic_tools:
+                    # Union of router + semantic, keeping router order first
+                    router_names = {
+                        t.get("function", {}).get("name") for t in router_tools
+                    }
+                    for t in semantic_tools:
+                        name = (t.get("function") or {}).get("name")
+                        if name and name not in router_names:
+                            router_tools.append(t)
+                            router_names.add(name)
+                    router_tools = self._enforce_routed_tool_budget(
+                        router_tools, len(self._tool_definitions)
+                    )
+                    logger.debug(
+                        "ToolEmbedder merged %d semantic tools; final subset=%d",
+                        len(semantic_tools),
+                        len(router_tools),
+                    )
+            except Exception as emb_exc:
+                logger.debug("ToolEmbedder retrieval skipped: %s", emb_exc)
+
+        return router_tools
+
+    async def _run_full_pipeline_async(
+        self,
+        user_message: str,
+        start_time: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Execute the full 6-stage pipeline: Route→Retrieve→Plan→Execute→Verify→Compose.
+
+        Called by ``process_message()`` when ``MCP_AGENT_PIPELINE=true``.
+
+        Returns a final response dict (same shape as the legacy path) on success,
+        or None when the pipeline cannot run (missing components, router error, etc.)
+        — the caller must then fall back to the legacy ReAct loop.
+
+        Args:
+            user_message: The raw user query string.
+            start_time: ``time.time()`` snapshot from process_message() for elapsed tracking.
+
+        Returns:
+            Response dict with ``success``, ``response``, ``elapsed_seconds`` keys,
+            or None on pipeline failure.
+        """
+        if (
+            self._pipeline_router is None
+            or self._pipeline_retriever is None
+            or self._pipeline_planner is None
+            or self._pipeline_executor is None
+            or self._pipeline_verifier is None
+            or self._pipeline_composer is None
+        ):
+            logger.debug("_run_full_pipeline_async: pipeline not fully initialised; skipping")
+            return None
+
+        try:
+            # Stage 1+2: Route + Retrieve
+            tool_source_map = self._mcp_client.get_tool_sources() if self._mcp_client else {}
+            domain_matches = await self._pipeline_router.route(
+                user_message,
+                prior_tool_names=[],
+                tool_source_map=tool_source_map,
+            )
+            retrieval_result = await self._pipeline_retriever.retrieve(
+                user_message, domain_matches
+            )
+            logger.info(
+                "🚀 [PIPELINE] Stage 1+2: %d tools retrieved (pool=%d) | domains=[%s]",
+                len(retrieval_result.tools),
+                retrieval_result.pool_size,
+                ", ".join(m.domain.value for m in domain_matches[:5]),
+            )
+
+            # Stage 3: Plan
+            grounding_summary = None
+            if self._pipeline_inventory is not None:
+                try:
+                    grounding_summary = await self._pipeline_inventory.get_grounding_summary()
+                except Exception as _gs_exc:
+                    logger.debug("Pipeline grounding summary unavailable: %s", _gs_exc)
+
+            plan = await self._pipeline_planner.plan(
+                user_message, retrieval_result, grounding_summary,
+                inventory_context=self._inventory_grounding_context,
+            )
+            logger.info(
+                "🚀 [PIPELINE] Stage 3: plan=%d step(s) fast_path=%s | %s",
+                len(plan.steps),
+                plan.is_fast_path,
+                [s.tool_name for s in plan.steps],
+            )
+            await self._push_event(
+                "pipeline_plan",
+                f"Execution plan: {len(plan.steps)} step(s)",
+                plan=plan.to_dict(),
+            )
+
+            # Check for legacy_react sentinel — fall back to ReAct loop
+            if plan.steps and plan.steps[0].tool_name == "legacy_react":
+                logger.info("🚀 [PIPELINE] Plan requested legacy_react fallback")
+                return None
+
+            # Stage 4: Execute
+            execution_result = await self._pipeline_executor.execute(plan)
+            logger.info(
+                "🚀 [PIPELINE] Stage 4: %d steps OK / %d failed / %d skipped",
+                len(execution_result.successful_results),
+                len(execution_result.failed_results),
+                len(execution_result.skipped_results),
+            )
+
+            # Stage 4.5: CLI fallback — retry any failed steps via azure_cli_execute_command
+            if execution_result.failed_results:
+                cli_replacements = await self._cli_fallback_retry(
+                    user_message, plan, execution_result
+                )
+                if cli_replacements:
+                    replaced = {r.step_id for r in cli_replacements}
+                    execution_result.step_results = [
+                        r for r in execution_result.step_results if r.step_id not in replaced
+                    ] + cli_replacements
+                    execution_result.all_succeeded = all(
+                        r.success for r in execution_result.step_results if not r.skipped
+                    )
+                    logger.info(
+                        "🚀 [PIPELINE] Stage 4.5: CLI fallback replaced %d failed step(s)",
+                        len(cli_replacements),
+                    )
+
+            # Stage 5: Verify
+            verification_result = await self._pipeline_verifier.verify(plan, execution_result)
+            logger.info(
+                "🚀 [PIPELINE] Stage 5: needs_confirmation=%s issues=%d",
+                verification_result.needs_confirmation,
+                len(verification_result.issues),
+            )
+
+            # Stage 6: Compose
+            final_html = await self._pipeline_composer.compose(
+                user_message, execution_result, verification_result
+            )
+            logger.info(
+                "🚀 [PIPELINE] Stage 6: response composed (%d chars)", len(final_html)
+            )
+
+            elapsed = time.time() - start_time
+            return {
+                "success": True,
+                "response": final_html,
+                "session_id": self.session_id,
+                "elapsed_seconds": round(elapsed, 2),
+                "pipeline": "full",
+                "pipeline_stages": {
+                    "domains": [m.domain.value for m in domain_matches[:5]],
+                    "tools_retrieved": len(retrieval_result.tools),
+                    "plan_tool_names": [s.tool_name for s in plan.steps],
+                    "plan_steps": len(plan.steps),
+                    "steps_succeeded": len(execution_result.successful_results),
+                    "steps_failed": len(execution_result.failed_results),
+                    "steps_skipped": len(execution_result.skipped_results),
+                    "needs_confirmation": verification_result.needs_confirmation,
+                },
+            }
+
+        except Exception as exc:
+            logger.warning(
+                "🚀 [PIPELINE] full pipeline error (%s); falling back to legacy ReAct loop",
+                exc,
+            )
+            return None
 
     def __init__(
         self,
@@ -506,8 +896,27 @@ FORMATTING:
         self._dynamic_system_prompt: str = self._SYSTEM_PROMPT  # Will be updated when tools are loaded
         self._monitor_agent: Optional[Any] = None  # Lazy-initialized MonitorAgent
         self._monitor_history: List[Dict[str, str]] = []  # Prior monitor delegation request/response pairs
+        self._sre_agent: Optional[Any] = None  # Lazy-initialized SRESubAgent
+        self._sre_history: List[Dict[str, str]] = []  # Prior SRE delegation request/response pairs
+        self._tool_router: Optional[Any] = None  # Lazy-initialized ToolRouter (keyword fallback)
+        self._tool_embedder: Optional[Any] = None  # Lazy-initialized ToolEmbedder (semantic primary)
+        self._pipeline_router: Optional[Any] = None   # Phase 4/5 pipeline Router
+        self._pipeline_retriever: Optional[Any] = None  # Phase 4/5 pipeline ToolRetriever
+        self._pipeline_shadow: bool = os.getenv("MCP_PIPELINE_SHADOW", "").lower() in ("1", "true", "yes")
+        # Phase 7: MCP_AGENT_PIPELINE defaults to "true" — full 6-stage pipeline is the default.
+        # Set MCP_AGENT_PIPELINE=false (or "legacy") to fall back to the legacy ReAct loop.
+        _pipeline_mode = os.getenv("MCP_AGENT_PIPELINE", "true").lower()
+        self._pipeline_routing: bool = _pipeline_mode in ("routing", "true", "1", "yes")
+        # Full pipeline (Route→Retrieve→Plan→Execute→Verify→Compose)
+        self._pipeline_full: bool = _pipeline_mode in ("true", "1", "yes", "full")
+        self._pipeline_planner: Optional[Any] = None      # Phase 6 Planner
+        self._pipeline_executor: Optional[Any] = None     # Phase 6 Executor
+        self._pipeline_verifier: Optional[Any] = None     # Phase 6 Verifier
+        self._pipeline_composer: Optional[Any] = None     # Phase 6 ResponseComposer
+        self._pipeline_inventory: Optional[Any] = None    # Phase 6 ResourceInventoryService
         self.inventory_integration: Optional[Any] = None
         self.resource_inventory_client: Optional[Any] = None
+        self._inventory_grounding_context: str = ""  # Populated async on first message (tenant/sub/resource summary)
         self._initialise_message_log()
 
         # Resource inventory grounding (same integration strategy as SRE orchestrator)
@@ -545,6 +954,8 @@ FORMATTING:
         # Time-based warnings will notify user of long-running operations
         configured_iterations = max_reasoning_iterations or int(os.getenv("MCP_AGENT_MAX_ITERATIONS", "50"))
         self._max_reasoning_iterations = max(configured_iterations, 1)
+        self._max_openai_tools = max(1, int(os.getenv("MCP_AGENT_MAX_OPENAI_TOOLS", "128")))
+        self._routed_tool_budget = max(1, int(os.getenv("MCP_AGENT_ROUTED_TOOL_BUDGET", "48")))
         self._default_temperature = float(default_temperature or os.getenv("MCP_AGENT_TEMPERATURE", "0.2"))
 
     def _ensure_communication_queue(self) -> None:
@@ -555,12 +966,79 @@ FORMATTING:
     # ------------------------------------------------------------------
     # Public API consumed by FastAPI endpoints
     # ------------------------------------------------------------------
+    async def plan_for_query(self, user_message: str) -> Dict[str, Any]:
+        """Dry-run stages 1-3 (Route → Retrieve → Plan) without executing tools.
+
+        Returns a dict with:
+            domains: list of matched domain names (confidence-ordered)
+            retrieved_tools: list of tool names surfaced by ToolRetriever
+            plan_steps: list of {step_id, tool_name, params, rationale, is_fast_path}
+            is_fast_path: True when the planner used the heuristic fast-path
+            error: set when pipeline is not available or a stage fails
+        """
+        if (
+            self._pipeline_router is None
+            or self._pipeline_retriever is None
+            or self._pipeline_planner is None
+        ):
+            return {
+                "error": "Pipeline not initialised — ensure MCP_AGENT_PIPELINE=true"
+            }
+
+        try:
+            tool_source_map = self._mcp_client.get_tool_sources() if self._mcp_client else {}
+            domain_matches = await self._pipeline_router.route(
+                user_message,
+                prior_tool_names=[],
+                tool_source_map=tool_source_map,
+            )
+            retrieval_result = await self._pipeline_retriever.retrieve(
+                user_message, domain_matches
+            )
+
+            grounding_summary = None
+            if self._pipeline_inventory is not None:
+                try:
+                    grounding_summary = await self._pipeline_inventory.get_grounding_summary()
+                except Exception:
+                    pass
+
+            plan = await self._pipeline_planner.plan(
+                user_message, retrieval_result, grounding_summary,
+                inventory_context=self._inventory_grounding_context,
+            )
+
+            return {
+                "domains": [
+                    {"domain": m.domain.value, "confidence": round(m.confidence, 3)}
+                    for m in domain_matches[:5]
+                ],
+                "retrieved_tools": [t.get("name", "") for t in retrieval_result.tools],
+                "pool_size": retrieval_result.pool_size,
+                "plan_steps": [
+                    {
+                        "step_id": s.step_id,
+                        "tool_name": s.tool_name,
+                        "params": s.params,
+                        "rationale": s.rationale,
+                        "depends_on": s.depends_on,
+                        "is_parallel": getattr(s, "is_parallel", False),
+                    }
+                    for s in plan.steps
+                ],
+                "is_fast_path": plan.is_fast_path,
+            }
+        except Exception as exc:
+            logger.warning("plan_for_query failed: %s", exc)
+            return {"error": str(exc)}
+
     async def process_message(self, user_message: str) -> Dict[str, Any]:
         """Process a conversational turn, invoking MCP tools when requested."""
         self._ensure_communication_queue()
         start_time = time.time()
         iteration = 0
         tool_calls_made = 0
+        _tool_invocation_counts: dict = {}  # stagnation guard: tracks per-tool call count
         reasoning_trace: List[Dict[str, Any]] = []
         last_iteration_requested_tool = False
         final_text = ""
@@ -588,440 +1066,79 @@ FORMATTING:
         mcp_ready = await self._ensure_mcp_client()
         if not mcp_ready:
             logger.warning("Azure MCP client unavailable; continuing without tool execution")
-        
+
+        # Populate inventory grounding on first message so the LLM knows
+        # resource names/groups without needing extra list tool calls.
+        if not self._inventory_grounding_context and self.resource_inventory_client:
+            try:
+                await asyncio.wait_for(self._populate_inventory_grounding(), timeout=8.0)
+            except asyncio.TimeoutError:
+                logger.warning("Inventory grounding timed out; continuing without it")
+            except Exception as _ig_exc:
+                logger.warning("Inventory grounding failed: %s", _ig_exc)
+
         # Log tool availability for this request
         tool_count = len(self._tool_definitions) if self._tool_definitions else 0
         logger.info(f"🛠️  Processing message with {tool_count} tools available (mcp_ready={mcp_ready})")
         logger.info(f"💬 Session {self.session_id}: Processing message #{len(self._message_log)} (history: {len(self._message_log)-1} messages)")
 
-        # Append user message and enter the ReAct loop
-        user_chat = ChatMessage(role="user", text=user_message)
-        self._message_log.append(user_chat)
+        # Phase 6: full pipeline delegation (MCP_AGENT_PIPELINE=true|full|1|yes)
+        # Runs Router→Retrieve→Plan→Execute→Verify→Compose in place of the ReAct loop.
+        # Falls back to legacy ReAct loop on any pipeline error.
+        if self._pipeline_full:
+            full_pipeline_result = await self._run_full_pipeline_async(user_message, start_time)
+            if full_pipeline_result is not None:
+                # Append the user message and a synthetic assistant message to history
+                user_chat = ChatMessage(role="user", text=user_message)
+                self._message_log.append(user_chat)
+                assistant_chat = ChatMessage(
+                    role="assistant", text=full_pipeline_result.get("response", "")
+                )
+                self._message_log.append(assistant_chat)
+                await self._push_event(
+                    "complete",
+                    "Pipeline complete",
+                    elapsed_seconds=full_pipeline_result.get("elapsed_seconds", 0),
+                )
+                return full_pipeline_result
+            # Pipeline returned None → fall through to legacy ReAct loop
+            logger.info("🚀 [PIPELINE] falling back to legacy ReAct loop")
 
-        for iteration in range(1, self._max_reasoning_iterations + 1):
-            # Summarize older messages to keep context window manageable
-            await self._summarize_old_messages()
-
-            # Check for timeout before each iteration (50s threshold for 60s timeout)
-            elapsed = time.time() - start_time
-            if elapsed > 50:
-                logger.warning(
-                    "⏱️ Approaching timeout limit (%.1fs elapsed) - returning partial results",
-                    elapsed
-                )
-                await self._push_event(
-                    "timeout_warning",
-                    "Approaching response timeout - returning current results",
-                    iteration=iteration,
-                    elapsed_seconds=elapsed
-                )
-                success = True  # Mark as success since we're returning partial results
-                if final_text:
-                    final_text += "\n\n<p><em>Note: Processing stopped to avoid timeout. Results may be incomplete.</em></p>"
-                else:
-                    final_text = "<p>Processing is taking longer than expected. Please try breaking your request into smaller parts or simplifying the query.</p>"
-                break
-            
-            # Send progress updates at time thresholds
-            if elapsed > 40 and iteration > 1:
-                await self._push_event(
-                    "progress",
-                    f"Still processing (40s elapsed, iteration {iteration}) - will timeout at 60s...",
-                    iteration=iteration,
-                    elapsed_seconds=elapsed
-                )
-            elif elapsed > 30 and iteration > 1:
-                await self._push_event(
-                    "progress",
-                    f"Processing complex request (30s elapsed, iteration {iteration})...",
-                    iteration=iteration,
-                    elapsed_seconds=elapsed
-                )
-            elif elapsed > 10 and iteration > 1:
-                await self._push_event(
-                    "progress",
-                    f"Continuing analysis (10s elapsed, iteration {iteration})...",
-                    iteration=iteration,
-                    elapsed_seconds=elapsed
-                )
-            
+        # Phase 4/5 shadow mode: run new Router+ToolRetriever and log comparison.
+        # MCP_PIPELINE_SHADOW=true → log only (result NOT used).
+        # MCP_AGENT_PIPELINE=routing → result is used by _get_active_tools_for_iteration_async.
+        if (self._pipeline_shadow or self._pipeline_routing) and self._pipeline_router is not None and self._pipeline_retriever is not None:
             try:
-                # Unified LLM path: always use direct OpenAI SDK for full
-                # control over tool execution via the ReAct loop.
-                from openai import AsyncAzureOpenAI
-
-                endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-                api_key = os.getenv("AZURE_OPENAI_API_KEY")
-                api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
-                deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-
-                direct_client = None
-                try:
-                    # Convert message history to OpenAI format
-                    openai_messages = self._build_openai_messages()
-
-                    # Authenticate
-                    if api_key:
-                        direct_client = AsyncAzureOpenAI(
-                            api_key=api_key,
-                            azure_endpoint=endpoint,
-                            api_version=api_version,
-                        )
-                    elif _DEFAULT_CREDENTIAL_AVAILABLE and DefaultAzureCredential:
-                        from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-                        credential = AsyncDefaultAzureCredential(
-                            exclude_interactive_browser_credential=True,
-                            exclude_shared_token_cache_credential=True,
-                            exclude_visual_studio_code_credential=True,
-                            exclude_powershell_credential=True,
-                        )
-                        token = await credential.get_token("https://cognitiveservices.azure.com/.default")
-                        direct_client = AsyncAzureOpenAI(
-                            api_key=token.token,
-                            azure_endpoint=endpoint,
-                            api_version=api_version,
-                        )
-                    else:
-                        raise RuntimeError("No authentication method available")
-
-                    # Build request kwargs
-                    create_kwargs: Dict[str, Any] = {
-                        "model": deployment,
-                        "messages": openai_messages,
-                        "temperature": self._default_temperature,
-                        "max_tokens": 3000,
-                    }
-                    if self._tool_definitions:
-                        create_kwargs["tools"] = [
-                            {"type": "function", "function": t.get("function", t)}
-                            for t in self._tool_definitions
-                        ]
-
-                    raw_response = await direct_client.chat.completions.create(**create_kwargs)
-
-                    # Convert to internal message format
-                    choice = raw_response.choices[0]
-                    if choice.message.tool_calls:
-                        tool_call_contents = []
-                        for tc in choice.message.tool_calls:
-                            try:
-                                arguments = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                            except json.JSONDecodeError as json_err:
-                                logger.error(
-                                    "Failed to parse tool call arguments: %s (tool=%s, args_preview=%s...)",
-                                    json_err,
-                                    tc.function.name,
-                                    tc.function.arguments[:200] if tc.function.arguments else "None",
-                                )
-                                await self._push_event("error", f"Malformed tool call for {tc.function.name}", tool_name=tc.function.name, error=str(json_err))
-                                continue
-
-                            tool_call_contents.append(FunctionCallContent(
-                                call_id=tc.id,
-                                name=tc.function.name,
-                                arguments=arguments,
-                            ))
-
-                        if tool_call_contents:
-                            response = ChatResponse(messages=[ChatMessage(
-                                role="assistant",
-                                contents=tool_call_contents,
-                            )])
-                        else:
-                            response = ChatResponse(messages=[ChatMessage(
-                                role="assistant",
-                                text="I encountered an error generating the tool call. Please try simplifying your request.",
-                            )])
-                    else:
-                        response = ChatResponse(messages=[ChatMessage(
-                            role="assistant",
-                            text=choice.message.content or "",
-                        )])
-                finally:
-                    if direct_client:
-                        try:
-                            await direct_client.close()
-                        except Exception:  # pragma: no cover
-                            pass
-                
-                logger.debug(
-                    "LLM returned %d message(s) for iteration %d",
-                    len(response.messages),
-                    iteration,
+                tool_source_map = self._mcp_client.get_tool_sources() if self._mcp_client else {}
+                domain_matches = await self._pipeline_router.route(
+                    user_message,
+                    prior_tool_names=list(tool_source_map.keys()),
+                    tool_source_map=tool_source_map,
                 )
-                try:
-                    for idx, raw_message in enumerate(response.messages, start=1):
-                        logger.info(
-                            "🗂️ LLM message %d/%d: %s",
-                            idx,
-                            len(response.messages),
-                            self._summarize_message(raw_message),
-                        )
-                except Exception:  # pragma: no cover - defensive logging
-                    logger.debug("Unable to log LLM messages", exc_info=True)
-            except Exception as exc:  # pragma: no cover - network/service dependency
-                logger.exception("Azure OpenAI request failed: %s", exc)
-                success = False
-                error_detail = str(exc)
-                final_text = (
-                    "I could not reach Azure OpenAI to process that request. "
-                    "Please verify your credentials and try again."
+                retrieval_result = await self._pipeline_retriever.retrieve(
+                    user_message,
+                    domain_matches,
                 )
-                break
-
-            assistant_message: Optional[ChatMessage] = None
-            tool_calls: List[FunctionCallContent] = []
-            # Extract tool calls from the FIRST assistant message before AF error handling
-            first_assistant_message: Optional[ChatMessage] = None
-            for candidate in response.messages:
-                if self._get_message_role(candidate) != "assistant":
-                    continue
-                if first_assistant_message is None:
-                    first_assistant_message = candidate
-                    # Try to extract tool calls from the first assistant message
-                    first_calls = self._extract_tool_calls(candidate)
-                    if first_calls:
-                        logger.info("✅ Extracted %d tool calls from first assistant message", len(first_calls))
-                        tool_calls = first_calls
-                        assistant_message = candidate
-                        break
-                assistant_message = candidate
-                candidate_calls = self._extract_tool_calls(candidate)
-                if candidate_calls:
-                    tool_calls = candidate_calls
-                    break
-            if not assistant_message:
-                if self._last_tool_failure:
-                    logger.error(
-                        "LLM response contained no assistant message after tool failure",
-                        extra={"tool_failure": self._last_tool_failure},
-                    )
-                else:
-                    logger.error(
-                        "LLM response contained no assistant message; raw messages: %s",
-                        [self._summarize_message(msg) for msg in response.messages],
-                    )
-                    failure_info = self._extract_failure_from_messages(response)
-                    if failure_info and not self._last_tool_failure:
-                        self._last_tool_failure = failure_info
-                        logger.warning(
-                            "Inferred tool failure from response: %s",
-                            failure_info,
-                        )
-                success = False
-                failure_info = self._last_tool_failure or {}
-                error_detail = failure_info.get("error") or "Azure OpenAI returned an empty response."
-                if failure_info:
-                    tool_name = failure_info.get("tool") or "unknown tool"
-                    final_text = (
-                        "I could not complete the request because the tool "
-                        f"`{tool_name}` returned an error: {error_detail}. "
-                        "Please review the tool configuration or try again."
-                    )
-                else:
-                    final_text = (
-                        "I was unable to generate a response for that request. "
-                        "Please retry in a moment."
-                    )
-                break
-
-            self._message_log.append(assistant_message)
-
-            try:
-                contents_preview = []
-                for idx, content in enumerate(getattr(assistant_message, "contents", []) or []):
-                    preview = {
-                        "index": idx,
-                        "type": type(content).__name__,
-                        "attrs": {
-                            "name": getattr(content, "name", None),
-                            "call_id": getattr(content, "call_id", None),
-                            "arguments": getattr(content, "arguments", None),
-                            "text": getattr(content, "text", None),
-                            "type_attr": getattr(content, "type", None),
-                        },
-                    }
-                    contents_preview.append(preview)
+                domains_str = ", ".join(m.domain.value for m in domain_matches[:5])
+                _mode_tag = "ROUTING" if self._pipeline_routing else "SHADOW"
                 logger.info(
-                    "🧩 Assistant message summary: %s | contents=%s",
-                    self._summarize_message(assistant_message),
-                    contents_preview,
+                    "🔬 [%s] pipeline: %d tools (pool=%d) vs legacy: %d tools | domains=[%s]",
+                    _mode_tag,
+                    len(retrieval_result.tools),
+                    retrieval_result.pool_size,
+                    tool_count,
+                    domains_str,
                 )
-                tool_calls_attr = getattr(assistant_message, "tool_calls", None)
-                if tool_calls_attr:
-                    logger.info(
-                        "🧩 assistant_message.tool_calls detected: %s",
-                        tool_calls_attr,
-                    )
-            except Exception:  # pragma: no cover - defensive logging
-                logger.debug("Unable to summarize assistant message", exc_info=True)
+                if retrieval_result.conflict_notes:
+                    logger.debug("🔬 [%s] conflict_notes: %s", _mode_tag, retrieval_result.conflict_notes[:200])
+            except Exception as _shadow_exc:
+                logger.debug("🔬 [PIPELINE] pipeline error (ignored): %s", _shadow_exc)
 
-            text_fragments = self._collect_text_fragments(assistant_message)
-            if not tool_calls:
-                tool_calls = self._extract_tool_calls(assistant_message)
-            last_iteration_requested_tool = bool(tool_calls)
-            if tool_calls:
-                logger.info(
-                    "🛎️ LLM requested %d tool(s) this iteration: %s",
-                    len(tool_calls),
-                    ", ".join(call.name or "<unnamed>" for call in tool_calls),
-                )
-            else:
-                logger.debug("No tool calls extracted for iteration %d", iteration)
-            if tool_calls:
-                self._last_tool_request = [call.name or "unknown_tool" for call in tool_calls]
-                logger.info(
-                    "Iteration %d requested %d tool call(s): %s",
-                    iteration,
-                    len(tool_calls),
-                    ", ".join(self._last_tool_request),
-                )
-
-            reasoning_trace.append(
-                {
-                    "type": "reasoning",
-                    "iteration": iteration,
-                    "tool_requests": [call.name for call in tool_calls],
-                    "summary": " ".join(text_fragments)[:400],
-                }
-            )
-
-            if not tool_calls or not mcp_ready:
-                final_text = "\n".join(text_fragments).strip()
-
-                # Guard against hallucinated data: if this is the first
-                # iteration (no tools called yet) and the response already
-                # contains structured data (tables), the LLM is fabricating.
-                # Inject a correction and force another iteration.
-                if (
-                    iteration == 1
-                    and tool_calls_made == 0
-                    and mcp_ready
-                    and self._tool_definitions
-                    and final_text
-                    and any(marker in final_text.lower() for marker in ["<table", "| ---", "|---", "subscription id"])
-                ):
-                    logger.warning(
-                        "⚠️ LLM returned structured data on first iteration without calling any tools — likely hallucination. Forcing retry."
-                    )
-                    # Replace the assistant message with a correction prompt
-                    self._message_log.append(ChatMessage(
-                        role="user",
-                        text=(
-                            "STOP. You returned data without calling any tools first. "
-                            "That data is fabricated. You MUST call the appropriate MCP tool(s) "
-                            "to fetch real Azure data before responding. Try again."
-                        ),
-                    ))
-                    continue
-                
-                # Check if this is a confirmation question - if so, stop immediately to avoid duplicates
-                confirmation_indicators = [
-                    "reply 'yes' to",
-                    "do you want to proceed",
-                    "please confirm",
-                    "type 'yes' to confirm",
-                    "reply yes to",
-                    "[pick one by typing",
-                ]
-                is_confirmation_request = any(indicator in final_text.lower() for indicator in confirmation_indicators)
-                
-                if is_confirmation_request:
-                    logger.info(f"🛑 Detected confirmation request at iteration {iteration} - stopping to wait for user response")
-                
-                await self._push_event(
-                    "synthesis",
-                    final_text or "Response ready",
-                    iteration=iteration,
-                )
-                break
-
-            # Create detailed tool list for display
-            tool_names = [call.name for call in tool_calls]
-            tool_details = []
-            tool_calls_details = []
-            for call in tool_calls:
-                args_preview = self._parse_call_arguments(call)
-                args_str = json.dumps(args_preview, ensure_ascii=False)[:200]
-                tool_details.append(f"{call.name}({args_str})")
-                
-                # Store full tool call details for UI display
-                tool_calls_details.append({
-                    "tool_name": call.name,
-                    "parameters": args_preview
-                })
-            
-            await self._push_event(
-                "action",
-                f"Invoking {len(tool_calls)} Azure MCP tool(s): {', '.join(tool_names)}",
-                iteration=iteration,
-                tool_names=tool_names,
-                tool_details=tool_details,
-                tool_calls=tool_calls_details,
-            )
-
-            logger.info(
-                "🚀 Iteration %d invoking Azure MCP tools: %s",
-                iteration,
-                ", ".join(tool_names),
-            )
-
-            # Analyze dependencies and group tools for parallel execution
-            execution_groups = self._plan_tool_execution(tool_calls)
-            
-            for group_idx, tool_group in enumerate(execution_groups):
-                if len(tool_group) > 1:
-                    logger.info(
-                        "⚡ Executing %d independent tools in parallel (group %d/%d)",
-                        len(tool_group),
-                        group_idx + 1,
-                        len(execution_groups),
-                    )
-                    # Execute tools in parallel
-                    tasks = []
-                    for call in tool_group:
-                        arguments = self._parse_call_arguments(call)
-                        tool_name = call.name or "unknown_tool"
-                        tasks.append(self._execute_single_tool(call, arguments, tool_name, iteration, tool_calls_made + len(tasks)))
-                    
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    # Process results and append to message log
-                    for call, result in zip(tool_group, results):
-                        tool_calls_made += 1
-                        if isinstance(result, Exception):
-                            logger.error("Tool execution failed with exception: %s", result)
-                            error_result = {"success": False, "error": str(result)}
-                            result_message = self._create_tool_result_message(call.call_id, error_result)
-                        else:
-                            result_message = self._create_tool_result_message(call.call_id, result)
-                        self._message_log.append(result_message)
-                else:
-                    # Single tool - execute sequentially
-                    call = tool_group[0]
-                    tool_calls_made += 1
-                    tool_name = call.name or "unknown_tool"
-                    arguments = self._parse_call_arguments(call)
-                    tool_result = await self._execute_single_tool(
-                        call,
-                        arguments,
-                        tool_name,
-                        iteration,
-                        tool_calls_made,
-                    )
-                    observation_success = bool(tool_result.get("success")) if isinstance(tool_result, dict) else False
-
-                    reasoning_trace.append(
-                        {
-                            "type": "observation",
-                            "iteration": iteration,
-                            "tool": tool_name,
-                            "success": observation_success,
-                        }
-                    )
-
-                    result_message = self._create_tool_result_message(call.call_id, tool_result)
-                    self._message_log.append(result_message)
+        # NOTE: Legacy ReAct loop removed in Phase 7.
+        # The full pipeline (Router→Retrieve→Plan→Execute→Verify→Compose) handles all queries.
+        # This fallback path only runs when MCP_AGENT_PIPELINE=false or pipeline init fails.
+        # When the fallback is reached here, final_text is empty and success=True,
+        # so the post-loop handler below will convert it to a failure response.
 
         duration = time.time() - start_time
 
@@ -1491,6 +1608,63 @@ FORMATTING:
                 _sre_mcp_import_error,
             )
 
+        if get_network_mcp_client is not None:
+            try:
+                network_client = await get_network_mcp_client()
+            except NetworkMCPDisabledError:
+                logger.info("Network MCP server disabled via configuration; skipping registration")
+            except Exception as exc:  # pragma: no cover - optional dependency
+                logger.warning("Network MCP server unavailable: %s", exc)
+            else:
+                logger.debug(
+                    "Network MCP client initialised; catalog size hint=%s",
+                    len(getattr(network_client, "available_tools", []) or []),
+                )
+                client_entries.append(("network", network_client))
+        else:
+            logger.debug(
+                "Network MCP client import resolved to None; skipping registration (error=%s)",
+                _network_mcp_import_error,
+            )
+
+        if get_compute_mcp_client is not None:
+            try:
+                compute_client = await get_compute_mcp_client()
+            except ComputeMCPDisabledError:
+                logger.info("Compute MCP server disabled via configuration; skipping registration")
+            except Exception as exc:  # pragma: no cover - optional dependency
+                logger.warning("Compute MCP server unavailable: %s", exc)
+            else:
+                logger.debug(
+                    "Compute MCP client initialised; catalog size hint=%s",
+                    len(getattr(compute_client, "available_tools", []) or []),
+                )
+                client_entries.append(("compute", compute_client))
+        else:
+            logger.debug(
+                "Compute MCP client import resolved to None; skipping registration (error=%s)",
+                _compute_mcp_import_error,
+            )
+
+        if get_storage_mcp_client is not None:
+            try:
+                storage_client = await get_storage_mcp_client()
+            except StorageMCPDisabledError:
+                logger.info("Storage MCP server disabled via configuration; skipping registration")
+            except Exception as exc:  # pragma: no cover - optional dependency
+                logger.warning("Storage MCP server unavailable: %s", exc)
+            else:
+                logger.debug(
+                    "Storage MCP client initialised; catalog size hint=%s",
+                    len(getattr(storage_client, "available_tools", []) or []),
+                )
+                client_entries.append(("storage", storage_client))
+        else:
+            logger.debug(
+                "Storage MCP client import resolved to None; skipping registration (error=%s)",
+                _storage_mcp_import_error,
+            )
+
         if not client_entries or CompositeMCPClient is None:
             logger.error("No MCP clients available; tool execution disabled")
             self._mcp_client = None
@@ -1516,6 +1690,10 @@ FORMATTING:
         # Intercept the monitor_agent meta-tool
         if tool_name == "monitor_agent":
             return await self._handle_monitor_delegation(arguments)
+
+        # Intercept the sre_agent meta-tool
+        if tool_name == "sre_agent":
+            return await self._handle_sre_delegation(arguments)
 
         if not self._mcp_client:
             return {
@@ -1626,6 +1804,95 @@ FORMATTING:
             len(monitor_tools),
         )
 
+    async def _handle_sre_delegation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Delegate a request to the SRESubAgent, injecting prior SRE context."""
+        user_request = arguments.get("request", "")
+        if not user_request:
+            return {"success": False, "error": "No 'request' argument provided to sre_agent."}
+
+        if not self._sre_agent:
+            self._init_sre_agent()
+
+        if not self._sre_agent:
+            return {"success": False, "error": "SRE agent not available — SRE MCP server may not be running."}
+
+        # Build context-enriched message from prior SRE interactions
+        enriched_request = user_request
+        if self._sre_history:
+            recent = self._sre_history[-3:]
+            context_parts = []
+            for i, entry in enumerate(recent, 1):
+                context_parts.append(
+                    f"--- Previous SRE interaction {i} ---\n"
+                    f"User request: {entry['request']}\n"
+                    f"Agent response: {entry['response'][:2000]}\n"
+                )
+            context_block = "\n".join(context_parts)
+            enriched_request = (
+                f"CONTEXT FROM PRIOR SRE INTERACTIONS (use this to resolve references "
+                f"like 'that resource', 'check it again', resource IDs, etc.):\n\n"
+                f"{context_block}\n"
+                f"--- Current request ---\n{user_request}"
+            )
+            logger.info(
+                "🔀 SRESubAgent delegation with %d prior interactions as context",
+                len(recent),
+            )
+
+        logger.info("🔀 Delegating to SRESubAgent: %s", user_request[:200])
+        try:
+            result = await self._sre_agent.run(enriched_request)
+            response_text = result.get("response", "")
+
+            # Save this interaction for future context
+            self._sre_history.append({
+                "request": user_request,
+                "response": response_text,
+            })
+            # Keep history bounded
+            if len(self._sre_history) > 10:
+                self._sre_history = self._sre_history[-10:]
+
+            return {
+                "success": result.get("success", False),
+                "response": response_text,
+                "tool_calls_made": result.get("tool_calls_made", 0),
+                "agent": "sre",
+            }
+        except Exception as exc:
+            logger.exception("SRESubAgent delegation failed: %s", exc)
+            return {"success": False, "error": f"SRE agent error: {exc}"}
+
+    def _init_sre_agent(self) -> None:
+        """Initialise the SRESubAgent with SRE + CLI tools from the composite client."""
+        if SRESubAgent is None:
+            logger.warning("SRESubAgent class not available — skipping initialization")
+            return
+
+        if not self._mcp_client:
+            logger.warning("Cannot init SRESubAgent — no MCP client")
+            return
+
+        get_by_sources = getattr(self._mcp_client, "get_tools_by_sources", None)
+        if not callable(get_by_sources):
+            logger.warning("CompositeMCPClient missing get_tools_by_sources — cannot init SRESubAgent")
+            return
+
+        sre_tools = get_by_sources(["sre", "azure_cli"])
+        if not sre_tools:
+            logger.warning("No SRE/CLI tools found — SRESubAgent will not be initialised")
+            return
+
+        self._sre_agent = SRESubAgent(
+            tool_definitions=sre_tools,
+            tool_invoker=self._mcp_client.call_tool,
+            event_callback=self._push_event,
+        )
+        logger.info(
+            "✅ SRESubAgent initialised with %d tools (SRE + CLI)",
+            len(sre_tools),
+        )
+
     async def aclose(self) -> None:
         """Release network clients and credentials."""
 
@@ -1716,6 +1983,93 @@ FORMATTING:
                     # Initialize the MonitorAgent now
                     self._init_monitor_agent()
 
+            # --- Hybrid architecture: filter SRE tools out, add sre_agent meta-tool ---
+            # The SRESubAgent handles all SRE tools internally (~58 tools → 1 meta-tool).
+            get_excl_sre = getattr(self._mcp_client, "get_tools_excluding_sources", None)
+            if callable(get_excl_sre) and SRESubAgent is not None and build_sre_meta_tool is not None:
+                # Count SRE tools currently in the catalog
+                sre_tool_names = [
+                    t.get("function", {}).get("name", "")
+                    for t in self._tool_definitions
+                    if self._tool_source_map.get(t.get("function", {}).get("name", "")) == "sre"
+                ]
+                if sre_tool_names:
+                    # Remove SRE tools and inject the meta-tool
+                    self._tool_definitions = [
+                        t for t in self._tool_definitions
+                        if self._tool_source_map.get(t.get("function", {}).get("name", "")) != "sre"
+                    ]
+                    self._tool_definitions.append(build_sre_meta_tool())
+                    logger.info(
+                        "🔀 Hybrid mode: replaced %d SRE tools with sre_agent meta-tool (%d tools for orchestrator)",
+                        len(sre_tool_names),
+                        len(self._tool_definitions),
+                    )
+                    # Initialize the SRESubAgent now
+                    self._init_sre_agent()
+
+            # --- Initialize ToolRouter for intent-based pre-filtering ---
+            if ToolRouter is not None and self._tool_router is None:
+                self._tool_router = ToolRouter(composite_client=self._mcp_client)
+                logger.info("🎯 ToolRouter initialized for intent-based tool pre-filtering")
+
+            # --- Initialize ToolEmbedder for semantic retrieval ---
+            if ToolEmbedder is not None and self._tool_embedder is None:
+                self._tool_embedder = ToolEmbedder()
+                logger.info("📐 ToolEmbedder initialized for semantic tool retrieval")
+
+            # --- Initialize Phase 4/5 pipeline Router + ToolRetriever ---
+            # Activated by: MCP_PIPELINE_SHADOW=true (shadow/log only)
+            #            or: MCP_AGENT_PIPELINE=routing (active routing path)
+            if (
+                (self._pipeline_shadow or self._pipeline_routing)
+                and PipelineRouter is not None
+                and PipelineToolRetriever is not None
+                and self._pipeline_router is None
+            ):
+                self._pipeline_router = PipelineRouter()
+                self._pipeline_retriever = PipelineToolRetriever(
+                    composite_client=self._mcp_client,
+                    embedder=self._tool_embedder,
+                )
+                mode = "active routing" if self._pipeline_routing else "shadow"
+                logger.info("🔬 PipelineRouter + ToolRetriever initialized (%s mode)", mode)
+
+            # --- Initialize Phase 6 full pipeline components ---
+            # Activated by: MCP_AGENT_PIPELINE=true|full|1|yes
+            if (
+                self._pipeline_full
+                and PipelinePlanner is not None
+                and PipelineExecutor is not None
+                and PipelineVerifier is not None
+                and PipelineResponseComposer is not None
+                and self._pipeline_planner is None
+            ):
+                # Inventory service (shared across all Phase 6 components)
+                if get_pipeline_inventory_service is not None:
+                    try:
+                        self._pipeline_inventory = get_pipeline_inventory_service()
+                    except Exception as _inv_exc:
+                        logger.warning("Phase 6 inventory service unavailable: %s", _inv_exc)
+
+                # Retrieve manifest index from ToolRetriever if already init'd
+                manifest_index = None
+                if self._pipeline_retriever is not None:
+                    manifest_index = getattr(self._pipeline_retriever, "_manifest_index", None)
+
+                self._pipeline_planner = PipelinePlanner(manifest_index=manifest_index)
+                self._pipeline_executor = PipelineExecutor(
+                    composite_client=self._mcp_client,
+                    inventory_service=self._pipeline_inventory,
+                    push_event=self._push_event,
+                )
+                self._pipeline_verifier = PipelineVerifier(
+                    manifest_index=manifest_index,
+                    inventory_service=self._pipeline_inventory,
+                )
+                self._pipeline_composer = PipelineResponseComposer()
+                logger.info("🚀 Phase 6 full pipeline initialized (Planner+Executor+Verifier+Composer)")
+
             if self._tool_definitions:
                 tool_names = [t.get("function", {}).get("name", "unknown") for t in self._tool_definitions[:5]]
                 logger.info(f"   Sample tools: {', '.join(tool_names)}{' ...' if len(self._tool_definitions) > 5 else ''}")
@@ -1729,7 +2083,135 @@ FORMATTING:
             # Refresh system prompt with updated tool information
             if self._tool_definitions:
                 self._refresh_system_prompt()
+            # Build semantic index in a fire-and-forget background task so it never
+            # blocks the calling request (embedding 140+ tools can take seconds).
+            if self._tool_embedder and self._tool_definitions:
+                asyncio.create_task(self._build_embedding_index_bg())
 
+    async def _build_embedding_index_bg(self) -> None:
+        """Background task: build ToolEmbedder semantic index without blocking callers."""
+        try:
+            await self._tool_embedder.build_index(self._tool_definitions)
+        except Exception as emb_exc:
+            logger.debug("ToolEmbedder index build failed (non-fatal): %s", emb_exc)
+
+    async def _cli_fallback_retry(
+        self,
+        user_message: str,
+        plan: Any,
+        execution_result: Any,
+    ) -> List[Any]:
+        """Stage 4.5: for failed steps, synthesize equivalent az CLI commands and re-run.
+
+        Uses a lightweight LLM call to derive the Azure CLI commands, then executes
+        them via azure_cli_execute_command.  Read-only az commands (az * list/show)
+        are classified as safe by the server and run without requiring confirmation.
+
+        Returns a list of replacement StepResult objects (one per recovered step).
+        """
+        failed = execution_result.failed_results
+        if not failed:
+            return []
+
+        if PipelineStepResult is None:  # type: ignore[truthy-function]
+            return []
+
+        # Build a concise prompt asking for az CLI equivalents
+        failed_lines = "\n".join(
+            f"  step_id={r.step_id} tool={r.tool_name} error={r.error[:150]}"
+            for r in failed
+        )
+        synthesis_prompt = (
+            f"User query: {user_message}\n\n"
+            "The following MCP tool calls failed. For each, provide an equivalent Azure CLI "
+            "command that accomplishes the same goal.\n"
+            f"{failed_lines}\n\n"
+            "Output ONLY a JSON array, no prose.  Example format:\n"
+            '[{"step_id": "step_1", "command": "az network vnet list --output json"}]\n'
+            "Use --output json on every command. If no CLI equivalent exists, omit that step."
+        )
+
+        try:
+            from openai import AsyncAzureOpenAI  # type: ignore[import-not-found]
+
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+            api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+            deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
+            if not endpoint:
+                return []
+
+            if api_key:
+                oai_client = AsyncAzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
+                token_provider = None
+            else:
+                try:
+                    from azure.identity.aio import DefaultAzureCredential as _DAC  # type: ignore[import-not-found]
+                    _cred = _DAC(exclude_interactive_browser_credential=True)
+                    _token = await _cred.get_token("https://cognitiveservices.azure.com/.default")
+                    oai_client = AsyncAzureOpenAI(api_key=_token.token, azure_endpoint=endpoint, api_version=api_version)
+                    token_provider = _cred
+                except Exception:
+                    return []
+
+            try:
+                resp = await oai_client.chat.completions.create(
+                    model=deployment,
+                    messages=[
+                        {"role": "system", "content": "You are an Azure CLI expert. Output only valid JSON."},
+                        {"role": "user", "content": synthesis_prompt},
+                    ],
+                    temperature=0,
+                    max_tokens=400,
+                )
+                raw = (resp.choices[0].message.content or "").strip()
+                # Strip markdown fences if present
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                commands: List[Dict[str, Any]] = json.loads(raw)
+            finally:
+                await oai_client.close()
+                if token_provider is not None:
+                    try:
+                        await token_provider.close()
+                    except Exception:
+                        pass
+
+        except Exception as exc:
+            logger.warning("_cli_fallback_retry: LLM synthesis failed (%s)", exc)
+            return []
+
+        results: List[Any] = []
+        for entry in commands:
+            step_id = str(entry.get("step_id", ""))
+            command = str(entry.get("command", "")).strip()
+            if not step_id or not command:
+                continue
+            try:
+                logger.info("🔀 CLI fallback: step=%s → %s", step_id, command)
+                tool_result = await self._invoke_mcp_tool(
+                    "azure_cli_execute_command", {"command": command}
+                )
+                results.append(
+                    PipelineStepResult(
+                        step_id=step_id,
+                        tool_name="azure_cli_execute_command",
+                        success=True,
+                        result=tool_result,
+                    )
+                )
+            except Exception as exc:
+                logger.warning("_cli_fallback_retry: CLI execution failed for step=%s: %s", step_id, exc)
+                results.append(
+                    PipelineStepResult(
+                        step_id=step_id,
+                        tool_name="azure_cli_execute_command",
+                        success=False,
+                        error=str(exc),
+                    )
+                )
+        return results
 
     def _update_tool_metadata(self) -> None:
         if not self._mcp_client:
@@ -1747,6 +2229,12 @@ FORMATTING:
                 self._tool_source_map = {}
         else:
             self._tool_source_map = {}
+
+        # Register meta-tool sources for ToolRouter filtering
+        if self._monitor_agent:
+            self._tool_source_map["monitor_agent"] = "meta"
+        if self._sre_agent:
+            self._tool_source_map["sre_agent"] = "meta"
 
         client_lookup = getattr(self._mcp_client, "get_client_labels", None)
         if callable(client_lookup):
@@ -1904,6 +2392,19 @@ FORMATTING:
         
         return False
 
+    def _get_tool_schema_params(self, tool_name: str) -> Optional[set]:
+        """Return the set of declared parameter names for a tool, or None if unknown.
+
+        Used to strip inventory-injected params that the tool doesn't accept.
+        """
+        for tool_def in self._tool_definitions:
+            fn = tool_def.get("function", {})
+            if fn.get("name") == tool_name:
+                props = fn.get("parameters", {}).get("properties", {})
+                if props:
+                    return set(props.keys())
+        return None
+
     async def _prepare_tool_arguments_with_inventory(
         self,
         tool_name: str,
@@ -1929,6 +2430,27 @@ FORMATTING:
                     "query": self._message_to_text(self._message_log[-1]) if self._message_log else "",
                 },
             )
+
+            # Strip out any parameters the inventory injected that this tool
+            # doesn't actually declare in its schema.  The most common case is
+            # `subscription_id` / `resource_group` being stamped onto tools
+            # that only accept an `intent` string (e.g. azd, documentation).
+            allowed_params = self._get_tool_schema_params(tool_name)
+            if allowed_params is not None:
+                original_keys = set(arguments.keys())
+                injected_unknown = {
+                    k for k in prepared_args
+                    if k not in original_keys and k not in allowed_params
+                }
+                if injected_unknown:
+                    for k in injected_unknown:
+                        del prepared_args[k]
+                    logger.debug(
+                        "🧹 Stripped %d inventory-injected param(s) not in schema for tool '%s': %s",
+                        len(injected_unknown),
+                        tool_name,
+                        sorted(injected_unknown),
+                    )
 
             preflight = await self.inventory_integration.preflight_resource_check(
                 tool_name,
@@ -2007,7 +2529,7 @@ FORMATTING:
                 self._last_tool_failure = None
                 logger.debug("Tool '%s' succeeded", tool_name)
             else:
-                error_text = str(tool_result.get("error") or "Unknown error")
+                error_text = self._extract_error_text(tool_result)
                 self._last_tool_failure = {"tool": tool_name, "error": error_text}
                 logger.warning("MCP tool '%s' failed: %s", tool_name, error_text)
                 await self._push_event(
@@ -2175,17 +2697,18 @@ FORMATTING:
             api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
             deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
+            async_credential = None
             if api_key:
                 client = AsyncAzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
             else:
                 from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-                credential = AsyncDefaultAzureCredential(
+                async_credential = AsyncDefaultAzureCredential(
                     exclude_interactive_browser_credential=True,
                     exclude_shared_token_cache_credential=True,
                     exclude_visual_studio_code_credential=True,
                     exclude_powershell_credential=True,
                 )
-                token = await credential.get_token("https://cognitiveservices.azure.com/.default")
+                token = await async_credential.get_token("https://cognitiveservices.azure.com/.default")
                 client = AsyncAzureOpenAI(api_key=token.token, azure_endpoint=endpoint, api_version=api_version)
 
             try:
@@ -2200,6 +2723,8 @@ FORMATTING:
                 )
             finally:
                 await client.close()
+                if async_credential:
+                    await async_credential.close()
 
             content = raw.choices[0].message.content or ""
             return True, content
@@ -2240,9 +2765,45 @@ FORMATTING:
                             or result.get("name")
                             or getattr(content, "call_id", "unknown_tool")
                         )
-                        error_text = str(result.get("error") or "Unknown error")
+                        error_text = self._extract_error_text(result)
                         return {"tool": tool_name, "error": error_text}
         return None
+
+    def _extract_error_text(self, result: Dict[str, Any]) -> str:
+        direct_error = result.get("error")
+        if direct_error:
+            return str(direct_error)
+
+        parsed = result.get("parsed")
+        if isinstance(parsed, dict):
+            parsed_error = parsed.get("error") or parsed.get("message")
+            if parsed_error:
+                return str(parsed_error)
+
+        # CLI executor returns stderr as a top-level key
+        stderr = result.get("stderr")
+        if stderr:
+            return str(stderr).strip()
+
+        content = result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, str):
+                    continue
+                try:
+                    parsed_item = json.loads(item)
+                except Exception:
+                    continue
+                if isinstance(parsed_item, dict):
+                    # Check nested stderr first (CLI executor payload format)
+                    nested_stderr = parsed_item.get("stderr")
+                    if nested_stderr:
+                        return str(nested_stderr).strip()
+                    nested_error = parsed_item.get("error") or parsed_item.get("message")
+                    if nested_error:
+                        return str(nested_error)
+
+        return "Unknown error"
 
     def _summarize_message(self, message: ChatMessage) -> Dict[str, Any]:
         summary: Dict[str, Any] = {
@@ -2400,6 +2961,67 @@ FORMATTING:
         system_prompt = self._dynamic_system_prompt if hasattr(self, '_dynamic_system_prompt') else self._SYSTEM_PROMPT
         self._message_log = [ChatMessage(role="system", text=system_prompt)]
     
+    async def _populate_inventory_grounding(self) -> None:
+        """Build a compact resource inventory summary and inject it into the system prompt.
+
+        Queries the resource inventory client for the most operationally
+        relevant Azure resource types, then formats a lightweight grounding
+        block that the LLM can use to resolve tool parameters (name, resource
+        group, subscription) without needing an extra list/enumerate call.
+
+        The result is stored in ``self._inventory_grounding_context`` and the
+        system prompt is refreshed so every subsequent LLM call sees it.
+        """
+        # Resource types to surface, with short display labels.
+        RESOURCE_TYPES: List[tuple] = [
+            ("Microsoft.App/containerApps",               "Container Apps"),
+            ("Microsoft.Compute/virtualMachines",          "Virtual Machines"),
+            ("Microsoft.Network/virtualNetworks",          "Virtual Networks"),
+            ("Microsoft.Network/privateEndpoints",         "Private Endpoints"),
+            ("Microsoft.Network/networkSecurityGroups",    "NSGs"),
+            ("Microsoft.Storage/storageAccounts",          "Storage Accounts"),
+            ("Microsoft.ContainerService/managedClusters", "AKS Clusters"),
+            ("Microsoft.KeyVault/vaults",                  "Key Vaults"),
+            ("Microsoft.Web/sites",                        "App Services"),
+            ("Microsoft.Network/privateDnsZones",          "Private DNS Zones"),
+            ("Microsoft.Network/loadBalancers",            "Load Balancers"),
+        ]
+
+        MAX_PER_TYPE = 15  # cap to keep token count reasonable
+
+        lines: List[str] = []
+        for resource_type, label in RESOURCE_TYPES:
+            try:
+                resources = await self.resource_inventory_client.get_resources(resource_type)
+            except Exception as exc:
+                logger.debug("Inventory grounding: skipping %s (%s)", resource_type, exc)
+                continue
+
+            if not resources:
+                continue
+
+            entries = []
+            for r in resources[:MAX_PER_TYPE]:
+                name = r.get("resource_name") or r.get("name", "")
+                rg   = r.get("resource_group") or r.get("resourceGroup", "")
+                if name:
+                    entries.append(f"{name} ({rg})" if rg else name)
+
+            if entries:
+                suffix = f" … +{len(resources) - MAX_PER_TYPE} more" if len(resources) > MAX_PER_TYPE else ""
+                lines.append(f"  • {label}: {', '.join(entries)}{suffix}")
+
+        if lines:
+            self._inventory_grounding_context = "\n".join(lines)
+            logger.info(
+                "📦 Inventory grounding populated: %d resource type(s), %d chars",
+                len(lines),
+                len(self._inventory_grounding_context),
+            )
+            self._refresh_system_prompt()
+        else:
+            logger.info("📦 Inventory grounding: no cached resources found yet")
+
     def _refresh_system_prompt(self) -> None:
         """Refresh the system prompt with current tool information."""
         self._dynamic_system_prompt = self._build_dynamic_system_prompt(

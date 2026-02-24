@@ -770,10 +770,13 @@
 
     const mcpSourceDisplayNames = {
         azure: 'Azure MCP Server',
-        inventory: 'Log Analytics Inventory',
-        os_eol: 'Operating System EOL',
+        compute: 'Azure Compute MCP Server',
+        storage: 'Azure Storage MCP Server',
+        network: 'Azure Network MCP Server',
         azure_cli: 'Azure CLI Executor',
         monitor: 'Azure Monitor Community Resources',
+        inventory: 'Azure Arc OS & Software Inventory',
+        os_eol: 'Operating System EOL',
         sre: 'SRE MCP Server',
         microsoft_learn: 'Microsoft Learn',
     };
@@ -2655,9 +2658,33 @@
             ? `<div><strong>Result:</strong><pre class="json-display">${escapeHtml(toolResultText)}</pre></div>`
             : '';
 
+        // Build phase header — show tool name badge(s) for action steps
+        let phaseLabel = escapeHtml(String(phase || 'unknown'));
+        let toolNameBadge = '';
+        if (phase === 'action') {
+            // Priority: toolNames array (backend current) → toolName string (legacy) → parse from toolDetails
+            let resolvedNames = [];
+            if (Array.isArray(metadata.toolNames) && metadata.toolNames.length > 0) {
+                resolvedNames = metadata.toolNames.map(String);
+            } else if (metadata.toolName) {
+                resolvedNames = [String(metadata.toolName)];
+            } else if (Array.isArray(metadata.toolDetails) && metadata.toolDetails.length > 0) {
+                // toolDetails entries look like "funcName({...args})" — extract up to the first '('
+                resolvedNames = metadata.toolDetails
+                    .map(d => String(d).split('(')[0].trim())
+                    .filter(Boolean);
+            }
+            if (resolvedNames.length > 0) {
+                const badgeStyle = 'font-size:0.78em;background:rgba(99,179,237,0.15);border:1px solid rgba(99,179,237,0.4);padding:1px 6px;border-radius:4px;color:#63b3ed;letter-spacing:0.02em;margin-left:4px;';
+                toolNameBadge = resolvedNames
+                    .map(n => ` <code style="${badgeStyle}">${escapeHtml(n)}</code>`)
+                    .join('');
+            }
+        }
+
         const interactionHtml = `
             <div class="generic-response">
-                <div class="comm-action"><strong>Phase:</strong> ${escapeHtml(String(phase || 'unknown'))}</div>
+                <div class="comm-action"><strong>Phase:</strong> ${phaseLabel}${toolNameBadge}</div>
                 <div class="text-content mt-2">${escapeHtml(String(content || ''))}</div>
                 ${toolDetailsHtml}
                 ${resultHtml}
@@ -2672,6 +2699,9 @@
         handler.addInteraction('mcp-orchestrator', interactionHtml, interactionType, {
             action: phase,
             status,
+            toolName: metadata.toolName || null,
+            toolNames: metadata.toolNames || null,
+            toolDetails: metadata.toolDetails || null,
             input: metadata.toolParams || metadata.toolDetails || null,
             output: metadata.toolResult || null,
             timestamp: new Date().toISOString(),
@@ -2727,15 +2757,21 @@
                     } else if (data.type === 'action') {
                         addAgentComm('action', data.content, {
                             iteration: data.iteration,
-                            toolName: data.tool_name,
+                            toolName: data.tool_name,          // single tool (legacy)
+                            toolNames: data.tool_names,        // array of tool names (current)
                             toolParams: data.tool_params,
-                            toolDetails: data.tool_details  // CLI commands and detailed tool info
+                            toolDetails: data.tool_details     // CLI commands and detailed tool info
                         });
                     } else if (data.type === 'observation') {
                         addAgentComm('observation', data.content, {
                             iteration: data.iteration,
+                            toolName: data.tool_name,
                             toolResult: data.tool_result,
                             isError: data.is_error
+                        });
+                    } else if (data.type === 'pipeline_plan') {
+                        addAgentComm('action', data.content || 'Executing plan', {
+                            toolNames: data.tool_names || []
                         });
                     } else if (data.type === 'reflection') {
                         addAgentComm('reflection', data.content, {

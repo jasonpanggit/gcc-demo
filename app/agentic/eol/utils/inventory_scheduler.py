@@ -24,6 +24,7 @@ Usage from main.py::
 from __future__ import annotations
 
 import time
+import warnings
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Set
 
@@ -59,6 +60,14 @@ except ImportError:
     from utils.resource_inventory_cache import get_resource_inventory_cache  # type: ignore[import-not-found]
 
 logger = get_logger(__name__)
+
+# tzlocal emits a benign warning in minimal containers without /etc/localtime.
+# We use explicit UTC scheduling below, so suppress this specific noise.
+warnings.filterwarnings(
+    "ignore",
+    message="Can not find any timezone configuration, defaulting to UTC\\.",
+    category=UserWarning,
+)
 
 # ---------------------------------------------------------------------------
 # Job execution tracking
@@ -353,12 +362,12 @@ class InventoryScheduler:
             logger.warning("InventoryScheduler: already running")
             return
 
-        self._scheduler = AsyncIOScheduler(timezone="UTC")
+        self._scheduler = AsyncIOScheduler(timezone=timezone.utc)
 
         # -- Full scan job (cron) -------------------------------------------
         cron_expr = inv_config.full_scan_schedule_cron
         try:
-            trigger = CronTrigger.from_crontab(cron_expr, timezone="UTC")
+            trigger = CronTrigger.from_crontab(cron_expr, timezone=timezone.utc)
             self._scheduler.add_job(
                 full_refresh_job,
                 trigger=trigger,
@@ -377,7 +386,7 @@ class InventoryScheduler:
         try:
             self._scheduler.add_job(
                 incremental_refresh_job,
-                trigger=IntervalTrigger(minutes=interval_min),
+                trigger=IntervalTrigger(minutes=interval_min, timezone=timezone.utc),
                 id=self.INCREMENTAL_SCAN_JOB_ID,
                 name="Inventory Incremental Scan",
                 replace_existing=True,

@@ -41,32 +41,36 @@ COPY requirements.txt ./
 # Install Python packages
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install remaining packages with legacy resolver for agent-framework dependencies FIRST
-# This establishes the agent-framework baseline with its dependencies
-RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt || true
+# Install packages with legacy resolver to avoid resolution-too-deep on pre-release graph
+# Pre-release versions are already explicitly pinned in requirements.txt
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt
 
-# Then force-reinstall critical Azure SDK packages to ensure correct versions
-# This overrides any conflicting versions from agent-framework
+# Force-reinstall Azure SDK packages that may be downgraded by dependency resolution
 RUN pip install --no-cache-dir --force-reinstall --no-deps \
     azure-mgmt-resourcehealth==1.0.0b1 \
     azure-mgmt-monitor==6.0.2 \
     azure-monitor-query==1.4.0 \
     azure-mgmt-resourcegraph==8.0.1
 
+# Pin opentelemetry-semantic-conventions-ai to 0.4.13
+# v0.4.14+ removed SpanAttributes.LLM_SYSTEM which agent-framework==1.0.0rc1 observability.py still requires
+RUN pip install --no-cache-dir --no-deps --force-reinstall opentelemetry-semantic-conventions-ai==0.4.13
+RUN python3 -c "from opentelemetry.semconv_ai import SpanAttributes; _ = SpanAttributes.LLM_SYSTEM; print('✅ SpanAttributes.LLM_SYSTEM available')"
+
 # Verify critical Azure SDK packages are installed
-RUN python -c "from azure.mgmt.resourcehealth import MicrosoftResourceHealth; print('✅ azure-mgmt-resourcehealth installed')" || echo "⚠️ azure-mgmt-resourcehealth not available"
-RUN python -c "from azure.monitor.query import LogsQueryClient; print('✅ azure-monitor-query installed')" || echo "⚠️ azure-monitor-query not available"
+RUN python3 -c "from azure.mgmt.resourcehealth import MicrosoftResourceHealth; print('✅ azure-mgmt-resourcehealth installed')" || echo "⚠️ azure-mgmt-resourcehealth not available"
+RUN python3 -c "from azure.monitor.query import LogsQueryClient; print('✅ azure-monitor-query installed')" || echo "⚠️ azure-monitor-query not available"
 
 # Create playwright directory with correct permissions before installing browsers
 RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright
 
 # Install Playwright browsers and let Playwright handle system dependencies
-RUN python -m playwright install-deps chromium \
-    && python -m playwright install chromium \
+RUN python3 -m playwright install-deps chromium \
+    && python3 -m playwright install chromium \
     || (echo "⚠️ Playwright browser installation failed - application will use fallback mode" && exit 0)
 
 # Verify Playwright installation
-RUN python -c "import playwright; print('✅ Playwright imported successfully')" || echo "⚠️ Playwright import failed"
+RUN python3 -c "import playwright; print('✅ Playwright imported successfully')" || echo "⚠️ Playwright import failed"
 
 # Set additional environment variables for container optimization
 ENV CONTAINER_MODE=true

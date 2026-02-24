@@ -209,7 +209,7 @@ class AzureCliExecutorClient:
                 "Computed CLI execution success=%s for command '%s'", success, arguments.get("command") if isinstance(arguments, dict) else tool_name
             )
 
-            return {
+            result_dict: Dict[str, Any] = {
                 "success": success,
                 "tool_name": tool_name,
                 "content": raw_content,
@@ -218,6 +218,10 @@ class AzureCliExecutorClient:
                 "stdout": stdout_output,
                 "stderr": stderr_output,
             }
+            # Populate "error" key so downstream error extractors see it directly
+            if not success and stderr_output:
+                result_dict["error"] = stderr_output.strip()
+            return result_dict
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Error executing Azure CLI tool '%s': %s", tool_name, exc)
             return {

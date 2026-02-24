@@ -212,7 +212,7 @@ class ResourceInventoryCache:
                 if entry.is_valid:
                     self._hits_l1 += 1
                     self._record_stats(time.time() - start, hit_layer="l1")
-                    logger.debug("L1 HIT  key=%s (%d resources)", key[:60], len(entry.data))
+                    # logger.debug("L1 HIT  key=%s (%d resources)", key[:60], len(entry.data))
                     return entry.data
                 else:
                     del self._l1[key]
@@ -240,7 +240,7 @@ class ResourceInventoryCache:
                     self._l1[key] = _L1Entry(resources, l1_ttl)
                 self._hits_l2 += 1
                 self._record_stats(time.time() - start, hit_layer="l2")
-                logger.debug("L2 HIT  key=%s (%d resources)", key[:60], len(resources))
+                # logger.debug("L2 HIT  key=%s (%d resources)", key[:60], len(resources))
                 return resources
         except Exception as exc:
             logger.warning("L2 read error for key=%s: %s", key[:60], exc)
@@ -290,7 +290,7 @@ class ResourceInventoryCache:
             }
             try:
                 self._l2_container.upsert_item(doc)
-                logger.debug("L2 WRITE key=%s (%d resources, ttl=%ds)", key[:60], len(resources), l2_ttl)
+                # logger.debug("L2 WRITE key=%s (%d resources, ttl=%ds)", key[:60], len(resources), l2_ttl)
             except Exception as exc:
                 logger.warning("L2 write error for key=%s: %s", key[:60], exc)
 
@@ -360,7 +360,7 @@ class ResourceInventoryCache:
             except Exception as exc:
                 logger.warning("L2 invalidation error for prefix=%s: %s", prefix, exc)
 
-        logger.debug("Invalidated %d L1 entries for prefix=%s", removed, prefix)
+        # logger.debug("Invalidated %d L1 entries for prefix=%s", removed, prefix)
         return removed
 
     # ---- statistics --------------------------------------------------------

@@ -1,23 +1,31 @@
 """SRE Orchestrator API Router.
 
-Provides REST API endpoints for the SRE Orchestrator Agent.
+Provides REST API endpoints for the SRE Orchestrator Agent with agent-first
+architecture. Queries are routed through the Azure AI SRE Agent (gccsreagent)
+for intelligent reasoning and tool selection, with MCP fallback.
 
 Endpoints:
-- POST /api/sre-orchestrator/execute - Execute SRE request with natural language
-- GET /api/sre-orchestrator/capabilities - List orchestrator capabilities
-- GET /api/sre-orchestrator/tools - List all registered tools
-- GET /api/sre-orchestrator/tools/{tool_name} - Get specific tool details
-- GET /api/sre-orchestrator/agents - List all registered agents
-- GET /api/sre-orchestrator/health - Health check
-- GET /api/sre-orchestrator/metrics - Orchestrator metrics
+- POST /api/sre-orchestrator/execute - Execute SRE request (JSON response)
+- POST /api/sre-orchestrator/execute-stream - Execute SRE request (SSE streaming)
+- GET  /api/sre-orchestrator/capabilities - List orchestrator capabilities
+- GET  /api/sre-orchestrator/tools - List all registered tools
+- GET  /api/sre-orchestrator/tools/{tool_name} - Get specific tool details
+- GET  /api/sre-orchestrator/agents - List all registered agents
+- GET  /api/sre-orchestrator/health - Health check
+- GET  /api/sre-orchestrator/metrics - Orchestrator metrics
 - POST /api/sre-orchestrator/incident - Execute incident response workflow
+- GET  /api/sre-orchestrator/threads/{workflow_id} - Retrieve thread history
+- DELETE /api/sre-orchestrator/threads/{workflow_id} - Clear thread context
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import asyncio
+import json
+import time
+from typing import Any, AsyncGenerator, Dict, List, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -63,9 +71,17 @@ class SREExecuteRequest(BaseModel):
         default={},
         description="Optional context parameters (subscription_id, resource_group, etc.)"
     )
+    workflow_id: Optional[str] = Field(
+        default=None,
+        description="Optional workflow ID for conversation continuity. If not provided, a new one is generated."
+    )
     stream: bool = Field(
         default=False,
         description="Enable server-sent events for progress streaming"
+    )
+    response_format: str = Field(
+        default="formatted_html",
+        description="Response format: 'formatted_html' or 'raw_json'"
     )
 
 
@@ -120,12 +136,12 @@ class ToolFilter(BaseModel):
 # ============================================================================
 
 @router.post("/execute", response_model=StandardResponse)
-async def execute_sre_request(request: SREExecuteRequest):
+async def execute_sre_request(request: SREExecuteRequest, response: Response):
     """Execute SRE operation with natural language query.
 
-    This endpoint accepts natural language queries and routes them to the
-    appropriate SRE tools. The orchestrator analyzes the intent, selects
-    relevant tools, executes them, and returns aggregated results.
+    Routes the query through the Azure AI SRE Agent (gccsreagent) for
+    intelligent reasoning and tool selection. Falls back to direct MCP
+    execution when the agent is unavailable.
 
     Example queries:
     - "Check health of all container apps"
@@ -136,15 +152,15 @@ async def execute_sre_request(request: SREExecuteRequest):
     - "Get security recommendations"
 
     Args:
-        request: SRE execution request with query and optional context
+        request: SRE execution request with query, optional context and workflow_id
 
     Returns:
-        StandardResponse with execution results (may include user interaction prompts)
+        StandardResponse with execution results including agent_metadata
 
     Raises:
         HTTPException: If execution fails
     """
-    logger.info(f"Executing SRE request: {request.query[:100]}")
+    logger.info("Executing SRE request: %s", request.query[:100])
 
     orchestrator = None
     try:
@@ -158,11 +174,20 @@ async def execute_sre_request(request: SREExecuteRequest):
                 detail="Failed to initialize SRE orchestrator"
             )
 
-        # Execute request
-        result = await orchestrator.handle_request({
+        # Build request payload
+        request_payload = {
             "query": request.query,
-            **request.context
-        })
+            "context": request.context or {},
+            "stream": request.stream,
+        }
+        if request.workflow_id:
+            request_payload["workflow_id"] = request.workflow_id
+
+        # Execute request
+        result = await orchestrator.handle_request(request_payload)
+
+        # --- Telemetry response headers ---
+        _set_sre_headers(response, result)
 
         # Check execution status
         if result.get("status") == "error":
@@ -176,11 +201,17 @@ async def execute_sre_request(request: SREExecuteRequest):
         # (not "results"). Keep a fallback to "results" for compatibility.
         results_data = result.get("result") or result.get("results", {})
 
+        # Extract agent_metadata from result or results_data
+        agent_metadata = (
+            result.get("agent_metadata")
+            or results_data.get("agent_metadata")
+            or {}
+        )
+
         # Check if user interaction is required
         if results_data.get("user_interaction_required"):
             interaction_data = results_data.get("interaction_data", {})
 
-            # Return user interaction prompt
             return StandardResponse(
                 success=True,
                 data={
@@ -188,22 +219,31 @@ async def execute_sre_request(request: SREExecuteRequest):
                     "interaction_type": interaction_data.get("selection_type", "input"),
                     "message": interaction_data.get("message", "User input required"),
                     "options": interaction_data.get("options", []),
-                    "workflow_id": result.get("workflow_id")
+                    "workflow_id": result.get("workflow_id"),
+                    "agent_metadata": agent_metadata,
                 },
                 message="User interaction required to complete operation"
             )
 
         # Check if formatted response exists
-        # `results_data` can be the full orchestrator envelope:
-        # {
-        #   "workflow_id": ..., "intent": ..., "tools_executed": ...,
-        #   "results": { ..., "formatted_response": "<html>..." }
-        # }
         formatted_response = results_data.get("formatted_response")
         if not formatted_response and isinstance(results_data.get("results"), dict):
             formatted_response = results_data["results"].get("formatted_response")
+
+        # If raw_json requested, return raw results
+        if request.response_format == "raw_json":
+            return StandardResponse(
+                success=True,
+                data={
+                    "results": results_data,
+                    "workflow_id": result.get("workflow_id") or results_data.get("workflow_id"),
+                    "agent_metadata": agent_metadata,
+                },
+                message="Successfully processed query"
+            )
+
         if formatted_response:
-            # Return formatted HTML response
+            # Return formatted HTML response with agent metadata
             return StandardResponse(
                 success=True,
                 data={
@@ -218,7 +258,8 @@ async def execute_sre_request(request: SREExecuteRequest):
                         if isinstance(results_data.get("summary"), dict)
                         else results_data.get("results", {}).get("summary", {})
                     ),
-                    "workflow_id": result.get("workflow_id") or results_data.get("workflow_id")
+                    "workflow_id": result.get("workflow_id") or results_data.get("workflow_id"),
+                    "agent_metadata": agent_metadata,
                 },
                 message=f"Successfully processed query: {request.query[:50]}..."
             )
@@ -226,14 +267,17 @@ async def execute_sre_request(request: SREExecuteRequest):
         # Return raw results if no formatting
         return StandardResponse(
             success=True,
-            data=results_data,
-            message=f"Successfully processed query"
+            data={
+                **results_data,
+                "agent_metadata": agent_metadata,
+            },
+            message="Successfully processed query"
         )
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Failed to execute SRE request: {exc}", exc_info=True)
+        logger.error("Failed to execute SRE request: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Execution failed: {str(exc)}"
@@ -243,15 +287,219 @@ async def execute_sre_request(request: SREExecuteRequest):
             await orchestrator.cleanup()
 
 
+@router.post("/execute-stream")
+async def execute_sre_request_stream(request: SREExecuteRequest):
+    """Execute SRE operation with Server-Sent Events (SSE) streaming.
+
+    Streams progress events and results as the orchestrator processes the query.
+    Events are formatted as SSE with the following event types:
+
+    - `status`: Processing status updates (routing, agent_thinking, executing_tools, etc.)
+    - `tool_progress`: Individual tool execution progress
+    - `agent_response`: Agent text content (may arrive in chunks)
+    - `result`: Final formatted result (HTML or JSON)
+    - `error`: Error events
+    - `done`: Stream completion marker
+
+    Each event is a JSON object:
+    ```
+    data: {"event": "status", "message": "Agent is analysing your query..."}
+    data: {"event": "tool_progress", "tool": "check_container_app_health", "status": "executing"}
+    data: {"event": "result", "formatted_html": "...", "agent_metadata": {...}}
+    data: {"event": "done"}
+    ```
+
+    Args:
+        request: SRE execution request with query and optional context
+
+    Returns:
+        StreamingResponse with SSE events
+    """
+    logger.info("Streaming SRE request: %s", request.query[:100])
+
+    # Mutable container for telemetry headers computed inside the generator
+    _stream_headers: Dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+        "X-Agent-Used": "unknown",
+    }
+
+    async def sse_event_generator() -> AsyncGenerator[str, None]:
+        """Generate SSE events for the SRE request."""
+        orchestrator = None
+        start_time = time.time()
+
+        try:
+            # Emit initialization status
+            yield _sse_event("status", {
+                "message": "Initializing SRE orchestrator...",
+                "phase": "init",
+            })
+
+            # Create and initialize orchestrator
+            orchestrator = SREOrchestratorAgent()
+            initialized = await orchestrator.initialize()
+
+            if not initialized:
+                yield _sse_event("error", {
+                    "message": "Failed to initialize SRE orchestrator",
+                })
+                return
+
+            yield _sse_event("status", {
+                "message": "Processing query via SRE agent...",
+                "phase": "routing",
+            })
+
+            # Build request payload
+            request_payload = {
+                "query": request.query,
+                "context": request.context or {},
+                "stream": True,
+            }
+            if request.workflow_id:
+                request_payload["workflow_id"] = request.workflow_id
+
+            # Execute request
+            result = await orchestrator.handle_request(request_payload)
+
+            # Populate telemetry headers from result metadata
+            _stream_headers.update(_extract_sre_header_values(result))
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            # Check for errors
+            if result.get("status") == "error":
+                yield _sse_event("error", {
+                    "message": result.get("error", "Unknown error"),
+                    "elapsed_ms": elapsed_ms,
+                })
+                return
+
+            # Extract results
+            results_data = result.get("result") or result.get("results", {})
+            agent_metadata = (
+                result.get("agent_metadata")
+                or results_data.get("agent_metadata")
+                or {}
+            )
+            agent_metadata["elapsed_ms"] = elapsed_ms
+
+            # Check for user interaction
+            if results_data.get("user_interaction_required"):
+                interaction_data = results_data.get("interaction_data", {})
+                yield _sse_event("interaction", {
+                    "interaction_type": interaction_data.get("selection_type", "input"),
+                    "message": interaction_data.get("message", "User input required"),
+                    "options": interaction_data.get("options", []),
+                    "workflow_id": result.get("workflow_id"),
+                })
+                yield _sse_event("done", {})
+                return
+
+            # Emit agent content if available
+            agent_content = results_data.get("agent_content", "")
+            if agent_content:
+                yield _sse_event("agent_response", {
+                    "content": agent_content,
+                })
+
+            # Emit tool results
+            tool_results = results_data.get("results", [])
+            if isinstance(tool_results, list):
+                for tr in tool_results:
+                    yield _sse_event("tool_progress", {
+                        "tool": tr.get("tool", "unknown"),
+                        "status": tr.get("status", "unknown"),
+                        "latency_ms": tr.get("latency_ms", 0),
+                    })
+
+            # Emit formatted result
+            formatted_html = results_data.get("formatted_response")
+            if not formatted_html and isinstance(results_data.get("results"), dict):
+                formatted_html = results_data["results"].get("formatted_response")
+
+            yield _sse_event("result", {
+                "formatted_html": formatted_html or "",
+                "summary": (
+                    results_data.get("summary", {})
+                    if isinstance(results_data.get("summary"), dict)
+                    else results_data.get("results", {}).get("summary", {})
+                    if isinstance(results_data.get("results"), dict)
+                    else {}
+                ),
+                "workflow_id": result.get("workflow_id") or results_data.get("workflow_id"),
+                "agent_metadata": agent_metadata,
+            })
+
+            yield _sse_event("done", {})
+
+        except asyncio.CancelledError:
+            logger.info("SSE stream cancelled by client")
+            yield _sse_event("error", {"message": "Stream cancelled"})
+        except Exception as exc:
+            logger.error("SSE stream error: %s", exc, exc_info=True)
+            yield _sse_event("error", {
+                "message": f"Execution failed: {str(exc)}",
+            })
+        finally:
+            if orchestrator:
+                await orchestrator.cleanup()
+
+    return StreamingResponse(
+        sse_event_generator(),
+        media_type="text/event-stream",
+        headers=_stream_headers,
+    )
+
+
+def _extract_sre_header_values(result: Dict[str, Any]) -> Dict[str, str]:
+    """Extract X-Token-Count and X-Agent-Used values from an orchestrator result."""
+    headers: Dict[str, str] = {}
+    agent_meta = result.get("agent_metadata") or (result.get("result") or {}).get("agent_metadata") or {}
+    token_usage = agent_meta.get("token_usage") or {}
+    total_tokens = (
+        token_usage.get("total_tokens")
+        or (token_usage.get("prompt_tokens", 0) + token_usage.get("completion_tokens", 0))
+        or 0
+    )
+    if total_tokens:
+        headers["X-Token-Count"] = str(total_tokens)
+    execution_source = agent_meta.get("execution_source") or "unknown"
+    headers["X-Agent-Used"] = execution_source
+    return headers
+
+
+def _set_sre_headers(response: Response, result: Dict[str, Any]) -> None:
+    """Set SRE telemetry headers on a FastAPI Response object."""
+    for key, value in _extract_sre_header_values(result).items():
+        response.headers[key] = value
+
+
+def _sse_event(event_type: str, data: Dict[str, Any]) -> str:
+    """Format a Server-Sent Event.
+
+    Args:
+        event_type: Event type (status, tool_progress, result, error, done)
+        data: Event payload
+
+    Returns:
+        SSE-formatted string
+    """
+    payload = {"event": event_type, **data}
+    return f"data: {json.dumps(payload, default=str)}\n\n"
+
+
 @router.get("/capabilities", response_model=StandardResponse)
 async def get_capabilities():
     """Get SRE orchestrator capabilities.
 
     Returns information about the orchestrator's capabilities including:
-    - Supported intent categories
-    - Available tools by category
+    - Agent status (connected vs fallback mode)
+    - Available tools and agent diagnostics
     - Total number of agents and tools
-    - Orchestrator version
+    - Orchestrator version and execution mode
 
     Returns:
         StandardResponse with capabilities information
@@ -264,29 +512,6 @@ async def get_capabilities():
         await orchestrator.initialize()
 
         capabilities = orchestrator.get_capabilities()
-        
-        # Transform tools_by_category into the format expected by frontend
-        # Convert tool name strings to objects with name and description
-        registry = get_agent_registry()
-        all_tools = {tool["name"]: tool for tool in registry.list_tools()}
-        
-        formatted_categories = {}
-        for category, tool_names in capabilities.get("tools_by_category", {}).items():
-            formatted_categories[category] = []
-            for tool_name in tool_names:
-                tool_info = all_tools.get(tool_name, {})
-                tool_def = tool_info.get("definition", {})
-                func_info = tool_def.get("function", {})
-                formatted_categories[category].append({
-                    "name": tool_name,
-                    "description": func_info.get("description", "No description available"),
-                    "agent_id": tool_info.get("agent_id", "unknown")
-                })
-        
-        # Update capabilities with formatted categories
-        capabilities["categories"] = formatted_categories
-        # Remove tools_by_category as it's now included in categories
-        capabilities.pop("tools_by_category", None)
 
         return StandardResponse(
             success=True,
@@ -295,7 +520,7 @@ async def get_capabilities():
         )
 
     except Exception as exc:
-        logger.error(f"Failed to get capabilities: {exc}", exc_info=True)
+        logger.error("Failed to get capabilities: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve capabilities: {str(exc)}"
@@ -655,3 +880,163 @@ async def list_categories():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list categories: {str(exc)}"
         )
+
+
+# ============================================================================
+# Thread Management Endpoints
+# ============================================================================
+
+@router.get("/threads/{workflow_id}", response_model=StandardResponse)
+async def get_thread_history(workflow_id: str):
+    """Retrieve conversation thread history for a workflow.
+
+    Returns the message history and context for a specific workflow's
+    conversation thread with the Azure AI SRE Agent. This enables
+    inspecting past interactions and maintaining conversation continuity.
+
+    Args:
+        workflow_id: Unique workflow identifier
+
+    Returns:
+        StandardResponse with thread history including messages and metadata
+    """
+    logger.info("Getting thread history for workflow=%s", workflow_id[:12])
+
+    orchestrator = None
+    try:
+        orchestrator = SREOrchestratorAgent()
+        await orchestrator.initialize()
+
+        # Check if agent is available
+        if not orchestrator.azure_sre_agent:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Azure AI SRE Agent is not available"
+            )
+
+        agent = orchestrator.azure_sre_agent
+
+        # Look up thread_id for this workflow
+        thread_id = None
+        async with agent._thread_map_lock:
+            thread_id = agent._thread_map.get(workflow_id)
+
+        # Also check context store if not in memory
+        if not thread_id and agent._context_store_initialized:
+            try:
+                ctx_store = await agent._get_context_store()
+                if ctx_store:
+                    thread_id = await ctx_store.get_context_value(
+                        workflow_id, "sre_agent_thread_id",
+                    )
+            except Exception:
+                pass
+
+        if not thread_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No thread found for workflow '{workflow_id}'"
+            )
+
+        # Retrieve messages from the thread
+        messages = []
+        try:
+            if agent.agents_client:
+                thread_messages = agent.agents_client.list_messages(
+                    thread_id=thread_id,
+                )
+                for msg in thread_messages.data:
+                    content_text = ""
+                    if hasattr(msg, "content") and msg.content:
+                        for block in msg.content:
+                            if hasattr(block, "text") and hasattr(block.text, "value"):
+                                content_text += block.text.value
+                    messages.append({
+                        "id": msg.id,
+                        "role": msg.role if hasattr(msg, "role") else "unknown",
+                        "content": content_text,
+                        "created_at": msg.created_at.isoformat() if hasattr(msg, "created_at") and msg.created_at else None,
+                    })
+        except Exception as e:
+            logger.warning("Failed to list thread messages: %s", e)
+
+        return StandardResponse(
+            success=True,
+            data={
+                "workflow_id": workflow_id,
+                "thread_id": thread_id,
+                "message_count": len(messages),
+                "messages": messages,
+            },
+            message=f"Thread history for workflow '{workflow_id}'"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to get thread history: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve thread history: {str(exc)}"
+        )
+    finally:
+        if orchestrator:
+            await orchestrator.cleanup()
+
+
+@router.delete("/threads/{workflow_id}", response_model=StandardResponse)
+async def delete_thread(workflow_id: str):
+    """Clear conversation thread context for a workflow.
+
+    Deletes the conversation thread and associated context for a specific
+    workflow. This is useful for resetting the conversation state or
+    cleaning up completed workflows.
+
+    Args:
+        workflow_id: Unique workflow identifier
+
+    Returns:
+        StandardResponse confirming deletion
+    """
+    logger.info("Deleting thread for workflow=%s", workflow_id[:12])
+
+    orchestrator = None
+    try:
+        orchestrator = SREOrchestratorAgent()
+        await orchestrator.initialize()
+
+        if not orchestrator.azure_sre_agent:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Azure AI SRE Agent is not available"
+            )
+
+        # Delete thread via the agent
+        deleted = await orchestrator.azure_sre_agent.delete_thread(workflow_id)
+
+        if deleted:
+            return StandardResponse(
+                success=True,
+                data={
+                    "workflow_id": workflow_id,
+                    "deleted": True,
+                },
+                message=f"Thread context cleared for workflow '{workflow_id}'"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No thread found for workflow '{workflow_id}'"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to delete thread: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete thread: {str(exc)}"
+        )
+    finally:
+        if orchestrator:
+            await orchestrator.cleanup()

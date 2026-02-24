@@ -1383,11 +1383,11 @@
                 <div class="card">
                     <div class="card-body text-center">
                         <i class="fas fa-calendar-times fa-2x text-warning mb-2"></i>
-                        <h6>Advanced EOL Search</h6>
-                        <p class="small text-muted">Use multi-agent search for any software</p>
+                        <h6>OS EOL Search</h6>
+                        <p class="small text-muted">Multi-agent EOL search for operating systems</p>
                         <a href="/eol" class="btn btn-outline-warning btn-sm">
                             <i class="fas fa-search me-1"></i>
-                            EOL Search
+                            OS EOL Search
                         </a>
                     </div>
                 </div>
@@ -1534,9 +1534,9 @@
         const statusElement = document.getElementById(`eol-status-${itemId}`);
         if (!statusElement) return;
 
-        // Check if software type is eligible for EOL checking
+        // EOL checking is only supported for Operating System items
         const normalizedType = softwareType.toLowerCase();
-        if (normalizedType && normalizedType !== 'application' && normalizedType !== 'operating system') {
+        if (normalizedType !== 'operating system') {
             statusElement.innerHTML = `
             <span class="badge bg-light">
                 <i class="fas fa-minus me-1"></i>
@@ -2383,7 +2383,7 @@
                         if (!item.id) {
                             item.id = `${Math.random().toString(36).substr(2, 9)}`;
                         }
-                        if (softwareType === 'application' || softwareType === 'operating system') {
+                        if (softwareType === 'operating system') {
                             checkEOLInPlace(item.name || '', item.version || '', item.id, item.software_type || '');
                         }
                     });

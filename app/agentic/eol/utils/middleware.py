@@ -35,8 +35,9 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         # Log incoming request
+        logger.info("=" * 80)
         logger.info(
-            f"Incoming request",
+            f"Incoming request: {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'} [{request_id}]",
             extra={
                 "request_id": request_id,
                 "method": request.method,
@@ -44,7 +45,8 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
                 "client": request.client.host if request.client else "unknown",
             },
         )
-
+        logger.info("=" * 80)
+        
         try:
             # Call the next middleware or route handler
             response = await call_next(request)

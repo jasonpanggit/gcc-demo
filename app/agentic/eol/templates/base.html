@@ -120,6 +120,7 @@
                 <a href="/eol-search" class="nav-item {% if '/eol-search' in request.path %}active{% endif %}">
                     <i class="fas fa-search"></i>
                     <span class="nav-text">EOL Search</span>
+                    <span class="nav-badge">AI</span>
                 </a>
             </div>
 
@@ -127,19 +128,19 @@
                 <div class="nav-section-title">Resources</div>
                 <a href="/resource-inventory" class="nav-item {% if '/resource-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-boxes"></i>
-                    <span class="nav-text">Azure Resources</span>
+                    <span class="nav-text">My Azure Resources</span>
                 </a>
                 <a href="/inventory" class="nav-item {% if request.path == '/inventory' %}active{% endif %}">
                     <i class="fas fa-list"></i>
-                    <span class="nav-text">Software Inventory</span>
+                    <span class="nav-text">OS & Software (LAW)</span>
                 </a>
                 <a href="/eol-inventory" class="nav-item {% if '/eol-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-table"></i>
-                    <span class="nav-text">EOL Database</span>
+                    <span class="nav-text">EOL Dates Database</span>
                 </a>
                 <a href="/eol-searches" class="nav-item {% if '/eol-searches' in request.path %}active{% endif %}">
                     <i class="fas fa-history"></i>
-                    <span class="nav-text">Search History</span>
+                    <span class="nav-text">EOL Search History</span>
                 </a>
                 <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
                     <i class="fas fa-chart-line"></i>

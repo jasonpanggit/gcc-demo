@@ -142,6 +142,15 @@ generate_appsettings() {
     local azure_ai_sre_agent_name=$(jq -r '.agentic_azure_ai_sre_agent_name.value // "gccsreagent"' "$tf_outputs")
     local azure_ai_sre_agent_id=$(jq -r '.agentic_azure_ai_sre_agent_id.value // "NOT_SET"' "$tf_outputs")
 
+    # SRE agent performance tuning defaults (override via env vars in Container App)
+    local sre_tool_timeout="${SRE_AGENT_TOOL_TIMEOUT:-30}"
+    local sre_total_timeout="${SRE_AGENT_TOTAL_TIMEOUT:-120}"
+    local sre_parallel_tools="${SRE_PARALLEL_TOOLS:-5}"
+    local sre_cache_ttl="${SRE_CACHE_TTL:-300}"
+    local sre_pool_size="${SRE_CONNECTION_POOL_SIZE:-10}"
+    local sre_streaming="${SRE_ENABLE_STREAMING:-true}"
+    local sre_cache="${SRE_ENABLE_CACHE:-true}"
+
     # Check if agentic module outputs are available
     local has_agentic_outputs=$(jq -r 'has("agentic_app_url")' "$tf_outputs")
     
@@ -154,6 +163,30 @@ generate_appsettings() {
     local azure_ai_enabled=$(jq -r '.agentic_azure_ai_foundry_name.value != null and .agentic_azure_ai_foundry_name.value != "NOT_SET"' "$tf_outputs")
     if [[ "$azure_ai_enabled" != "true" ]]; then
         log_warn "Azure AI Agent Service not deployed. Set deploy_azure_ai_agent=true to enable."
+    fi
+
+    # Prefer the actual Azure AI project child resource name if available
+    if [[ "$azure_ai_endpoint" != "NOT_SET" ]] && [[ "$azure_ai_endpoint" != "null" ]]; then
+      local ai_account_name
+      ai_account_name=$(echo "$azure_ai_endpoint" | sed -E 's#https://([^./]+).*#\1#')
+      local discovered_project_full
+      discovered_project_full=$(az resource list \
+        -g "$resource_group_name" \
+        --subscription "$subscription_id" \
+        --resource-type "Microsoft.CognitiveServices/accounts/projects" \
+        --query "[?starts_with(name, '${ai_account_name}/')].name | [0]" \
+        -o tsv 2>/dev/null || true)
+      if [[ -n "$discovered_project_full" ]] && [[ "$discovered_project_full" != "null" ]]; then
+        azure_ai_project_name="${discovered_project_full#*/}"
+      fi
+    fi
+
+    # Build project-scoped endpoint for Azure AI Foundry SDK calls
+    local azure_ai_project_endpoint="$azure_ai_endpoint"
+    if [[ "$azure_ai_endpoint" != "NOT_SET" ]] && [[ "$azure_ai_endpoint" != "null" ]] && [[ "$azure_ai_project_name" != "NOT_SET" ]] && [[ "$azure_ai_project_name" != "null" ]]; then
+      local ai_base="${azure_ai_endpoint%/}"
+      ai_base="${ai_base/.cognitiveservices.azure.com/.services.ai.azure.com}"
+      azure_ai_project_endpoint="${ai_base}/api/projects/${azure_ai_project_name}"
     fi
     
     # Generate the appsettings.json content with nested structure
@@ -204,11 +237,21 @@ generate_appsettings() {
     "AIFoundry": {
       "ProjectName": "${azure_ai_project_name}",
       "Endpoint": "${azure_ai_endpoint}",
-      "ProjectEndpoint": "${azure_ai_endpoint}",
+      "ProjectEndpoint": "${azure_ai_project_endpoint}",
       "SREAgentName": "${azure_ai_sre_agent_name}",
       "SREAgentId": "${azure_ai_sre_agent_id}",
       "SREEnabled": "$([[ \"${azure_ai_endpoint}\" != \"NOT_SET\" && \"${azure_ai_endpoint}\" != \"null\" ]] && echo \"true\" || echo \"false\")",
       "Comment": "Azure AI Agent Service configuration for Azure AI SRE agent integration"
+    },
+    "SREPerformance": {
+      "ToolCallTimeout": ${sre_tool_timeout},
+      "TotalTimeout": ${sre_total_timeout},
+      "ParallelToolLimit": ${sre_parallel_tools},
+      "CacheTTLSeconds": ${sre_cache_ttl},
+      "ConnectionPoolSize": ${sre_pool_size},
+      "EnableStreaming": ${sre_streaming},
+      "EnableResponseCache": ${sre_cache},
+      "Comment": "Performance tuning for SRE agent pipeline - override via env vars"
     },
     "Kusto": {
       "ClusterUri": "https://data-explorer.azure.com",

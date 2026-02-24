@@ -148,6 +148,7 @@ class OSInventoryAgent:
         except Exception as exc:
             logger.debug("OS EOL agent lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
 
+        os_lower = (normalized_name or "").lower()
         if "windows server" in os_lower:
             try:
                 from .microsoft_agent import MicrosoftEOLAgent

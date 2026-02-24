@@ -171,6 +171,24 @@ function clearChat() {
 }
 
 /**
+ * Re-execute any <script> tags inside an element.
+ * innerHTML assignment does not run scripts; this helper clones and
+ * re-appends each script so Chart.js (and any other inline JS) fires.
+ */
+function executeScripts(element) {
+    const scripts = element.querySelectorAll('script');
+    scripts.forEach(function (oldScript) {
+        const newScript = document.createElement('script');
+        // Copy all attributes (src, type, …)
+        Array.from(oldScript.attributes).forEach(function (attr) {
+            newScript.setAttribute(attr.name, attr.value);
+        });
+        newScript.textContent = oldScript.textContent;
+        oldScript.parentNode.replaceChild(newScript, oldScript);
+    });
+}
+
+/**
  * Add message to chat
  */
 function addMessage(content, type = 'agent') {
@@ -212,6 +230,8 @@ function addMessage(content, type = 'agent') {
     `;
 
     chatHistory.appendChild(messageDiv);
+    // Execute any <script> tags injected via innerHTML (e.g. Chart.js charts)
+    executeScripts(messageDiv);
     chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
@@ -443,7 +463,7 @@ function formatSREResponse(data) {
                 <small class="text-muted">Agent: ${result.agent || 'unknown'}</small>`;
             
             if (result.result) {
-                html += `<pre class="mt-2 p-2 bg-light rounded" style="font-size: 0.85rem; max-height: 300px; overflow-y: auto;">${JSON.stringify(result.result, null, 2)}</pre>`;
+                html += `<div class="mt-2">${renderToolResult(result.result)}</div>`;
             }
             html += `</div>`;
         });
@@ -519,6 +539,111 @@ function formatSREResponse(data) {
     }
     
     return html || '<div class="text-muted">Request completed successfully</div>';
+}
+
+/**
+ * Render a tool result object as structured HTML instead of raw JSON.
+ * Handles double-serialized content strings (with literal \n) gracefully.
+ */
+function renderToolResult(raw) {
+    // Unwrap MCP text-content wrapper: {success, content: [{type:"text", text:"..."}]}
+    let data = raw;
+    if (data && Array.isArray(data.content)) {
+        const textItem = data.content.find(c => c.type === 'text' && c.text);
+        if (textItem) {
+            try { data = JSON.parse(textItem.text); } catch (_) { /* keep raw */ }
+        }
+    }
+    // If data.parsed exists prefer that (already decoded)
+    if (data && data.parsed && typeof data.parsed === 'object') {
+        data = data.parsed;
+    }
+    // If it's still a string (double-serialized), try to parse it
+    if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (_) { /* keep as string */ }
+    }
+    if (typeof data === 'string') {
+        return `<pre class="p-2 bg-light rounded small" style="max-height:260px;overflow-y:auto;white-space:pre-wrap;">${escapeHtml(data)}</pre>`;
+    }
+
+    // Key display config: field → {label, icon, formatter}
+    const FIELD_CONFIG = {
+        health_status:       { label: 'Health',          icon: 'fa-heartbeat',        fmt: v => statusBadge(v) },
+        container_app_name:  { label: 'Container App',   icon: 'fa-box',              fmt: null },
+        resource_group:      { label: 'Resource Group',  icon: 'fa-folder',           fmt: null },
+        total_logs:          { label: 'Total Logs',      icon: 'fa-list',             fmt: null },
+        error_count:         { label: 'Errors',          icon: 'fa-times-circle',     fmt: v => `<span class="${v>0?'text-danger':'text-success'}">${v}</span>` },
+        warning_count:       { label: 'Warnings',        icon: 'fa-exclamation-triangle', fmt: v => `<span class="${v>0?'text-warning':'text-success'}">${v}</span>` },
+        table_used:          { label: 'Log Source',      icon: 'fa-database',         fmt: null },
+        recent_errors:       { label: 'Recent Errors',   icon: 'fa-bug',              fmt: v => Array.isArray(v) && v.length===0 ? '<span class="text-success">None</span>' : null },
+        recommendations:     { label: 'Recommendations', icon: 'fa-lightbulb',        fmt: null },
+        timestamp:           { label: 'Checked At',      icon: 'fa-clock',            fmt: v => v ? new Date(v).toLocaleString() : null },
+        note:                { label: 'Note',            icon: 'fa-info-circle',      fmt: null },
+    };
+
+    const SKIP_KEYS = new Set(['success', 'tool_name', 'resource_id', 'log_sample']);
+
+    let rows = '';
+    for (const [key, cfg] of Object.entries(FIELD_CONFIG)) {
+        if (!(key in data)) continue;
+        const val = data[key];
+        let rendered;
+        if (cfg.fmt) {
+            rendered = cfg.fmt(val);
+            if (rendered === null) rendered = escapeHtml(String(val));
+        } else if (Array.isArray(val)) {
+            if (val.length === 0) {
+                rendered = '<span class="text-muted">None</span>';
+            } else {
+                rendered = '<ul class="mb-0 ps-3">' + val.map(item =>
+                    `<li class="small">${escapeHtml(typeof item === 'object' ? JSON.stringify(item) : String(item))}</li>`
+                ).join('') + '</ul>';
+            }
+        } else if (typeof val === 'object' && val !== null) {
+            rendered = `<pre class="mb-0 small p-1 bg-light rounded" style="max-height:120px;overflow-y:auto;">${escapeHtml(JSON.stringify(val, null, 2))}</pre>`;
+        } else {
+            rendered = `<span class="small">${escapeHtml(String(val))}</span>`;
+        }
+        rows += `<tr>
+            <td class="text-muted small pe-3 text-nowrap" style="width:1%"><i class="fas ${cfg.icon} me-1"></i>${cfg.label}</td>
+            <td>${rendered}</td>
+        </tr>`;
+    }
+
+    // Any remaining keys not in FIELD_CONFIG and not skipped
+    for (const [key, val] of Object.entries(data)) {
+        if (key in FIELD_CONFIG || SKIP_KEYS.has(key)) continue;
+        let rendered;
+        if (typeof val === 'object' && val !== null) {
+            rendered = `<pre class="mb-0 small p-1 bg-light rounded" style="max-height:120px;overflow-y:auto;">${escapeHtml(JSON.stringify(val, null, 2))}</pre>`;
+        } else {
+            rendered = `<span class="small">${escapeHtml(String(val))}</span>`;
+        }
+        const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        rows += `<tr>
+            <td class="text-muted small pe-3 text-nowrap" style="width:1%">${label}</td>
+            <td>${rendered}</td>
+        </tr>`;
+    }
+
+    if (!rows) {
+        return `<pre class="p-2 bg-light rounded small" style="max-height:260px;overflow-y:auto;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+    }
+
+    return `<table class="table table-sm table-borderless mb-0" style="font-size:0.85rem;">${rows}</table>`;
+}
+
+function statusBadge(v) {
+    const s = String(v).toLowerCase();
+    const cls = s === 'healthy' || s === 'running' || s === 'succeeded' ? 'success'
+               : s === 'degraded' || s === 'warning' ? 'warning'
+               : s === 'unhealthy' || s === 'failed' || s === 'error' ? 'danger'
+               : 'secondary';
+    return `<span class="badge bg-${cls}">${escapeHtml(String(v))}</span>`;
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 /**

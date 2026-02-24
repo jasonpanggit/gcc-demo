@@ -61,9 +61,13 @@ Thumbs.db
 # backup
 backup/
 *.backup
+.bak
 
 # docs
 docs/
+
+# tests
+tests/
 
 # Zip files
 *.zip
@@ -95,7 +99,6 @@ litellm/
 .claude/
 .design/
 CLAUDE.md
-plan.md
 
 # github
 .github/
