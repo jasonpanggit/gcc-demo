@@ -8,7 +8,7 @@ This agent handles:
 - Remediation recommendations
 - Security score tracking
 - Risk assessment and reporting
-- Azure resource compliance audits (network security, private endpoints, encryption, public access)
+- Azure resource compliance audits (network security, private endpoints, encryption, public access, regional compliance)
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class SecurityComplianceAgent(BaseSREAgent):
     5. Remediation recommendations with priority ranking
     6. Security score calculation and trending
     7. Risk assessment and reporting
-    8. Azure resource compliance audits (network, private endpoints, encryption, public access)
+    8. Azure resource compliance audits (network, private endpoints, encryption, public access, regional)
 
     Example usage:
         agent = SecurityComplianceAgent()
@@ -72,6 +72,12 @@ class SecurityComplianceAgent(BaseSREAgent):
         # Audit Azure network compliance
         result = await agent.handle_request({
             "action": "audit_network",
+            "resource_group": "prod-rg"
+        })
+
+        # Audit regional compliance (Southeast Asia)
+        result = await agent.handle_request({
+            "action": "audit_regional_compliance",
             "resource_group": "prod-rg"
         })
 
@@ -250,6 +256,18 @@ class SecurityComplianceAgent(BaseSREAgent):
             }
         }
 
+        # Azure Resource Compliance Rules - Regional Compliance
+        self.regional_compliance_rules = {
+            "resources_in_southeastasia": {
+                "name": "Resources Must Be Deployed in Southeast Asia",
+                "severity": "high",
+                "description": "All resources must be deployed in the southeastasia region for compliance",
+                "check_type": "regional",
+                "allowed_regions": ["southeastasia"],
+                "resource_types": ["all"]  # Applies to all resource types
+            }
+        }
+
         # Update severity levels with critical tier
         self.severity_levels = {
             "critical": {"priority": 1, "score_impact": -30, "sla_hours": 4},
@@ -328,6 +346,7 @@ class SecurityComplianceAgent(BaseSREAgent):
             "audit_private_endpoints": self._audit_private_endpoint_compliance,
             "audit_encryption": self._audit_encryption_compliance,
             "audit_public_access": self._audit_public_access_compliance,
+            "audit_regional_compliance": self._audit_regional_compliance,
             "audit_azure_resources": self._audit_azure_resource_compliance
         }
 
@@ -2046,6 +2065,129 @@ class SecurityComplianceAgent(BaseSREAgent):
             }
         }
 
+    async def _audit_regional_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit regional compliance.
+
+        Checks:
+        - All resources are deployed in the southeastasia region
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Regional compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"regional-audit-{datetime.utcnow().timestamp()}"
+        allowed_region = "southeastasia"
+
+        logger.info(f"Starting regional compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "regional_compliance",
+                "allowed_region": allowed_region,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Query all resources in the resource group or subscription
+        command = "az resource list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            resources = json.loads(result.get("stdout", "[]"))
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse resource list output")
+            resources = []
+
+        # Check each resource's location
+        for resource in resources:
+            resource_name = resource.get("name")
+            resource_type = resource.get("type")
+            resource_location = resource.get("location", "").lower()
+            resource_rg = resource.get("resourceGroup")
+            resource_id = resource.get("id")
+
+            # Check if resource is in allowed region
+            if resource_location != allowed_region:
+                violations.append({
+                    "rule": "resources_in_southeastasia",
+                    "severity": "high",
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_group": resource_rg,
+                    "current_location": resource_location,
+                    "expected_location": allowed_region,
+                    "violation": f"Resource is deployed in '{resource_location}' instead of '{allowed_region}'",
+                    "recommendation": f"Migrate resource {resource_name} to {allowed_region} region or delete and recreate in compliant region"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Group violations by location for summary
+        locations_found = {}
+        for violation in violations:
+            loc = violation.get("current_location", "unknown")
+            if loc not in locations_found:
+                locations_found[loc] = []
+            locations_found[loc].append(violation["resource_name"])
+
+        # Calculate compliance score
+        total_resources_checked = len(resources)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "regional_compliance",
+                "scope": resource_group or "subscription",
+                "allowed_region": allowed_region,
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "total_resources": len(resources)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "by_location": {
+                        loc: len(res_list)
+                        for loc, res_list in locations_found.items()
+                    },
+                    "details": violations
+                },
+                "summary": {
+                    "compliant_resources": total_resources_checked - len(violations),
+                    "non_compliant_resources": len(violations),
+                    "non_compliant_locations": list(locations_found.keys())
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
     async def _audit_azure_resource_compliance(
         self,
         request: Dict[str, Any],
@@ -2053,7 +2195,7 @@ class SecurityComplianceAgent(BaseSREAgent):
     ) -> Dict[str, Any]:
         """Execute full Azure resource compliance audit workflow.
 
-        Runs all phases: network → private endpoints → encryption → public access
+        Runs all phases: network → private endpoints → encryption → public access → regional compliance
 
         Args:
             request: Full audit request
@@ -2074,9 +2216,10 @@ class SecurityComplianceAgent(BaseSREAgent):
         pe_task = self._audit_private_endpoint_compliance(request, context)
         encryption_task = self._audit_encryption_compliance(request, context)
         public_access_task = self._audit_public_access_compliance(request, context)
+        regional_task = self._audit_regional_compliance(request, context)
 
-        network_result, pe_result, encryption_result, public_access_result = await asyncio.gather(
-            network_task, pe_task, encryption_task, public_access_task
+        network_result, pe_result, encryption_result, public_access_result, regional_result = await asyncio.gather(
+            network_task, pe_task, encryption_task, public_access_task, regional_task
         )
 
         # Aggregate results
@@ -2084,14 +2227,16 @@ class SecurityComplianceAgent(BaseSREAgent):
             network_result.get("audit", {}).get("violations", {}).get("total", 0) +
             pe_result.get("audit", {}).get("violations", {}).get("total", 0) +
             encryption_result.get("audit", {}).get("violations", {}).get("total", 0) +
-            public_access_result.get("audit", {}).get("violations", {}).get("total", 0)
+            public_access_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            regional_result.get("audit", {}).get("violations", {}).get("total", 0)
         )
 
         all_violations = (
             network_result.get("audit", {}).get("violations", {}).get("details", []) +
             pe_result.get("audit", {}).get("violations", {}).get("details", []) +
             encryption_result.get("audit", {}).get("violations", {}).get("details", []) +
-            public_access_result.get("audit", {}).get("violations", {}).get("details", [])
+            public_access_result.get("audit", {}).get("violations", {}).get("details", []) +
+            regional_result.get("audit", {}).get("violations", {}).get("details", [])
         )
 
         # Calculate overall compliance score
@@ -2099,8 +2244,9 @@ class SecurityComplianceAgent(BaseSREAgent):
             network_result.get("audit", {}).get("compliance_percentage", 100),
             pe_result.get("audit", {}).get("compliance_percentage", 100),
             encryption_result.get("audit", {}).get("compliance_percentage", 100),
-            public_access_result.get("audit", {}).get("compliance_percentage", 100)
-        ]) / 4
+            public_access_result.get("audit", {}).get("compliance_percentage", 100),
+            regional_result.get("audit", {}).get("compliance_percentage", 100)
+        ]) / 5
 
         # Categorize all violations
         severity_breakdown = self._categorize_by_severity(all_violations)
@@ -2117,7 +2263,8 @@ class SecurityComplianceAgent(BaseSREAgent):
                 "network_security": network_result,
                 "private_endpoints": pe_result,
                 "encryption": encryption_result,
-                "public_access": public_access_result
+                "public_access": public_access_result,
+                "regional_compliance": regional_result
             },
             "executive_summary": {
                 "overall_status": overall_status,

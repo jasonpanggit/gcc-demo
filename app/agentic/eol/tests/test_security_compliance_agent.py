@@ -65,6 +65,7 @@ async def test_new_actions_registered():
         "audit_private_endpoints",
         "audit_encryption",
         "audit_public_access",
+        "audit_regional_compliance",
         "audit_azure_resources"
     ]
 
@@ -76,6 +77,7 @@ async def test_new_actions_registered():
             "audit_private_endpoints",
             "audit_encryption",
             "audit_public_access",
+            "audit_regional_compliance",
             "audit_azure_resources"
         ]
 
@@ -406,6 +408,146 @@ async def test_backward_compatibility():
     assert result["status"] == "success"
     assert "scan" in result
     assert "security_score" in result["scan"]
+
+
+@pytest.mark.asyncio
+async def test_regional_compliance_audit():
+    """Test regional compliance audit with mocked responses."""
+    agent = SecurityComplianceAgent()
+
+    # Mock dependencies
+    agent.registry = MagicMock()
+    agent.context_store = AsyncMock()
+    agent.context_store.create_workflow_context = AsyncMock()
+    agent.tool_proxy_agent = AsyncMock()
+
+    # Mock resource list response - some resources in wrong region
+    resources_response = {
+        "status": "success",
+        "stdout": json.dumps([
+            {
+                "name": "compliant-storage",
+                "type": "Microsoft.Storage/storageAccounts",
+                "location": "southeastasia",
+                "resourceGroup": "test-rg",
+                "id": "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/compliant-storage"
+            },
+            {
+                "name": "non-compliant-vm",
+                "type": "Microsoft.Compute/virtualMachines",
+                "location": "eastus",  # Wrong region - violation
+                "resourceGroup": "test-rg",
+                "id": "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/non-compliant-vm"
+            },
+            {
+                "name": "non-compliant-webapp",
+                "type": "Microsoft.Web/sites",
+                "location": "westeurope",  # Wrong region - violation
+                "resourceGroup": "test-rg",
+                "id": "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Web/sites/non-compliant-webapp"
+            }
+        ])
+    }
+
+    # Configure mock response
+    async def mock_handle_request(request):
+        command = request.get("parameters", {}).get("command", "")
+        if "az resource list" in command:
+            return resources_response
+        return {"status": "error", "error": "Unknown command"}
+
+    agent.tool_proxy_agent.handle_request = mock_handle_request
+
+    await agent.initialize()
+
+    # Execute regional compliance audit
+    result = await agent.execute({
+        "action": "audit_regional_compliance",
+        "resource_group": "test-rg"
+    })
+
+    # Verify result
+    assert result["status"] == "success"
+    assert "audit" in result
+    audit = result["audit"]
+
+    # Verify audit type
+    assert audit["type"] == "regional_compliance"
+    assert audit["allowed_region"] == "southeastasia"
+
+    # Verify violations detected (2 out of 3 resources in wrong region)
+    violations = audit["violations"]
+    assert violations["total"] == 2
+
+    # Verify compliance percentage (1 out of 3 = 33.33%)
+    assert audit["compliance_percentage"] < 50
+
+    # Verify violation details
+    details = violations["details"]
+    assert len(details) == 2
+
+    # Check that violations have correct structure
+    for violation in details:
+        assert violation["rule"] == "resources_in_southeastasia"
+        assert violation["severity"] == "high"
+        assert violation["current_location"] in ["eastus", "westeurope"]
+        assert violation["expected_location"] == "southeastasia"
+
+    # Verify summary
+    summary = audit["summary"]
+    assert summary["compliant_resources"] == 1
+    assert summary["non_compliant_resources"] == 2
+    assert "eastus" in summary["non_compliant_locations"]
+    assert "westeurope" in summary["non_compliant_locations"]
+
+
+@pytest.mark.asyncio
+async def test_full_audit_includes_regional_compliance():
+    """Test that full audit now includes regional compliance check."""
+    agent = SecurityComplianceAgent()
+
+    # Mock dependencies
+    agent.registry = MagicMock()
+    agent.context_store = AsyncMock()
+    agent.context_store.create_workflow_context = AsyncMock()
+    agent.tool_proxy_agent = AsyncMock()
+
+    # Mock all Azure CLI responses with empty results
+    empty_response = {
+        "status": "success",
+        "stdout": json.dumps([])
+    }
+
+    async def mock_handle_request(request):
+        return empty_response
+
+    agent.tool_proxy_agent.handle_request = mock_handle_request
+
+    await agent.initialize()
+
+    # Execute full compliance audit
+    result = await agent.execute({
+        "action": "audit_azure_resources",
+        "resource_group": "test-rg"
+    })
+
+    # Verify result structure
+    assert result["status"] == "success"
+    assert result["audit_type"] == "comprehensive"
+    assert "phases" in result
+
+    # Verify all phases executed including regional compliance
+    phases = result["phases"]
+    assert "network_security" in phases
+    assert "private_endpoints" in phases
+    assert "encryption" in phases
+    assert "public_access" in phases
+    assert "regional_compliance" in phases  # NEW PHASE
+
+    # Verify executive summary
+    summary = result["executive_summary"]
+    assert "overall_status" in summary
+    assert "overall_compliance_percentage" in summary
 
 
 if __name__ == "__main__":
