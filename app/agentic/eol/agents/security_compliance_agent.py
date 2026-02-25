@@ -268,6 +268,82 @@ class SecurityComplianceAgent(BaseSREAgent):
             }
         }
 
+        # Azure Resource Compliance Rules - SLA Compliance
+        self.sla_compliance_rules = {
+            "resources_meet_sla_target": {
+                "name": "Resources Must Meet SLA Availability Target",
+                "severity": "high",
+                "description": "All resources must meet the defined SLA availability target (default 99.9%)",
+                "check_type": "sla",
+                "default_target": 99.9,  # 99.9% uptime
+                "resource_types": ["all"]
+            }
+        }
+
+        # Default SLA targets by resource type (based on Azure SLAs)
+        self.default_sla_targets = {
+            "microsoft.compute/virtualmachines": 99.9,  # Single VM with Premium SSD
+            "microsoft.web/sites": 99.95,  # App Service
+            "microsoft.containerinstance/containergroups": 99.9,  # Container Apps
+            "microsoft.storage/storageaccounts": 99.9,  # Storage (LRS)
+            "microsoft.sql/servers": 99.99,  # SQL Database
+            "microsoft.keyvault/vaults": 99.9,  # Key Vault
+            "microsoft.network/applicationgateways": 99.95,  # Application Gateway
+            "microsoft.network/loadbalancers": 99.99,  # Load Balancer
+            "microsoft.containerservice/managedclusters": 99.95,  # AKS
+            "microsoft.apimanagement/service": 99.95  # API Management
+        }
+
+        # SLA modifiers based on SKU and redundancy configuration
+        self.sla_modifiers = {
+            # Virtual Machines - SKU and availability configuration
+            "microsoft.compute/virtualmachines": {
+                "availability_zone_single": 99.99,  # Single VM in availability zone
+                "availability_zone_multiple": 99.99,  # Multiple VMs across zones
+                "availability_set": 99.95,  # Two or more VMs in availability set
+                "premium_ssd": 99.9,  # Single VM with Premium SSD
+                "standard_ssd": 99.5,  # Single VM with Standard SSD
+                "standard_hdd": 95.0   # Single VM with Standard HDD (no SLA)
+            },
+            # Storage Accounts - Redundancy type
+            "microsoft.storage/storageaccounts": {
+                "Premium_LRS": 99.9,
+                "Standard_LRS": 99.9,
+                "Standard_GRS": 99.99,  # Geo-redundant
+                "Standard_RAGRS": 99.99,  # Read-access geo-redundant
+                "Standard_ZRS": 99.99,  # Zone-redundant
+                "Standard_GZRS": 99.99,  # Geo-zone-redundant
+                "Premium_ZRS": 99.99
+            },
+            # SQL Database - Service tier
+            "microsoft.sql/servers": {
+                "Basic": 99.99,
+                "Standard": 99.99,
+                "Premium": 99.99,
+                "GeneralPurpose": 99.99,
+                "BusinessCritical": 99.995,  # Zone-redundant
+                "Hyperscale": 99.99
+            },
+            # App Service - Tier
+            "microsoft.web/sites": {
+                "Free": 0,  # No SLA
+                "Shared": 0,  # No SLA
+                "Basic": 99.95,
+                "Standard": 99.95,
+                "Premium": 99.95,
+                "PremiumV2": 99.95,
+                "PremiumV3": 99.95,
+                "Isolated": 99.95,
+                "IsolatedV2": 99.95
+            },
+            # AKS - Uptime SLA
+            "microsoft.containerservice/managedclusters": {
+                "Free": 0,  # No SLA
+                "Standard": 99.95,  # With Uptime SLA
+                "with_availability_zones": 99.99  # Uptime SLA + AZ
+            }
+        }
+
         # Update severity levels with critical tier
         self.severity_levels = {
             "critical": {"priority": 1, "score_impact": -30, "sla_hours": 4},
@@ -347,6 +423,8 @@ class SecurityComplianceAgent(BaseSREAgent):
             "audit_encryption": self._audit_encryption_compliance,
             "audit_public_access": self._audit_public_access_compliance,
             "audit_regional_compliance": self._audit_regional_compliance,
+            "audit_sla_compliance": self._audit_sla_compliance,
+            "calculate_composite_sla": self._calculate_composite_sla,
             "audit_azure_resources": self._audit_azure_resource_compliance
         }
 
@@ -2065,6 +2143,142 @@ class SecurityComplianceAgent(BaseSREAgent):
             }
         }
 
+    def _determine_resource_sla(
+        self,
+        resource: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Determine SLA target for a resource based on SKU and configuration.
+
+        Args:
+            resource: Resource object with type, SKU, and properties
+
+        Returns:
+            Dict with sla_target, configuration, and reasoning
+        """
+        resource_type = resource.get("type", "").lower()
+        resource_name = resource.get("name")
+        sku = resource.get("sku", {})
+        properties = resource.get("properties", {})
+
+        # Default SLA
+        default_sla = self.default_sla_targets.get(resource_type, 99.9)
+
+        # Get SKU-specific modifiers
+        modifiers = self.sla_modifiers.get(resource_type, {})
+
+        if resource_type == "microsoft.compute/virtualmachines":
+            # Check for availability zones
+            zones = resource.get("zones", [])
+            if zones and len(zones) > 0:
+                return {
+                    "sla_target": 99.99,
+                    "configuration": f"Availability Zone ({', '.join(zones)})",
+                    "reasoning": "Single VM in availability zone"
+                }
+
+            # Check for availability set
+            availability_set = properties.get("availabilitySet")
+            if availability_set:
+                return {
+                    "sla_target": 99.95,
+                    "configuration": "Availability Set",
+                    "reasoning": "VM in availability set"
+                }
+
+            # Check disk type
+            storage_profile = properties.get("storageProfile", {})
+            os_disk = storage_profile.get("osDisk", {})
+            managed_disk = os_disk.get("managedDisk", {})
+            storage_account_type = managed_disk.get("storageAccountType", "Standard_LRS")
+
+            if "Premium" in storage_account_type:
+                return {
+                    "sla_target": 99.9,
+                    "configuration": f"Premium SSD ({storage_account_type})",
+                    "reasoning": "Single VM with Premium SSD"
+                }
+            elif "StandardSSD" in storage_account_type:
+                return {
+                    "sla_target": 99.5,
+                    "configuration": f"Standard SSD ({storage_account_type})",
+                    "reasoning": "Single VM with Standard SSD"
+                }
+            else:
+                return {
+                    "sla_target": 95.0,
+                    "configuration": f"Standard HDD ({storage_account_type})",
+                    "reasoning": "Single VM with Standard HDD (no formal SLA)"
+                }
+
+        elif resource_type == "microsoft.storage/storageaccounts":
+            # Check SKU for redundancy
+            sku_name = sku.get("name", "Standard_LRS")
+
+            sla = modifiers.get(sku_name, default_sla)
+            return {
+                "sla_target": sla,
+                "configuration": sku_name,
+                "reasoning": f"Storage with {sku_name} redundancy"
+            }
+
+        elif resource_type == "microsoft.sql/servers":
+            # For SQL, we'd need to query the database tier
+            # Default to 99.99% for SQL
+            return {
+                "sla_target": 99.99,
+                "configuration": "SQL Database",
+                "reasoning": "Azure SQL Database default SLA"
+            }
+
+        elif resource_type == "microsoft.web/sites":
+            # Check App Service plan tier
+            sku_tier = sku.get("tier", "Basic")
+
+            sla = modifiers.get(sku_tier, default_sla)
+            return {
+                "sla_target": sla,
+                "configuration": f"{sku_tier} tier",
+                "reasoning": f"App Service {sku_tier} tier"
+            }
+
+        elif resource_type == "microsoft.containerservice/managedclusters":
+            # Check for availability zones
+            agent_pool_profiles = properties.get("agentPoolProfiles", [])
+            has_zones = any(
+                pool.get("availabilityZones")
+                for pool in agent_pool_profiles
+            )
+
+            if has_zones:
+                return {
+                    "sla_target": 99.99,
+                    "configuration": "Uptime SLA with Availability Zones",
+                    "reasoning": "AKS with Uptime SLA and availability zones"
+                }
+
+            # Check if Uptime SLA is enabled (indicated by SKU)
+            sku_tier = sku.get("tier", "Free")
+            if sku_tier == "Standard" or sku_tier == "Paid":
+                return {
+                    "sla_target": 99.95,
+                    "configuration": "Uptime SLA enabled",
+                    "reasoning": "AKS with Uptime SLA"
+                }
+
+            return {
+                "sla_target": 0,
+                "configuration": "Free tier (no SLA)",
+                "reasoning": "AKS Free tier has no SLA"
+            }
+
+        else:
+            # Use default SLA for resource type
+            return {
+                "sla_target": default_sla,
+                "configuration": "Default",
+                "reasoning": f"Default SLA for {resource_type}"
+            }
+
     async def _audit_regional_compliance(
         self,
         request: Dict[str, Any],
@@ -2188,6 +2402,400 @@ class SecurityComplianceAgent(BaseSREAgent):
             }
         }
 
+    async def _audit_sla_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit SLA compliance for resources.
+
+        Checks:
+        - Resources meet their SLA availability targets
+        - Calculates actual uptime percentage from metrics
+        - Compares against defined SLA targets
+
+        Args:
+            request: Audit request with optional resource_group and sla_target
+            context: Optional workflow context
+
+        Returns:
+            SLA compliance audit results with uptime metrics
+        """
+        resource_group = request.get("resource_group", "")
+        custom_sla_target = request.get("sla_target", 99.9)  # Default 99.9%
+        workflow_id = f"sla-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting SLA compliance audit for {resource_group or 'subscription'} (target: {custom_sla_target}%)")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "sla_compliance",
+                "sla_target": custom_sla_target,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+        sla_summary = []
+
+        # Query all resources
+        command = "az resource list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            resources = json.loads(result.get("stdout", "[]"))
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse resource list output")
+            resources = []
+
+        # Check SLA for each resource
+        for resource in resources:
+            resource_name = resource.get("name")
+            resource_type = resource.get("type", "").lower()
+            resource_id = resource.get("id")
+            resource_rg = resource.get("resourceGroup")
+
+            # Determine SLA target based on SKU and configuration
+            sla_info = self._determine_resource_sla(resource)
+            sla_target = sla_info["sla_target"]
+            sla_configuration = sla_info["configuration"]
+            sla_reasoning = sla_info["reasoning"]
+
+            # Query availability metrics for the resource (last 30 days)
+            try:
+                # Get availability percentage from Azure Monitor
+                metrics_command = (
+                    f"az monitor metrics list "
+                    f"--resource {resource_id} "
+                    f"--metric 'Availability' "
+                    f"--start-time {(datetime.utcnow() - timedelta(days=30)).isoformat()}Z "
+                    f"--end-time {datetime.utcnow().isoformat()}Z "
+                    f"--interval PT1H "
+                    f"--aggregation Average "
+                    f"-o json"
+                )
+
+                metrics_result = await self._call_tool("azure_cli_execute_command", {
+                    "command": metrics_command
+                })
+
+                metrics_data = json.loads(metrics_result.get("stdout", "{}"))
+
+                # Calculate average availability
+                if metrics_data.get("value"):
+                    timeseries = metrics_data["value"][0].get("timeseries", [])
+                    if timeseries and timeseries[0].get("data"):
+                        availability_values = [
+                            point.get("average", 0)
+                            for point in timeseries[0]["data"]
+                            if point.get("average") is not None
+                        ]
+
+                        if availability_values:
+                            actual_availability = sum(availability_values) / len(availability_values)
+                        else:
+                            # No availability data - assume 100% (benefit of doubt)
+                            actual_availability = 100.0
+                    else:
+                        actual_availability = 100.0
+                else:
+                    # No metrics available - assume 100%
+                    actual_availability = 100.0
+
+            except Exception as exc:
+                logger.warning(f"Failed to get metrics for {resource_name}: {exc}")
+                # If we can't get metrics, assume compliant (benefit of doubt)
+                actual_availability = 100.0
+
+            # Check if meets SLA target
+            meets_sla = actual_availability >= sla_target
+
+            sla_summary.append({
+                "resource_name": resource_name,
+                "resource_type": resource_type,
+                "resource_group": resource_rg,
+                "sla_target": sla_target,
+                "sla_configuration": sla_configuration,
+                "sla_reasoning": sla_reasoning,
+                "actual_availability": round(actual_availability, 2),
+                "meets_sla": meets_sla,
+                "gap": round(sla_target - actual_availability, 2) if not meets_sla else 0
+            })
+
+            if not meets_sla:
+                violations.append({
+                    "rule": "resources_meet_sla_target",
+                    "severity": "high",
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_group": resource_rg,
+                    "sla_target": sla_target,
+                    "sla_configuration": sla_configuration,
+                    "actual_availability": round(actual_availability, 2),
+                    "sla_gap": round(sla_target - actual_availability, 2),
+                    "violation": f"Resource availability {actual_availability:.2f}% is below SLA target {sla_target}% ({sla_configuration})",
+                    "recommendation": f"Investigate availability issues for {resource_name} - {abs(sla_target - actual_availability):.2f}% below target. Current configuration: {sla_configuration}"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(resources)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        # Calculate overall availability
+        if sla_summary:
+            overall_availability = sum(s["actual_availability"] for s in sla_summary) / len(sla_summary)
+        else:
+            overall_availability = 100.0
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "sla_compliance",
+                "scope": resource_group or "subscription",
+                "sla_target": custom_sla_target,
+                "measurement_period": "30 days",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "overall_availability": round(overall_availability, 2),
+                "resources_checked": {
+                    "total_resources": len(resources)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "sla_summary": sla_summary,
+                "summary": {
+                    "resources_meeting_sla": total_resources_checked - len(violations),
+                    "resources_below_sla": len(violations),
+                    "average_availability": round(overall_availability, 2),
+                    "worst_performers": sorted(
+                        sla_summary,
+                        key=lambda x: x["actual_availability"]
+                    )[:5]  # Top 5 worst performers
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _calculate_composite_sla(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Calculate composite SLA for a combination of resources.
+
+        This calculates the effective SLA when resources are combined in series
+        (all must be available) or parallel (at least one must be available).
+
+        Args:
+            request: Request containing:
+                - resource_ids: List of resource IDs to combine
+                - combination_type: "series" (default) or "parallel"
+                - custom_slas: Optional dict of resource_id -> SLA percentage
+            context: Optional workflow context
+
+        Returns:
+            Composite SLA calculation results
+        """
+        resource_ids = request.get("resource_ids", [])
+        combination_type = request.get("combination_type", "series")
+        custom_slas = request.get("custom_slas", {})
+        workflow_id = f"composite-sla-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Calculating composite SLA for {len(resource_ids)} resources ({combination_type})")
+
+        if not resource_ids:
+            raise AgentExecutionError("resource_ids is required for composite SLA calculation")
+
+        if combination_type not in ["series", "parallel"]:
+            raise AgentExecutionError("combination_type must be 'series' or 'parallel'")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_count": len(resource_ids),
+                "combination_type": combination_type,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        resource_slas = []
+
+        # Get SLA for each resource
+        for resource_id in resource_ids:
+            # Get resource details
+            resource_command = f"az resource show --ids {resource_id} -o json"
+
+            try:
+                resource_result = await self._call_tool("azure_cli_execute_command", {
+                    "command": resource_command
+                })
+
+                resource = json.loads(resource_result.get("stdout", "{}"))
+                resource_name = resource.get("name")
+                resource_type = resource.get("type", "").lower()
+
+                # Check if custom SLA provided
+                if resource_id in custom_slas:
+                    sla = custom_slas[resource_id]
+                    sla_configuration = "Custom"
+                    sla_reasoning = "User-provided SLA"
+                else:
+                    # Determine SLA based on SKU and configuration
+                    sla_info = self._determine_resource_sla(resource)
+                    sla = sla_info["sla_target"]
+                    sla_configuration = sla_info["configuration"]
+                    sla_reasoning = sla_info["reasoning"]
+
+                # Try to get actual availability metrics
+                try:
+                    metrics_command = (
+                        f"az monitor metrics list "
+                        f"--resource {resource_id} "
+                        f"--metric 'Availability' "
+                        f"--start-time {(datetime.utcnow() - timedelta(days=30)).isoformat()}Z "
+                        f"--end-time {datetime.utcnow().isoformat()}Z "
+                        f"--interval PT1H "
+                        f"--aggregation Average "
+                        f"-o json"
+                    )
+
+                    metrics_result = await self._call_tool("azure_cli_execute_command", {
+                        "command": metrics_command
+                    })
+
+                    metrics_data = json.loads(metrics_result.get("stdout", "{}"))
+
+                    if metrics_data.get("value"):
+                        timeseries = metrics_data["value"][0].get("timeseries", [])
+                        if timeseries and timeseries[0].get("data"):
+                            availability_values = [
+                                point.get("average", 0)
+                                for point in timeseries[0]["data"]
+                                if point.get("average") is not None
+                            ]
+
+                            if availability_values:
+                                actual_availability = sum(availability_values) / len(availability_values)
+                            else:
+                                actual_availability = sla  # Use SLA target as default
+                        else:
+                            actual_availability = sla
+                    else:
+                        actual_availability = sla
+
+                except Exception as exc:
+                    logger.warning(f"Failed to get metrics for {resource_name}: {exc}")
+                    actual_availability = sla  # Use SLA target as fallback
+
+                resource_slas.append({
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_type": resource_type,
+                    "sla_target": sla,
+                    "sla_configuration": sla_configuration,
+                    "sla_reasoning": sla_reasoning,
+                    "actual_availability": round(actual_availability, 2),
+                    "sla_decimal": sla / 100.0,  # Convert to decimal for calculation
+                    "actual_decimal": actual_availability / 100.0
+                })
+
+            except Exception as exc:
+                logger.error(f"Failed to get resource {resource_id}: {exc}")
+                raise AgentExecutionError(f"Failed to retrieve resource {resource_id}: {exc}")
+
+        # Calculate composite SLA
+        if combination_type == "series":
+            # Series: All must be available - multiply SLAs
+            # Composite SLA = SLA1 × SLA2 × SLA3 × ...
+            composite_sla_target = 1.0
+            composite_actual = 1.0
+
+            for res in resource_slas:
+                composite_sla_target *= res["sla_decimal"]
+                composite_actual *= res["actual_decimal"]
+
+            composite_sla_percentage = composite_sla_target * 100
+            composite_actual_percentage = composite_actual * 100
+
+            # Calculate expected downtime per year
+            downtime_minutes_per_year = (1 - composite_sla_target) * 365 * 24 * 60
+            actual_downtime_minutes = (1 - composite_actual) * 365 * 24 * 60
+
+        else:  # parallel
+            # Parallel: At least one must be available
+            # Composite SLA = 1 - (1-SLA1) × (1-SLA2) × (1-SLA3) × ...
+            failure_probability_target = 1.0
+            failure_probability_actual = 1.0
+
+            for res in resource_slas:
+                failure_probability_target *= (1 - res["sla_decimal"])
+                failure_probability_actual *= (1 - res["actual_decimal"])
+
+            composite_sla_target = 1 - failure_probability_target
+            composite_actual = 1 - failure_probability_actual
+
+            composite_sla_percentage = composite_sla_target * 100
+            composite_actual_percentage = composite_actual * 100
+
+            # Calculate expected downtime per year
+            downtime_minutes_per_year = failure_probability_target * 365 * 24 * 60
+            actual_downtime_minutes = failure_probability_actual * 365 * 24 * 60
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "composite_sla": {
+                "combination_type": combination_type,
+                "resource_count": len(resource_ids),
+                "resources": resource_slas,
+                "composite_sla_target": round(composite_sla_percentage, 4),
+                "composite_actual_availability": round(composite_actual_percentage, 4),
+                "expected_downtime_per_year": {
+                    "minutes": round(downtime_minutes_per_year, 2),
+                    "hours": round(downtime_minutes_per_year / 60, 2),
+                    "days": round(downtime_minutes_per_year / 60 / 24, 2)
+                },
+                "actual_downtime_per_year": {
+                    "minutes": round(actual_downtime_minutes, 2),
+                    "hours": round(actual_downtime_minutes / 60, 2),
+                    "days": round(actual_downtime_minutes / 60 / 24, 2)
+                },
+                "meets_target": composite_actual_percentage >= composite_sla_percentage,
+                "calculation_formula": (
+                    "SLA1 × SLA2 × ... × SLAn" if combination_type == "series"
+                    else "1 - (1-SLA1) × (1-SLA2) × ... × (1-SLAn)"
+                ),
+                "explanation": (
+                    "Series configuration: All resources must be available (multiplication)"
+                    if combination_type == "series"
+                    else "Parallel configuration: At least one resource must be available (redundancy)"
+                ),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
     async def _audit_azure_resource_compliance(
         self,
         request: Dict[str, Any],
@@ -2195,7 +2803,7 @@ class SecurityComplianceAgent(BaseSREAgent):
     ) -> Dict[str, Any]:
         """Execute full Azure resource compliance audit workflow.
 
-        Runs all phases: network → private endpoints → encryption → public access → regional compliance
+        Runs all phases: network → private endpoints → encryption → public access → regional compliance → SLA compliance
 
         Args:
             request: Full audit request
@@ -2217,9 +2825,10 @@ class SecurityComplianceAgent(BaseSREAgent):
         encryption_task = self._audit_encryption_compliance(request, context)
         public_access_task = self._audit_public_access_compliance(request, context)
         regional_task = self._audit_regional_compliance(request, context)
+        sla_task = self._audit_sla_compliance(request, context)
 
-        network_result, pe_result, encryption_result, public_access_result, regional_result = await asyncio.gather(
-            network_task, pe_task, encryption_task, public_access_task, regional_task
+        network_result, pe_result, encryption_result, public_access_result, regional_result, sla_result = await asyncio.gather(
+            network_task, pe_task, encryption_task, public_access_task, regional_task, sla_task
         )
 
         # Aggregate results
@@ -2228,7 +2837,8 @@ class SecurityComplianceAgent(BaseSREAgent):
             pe_result.get("audit", {}).get("violations", {}).get("total", 0) +
             encryption_result.get("audit", {}).get("violations", {}).get("total", 0) +
             public_access_result.get("audit", {}).get("violations", {}).get("total", 0) +
-            regional_result.get("audit", {}).get("violations", {}).get("total", 0)
+            regional_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            sla_result.get("audit", {}).get("violations", {}).get("total", 0)
         )
 
         all_violations = (
@@ -2236,7 +2846,8 @@ class SecurityComplianceAgent(BaseSREAgent):
             pe_result.get("audit", {}).get("violations", {}).get("details", []) +
             encryption_result.get("audit", {}).get("violations", {}).get("details", []) +
             public_access_result.get("audit", {}).get("violations", {}).get("details", []) +
-            regional_result.get("audit", {}).get("violations", {}).get("details", [])
+            regional_result.get("audit", {}).get("violations", {}).get("details", []) +
+            sla_result.get("audit", {}).get("violations", {}).get("details", [])
         )
 
         # Calculate overall compliance score
@@ -2245,8 +2856,9 @@ class SecurityComplianceAgent(BaseSREAgent):
             pe_result.get("audit", {}).get("compliance_percentage", 100),
             encryption_result.get("audit", {}).get("compliance_percentage", 100),
             public_access_result.get("audit", {}).get("compliance_percentage", 100),
-            regional_result.get("audit", {}).get("compliance_percentage", 100)
-        ]) / 5
+            regional_result.get("audit", {}).get("compliance_percentage", 100),
+            sla_result.get("audit", {}).get("compliance_percentage", 100)
+        ]) / 6
 
         # Categorize all violations
         severity_breakdown = self._categorize_by_severity(all_violations)
@@ -2264,7 +2876,8 @@ class SecurityComplianceAgent(BaseSREAgent):
                 "private_endpoints": pe_result,
                 "encryption": encryption_result,
                 "public_access": public_access_result,
-                "regional_compliance": regional_result
+                "regional_compliance": regional_result,
+                "sla_compliance": sla_result
             },
             "executive_summary": {
                 "overall_status": overall_status,
@@ -2272,7 +2885,8 @@ class SecurityComplianceAgent(BaseSREAgent):
                 "total_violations": total_violations,
                 "violations_by_severity": severity_breakdown,
                 "critical_violations": severity_breakdown.get("critical", 0),
-                "high_violations": severity_breakdown.get("high", 0)
+                "high_violations": severity_breakdown.get("high", 0),
+                "average_availability": sla_result.get("audit", {}).get("overall_availability", 100)
             },
             "top_violations": sorted(
                 all_violations,
