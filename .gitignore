@@ -78,9 +78,10 @@ tests/
 # Virtual environments
 .venv/
 
-# pytest cache
+# test
 .pytest_cache/
 __pycache__/
+tests/
 
 # Project TODO file
 # Ignore TODO.md in any directory
@@ -97,7 +98,6 @@ litellm/
 
 # claude code related files
 .claude/
-.design/
 CLAUDE.md
 
 # github
