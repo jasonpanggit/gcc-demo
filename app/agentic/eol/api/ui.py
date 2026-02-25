@@ -201,9 +201,9 @@ async def inventory_assistant_ui(request: Request):
         request: FastAPI Request object
     
     Returns:
-        HTMLResponse with rendered inventory_asst.html template.
+        HTMLResponse with rendered inventory-asst.html template.
     """
-    return templates.TemplateResponse(request, "inventory_asst.html")
+    return templates.TemplateResponse(request, "inventory-asst.html")
 
 
 @router.get("/alerts", response_class=HTMLResponse)
@@ -455,9 +455,9 @@ async def resource_inventory_ui(request: Request):
         request: FastAPI Request object
 
     Returns:
-        HTMLResponse with rendered resource_inventory.html template.
+        HTMLResponse with rendered resource-inventory.html template.
     """
-    return templates.TemplateResponse(request, "resource_inventory.html")
+    return templates.TemplateResponse(request, "resource-inventory.html")
 
 
 @router.get("/visualizations", response_class=HTMLResponse)

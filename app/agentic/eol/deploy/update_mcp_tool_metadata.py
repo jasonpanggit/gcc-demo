@@ -9,7 +9,7 @@ Usage:
     python app/agentic/eol/deploy/update_mcp_tool_metadata.py
 
 The script writes JSON output to
-    app/agentic/eol/static/data/azure_mcp_tool_metadata.json
+    app/agentic/eol/static/data/azure-mcp-tool-metadata.json
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ OUTPUT_PATH = (
     .parent
     / "static"
     / "data"
-    / "azure_mcp_tool_metadata.json"
+    / "azure-mcp-tool-metadata.json"
 )
 USER_AGENT = (
     "Mozilla/5.0 (compatible; AzureMcpMetadataBot/1.0; "

@@ -14,7 +14,7 @@ const { spawn } = require('child_process');
 const childArgs = process.argv.slice(2);
 
 if (childArgs.length === 0) {
-  console.error('Usage: node json_stdout_filter.js <command> [args...]');
+  console.error('Usage: node json-stdout-filter.js <command> [args...]');
   process.exit(1);
 }
 

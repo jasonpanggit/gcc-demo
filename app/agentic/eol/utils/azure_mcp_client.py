@@ -124,7 +124,7 @@ class AzureMCPClient:
                 Path(__file__).resolve().parent.parent
                 / "static"
                 / "js"
-                / "json_stdout_filter.js"
+                / "json-stdout-filter.js"
             )
 
             if wrapper_path.is_file():

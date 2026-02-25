@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/unified_chat.html" import render_chat, render_agent_comms, chat_init_script %}
+{% from "components/unified-chat.html" import render_chat, render_agent_comms, chat_init_script %}
 
 {% block title %}Azure MCP Server - Azure Agentic Platform{% endblock %}
 
@@ -1573,7 +1573,7 @@
         const selector = document.getElementById('tool-selector');
         const exampleSelector = document.getElementById('example-selector');
         try {
-            const response = await fetch('/static/data/azure_mcp_tool_metadata.json', { cache: 'no-store' });
+            const response = await fetch('/static/data/azure-mcp-tool-metadata.json', { cache: 'no-store' });
             const payload = await response.json();
             metadataTools = Array.isArray(payload.tools) ? payload.tools : [];
             metadataBySlug = {};
@@ -3167,7 +3167,7 @@
     }
 </style>
 
-<link rel="stylesheet" href="/static/css/agent_communication.css">
+<link rel="stylesheet" href="/static/css/agent-communication.css">
 
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>

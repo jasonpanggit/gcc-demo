@@ -61,7 +61,7 @@ from api.azure_ai_sre import router as azure_ai_sre_router
 from api.sre_orchestrator import router as sre_orchestrator_router
 from api.patch_management import router as patch_management_router
 
-# Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
+# Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
 INVENTORY_ASST_AVAILABLE = True  # Enable inventory assistant functionality with Microsoft Agent Framework orchestrator
 

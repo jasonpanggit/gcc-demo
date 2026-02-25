@@ -1,7 +1,7 @@
 """Tool manifests for Azure MCP server tools.
 
 Seeded from _TOOL_DISAMBIGUATION in mcp_composite_client.py and
-static/data/azure_mcp_tool_metadata.json.
+static/data/azure-mcp-tool-metadata.json.
 """
 from __future__ import annotations
 

@@ -9,7 +9,7 @@ Usage:
     python app/agentic/eol/deploy/update_monitor_community_metadata.py
 
 The script writes JSON output to:
-    app/agentic/eol/static/data/azure_monitor_community_metadata.json
+    app/agentic/eol/static/data/azure-monitor-community-metadata.json
 
 No GitHub token required - uses HTML scraping to avoid API rate limits.
 """
@@ -46,7 +46,7 @@ OUTPUT_PATH = (
     .parent
     / "static"
     / "data"
-    / "azure_monitor_community_metadata.json"
+    / "azure-monitor-community-metadata.json"
 )
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"

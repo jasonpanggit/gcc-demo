@@ -72,7 +72,7 @@ source ../../../../.venv/bin/activate
 python update_mcp_tool_metadata.py
 ```
 
-The script writes to `../static/data/azure_mcp_tool_metadata.json`, which the web app reads at runtime.
+The script writes to `../static/data/azure-mcp-tool-metadata.json`, which the web app reads at runtime.
 
 #### Azure Monitor Community Metadata
 
@@ -86,7 +86,7 @@ The script:
 - **Uses HTML scraping** (no GitHub API token needed)
 - Scrapes all 64 Azure service categories
 - Recursively explores subdirectories to find all resources
-- Generates: `../static/data/azure_monitor_community_metadata.json`
+- Generates: `../static/data/azure-monitor-community-metadata.json`
 - Takes 3-5 minutes to complete (scrapes ~200+ HTTP requests)
 
 This metadata file can be used by the UI to load resources instantly without making API calls on every page load.
