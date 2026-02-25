@@ -276,6 +276,8 @@ class EOLOrchestratorAgent:
                 result = close_method()
                 if asyncio.iscoroutine(result):
                     await result
+        except asyncio.CancelledError:
+            logger.debug("Agent close cancelled for %s", type(agent).__name__)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug(
                 "Ignored error while closing agent %s: %s",
@@ -296,7 +298,10 @@ class EOLOrchestratorAgent:
 
         close_coroutines = [self._maybe_aclose_agent(agent) for agent in self._iter_unique_agents()]
         if close_coroutines:
-            await asyncio.gather(*close_coroutines, return_exceptions=True)
+            try:
+                await asyncio.gather(*close_coroutines, return_exceptions=True)
+            except asyncio.CancelledError:
+                logger.debug("EOL orchestrator close interrupted by cancellation")
 
         logger.info("🧹 EOL orchestrator resources released")
 
@@ -666,30 +671,48 @@ class EOLOrchestratorAgent:
             if not effective_ignore_cache:
                 cached_eol = await eol_inventory.get(normalized_name, normalized_version)
                 if cached_eol:
-                    cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
-                    cached_eol["cache_hit"] = True
-                    cached_eol["cache_source"] = "cosmos_eol_table"
-                    cached_eol["elapsed_seconds"] = time.time() - start_time_main
-                    cached_eol["communications"] = self.get_recent_communications()
-
-                    await self.log_communication("eol_orchestrator", "eol_inventory_cache_hit", {
-                        "software_name": software_name,
-                        "version": version,
-                    }, cached_eol)
-
-                    self._track_eol_agent_response(
-                        agent_name=cached_eol.get("agent_used", "eol_inventory"),
-                        software_name=software_name,
-                        software_version=version,
-                        eol_result=cached_eol,
-                        response_time=time.time() - start_time_main,
-                        query_type="cosmos_eol_table",
+                    # Validate the cached record is actually useful.  Records written
+                    # before the agent fixes may have confidence=0 / no eol_date — those
+                    # are treated as a cache miss so the agents re-run and overwrite the
+                    # stale entry with correct data.
+                    cached_data = cached_eol.get("data") or {}
+                    cached_confidence = float(
+                        cached_data.get("confidence") or cached_eol.get("confidence") or 0
                     )
+                    cached_eol_date = cached_data.get("eol_date") or cached_eol.get("eol_date")
+                    if cached_confidence <= 0 or not cached_eol_date:
+                        logger.info(
+                            "⚠️ EOL inventory cache hit for %s %s is stale/empty "
+                            "(confidence=%.2f, eol_date=%s) — bypassing cache",
+                            software_name, version or "(any)", cached_confidence, cached_eol_date,
+                        )
+                        # Fall through to agents; on success the stale record will be
+                        # overwritten via upsert (which accepts higher-confidence data).
+                    else:
+                        cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
+                        cached_eol["cache_hit"] = True
+                        cached_eol["cache_source"] = "cosmos_eol_table"
+                        cached_eol["elapsed_seconds"] = time.time() - start_time_main
+                        cached_eol["communications"] = self.get_recent_communications()
 
-                    logger.info(
-                        "✅ EOL inventory cache hit for %s %s", software_name, version or "(any)"
-                    )
-                    return cached_eol
+                        await self.log_communication("eol_orchestrator", "eol_inventory_cache_hit", {
+                            "software_name": software_name,
+                            "version": version,
+                        }, cached_eol)
+
+                        self._track_eol_agent_response(
+                            agent_name=cached_eol.get("agent_used", "eol_inventory"),
+                            software_name=software_name,
+                            software_version=version,
+                            eol_result=cached_eol,
+                            response_time=time.time() - start_time_main,
+                            query_type="cosmos_eol_table",
+                        )
+
+                        logger.info(
+                            "✅ EOL inventory cache hit for %s %s", software_name, version or "(any)"
+                        )
+                        return cached_eol
             else:
                 await self.log_communication("eol_orchestrator", "cache_skip", {
                     "software_name": software_name,
@@ -744,7 +767,12 @@ class EOLOrchestratorAgent:
                         confidence = outcome.get("confidence", 0.0)
                         agent_name = outcome.get("agent_name", "unknown")
 
-                        if result and self._version_matches_exact(result, version):
+                        if result and item_type == "os" and self._os_name_version_matches(result, software_name, version):
+                            if confidence > local_best_exact_conf:
+                                local_best_exact_result = result
+                                local_best_exact_conf = confidence
+                                local_best_exact_agent = agent_name
+                        elif result and self._version_matches_exact(result, version):
                             if confidence > local_best_exact_conf:
                                 local_best_exact_result = result
                                 local_best_exact_conf = confidence
@@ -779,7 +807,12 @@ class EOLOrchestratorAgent:
                         result = outcome.get("result")
                         confidence = outcome.get("confidence", 0.0)
                         agent_name = outcome.get("agent_name", "unknown")
-                        if result and self._version_matches_exact(result, version):
+                        if result and item_type == "os" and self._os_name_version_matches(result, software_name, version):
+                            if confidence > local_best_exact_conf:
+                                local_best_exact_result = result
+                                local_best_exact_conf = confidence
+                                local_best_exact_agent = agent_name
+                        elif result and self._version_matches_exact(result, version):
                             if confidence > local_best_exact_conf:
                                 local_best_exact_result = result
                                 local_best_exact_conf = confidence
@@ -1219,6 +1252,37 @@ class EOLOrchestratorAgent:
         result_norm = self._normalize_version(str(result_version))
         return bool(query_norm and result_norm and query_norm == result_norm)
 
+    def _os_name_version_matches(self, result: Dict[str, Any], software_name: str, version: Optional[str]) -> bool:
+        """Match OS results using normalized OS name + version.
+
+        This is intentionally more tolerant than strict version-field equality because
+        many OS sources embed version in the OS name while leaving the version field blank.
+        """
+        if not result or not software_name:
+            return False
+
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        result_name = data.get("software_name") or result.get("software_name") or ""
+        result_version = data.get("version") or result.get("version")
+
+        query_name_norm, query_version_norm = normalize_os_name_version(software_name, version)
+        result_name_norm, result_version_norm = normalize_os_name_version(str(result_name), result_version)
+
+        if not query_name_norm or not result_name_norm:
+            return False
+
+        # Name family must match (e.g., windows server vs windows)
+        if query_name_norm != result_name_norm:
+            return False
+
+        # If query has a version, require version match after normalization.
+        # normalize_os_name_version already extracts version from name when possible.
+        if query_version_norm:
+            return bool(result_version_norm and str(query_version_norm) == str(result_version_norm))
+
+        # If query version is empty, name family match is sufficient.
+        return True
+
     def _normalize_version(self, value: str) -> str:
         """Normalize version strings for comparison."""
         import re
@@ -1260,6 +1324,8 @@ class EOLOrchestratorAgent:
             try:
                 eol_date = datetime.fromisoformat(processed["eol_date"].replace('Z', '+00:00'))
                 now = datetime.now(timezone.utc)
+                if eol_date.tzinfo is None:
+                    eol_date = eol_date.replace(tzinfo=timezone.utc)
                 days_diff = (eol_date - now).days
                 
                 processed["days_until_eol"] = days_diff

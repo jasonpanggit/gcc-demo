@@ -171,6 +171,24 @@ function clearChat() {
 }
 
 /**
+ * Re-execute any <script> tags inside an element.
+ * innerHTML assignment does not run scripts; this helper clones and
+ * re-appends each script so Chart.js (and any other inline JS) fires.
+ */
+function executeScripts(element) {
+    const scripts = element.querySelectorAll('script');
+    scripts.forEach(function (oldScript) {
+        const newScript = document.createElement('script');
+        // Copy all attributes (src, type, …)
+        Array.from(oldScript.attributes).forEach(function (attr) {
+            newScript.setAttribute(attr.name, attr.value);
+        });
+        newScript.textContent = oldScript.textContent;
+        oldScript.parentNode.replaceChild(newScript, oldScript);
+    });
+}
+
+/**
  * Add message to chat
  */
 function addMessage(content, type = 'agent') {
@@ -212,6 +230,8 @@ function addMessage(content, type = 'agent') {
     `;
 
     chatHistory.appendChild(messageDiv);
+    // Execute any <script> tags injected via innerHTML (e.g. Chart.js charts)
+    executeScripts(messageDiv);
     chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 

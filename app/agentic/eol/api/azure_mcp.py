@@ -427,6 +427,51 @@ class MCPChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+# ============================================================================
+# PLAN INSPECTION (dry-run tool selection — no execution)
+# ============================================================================
+
+class PlanInspectRequest(BaseModel):
+    """Request model for dry-run plan inspection."""
+    message: str
+
+
+@router.post("/api/azure-mcp/inspect-plan", response_model=StandardResponse)
+@readonly_endpoint(agent_name="mcp_inspect_plan", timeout_seconds=30)
+async def inspect_plan(request: PlanInspectRequest):
+    """Dry-run Route→Retrieve→Plan (stages 1-3) without executing any tools.
+
+    Returns the matched domains, retrieved tool names, and execution plan so
+    that tool selection can be validated without side effects.
+
+    Requires MCP_AGENT_PIPELINE=true on the running instance.
+    """
+    try:
+        from agents.mcp_orchestrator import get_mcp_orchestrator
+
+        orchestrator = await get_mcp_orchestrator()
+        await orchestrator.ensure_mcp_ready()
+
+        result = await orchestrator.plan_for_query(request.message)
+
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+
+        return StandardResponse.success_response(
+            data=[result],
+            metadata={
+                "agent": "mcp_orchestrator",
+                "operation": "inspect_plan",
+                "query": request.message,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("inspect_plan error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/api/azure-mcp/chat", response_model=StandardResponse)
 @write_endpoint(agent_name="mcp_chat", timeout_seconds=300)
 async def mcp_chat(request: MCPChatRequest):

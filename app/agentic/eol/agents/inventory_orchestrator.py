@@ -27,7 +27,7 @@ else:
     DefaultAzureCredentialType = Any
 
 try:
-    from agent_framework import ChatMessage, ChatResponse  # type: ignore[import]
+    from agent_framework import Message as ChatMessage, ChatResponse  # type: ignore[import]  # ChatMessage renamed to Message in RC1
     _AGENT_FRAMEWORK_AVAILABLE = True
 except (ModuleNotFoundError, ImportError):
     _AGENT_FRAMEWORK_AVAILABLE = False

@@ -69,8 +69,11 @@ class BaseCosmosClient:
 
         try:
             credential = DefaultAzureCredential()
-            # validate token availability (best-effort)
-            credential.get_token('https://cosmos.azure.com/.default')
+            # Validate token availability (best-effort).
+            # Skip when COSMOS_SKIP_CREDENTIAL_VALIDATION=true (e.g. CI / mock mode)
+            # to prevent blocking in environments without Azure credentials.
+            if os.getenv("COSMOS_SKIP_CREDENTIAL_VALIDATION", "false").lower() != "true":
+                credential.get_token('https://cosmos.azure.com/.default')
 
             self.cosmos_client = CosmosClient(config.azure.cosmos_endpoint, credential=credential)
             self.database = self.cosmos_client.create_database_if_not_exists(id=config.azure.cosmos_database)
@@ -100,7 +103,9 @@ class BaseCosmosClient:
 
         try:
             credential = DefaultAzureCredential()
-            credential.get_token('https://cosmos.azure.com/.default')
+            # Skip credential validation when COSMOS_SKIP_CREDENTIAL_VALIDATION=true
+            if os.getenv("COSMOS_SKIP_CREDENTIAL_VALIDATION", "false").lower() != "true":
+                credential.get_token('https://cosmos.azure.com/.default')
 
             self.cosmos_client = CosmosClient(url=config.azure.cosmos_endpoint, credential=credential)
             self.database = self.cosmos_client.create_database_if_not_exists(id=config.azure.cosmos_database)
@@ -117,10 +122,16 @@ class BaseCosmosClient:
 
         This is synchronous and will try to initialize the base client first.
         Container references are cached to avoid repeated Cosmos DB calls.
+
+        Returns:
+            Container reference, or ``None`` when Cosmos DB is unavailable
+            (e.g. not configured, missing credentials, or disabled in test mode).
+            Callers should guard: ``if container is None: return``.
         """
         self._ensure_initialized()
         if not self.initialized:
-            raise RuntimeError('Cosmos base client not initialized')
+            logger.debug("get_container(%s): Cosmos not initialized, returning None", container_id)
+            return None
 
         # Check if container is already cached
         cache_key = f"{container_id}:{partition_path}:{offer_throughput}:{default_ttl or 'no-ttl'}"

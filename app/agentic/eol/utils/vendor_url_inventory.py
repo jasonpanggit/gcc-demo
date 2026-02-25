@@ -3,7 +3,9 @@ Cosmos-backed storage for vendor parser URLs and parse stats.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -58,7 +60,9 @@ class VendorUrlInventory:
             self.initialized = False
 
     def _build_id(self, vendor: str, url: str) -> str:
-        return f"{vendor}:{url}"
+        safe_vendor = re.sub(r"[^a-zA-Z0-9_-]", "_", (vendor or "unknown").strip())
+        url_hash = hashlib.sha256((url or "").encode("utf-8")).hexdigest()[:32]
+        return f"{safe_vendor}:{url_hash}"
 
     async def upsert_vendor_urls(self, vendor: str, urls: List[Dict[str, Any]], software_found: int, parsed_at: str) -> bool:
         await self.initialize()

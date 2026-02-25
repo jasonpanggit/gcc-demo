@@ -18,9 +18,9 @@
                 <button id="refreshBtn" class="btn btn-outline-light">
                     <i class="fas fa-rotate me-2"></i>Refresh
                 </button>
-                <!-- <button id="applyFilters" class="btn btn-light">
-                    <i class="fas fa-filter me-2"></i>Apply Filters
-                </button> -->
+                <button id="purgeAllBtn" class="btn btn-outline-danger">
+                    <i class="fas fa-trash-alt me-2"></i>Purge All Records
+                </button>
             </div>
         </div>
     </div>
@@ -139,6 +139,29 @@
         </div>
     </div>
 </div>
+
+<!-- Purge-all confirmation modal — must live at body level to avoid overflow clipping -->
+<div class="modal fade" id="purgeAllModal" tabindex="-1" aria-labelledby="purgeAllModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="purgeAllModalLabel"><i class="fas fa-exclamation-triangle me-2"></i>Purge All EOL Records</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>This will <strong>permanently delete every record</strong> from the Azure Cosmos EOL inventory table.</p>
+        <p class="mb-0 text-danger"><i class="fas fa-exclamation-circle me-1"></i>This action cannot be undone. Records will be re-populated as agents run fresh queries.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="purgeAllConfirmBtn">
+          <span id="purgeAllSpinner" class="spinner-border spinner-border-sm me-2" style="display:none;"></span>
+          Delete All
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -209,7 +232,12 @@
             }
 
             const items = payload.data || [];
-            const total = payload.count ?? 0;
+            const total = payload.metadata?.total_count
+                ?? payload.total_records
+                ?? payload.metadata?.total_records
+                ?? payload.metadata?.total
+                ?? payload.count
+                ?? 0;
             const totalPages = payload.metadata?.total_pages ?? 1;
             
             // Store for current page rendering
@@ -746,6 +774,62 @@
     }
     if (applyBtnSecondary) {
         applyBtnSecondary.addEventListener('click', loadTable);
+    }
+
+    // Purge-all flow
+    const purgeAllBtn = document.getElementById('purgeAllBtn');
+    const purgeAllConfirmBtn = document.getElementById('purgeAllConfirmBtn');
+    const purgeAllSpinner = document.getElementById('purgeAllSpinner');
+    let purgeAllModal = null;
+    if (typeof bootstrap !== 'undefined') {
+        purgeAllModal = new bootstrap.Modal(document.getElementById('purgeAllModal'));
+    }
+
+    if (purgeAllBtn) {
+        purgeAllBtn.addEventListener('click', () => {
+            if (purgeAllModal) {
+                purgeAllModal.show();
+            } else {
+                // Fallback if Bootstrap JS not loaded
+                if (confirm('Delete ALL EOL inventory records from Azure Cosmos? This cannot be undone.')) {
+                    executePurgeAll();
+                }
+            }
+        });
+    }
+
+    if (purgeAllConfirmBtn) {
+        purgeAllConfirmBtn.addEventListener('click', () => {
+            if (purgeAllModal) purgeAllModal.hide();
+            executePurgeAll();
+        });
+    }
+
+    async function executePurgeAll() {
+        setStatus('Purging all records...', 'bg-danger');
+        if (purgeAllSpinner) purgeAllSpinner.style.display = 'inline-block';
+        if (purgeAllBtn) purgeAllBtn.disabled = true;
+        try {
+            const resp = await fetch('/api/eol-inventory/purge-all', { method: 'POST' });
+            const payload = await resp.json();
+            if (!payload.success) {
+                alert(payload.error || 'Purge failed');
+                setStatus('Purge failed', 'bg-danger');
+                return;
+            }
+            const meta = (payload.data && payload.data[0]) || payload.metadata || {};
+            const deleted = meta.deleted ?? payload.deleted ?? '?';
+            setStatus(`Purged ${deleted} record(s)`, 'bg-success');
+            selectedRecords.clear();
+            await loadTable();
+        } catch (err) {
+            console.error('Purge all failed', err);
+            alert('Purge failed. Check console for details.');
+            setStatus('Purge failed', 'bg-danger');
+        } finally {
+            if (purgeAllSpinner) purgeAllSpinner.style.display = 'none';
+            if (purgeAllBtn) purgeAllBtn.disabled = false;
+        }
     }
 
     if (tableBody) {

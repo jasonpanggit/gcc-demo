@@ -8,6 +8,12 @@
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.min.css">
 <style>
+html:not(.dark-mode) #status-bar #badge-total {
+    background: var(--gray-200) !important;
+    border: 1px solid var(--gray-300) !important;
+    color: var(--gray-800) !important;
+}
+
 html.dark-mode #status-bar .badge.bg-secondary,
 html.dark-mode #status-bar .badge.bg-success,
 html.dark-mode #status-bar .badge.bg-primary {
@@ -20,6 +26,19 @@ html.dark-mode .dataTables_wrapper .dataTables_filter,
 html.dark-mode .dataTables_wrapper .dataTables_info,
 html.dark-mode .dataTables_wrapper .dataTables_paginate {
     color: var(--gray-100) !important;
+}
+
+html.dark-mode .dataTables_wrapper .dataTables_filter label,
+html.dark-mode .dataTables_wrapper .dataTables_length label,
+html.dark-mode .filter-card .form-label {
+    color: var(--gray-100) !important;
+}
+
+html.dark-mode #resource-table_wrapper .dataTables_filter,
+html.dark-mode #resource-table_wrapper .dataTables_filter label,
+html.dark-mode #resource-table_wrapper .dataTables_length,
+html.dark-mode #resource-table_wrapper .dataTables_length label {
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .dataTables_wrapper input,
@@ -36,6 +55,23 @@ html.dark-mode .dataTables_wrapper .page-item .page-link {
     background: var(--gray-700) !important;
     border-color: var(--gray-600) !important;
     color: var(--gray-100) !important;
+}
+
+html.dark-mode .filter-card .input-group-text {
+    background: var(--gray-700) !important;
+    border-color: var(--gray-600) !important;
+    color: var(--gray-100) !important;
+}
+
+html.dark-mode .filter-card #search-bar {
+    background: var(--gray-700) !important;
+    border-color: var(--gray-600) !important;
+    color: var(--gray-100) !important;
+}
+
+html.dark-mode .filter-card #search-bar::placeholder {
+    color: var(--gray-300) !important;
+    opacity: 1;
 }
 </style>
 {% endblock %}
@@ -85,17 +121,159 @@ html.dark-mode .dataTables_wrapper .page-item .page-link {
                                 <label class="form-label form-label-sm mb-0">Resource Type</label>
                                 <select id="filter-resource-type" class="form-select form-select-sm">
                                     <option value="">-- All Types (load first) --</option>
-                                    <option value="Microsoft.Compute/virtualMachines">Virtual Machines</option>
-                                    <option value="Microsoft.Network/virtualNetworks">Virtual Networks</option>
-                                    <option value="Microsoft.Storage/storageAccounts">Storage Accounts</option>
-                                    <option value="Microsoft.Web/sites">App Services</option>
-                                    <option value="Microsoft.ContainerService/managedClusters">AKS Clusters</option>
-                                    <option value="Microsoft.App/containerApps" selected>Container Apps</option>
-                                    <option value="Microsoft.Sql/servers">SQL Servers</option>
-                                    <option value="Microsoft.KeyVault/vaults">Key Vaults</option>
-                                    <option value="Microsoft.Network/networkSecurityGroups">NSGs</option>
-                                    <option value="Microsoft.Network/loadBalancers">Load Balancers</option>
-                                    <option value="Microsoft.DocumentDB/databaseAccounts">Cosmos DB</option>
+                                    <!-- Compute -->
+                                    <optgroup label="Compute">
+                                        <option value="Microsoft.Compute/virtualMachines">Virtual Machines</option>
+                                        <option value="Microsoft.Compute/virtualMachineScaleSets">VM Scale Sets</option>
+                                        <option value="Microsoft.Compute/disks">Managed Disks</option>
+                                        <option value="Microsoft.Compute/snapshots">Snapshots</option>
+                                        <option value="Microsoft.Compute/images">VM Images</option>
+                                        <option value="Microsoft.Compute/availabilitySets">Availability Sets</option>
+                                        <option value="Microsoft.Compute/galleries">Shared Image Galleries</option>
+                                        <option value="Microsoft.Compute/capacityReservationGroups">Capacity Reservation Groups</option>
+                                    </optgroup>
+                                    <!-- Containers -->
+                                    <optgroup label="Containers">
+                                        <option value="Microsoft.App/containerApps" selected>Container Apps</option>
+                                        <option value="Microsoft.App/managedEnvironments">Container App Environments</option>
+                                        <option value="Microsoft.ContainerService/managedClusters">AKS Clusters</option>
+                                        <option value="Microsoft.ContainerRegistry/registries">Container Registries (ACR)</option>
+                                        <option value="Microsoft.ContainerInstance/containerGroups">Container Instances</option>
+                                        <option value="Microsoft.Kubernetes/connectedClusters">Arc-enabled Kubernetes</option>
+                                        <option value="Microsoft.KubernetesConfiguration/extensions">AKS Extensions</option>
+                                    </optgroup>
+                                    <!-- App Services & Functions -->
+                                    <optgroup label="App Services &amp; Functions">
+                                        <option value="Microsoft.Web/sites">App Services / Function Apps</option>
+                                        <option value="Microsoft.Web/serverFarms">App Service Plans</option>
+                                        <option value="Microsoft.Web/staticSites">Static Web Apps</option>
+                                        <option value="Microsoft.Web/hostingEnvironments">App Service Environments (ASE)</option>
+                                        <option value="Microsoft.Web/certificates">App Service Certificates</option>
+                                        <option value="Microsoft.Web/connections">API Connections</option>
+                                        <option value="Microsoft.Logic/workflows">Logic Apps</option>
+                                    </optgroup>
+                                    <!-- Networking -->
+                                    <optgroup label="Networking">
+                                        <option value="Microsoft.Network/virtualNetworks">Virtual Networks</option>
+                                        <option value="Microsoft.Network/virtualNetworkPeerings">VNet Peerings</option>
+                                        <option value="Microsoft.Network/networkInterfaces">Network Interfaces</option>
+                                        <option value="Microsoft.Network/networkSecurityGroups">Network Security Groups</option>
+                                        <option value="Microsoft.Network/publicIPAddresses">Public IP Addresses</option>
+                                        <option value="Microsoft.Network/publicIPPrefixes">Public IP Prefixes</option>
+                                        <option value="Microsoft.Network/privateDnsZones">Private DNS Zones</option>
+                                        <option value="Microsoft.Network/dnsZones">DNS Zones</option>
+                                        <option value="Microsoft.Network/loadBalancers">Load Balancers</option>
+                                        <option value="Microsoft.Network/applicationGateways">Application Gateways</option>
+                                        <option value="Microsoft.Network/frontDoors">Front Doors (Classic)</option>
+                                        <option value="Microsoft.Cdn/profiles">Front Door &amp; CDN Profiles</option>
+                                        <option value="Microsoft.Network/trafficManagerProfiles">Traffic Manager Profiles</option>
+                                        <option value="Microsoft.Network/azureFirewalls">Azure Firewalls</option>
+                                        <option value="Microsoft.Network/firewallPolicies">Firewall Policies</option>
+                                        <option value="Microsoft.Network/virtualNetworkGateways">VPN / ER Gateways</option>
+                                        <option value="Microsoft.Network/expressRouteCircuits">ExpressRoute Circuits</option>
+                                        <option value="Microsoft.Network/expressRouteGateways">ExpressRoute Gateways</option>
+                                        <option value="Microsoft.Network/localNetworkGateways">Local Network Gateways</option>
+                                        <option value="Microsoft.Network/connections">VPN Connections</option>
+                                        <option value="Microsoft.Network/virtualWans">Virtual WANs</option>
+                                        <option value="Microsoft.Network/virtualHubs">Virtual Hubs</option>
+                                        <option value="Microsoft.Network/routeTables">Route Tables</option>
+                                        <option value="Microsoft.Network/natGateways">NAT Gateways</option>
+                                        <option value="Microsoft.Network/privateEndpoints">Private Endpoints</option>
+                                        <option value="Microsoft.Network/privateLinkServices">Private Link Services</option>
+                                        <option value="Microsoft.Network/bastionHosts">Bastion Hosts</option>
+                                        <option value="Microsoft.Network/ddosProtectionPlans">DDoS Protection Plans</option>
+                                        <option value="Microsoft.Network/networkWatchers">Network Watchers</option>
+                                        <option value="Microsoft.Network/serviceEndpointPolicies">Service Endpoint Policies</option>
+                                    </optgroup>
+                                    <!-- Storage -->
+                                    <optgroup label="Storage">
+                                        <option value="Microsoft.Storage/storageAccounts">Storage Accounts</option>
+                                        <option value="Microsoft.NetApp/netAppAccounts">NetApp Accounts</option>
+                                        <option value="Microsoft.StorageSync/storageSyncServices">Azure File Sync</option>
+                                        <option value="Microsoft.DataShare/accounts">Data Share Accounts</option>
+                                    </optgroup>
+                                    <!-- Databases -->
+                                    <optgroup label="Databases">
+                                        <option value="Microsoft.Sql/servers">SQL Servers</option>
+                                        <option value="Microsoft.Sql/servers/databases">SQL Databases</option>
+                                        <option value="Microsoft.Sql/managedInstances">SQL Managed Instances</option>
+                                        <option value="Microsoft.DocumentDB/databaseAccounts">Cosmos DB</option>
+                                        <option value="Microsoft.Cache/redis">Azure Cache for Redis</option>
+                                        <option value="Microsoft.Cache/redisEnterprise">Redis Enterprise</option>
+                                        <option value="Microsoft.DBforMySQL/flexibleServers">MySQL Flexible Servers</option>
+                                        <option value="Microsoft.DBforPostgreSQL/flexibleServers">PostgreSQL Flexible Servers</option>
+                                        <option value="Microsoft.DBforMariaDB/servers">MariaDB Servers</option>
+                                        <option value="Microsoft.Synapse/workspaces">Synapse Workspaces</option>
+                                        <option value="Microsoft.DataFactory/factories">Data Factories</option>
+                                        <option value="Microsoft.Kusto/clusters">Azure Data Explorer (Kusto)</option>
+                                        <option value="Microsoft.AnalysisServices/servers">Analysis Services</option>
+                                        <option value="Microsoft.DataBricks/workspaces">Databricks Workspaces</option>
+                                    </optgroup>
+                                    <!-- AI & Cognitive Services -->
+                                    <optgroup label="AI &amp; Cognitive Services">
+                                        <option value="Microsoft.CognitiveServices/accounts">Cognitive Services / Azure AI</option>
+                                        <option value="Microsoft.Search/searchServices">Azure AI Search</option>
+                                        <option value="Microsoft.MachineLearningServices/workspaces">Azure ML / AI Foundry</option>
+                                        <option value="Microsoft.BotService/botServices">Bot Services</option>
+                                    </optgroup>
+                                    <!-- Integration & Messaging -->
+                                    <optgroup label="Integration &amp; Messaging">
+                                        <option value="Microsoft.ServiceBus/namespaces">Service Bus Namespaces</option>
+                                        <option value="Microsoft.EventHub/namespaces">Event Hub Namespaces</option>
+                                        <option value="Microsoft.EventGrid/topics">Event Grid Topics</option>
+                                        <option value="Microsoft.EventGrid/domains">Event Grid Domains</option>
+                                        <option value="Microsoft.EventGrid/systemTopics">Event Grid System Topics</option>
+                                        <option value="Microsoft.ApiManagement/service">API Management</option>
+                                        <option value="Microsoft.SignalRService/signalR">SignalR Service</option>
+                                        <option value="Microsoft.NotificationHubs/namespaces">Notification Hub Namespaces</option>
+                                        <option value="Microsoft.Relay/namespaces">Relay Namespaces</option>
+                                    </optgroup>
+                                    <!-- Security & Identity -->
+                                    <optgroup label="Security &amp; Identity">
+                                        <option value="Microsoft.KeyVault/vaults">Key Vaults</option>
+                                        <option value="Microsoft.KeyVault/managedHSMs">Managed HSMs</option>
+                                        <option value="Microsoft.ManagedIdentity/userAssignedIdentities">User Assigned Identities</option>
+                                        <option value="Microsoft.Security/pricings">Defender for Cloud Plans</option>
+                                        <option value="Microsoft.Authorization/roleAssignments">Role Assignments</option>
+                                    </optgroup>
+                                    <!-- Monitoring & Management -->
+                                    <optgroup label="Monitoring &amp; Management">
+                                        <option value="Microsoft.Insights/components">Application Insights</option>
+                                        <option value="Microsoft.OperationalInsights/workspaces">Log Analytics Workspaces</option>
+                                        <option value="Microsoft.Insights/actionGroups">Action Groups</option>
+                                        <option value="Microsoft.Insights/metricAlerts">Metric Alerts</option>
+                                        <option value="Microsoft.Insights/scheduledQueryRules">Log Alert Rules</option>
+                                        <option value="Microsoft.Insights/workbooks">Azure Workbooks</option>
+                                        <option value="Microsoft.Insights/dataCollectionRules">Data Collection Rules</option>
+                                        <option value="Microsoft.Dashboard/grafana">Managed Grafana</option>
+                                        <option value="Microsoft.Automation/automationAccounts">Automation Accounts</option>
+                                        <option value="Microsoft.RecoveryServices/vaults">Recovery Services Vaults</option>
+                                        <option value="Microsoft.Maintenance/maintenanceConfigurations">Maintenance Configurations</option>
+                                    </optgroup>
+                                    <!-- DevOps & Developer Tools -->
+                                    <optgroup label="DevOps &amp; Developer Tools">
+                                        <option value="Microsoft.DevCenter/devcenters">Dev Centers</option>
+                                        <option value="Microsoft.DevCenter/projects">Dev Center Projects</option>
+                                        <option value="Microsoft.AppConfiguration/configurationStores">App Configuration</option>
+                                        <option value="Microsoft.ServiceLinker/linkers">Service Connectors</option>
+                                    </optgroup>
+                                    <!-- Arc & Hybrid -->
+                                    <optgroup label="Arc &amp; Hybrid">
+                                        <option value="Microsoft.HybridCompute/machines">Arc-enabled Servers</option>
+                                        <option value="Microsoft.AzureArcData/sqlServerInstances">Arc SQL Server Instances</option>
+                                        <option value="Microsoft.AzureArcData/postgresInstances">Arc PostgreSQL Instances</option>
+                                        <option value="Microsoft.HybridConnectivity/endpoints">Hybrid Connectivity Endpoints</option>
+                                    </optgroup>
+                                    <!-- Resource Management -->
+                                    <optgroup label="Resource Management">
+                                        <option value="Microsoft.Resources/resourceGroups">Resource Groups</option>
+                                        <option value="Microsoft.Resources/subscriptions">Subscriptions</option>
+                                        <option value="Microsoft.Management/managementGroups">Management Groups</option>
+                                        <option value="Microsoft.Resources/deployments">Deployments</option>
+                                        <option value="Microsoft.Blueprint/blueprints">Blueprints</option>
+                                        <option value="Microsoft.PolicyInsights/policyStates">Policy States</option>
+                                        <option value="Microsoft.Advisor/recommendations">Advisor Recommendations</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <div class="col-md-2">

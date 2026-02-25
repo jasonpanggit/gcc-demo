@@ -17,7 +17,10 @@ Example:
     'inventory'
 """
 import re
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from utils.sre_tool_registry import SREDomain
 
 
 class QueryPatterns:
@@ -85,6 +88,176 @@ class QueryPatterns:
         r'softwares?\s+installed\s+on',
         r'applications?\s+installed\s+on'
     ]
+
+    # ── Domain intent patterns for MCP tool routing ──
+    # Each domain maps to MCP tool sources the orchestrator should include.
+    # Patterns are matched as simple substring (lowercase) for low-latency classification.
+
+    SRE_PATTERNS = [
+        'health check', 'resource health', 'check health', 'incident', 'triage',
+        'troubleshoot', 'diagnose', 'diagnostic', 'remediation', 'remediate',
+        'restart', 'scale resource', 'bottleneck', 'performance metric',
+        'performance issue', 'postmortem', 'root cause', 'mttr',
+        'dora metric', 'alert correlation', 'correlate alert',
+        'error log', 'search logs', 'log analysis',
+        'container app health', 'aks health', 'app service health',
+        'check_resource_health', 'triage_incident',
+        'safe restart', 'execute restart', 'execute scale',
+        'teams notification', 'teams alert', 'on-call',
+        'plan remediation', 'remediation plan',
+        'resource dependency', 'dependency chain',
+        'capacity recommend', 'baseline metric',
+        # High-signal incident/health terms
+        '503', '500', '504', 'timeout', 'latency', 'unavailable',
+        'outage', 'degraded', 'failure rate', 'error rate',
+        'oom', 'out of memory', 'memory leak',
+        'replica', 'replicas', 'crashloop', 'crashloopbackoff',
+        'pod', 'container restart', 'service down', 'not responding',
+    ]
+
+    COST_PATTERNS = [
+        'cost', 'spending', 'spend', 'budget', 'billing',
+        'orphaned resource', 'unused resource', 'idle resource',
+        'cost optim', 'cost recommend', 'cost analysis', 'cost anomal',
+        'right-sizing', 'reserved instance', 'savings',
+        'cost breakdown', 'cost spike',
+    ]
+
+    SECURITY_PATTERNS = [
+        'security score', 'secure score', 'security posture',
+        'security recommend', 'compliance', 'cis benchmark',
+        'nist', 'pci-dss', 'pci dss', 'azure policy',
+        'defender for cloud', 'security finding',
+        'vulnerability', 'attack surface',
+    ]
+
+    SLO_PATTERNS = [
+        'slo', 'sli', 'service level', 'error budget',
+        'burn rate', 'reliability target', 'availability target',
+        'latency target', 'uptime', 'nines', '99.9', '99.99', '99.999',
+        'three nines', 'four nines', 'five nines',
+    ]
+
+    MONITORING_PATTERNS = [
+        'workbook', 'monitor resource', 'monitoring',
+        'kql query', 'kql', 'log analytics query',
+        'alert rule', 'scheduled query', 'monitor community',
+        'azure monitor', 'deploy workbook', 'deploy alert',
+        'deploy query', 'saved search',
+    ]
+
+    APP_INSIGHTS_PATTERNS = [
+        'app insights', 'application insights', 'distributed trac',
+        'trace', 'operation id', 'request telemetry',
+        'dependency map', 'service dependency', 'p95', 'p99',
+        'request latency', 'failure rate',
+    ]
+
+    RESOURCE_MANAGEMENT_PATTERNS = [
+        'subscription', 'resource group', 'list resource',
+        'show resource', 'azure resource', 'tenant',
+        'virtual machine', 'virtual network', 'storage account', 'key vault',
+        'network security', 'vnet', 'subnet', 'nsg',
+        'load balancer', 'public ip', 'dns', 'route table',
+        'app service plan', 'function app',
+        'container registry', 'acr',
+        'event hub', 'service bus',
+        'cosmos', 'sql database', 'mysql', 'postgres',
+        'resource groups', 'vnets', 'subnets',
+    ]
+
+    NETWORK_PATTERNS = [
+        'virtual network', 'vnet', 'vnets', 'subnet', 'subnets',
+        'nsg', 'network security group',
+        'route table', 'udr', 'effective route',
+        'vpn gateway', 'express route', 'expressroute',
+        'app gateway', 'application gateway', 'waf',
+        'private endpoint', 'private link',
+        'dns resolution', 'dns lookup',
+        'network connectivity', 'connectivity test',
+        'peering', 'vnet peering',
+        'firewall', 'azure firewall',
+        'load balancer', 'public ip', 'network interface',
+    ]
+
+    CLI_PATTERNS = [
+        'container app', 'containerapp',
+        'az command', 'az cli', 'run command',
+        'avd', 'virtual desktop', 'hostpool',
+    ]
+
+    CAPABILITIES_PATTERNS = [
+        'what can you', 'what can you do', 'what can you help',
+        'capabilities', 'help me with', 'what do you do',
+        'example prompt', 'how to use', 'available tools',
+        'what tools', 'show capabilities', 'describe capabilities',
+        'what are you', 'what are your',
+    ]
+
+    # Map domain → MCP source labels that should be included
+    # when that domain is detected. "always" sources are included regardless.
+    # 'meta' includes monitor_agent and sre_agent meta-tools.
+    DOMAIN_SOURCE_MAP: Dict[str, List[str]] = {
+        'sre':                 ['sre', 'azure_cli', 'meta'],
+        'cost':                ['sre', 'meta'],
+        'security':            ['sre', 'meta'],
+        'slo':                 ['sre', 'meta'],
+        'app_insights':        ['sre', 'meta'],
+        'monitoring':          ['monitor', 'azure_cli', 'meta'],
+        'eol':                 ['os_eol', 'inventory'],
+        'inventory':           ['inventory', 'os_eol'],
+        'resource_management': ['azure', 'azure_cli'],
+        'network':             ['network', 'azure'],
+        'cli':                 ['azure_cli'],
+        'capabilities':        ['meta'],
+    }
+
+    # Sources to always include (meta-tools, general discovery)
+    ALWAYS_INCLUDE_SOURCES: List[str] = []  # populated by ToolRouter with meta-tools
+
+    @classmethod
+    def classify_domains(cls, query: str) -> Dict[str, bool]:
+        """Classify which operational domains a query belongs to.
+
+        Returns a dict of domain_name → bool for all known domains.
+        Multiple domains can be True simultaneously (e.g., a cost + SRE query).
+        """
+        q = query.lower()
+
+        return {
+            'sre': any(p in q for p in cls.SRE_PATTERNS),
+            'cost': any(p in q for p in cls.COST_PATTERNS),
+            'security': any(p in q for p in cls.SECURITY_PATTERNS),
+            'slo': any(p in q for p in cls.SLO_PATTERNS),
+            'monitoring': any(p in q for p in cls.MONITORING_PATTERNS),
+            'app_insights': any(p in q for p in cls.APP_INSIGHTS_PATTERNS),
+            'eol': cls.matches_eol_pattern(query) or cls.matches_approaching_eol_pattern(query),
+            'inventory': cls.matches_inventory_pattern(query),
+            'resource_management': any(p in q for p in cls.RESOURCE_MANAGEMENT_PATTERNS),
+            'network': any(p in q for p in cls.NETWORK_PATTERNS),
+            'cli': any(p in q for p in cls.CLI_PATTERNS),
+            'capabilities': any(p in q for p in cls.CAPABILITIES_PATTERNS),
+        }
+
+    @classmethod
+    def get_relevant_sources(cls, query: str) -> List[str]:
+        """Return the list of MCP source labels relevant to the query.
+
+        If no domain matches (ambiguous/novel query), returns an empty list
+        which signals the caller to include ALL sources (no filtering).
+        """
+        domains = cls.classify_domains(query)
+        active_domains = [d for d, active in domains.items() if active]
+
+        if not active_domains:
+            return []  # No confident match → caller should use full catalog
+
+        sources: set[str] = set()
+        for domain in active_domains:
+            for src in cls.DOMAIN_SOURCE_MAP.get(domain, []):
+                sources.add(src)
+
+        return sorted(sources)
     
     @classmethod
     def matches_eol_pattern(cls, query: str) -> bool:
@@ -222,6 +395,52 @@ class QueryPatterns:
                 use_regex=True,
             ),
         }
+
+
+
+def classify_sre_domain(query: str) -> "SREDomain":
+    """Map a user query to its primary SREDomain for tool-subset selection.
+
+    Uses QueryPatterns.classify_domains() (cheap substring matching) to detect
+    the dominant SRE sub-domain.  Falls back to GENERAL when ambiguous.
+
+    Returns:
+        SREDomain enum value.  Deferred import so callers without SREToolRegistry
+        installed do not see an ImportError at module load time.
+    """
+    try:
+        try:
+            from app.agentic.eol.utils.sre_tool_registry import SREDomain
+        except ModuleNotFoundError:
+            from utils.sre_tool_registry import SREDomain  # type: ignore[import-not-found]
+    except Exception:
+        # If SREDomain is not available, return a sentinel string the caller
+        # can handle (sre_orchestrator always guards with hasattr checks).
+        return "general"  # type: ignore[return-value]
+
+    q = query.lower()
+    domains = QueryPatterns.classify_domains(query)
+
+    # Priority order mirrors SREGateway's triage heuristic:
+    # incident > health > performance > rca > cost/security > remediation
+    if domains.get("sre"):
+        # Refine within SRE using tighter sub-domain signals
+        if any(p in q for p in ("root cause", "rca", "postmortem", "post-mortem", "why did", "cause of", "trace dependency")):
+            return SREDomain.RCA
+        if any(p in q for p in ("restart", "remediation", "remediate", "scale", "fix it", "fix this", "resolve", "rollback", "clear cache")):
+            return SREDomain.REMEDIATION
+        if any(p in q for p in ("incident", "triage", "alert", "outage", "error log", "log search", "failed request", "spike", "exception")):
+            return SREDomain.INCIDENT
+        if any(p in q for p in ("performance", "slow", "latency", "p95", "p99", "cpu", "memory", "bottleneck", "throughput", "anomaly", "burn rate")):
+            return SREDomain.PERFORMANCE
+        if any(p in q for p in ("health", "up", "down", "unavailable", "503", "500", "504", "timeout", "status", "diagnostic")):
+            return SREDomain.HEALTH
+        return SREDomain.GENERAL
+
+    if domains.get("cost") or domains.get("security"):
+        return SREDomain.COST_SECURITY
+
+    return SREDomain.GENERAL
 
 
 # Convenience functions for backward compatibility

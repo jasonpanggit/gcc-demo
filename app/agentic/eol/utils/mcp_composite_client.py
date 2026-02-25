@@ -52,11 +52,46 @@ _SOURCE_GUIDANCE: Dict[str, str] = {
         "and remediation planning (plan_remediation). "
         "NEVER use the 'speech' tool for SRE operations."
     ),
+    "network": (
+        " [Azure Network Diagnostics] Read-only network topology and connectivity diagnostics: "
+        "VNet inspection, NSG rule analysis, effective routes, Network Watcher connectivity tests, "
+        "App Gateway/WAF diagnostics, VPN/ExpressRoute status, and Private DNS Zone lookup. "
+        "Use for: connectivity issues between resources, 502/503 from App Gateway, "
+        "hybrid connectivity problems, DNS resolution failures, and NSG rule audits. "
+        "All tools are read-only — no network resources are modified."
+    ),
 }
 
 # Per-tool disambiguation: extra text appended to specific tools that the LLM
 # frequently confuses with other Azure services.  Keyed by tool name substring.
 _TOOL_DISAMBIGUATION: Dict[str, str] = {
+    # === Identity / RBAC Disambiguation ===
+    "role": (
+        " ⚠️ This is for Azure RBAC role assignments and role definitions (IAM/identity). "
+        "NOT for listing subscriptions or resource inventories. "
+        "To list subscriptions: use the 'subscriptions' tool. "
+        "Only call this tool when the user asks about role assignments, permissions, or IAM."
+    ),
+    "subscriptions": (
+        " ✅ PRIMARY tool for listing Azure subscriptions. "
+        "Use this when the user asks to 'show my subscriptions', 'list subscriptions', or needs subscription names/IDs. "
+        "Returns real-time subscription data from Azure. Do NOT substitute 'role' or 'azd' for this."
+    ),
+
+    # === Azure Developer CLI Disambiguation ===
+    "azd": (
+        " ⚠️ This is the Azure Developer CLI (azd) tool for developer workflows: "
+        "provisioning, deploying, managing Azure Developer CLI projects and pipelines. "
+        "NOT for listing subscriptions, resource groups, or general Azure resource management. "
+        "To list subscriptions: use the 'subscriptions' tool. "
+        "To list resource groups: use the 'groups' tool."
+    ),
+    "documentation": (
+        " ⚠️ This tool fetches Microsoft Learn/Azure documentation pages and code samples. "
+        "NOT for Azure resource operations, listing resources, or any management tasks. "
+        "Only use this when the user explicitly asks to look up documentation or code examples."
+    ),
+
     # === Container Services Disambiguation ===
     "container_registries": (
         " ⚠️ This is for Azure Container REGISTRY (ACR), NOT Azure Container Apps. "

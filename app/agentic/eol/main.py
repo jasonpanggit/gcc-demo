@@ -59,6 +59,7 @@ from api.teams_bot import router as teams_bot_router
 from api.sre_audit import router as sre_audit_router
 from api.azure_ai_sre import router as azure_ai_sre_router
 from api.sre_orchestrator import router as sre_orchestrator_router
+from api.patch_management import router as patch_management_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory_asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -105,6 +106,7 @@ app.include_router(teams_bot_router)
 app.include_router(sre_audit_router)
 app.include_router(azure_ai_sre_router)
 app.include_router(sre_orchestrator_router)
+app.include_router(patch_management_router)  # Arc VM patch assessment
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -579,6 +581,8 @@ async def _run_shutdown_tasks():
             from utils.azure_mcp_client import cleanup_azure_mcp_client
             await cleanup_azure_mcp_client()
             logger.info("✅ Azure MCP client cleaned up")
+        except asyncio.CancelledError:
+            logger.debug("Azure MCP cleanup cancelled")
         except Exception as e:
             logger.debug(f"Azure MCP cleanup: {e}")
 
@@ -588,6 +592,8 @@ async def _run_shutdown_tasks():
                 await orchestrator.aclose()
                 orchestrator = None
                 logger.info("✅ EOL orchestrator resources released")
+        except asyncio.CancelledError:
+            logger.debug("EOL orchestrator cleanup cancelled")
         except Exception as e:
             logger.debug(f"EOL orchestrator cleanup: {e}")
 
@@ -600,8 +606,32 @@ async def _run_shutdown_tasks():
                 await instance.aclose()
                 _mcp_module._mcp_orchestrator_instance = None
                 logger.info("✅ MCP orchestrator resources released")
+        except asyncio.CancelledError:
+            logger.debug("MCP orchestrator cleanup cancelled")
         except Exception as e:
             logger.debug(f"MCP orchestrator cleanup: {e}")
+
+        # Cleanup SRE registry agents (proxy + specialists) to release MCP stdio clients
+        try:
+            from utils.agent_registry import get_agent_registry
+
+            registry = get_agent_registry()
+            registered_agents = registry.list_agents()
+            for agent_info in registered_agents:
+                agent_id = agent_info.get("agent_id")
+                if not agent_id:
+                    continue
+                try:
+                    await registry.unregister_agent(agent_id)
+                except asyncio.CancelledError:
+                    logger.debug("SRE registry cleanup cancelled for %s", agent_id)
+                except Exception as exc:
+                    logger.debug("SRE registry cleanup for %s failed: %s", agent_id, exc)
+
+            if registered_agents:
+                logger.info("✅ SRE registry agents cleaned up (%d)", len(registered_agents))
+        except Exception as e:
+            logger.debug(f"SRE registry cleanup: {e}")
 
         # Shutdown inventory scheduler
         try:
@@ -609,6 +639,8 @@ async def _run_shutdown_tasks():
             scheduler = get_inventory_scheduler()
             await scheduler.stop()
             logger.info("✅ Inventory scheduler stopped")
+        except asyncio.CancelledError:
+            logger.debug("Inventory scheduler cleanup cancelled")
         except Exception as e:
             logger.debug(f"Inventory scheduler cleanup: {e}")
             
@@ -617,6 +649,8 @@ async def _run_shutdown_tasks():
             from utils.playwright_pool import playwright_pool
             await playwright_pool.teardown()
             logger.info("✅ Playwright pool torn down")
+        except asyncio.CancelledError:
+            logger.debug("Playwright pool cleanup cancelled")
         except Exception as e:
             logger.debug(f"Playwright pool cleanup: {e}")
 
@@ -631,7 +665,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await _run_shutdown_tasks()
+        try:
+            await _run_shutdown_tasks()
+        except asyncio.CancelledError:
+            logger.warning("Shutdown cancelled during cleanup")
 
 
 app.router.lifespan_context = lifespan

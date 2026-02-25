@@ -56,6 +56,36 @@ class AzureAISREConfig:
 
 
 @dataclass
+class AgentPerformanceConfig:
+    """Performance tuning for Azure AI SRE agent integration.
+
+    Controls timeouts, parallelism, caching, and connection pooling
+    for the agent-first SRE orchestration pipeline.
+    """
+
+    tool_call_timeout: int = 30          # seconds per individual tool call
+    total_timeout: int = 120             # seconds for entire conversation turn
+    parallel_tool_limit: int = 5         # max concurrent tool executions
+    cache_ttl_seconds: int = 300         # response cache TTL (5 min)
+    connection_pool_size: int = 10       # concurrent agent connections
+    enable_streaming: bool = True        # SSE streaming responses
+    enable_response_cache: bool = True   # L1 response cache
+
+    @classmethod
+    def from_env(cls) -> "AgentPerformanceConfig":
+        """Build config from environment variables with sensible defaults."""
+        return cls(
+            tool_call_timeout=int(os.getenv("SRE_AGENT_TOOL_TIMEOUT", "30")),
+            total_timeout=int(os.getenv("SRE_AGENT_TOTAL_TIMEOUT", "120")),
+            parallel_tool_limit=int(os.getenv("SRE_PARALLEL_TOOLS", "5")),
+            cache_ttl_seconds=int(os.getenv("SRE_CACHE_TTL", "300")),
+            connection_pool_size=int(os.getenv("SRE_CONNECTION_POOL_SIZE", "10")),
+            enable_streaming=os.getenv("SRE_ENABLE_STREAMING", "true").lower() == "true",
+            enable_response_cache=os.getenv("SRE_ENABLE_CACHE", "true").lower() == "true",
+        )
+
+
+@dataclass
 class InventoryConfig:
     """Resource inventory discovery and caching configuration"""
 
@@ -120,6 +150,7 @@ class ConfigManager:
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._azure_ai_sre_config: Optional[AzureAISREConfig] = None
+        self._agent_perf_config: Optional[AgentPerformanceConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -220,6 +251,13 @@ class ConfigManager:
                 enabled=os.getenv("AZURE_AI_SRE_ENABLED", "true").lower() == "true"
             )
         return self._azure_ai_sre_config
+
+    @property
+    def agent_performance(self) -> AgentPerformanceConfig:
+        """Get agent performance tuning configuration"""
+        if self._agent_perf_config is None:
+            self._agent_perf_config = AgentPerformanceConfig.from_env()
+        return self._agent_perf_config
 
     @property
     def inventory(self) -> InventoryConfig:
@@ -329,6 +367,9 @@ class ConfigManager:
             "DEBUG_MODE": "✅" if self.app.debug_mode else "❌",
             "INVENTORY_ENABLED": "✅" if self.inventory.enable_inventory else "❌",
             "INVENTORY_STARTUP_BLOCKING": "✅" if self.inventory.startup_blocking else "❌",
+            "AZURE_AI_SRE_ENABLED": "✅" if self.azure_ai_sre.enabled else "❌",
+            "SRE_AGENT_STREAMING": "✅" if self.agent_performance.enable_streaming else "❌",
+            "SRE_AGENT_CACHE": "✅" if self.agent_performance.enable_response_cache else "❌",
         }
 
 

@@ -25,7 +25,7 @@ CHAT_CONFIGS: Dict[str, Dict[str, Any]] = {
         'empty_icon': 'fa-robot',
     },
     'sre': {
-        'title': 'SRE Assistant',
+        'title': 'Conversation',
         'icon': 'fa-heartbeat',
         'placeholder': 'Describe the issue or ask a question...',
         'show_flow': True,

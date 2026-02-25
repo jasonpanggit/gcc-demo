@@ -28,5 +28,8 @@
     "from_email": "",
     "from_name": "EOL Alert System"
   },
+  "teams_settings": {
+    "enabled": false
+  },
   "last_sent": {}
 }

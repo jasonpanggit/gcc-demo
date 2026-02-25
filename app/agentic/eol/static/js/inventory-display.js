@@ -132,8 +132,7 @@ export function displayInventory(inventory, checkEOLCallback = null, updateSumma
  * @returns {string} HTML string for table row
  */
 function renderInventoryRow(item, itemId) {
-    const isSearchable = (item.software_type || '').toLowerCase() === 'application' || 
-                         (item.software_type || '').toLowerCase() === 'operating system';
+    const isSearchable = (item.software_type || '').toLowerCase() === 'operating system';
     const eolBadge = renderEolBadge(item);
     
     return `
@@ -178,10 +177,13 @@ function renderInventoryRow(item, itemId) {
                 ${eolBadge}
             </td>
             <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
-                    <i class="fas fa-sync me-1"></i>
-                    Refresh EOL
-                </button>
+                ${isSearchable ?
+                    `<button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
+                        <i class="fas fa-sync me-1"></i>
+                        Refresh EOL
+                    </button>` :
+                    `<span class="text-muted small">—</span>`
+                }
             </td>
         </tr>
     `;
@@ -281,8 +283,8 @@ function startAutomaticEOLChecks(inventory, checkEOLCallback) {
         if (softwareType === 'application') appCount++;
         
         if (item.name && !item.name.includes('(Arc-enabled)')) {
-            // Only check EOL for applications and operating systems
-            if (softwareType === 'application' || softwareType === 'operating system') {
+            // Only check EOL for operating systems
+            if (softwareType === 'operating system') {
                 // Skip automatic checking if item was manually checked
                 if (!manuallyCheckedItems.has(item.id) && !manuallyCheckedItems.has(item.dom_id)) {
                     if (item.eol_date || item.eol_status) {

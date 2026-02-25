@@ -249,7 +249,7 @@ class SoftwareInventoryAgent:
         computer_filter: Optional[str] = None,
         limit: Optional[int] = 10000,
         use_cache: bool = True,
-        skip_eol_enrichment: bool = False,
+        skip_eol_enrichment: bool = True,
     ) -> Dict[str, Any]:
         """Retrieve software inventory from ConfigurationData table with caching.
         
@@ -607,7 +607,7 @@ class SoftwareInventoryAgent:
                 "target_computer": computer_filter,
             }
 
-    async def get_software_summary(self, days: int = 90, skip_eol_enrichment: bool = False) -> Dict[str, Any]:
+    async def get_software_summary(self, days: int = 90, skip_eol_enrichment: bool = True) -> Dict[str, Any]:
         """Get aggregated software inventory summary.
         
         Args:

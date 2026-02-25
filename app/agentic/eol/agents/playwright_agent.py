@@ -481,6 +481,13 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             try:
                 await page.goto(url, timeout=30000, wait_until='domcontentloaded')
             except Exception as e:
+                if "Target page, context or browser has been closed" in str(e):
+                    logger.warning("⚠️ Playwright target closed during navigation")
+                    return {
+                        "success": False,
+                        "error": "target_closed",
+                        "content": None,
+                    }
                 logger.warning(f"⚠️ Navigation timeout or error: {str(e)[:100]}")
                 # Continue anyway - page might be partially loaded
             

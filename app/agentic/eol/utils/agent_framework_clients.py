@@ -4,8 +4,15 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from agent_framework import ChatOptions
-from agent_framework.azure import AzureOpenAIChatClient
+try:
+    from agent_framework import ChatOptions  # type: ignore[import]
+    from agent_framework.azure import AzureOpenAIChatClient  # type: ignore[import]
+    _AGENT_FRAMEWORK_AVAILABLE = True
+except (ModuleNotFoundError, ImportError):
+    ChatOptions = None  # type: ignore[assignment,misc]
+    AzureOpenAIChatClient = None  # type: ignore[assignment,misc]
+    _AGENT_FRAMEWORK_AVAILABLE = False
+
 from azure.identity import DefaultAzureCredential
 
 
@@ -13,7 +20,7 @@ DEFAULT_TEMPERATURE = float(os.getenv("AGENT_FRAMEWORK_TEMPERATURE", "0.2"))
 DEFAULT_MAX_TOKENS = int(os.getenv("AGENT_FRAMEWORK_MAX_TOKENS", "900"))
 
 
-def _clean_options(options: ChatOptions | Dict[str, Any]) -> Dict[str, Any]:
+def _clean_options(options: Any) -> Dict[str, Any]:
     """Convert ChatOptions to a kwargs dict accepted by AzureOpenAIChatClient."""
     if isinstance(options, dict):
         raw = dict(options)

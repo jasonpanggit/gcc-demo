@@ -413,10 +413,11 @@
     }
 
     .notification-history-table thead th {
-        background: var(--primary-color);
-        color: white;
+        background: var(--gray-100);
+        color: var(--gray-700);
         font-weight: 600;
         border: none;
+        border-bottom: 2px solid var(--gray-200);
         padding: var(--spacing-md);
         font-size: var(--font-size-sm);
     }
@@ -502,26 +503,55 @@
         gap: 0.5rem;
     }
 
-    html.dark-mode .os-preview-table th {
-        background-color: var(--gray-700);
-        color: var(--gray-100);
-        border-bottom-color: var(--gray-600);
+    html.dark-mode .preview-body,
+    html.dark-mode #preview-content,
+    html.dark-mode #preview-content .table-responsive,
+    body.dark-mode .preview-body,
+    body.dark-mode #preview-content,
+    body.dark-mode #preview-content .table-responsive {
+        background: var(--bg-secondary) !important;
+    }
+
+    html.dark-mode .os-preview-table,
+    body.dark-mode .os-preview-table {
+        background: var(--bg-secondary) !important;
+    }
+
+    html.dark-mode .os-preview-table th,
+    html.dark-mode .notification-history-table thead th,
+    body.dark-mode .os-preview-table th {
+        background-color: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        border-bottom-color: var(--border-primary) !important;
+    }
+
+    body.dark-mode .notification-history-table thead th {
+        background-color: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        border-bottom-color: var(--border-primary) !important;
     }
 
     html.dark-mode .os-preview-table td,
-    html.dark-mode .notification-history-table tbody td {
-        background: var(--gray-800) !important;
-        border-color: var(--gray-600) !important;
-        color: var(--gray-100) !important;
+    html.dark-mode .notification-history-table tbody td,
+    body.dark-mode .os-preview-table td,
+    body.dark-mode .notification-history-table tbody td {
+        background: var(--bg-secondary) !important;
+        border-color: var(--border-primary) !important;
+        color: var(--text-primary) !important;
     }
 
-    html.dark-mode .notification-history-table tbody tr {
-        background: var(--gray-800) !important;
+    html.dark-mode .os-preview-table tbody tr,
+    html.dark-mode .notification-history-table tbody tr,
+    body.dark-mode .os-preview-table tbody tr,
+    body.dark-mode .notification-history-table tbody tr {
+        background: var(--bg-secondary) !important;
     }
 
     html.dark-mode .os-preview-table tbody tr:hover,
-    html.dark-mode .notification-history-table tbody tr:hover {
-        background: var(--gray-700) !important;
+    html.dark-mode .notification-history-table tbody tr:hover,
+    body.dark-mode .os-preview-table tbody tr:hover,
+    body.dark-mode .notification-history-table tbody tr:hover {
+        background: var(--bg-tertiary) !important;
     }
 
     html.dark-mode .alert.alert-info {
@@ -547,9 +577,9 @@
     }
 
     html.dark-mode #preview-count.badge.bg-light {
-        background: var(--gray-700) !important;
-        color: var(--gray-100) !important;
-        border: 1px solid var(--gray-600) !important;
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-primary) !important;
     }
 </style>
 {% endblock %}

@@ -156,6 +156,7 @@ echo "🔧 Preparing environment variables..."
 OPENAI_ENDPOINT=$(jq -r '.AzureServices.OpenAI.Endpoint' "$APPSETTINGS_FILE")
 OPENAI_DEPLOYMENT=$(jq -r '.AzureServices.OpenAI.Deployment' "$APPSETTINGS_FILE")
 OPENAI_API_VERSION=$(jq -r '.AzureServices.OpenAI.ApiVersion' "$APPSETTINGS_FILE")
+OPENAI_EMBEDDING_DEPLOYMENT=$(jq -r '.AzureServices.OpenAI.EmbeddingDeployment // empty' "$APPSETTINGS_FILE")
 COSMOSDB_ENDPOINT=$(jq -r '.AzureServices.CosmosDB.Endpoint' "$APPSETTINGS_FILE")
 COSMOSDB_DATABASE=$(jq -r '.AzureServices.CosmosDB.Database' "$APPSETTINGS_FILE")
 COSMOSDB_CONTAINER=$(jq -r '.AzureServices.CosmosDB.Container' "$APPSETTINGS_FILE")
@@ -173,6 +174,35 @@ AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true
 GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
+
+# Read SRE Performance configuration
+SRE_AGENT_TOOL_TIMEOUT=$(jq -r '.AzureServices.SREPerformance.ToolCallTimeout // "30"' "$APPSETTINGS_FILE")
+SRE_AGENT_TOTAL_TIMEOUT=$(jq -r '.AzureServices.SREPerformance.TotalTimeout // "120"' "$APPSETTINGS_FILE")
+SRE_PARALLEL_TOOLS=$(jq -r '.AzureServices.SREPerformance.ParallelToolLimit // "5"' "$APPSETTINGS_FILE")
+SRE_CACHE_TTL=$(jq -r '.AzureServices.SREPerformance.CacheTTL // "300"' "$APPSETTINGS_FILE")
+SRE_CONNECTION_POOL_SIZE=$(jq -r '.AzureServices.SREPerformance.ConnectionPoolSize // "10"' "$APPSETTINGS_FILE")
+SRE_ENABLE_STREAMING=$(jq -r '.AzureServices.SREPerformance.EnableStreaming // "true"' "$APPSETTINGS_FILE")
+SRE_ENABLE_CACHE=$(jq -r '.AzureServices.SREPerformance.EnableCache // "true"' "$APPSETTINGS_FILE")
+SRE_DISABLE_FORMAT_RESPONSE=$(jq -r '.AzureServices.SREPerformance.DisableFormatResponse // "false"' "$APPSETTINGS_FILE")
+SRE_HYBRID_FORMATTING_ENABLED=$(jq -r '.AzureServices.SREPerformance.HybridFormattingEnabled // "false"' "$APPSETTINGS_FILE")
+SRE_HYBRID_TIMEOUT_SECONDS=$(jq -r '.AzureServices.SREPerformance.HybridTimeoutSeconds // "15"' "$APPSETTINGS_FILE")
+SRE_HYBRID_MAX_TOKENS=$(jq -r '.AzureServices.SREPerformance.HybridMaxTokens // "240"' "$APPSETTINGS_FILE")
+
+# Normalize project endpoint for Azure AI Foundry agents if appsettings contains base endpoint
+if [[ -n "$AI_PROJECT_NAME" ]] && [[ "$AI_PROJECT_NAME" != "null" ]] && [[ "$AI_PROJECT_ENDPOINT" != *"/api/projects/"* ]]; then
+    AI_PROJECT_BASE="${AI_PROJECT_ENDPOINT%/}"
+    AI_PROJECT_BASE="${AI_PROJECT_BASE/.cognitiveservices.azure.com/.services.ai.azure.com}"
+    AI_PROJECT_ENDPOINT="${AI_PROJECT_BASE}/api/projects/${AI_PROJECT_NAME}"
+    echo "ℹ️ Normalized Azure AI project endpoint: $AI_PROJECT_ENDPOINT"
+fi
+
+if [[ "$AI_PROJECT_ENDPOINT" == *"/api/projects/"* ]]; then
+    EP_PROJECT_NAME="${AI_PROJECT_ENDPOINT##*/api/projects/}"
+    if [[ -n "$EP_PROJECT_NAME" ]] && [[ "$EP_PROJECT_NAME" != "$AI_PROJECT_NAME" ]]; then
+        AI_PROJECT_NAME="$EP_PROJECT_NAME"
+        echo "ℹ️ Synced Azure AI project name from endpoint: $AI_PROJECT_NAME"
+    fi
+fi
 
 # Determine authentication method
 if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
@@ -200,6 +230,10 @@ fi
 ENV_VARS="$ENV_VARS AZURE_OPENAI_ENDPOINT=$OPENAI_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_OPENAI_DEPLOYMENT=$OPENAI_DEPLOYMENT"
 ENV_VARS="$ENV_VARS AZURE_OPENAI_API_VERSION=$OPENAI_API_VERSION"
+if [[ -n "$OPENAI_EMBEDDING_DEPLOYMENT" ]] && [[ "$OPENAI_EMBEDDING_DEPLOYMENT" != "null" ]]; then
+    ENV_VARS="$ENV_VARS AZURE_OPENAI_EMBEDDING_DEPLOYMENT=$OPENAI_EMBEDDING_DEPLOYMENT"
+    echo "✅ OpenAI embedding deployment configured: $OPENAI_EMBEDDING_DEPLOYMENT"
+fi
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_ENDPOINT=$COSMOSDB_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_DATABASE=$COSMOSDB_DATABASE"
 ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_CONTAINER=$COSMOSDB_CONTAINER"
@@ -222,6 +256,22 @@ fi
 if [[ -n "$AI_SRE_ENABLED" ]] && [[ "$AI_SRE_ENABLED" != "null" ]]; then
     ENV_VARS="$ENV_VARS AZURE_AI_SRE_ENABLED=$AI_SRE_ENABLED"
 fi
+
+# Add SRE Performance configuration
+ENV_VARS="$ENV_VARS SRE_AGENT_TOOL_TIMEOUT=$SRE_AGENT_TOOL_TIMEOUT"
+ENV_VARS="$ENV_VARS SRE_AGENT_TOTAL_TIMEOUT=$SRE_AGENT_TOTAL_TIMEOUT"
+ENV_VARS="$ENV_VARS SRE_PARALLEL_TOOLS=$SRE_PARALLEL_TOOLS"
+ENV_VARS="$ENV_VARS SRE_CACHE_TTL=$SRE_CACHE_TTL"
+ENV_VARS="$ENV_VARS SRE_CONNECTION_POOL_SIZE=$SRE_CONNECTION_POOL_SIZE"
+ENV_VARS="$ENV_VARS SRE_ENABLE_STREAMING=$SRE_ENABLE_STREAMING"
+ENV_VARS="$ENV_VARS SRE_ENABLE_CACHE=$SRE_ENABLE_CACHE"
+ENV_VARS="$ENV_VARS SRE_DISABLE_FORMAT_RESPONSE=$SRE_DISABLE_FORMAT_RESPONSE"
+ENV_VARS="$ENV_VARS SRE_HYBRID_FORMATTING_ENABLED=$SRE_HYBRID_FORMATTING_ENABLED"
+ENV_VARS="$ENV_VARS SRE_HYBRID_TIMEOUT_SECONDS=$SRE_HYBRID_TIMEOUT_SECONDS"
+ENV_VARS="$ENV_VARS SRE_HYBRID_MAX_TOKENS=$SRE_HYBRID_MAX_TOKENS"
+echo "✅ SRE Performance configuration: timeout=${SRE_AGENT_TOOL_TIMEOUT}s, parallel=${SRE_PARALLEL_TOOLS}, cache=${SRE_ENABLE_CACHE}"
+echo "✅ SRE Response formatting disabled: ${SRE_DISABLE_FORMAT_RESPONSE}"
+echo "✅ SRE Hybrid formatting: enabled=${SRE_HYBRID_FORMATTING_ENABLED}, timeout=${SRE_HYBRID_TIMEOUT_SECONDS}s, max_tokens=${SRE_HYBRID_MAX_TOKENS}"
 
 # Add Kusto configuration if available
 if [[ -n "$KUSTO_CLUSTER_URI" ]]; then

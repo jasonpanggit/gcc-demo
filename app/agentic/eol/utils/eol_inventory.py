@@ -274,6 +274,22 @@ class EolInventory:
         if not isinstance(data, dict):
             return None
 
+        # Strip runtime-only / ephemeral fields that must NOT be persisted.
+        # These are generated fresh on every live query and would become stale
+        # if stored in Cosmos, causing the UI to replay outdated per-agent
+        # comparison breakdowns on subsequent cache-hit responses.
+        _EPHEMERAL_KEYS = {
+            "agent_comparisons",
+            "agents_considered",
+            "communications",
+            "elapsed_seconds",
+            "cache_hit",
+            "cache_source",
+            "cached",
+            "search_mode",
+        }
+        data = {k: v for k, v in data.items() if k not in _EPHEMERAL_KEYS}
+
         software_key = self._normalize_name(data.get("software_name") or software_name)
         version_key = self._normalize_version(data.get("version") or version)
         now = datetime.now(timezone.utc)
@@ -561,6 +577,116 @@ class EolInventory:
                 failed.append({"item": item, "error": str(exc)})
 
         return {"deleted": deleted, "failed": failed}
+
+    async def invalidate(
+        self, software_name: str, version: Optional[str] = None
+    ) -> int:
+        """Query-based invalidation: find and delete all records that match
+        *software_name* (CONTAINS match on ``software_key``) and optionally
+        *version* (exact match on ``version_key``).
+
+        This is more robust than direct ID-based deletion because the stored
+        ``software_key`` may differ from what the caller constructs (e.g. the
+        agent may have embedded the version in the product name before storing).
+
+        Args:
+            software_name: Software name to match (case-insensitive, partial).
+            version:        Version to match, or ``None`` to match any version.
+
+        Returns:
+            Number of records deleted.
+        """
+        await self.initialize()
+        if not self.container:
+            logger.warning("EOL table invalidate skipped: container not initialized")
+            return 0
+
+        name_key = self._normalize_name(software_name)
+        try:
+            # Use CONTAINS so that "windows server" matches stored keys like
+            # "windows server 2016", "windows server 2019", etc.
+            if version:
+                ver_key = self._normalize_version(version)
+                query = (
+                    "SELECT c.id, c.software_key FROM c "
+                    "WHERE CONTAINS(c.software_key, @name_key) "
+                    "AND c.version_key = @ver_key"
+                )
+                params = [
+                    {"name": "@name_key", "value": name_key},
+                    {"name": "@ver_key", "value": ver_key},
+                ]
+            else:
+                query = (
+                    "SELECT c.id, c.software_key FROM c "
+                    "WHERE CONTAINS(c.software_key, @name_key)"
+                )
+                params = [{"name": "@name_key", "value": name_key}]
+
+            items = list(
+                self.container.query_items(
+                    query=query,
+                    parameters=params,
+                    enable_cross_partition_query=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning("EOL table invalidate query failed: %s", exc)
+            return 0
+
+        deleted = 0
+        for doc in items:
+            try:
+                self.container.delete_item(
+                    item=doc["id"], partition_key=doc["software_key"]
+                )
+                deleted += 1
+                logger.info(
+                    "✅ Invalidated EOL record id=%s key=%s",
+                    doc["id"], doc["software_key"]
+                )
+            except Exception as exc:
+                logger.debug("EOL table invalidate delete failed for %s: %s", doc.get("id"), exc)
+
+        return deleted
+
+    async def purge_all(self) -> int:
+        """Delete **every** record in the eol_table container.
+
+        Fetches all record IDs/partition keys in one query then deletes them
+        individually (Cosmos SDK does not support a bulk-delete statement).
+
+        Returns:
+            Number of records deleted.
+        """
+        await self.initialize()
+        if not self.container:
+            logger.warning("EOL table purge_all skipped: container not initialized")
+            return 0
+
+        try:
+            docs = list(
+                self.container.query_items(
+                    query="SELECT c.id, c.software_key FROM c",
+                    enable_cross_partition_query=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning("EOL table purge_all query failed: %s", exc)
+            return 0
+
+        deleted = 0
+        for doc in docs:
+            try:
+                self.container.delete_item(
+                    item=doc["id"], partition_key=doc["software_key"]
+                )
+                deleted += 1
+            except Exception as exc:
+                logger.debug("EOL table purge_all delete failed for %s: %s", doc.get("id"), exc)
+
+        logger.info("🗑️ EOL table purge_all: deleted %d record(s)", deleted)
+        return deleted
 
     def get_stats(self) -> Dict[str, int]:
         """Get cache hit/miss statistics.

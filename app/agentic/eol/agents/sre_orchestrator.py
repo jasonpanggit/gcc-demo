@@ -1,7 +1,24 @@
-"""SRE Orchestrator Agent - Coordinates all SRE operations.
+"""SRE Orchestrator Agent - Agent-first architecture with MCP fallback.
 
-The orchestrator routes requests to appropriate tools and agents,
-manages multi-tool workflows, and aggregates results.
+Routes all SRE requests through the Azure AI SRE Agent (gccsreagent) for
+intelligent reasoning and tool selection, falling back to direct MCP execution
+when the agent is unavailable.
+
+Architecture:
+    User Query → SREOrchestratorAgent.handle_request()
+                    ├─→ AzureAISREAgent (PRIMARY BRAIN)
+                    │   ├─ Maintains conversation thread per workflow
+                    │   ├─ Reasons about user intent
+                    │   ├─ Selects appropriate tools
+                    │   └─ Synthesizes final response
+                    │
+                    └─→ SRE MCP Server (EXECUTION LAYER / FALLBACK)
+                        ├─ Resource health checks
+                        ├─ Incident response
+                        ├─ Performance analysis
+                        ├─ Cost optimization
+                        ├─ Security & compliance
+                        └─ RCA, anomaly detection, remediation
 """
 from __future__ import annotations
 
@@ -11,10 +28,16 @@ import json
 import os
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
 try:
     from app.agentic.eol.agents.base_sre_agent import BaseSREAgent, AgentExecutionError
+    from app.agentic.eol.agents.azure_ai_sre_agent import (
+        AzureAISREAgent,
+        AgentPerformanceConfig,
+    )
     from app.agentic.eol.utils.agent_registry import get_agent_registry
     from app.agentic.eol.utils.agent_context_store import get_context_store
     from app.agentic.eol.utils.agent_message_bus import get_message_bus
@@ -28,9 +51,19 @@ try:
         SREInteractionHandler,
         get_interaction_handler,
     )
-    from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration  
+    from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration
+    from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client
+    from app.agentic.eol.utils.config import config
+    from app.agentic.eol.utils.sre_gateway import SREGateway
+    from app.agentic.eol.utils.sre_incident_memory import get_sre_incident_memory
+    from app.agentic.eol.utils.sre_tool_registry import SREToolRegistry
+    from app.agentic.eol.utils.query_patterns import classify_sre_domain
 except ModuleNotFoundError:
     from agents.base_sre_agent import BaseSREAgent, AgentExecutionError
+    from agents.azure_ai_sre_agent import (
+        AzureAISREAgent,
+        AgentPerformanceConfig,
+    )
     from utils.agent_registry import get_agent_registry
     from utils.agent_context_store import get_context_store
     from utils.agent_message_bus import get_message_bus
@@ -45,30 +78,71 @@ except ModuleNotFoundError:
         get_interaction_handler,
     )
     from utils.sre_inventory_integration import get_sre_inventory_integration
+    from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
+    from utils.config import config
+    from utils.sre_gateway import SREGateway  # type: ignore[import-not-found]
+    from utils.sre_incident_memory import get_sre_incident_memory  # type: ignore[import-not-found]
+    from utils.sre_tool_registry import SREToolRegistry  # type: ignore[import-not-found]
+    from utils.query_patterns import classify_sre_domain  # type: ignore[import-not-found]
 
 
 logger = get_logger(__name__)
 
+try:
+    from agent_framework import Message as ChatMessage, ChatResponse  # type: ignore[import]  # ChatMessage renamed to Message in RC1
+    _HYBRID_CHAT_TYPES_AVAILABLE = True
+except (ModuleNotFoundError, ImportError):
+    _HYBRID_CHAT_TYPES_AVAILABLE = False
+
+    @dataclass
+    class ChatMessage:  # type: ignore[no-redef]
+        role: str
+        text: str
+
+    @dataclass
+    class ChatResponse:  # type: ignore[no-redef]
+        messages: List[ChatMessage]
+        content: Optional[str] = None
+
+try:
+    from app.agentic.eol.utils.agent_framework_clients import (  # type: ignore[import]
+        build_chat_options,
+        create_chat_client,
+    )
+except ModuleNotFoundError:
+    try:
+        from utils.agent_framework_clients import (  # type: ignore[import]
+            build_chat_options,
+            create_chat_client,
+        )
+    except Exception:  # pragma: no cover - optional dependency fallback
+        build_chat_options = None  # type: ignore[assignment]
+        create_chat_client = None  # type: ignore[assignment]
+
 
 class SREOrchestratorAgent(BaseSREAgent):
-    """SRE Orchestrator Agent.
+    """SRE Orchestrator Agent — agent-first architecture.
+
+    Routes ALL user queries through the Azure AI SRE Agent (gccsreagent) which
+    handles intent analysis, tool selection, and response synthesis. Falls back
+    to direct MCP execution when the agent is unavailable.
 
     Responsibilities:
-    - Analyze user requests and extract intent
-    - Route requests to appropriate tools/agents
-    - Orchestrate multi-tool workflows
-    - Aggregate and synthesize results
-    - Manage workflow context and state
+    - Manage conversation threads per workflow_id
+    - Forward queries to gccsreagent for reasoning
+    - Execute tool calls requested by the agent (parallel when possible)
+    - Submit results back to agent for synthesis
+    - Format final HTML responses via SREResponseFormatter
+    - Graceful degradation to direct MCP execution
 
-    The orchestrator coordinates 48 existing SRE tools across:
+    The orchestrator coordinates 48+ SRE tools across:
     - Resource health & diagnostics
-    - Incident response
-    - Performance monitoring
-    - Safe remediation
+    - Incident response & RCA
+    - Performance monitoring & anomaly detection
+    - Safe remediation with approval gates
     - Cost optimization
     - SLO management
     - Security & compliance
-    - And more...
     """
 
     def __init__(self):
@@ -77,23 +151,47 @@ class SREOrchestratorAgent(BaseSREAgent):
             agent_type="sre-orchestrator",
             agent_id="sre-orchestrator-main",
             max_retries=2,
-            timeout=300
+            timeout=300,
         )
 
         self.registry = get_agent_registry()
         self.message_bus = get_message_bus()
         self._context_store = None
 
-        # User interaction and response formatting
+        # Response formatting
         self.formatter = SREResponseFormatter()
         self.interaction_handler = None  # Initialized in _initialize_impl
 
-        # Intent patterns for routing
-        self._intent_patterns = self._build_intent_patterns()
+        # Azure AI SRE Agent (the primary brain)
+        self.azure_sre_agent: Optional[AzureAISREAgent] = None
+
+        # SRE routing / memory utilities
+        self._gateway = SREGateway()
+        self._incident_memory = get_sre_incident_memory()
+        self._tool_registry = SREToolRegistry()
 
         # Resource discovery cache (in-memory, short TTL)
         self.resource_cache: Dict[str, Any] = {}
         self.resource_cache_ttl = 300  # 5 minutes
+
+        # Resource inventory client + grounding context (populated async in _initialize_impl)
+        self.resource_inventory_client: Optional[Any] = None
+        self._inventory_grounding_context: str = ""  # tenant/sub/resource-group summary for agent context
+
+        # Hybrid formatting (deterministic stats + optional LLM narrative)
+        self.hybrid_formatting_enabled = os.getenv(
+            "SRE_HYBRID_FORMATTING_ENABLED", "false",
+        ).lower() == "true"
+        self.hybrid_narrative_timeout_seconds = int(
+            os.getenv("SRE_HYBRID_TIMEOUT_SECONDS", "15"),
+        )
+        self.hybrid_narrative_max_tokens = int(
+            os.getenv("SRE_HYBRID_MAX_TOKENS", "240"),
+        )
+        self._hybrid_chat_client = None
+        self.disable_response_formatting = os.getenv(
+            "SRE_DISABLE_FORMAT_RESPONSE", "false",
+        ).lower() == "true"
 
     async def _initialize_impl(self) -> None:
         """Initialize orchestrator-specific resources."""
@@ -106,171 +204,640 @@ class SREOrchestratorAgent(BaseSREAgent):
         )
 
         # Resource inventory integration
-        # Use strict_mode=True to ensure resources not found in inventory are blocked
-        # This prevents expensive API calls to non-existent resources
         try:
-            strict_inventory_mode = os.environ.get("SRE_INVENTORY_STRICT_MODE", "true").lower() == "true"
-            self.inventory_integration = get_sre_inventory_integration(strict_mode=strict_inventory_mode)
-            logger.info(f"SRE orchestrator inventory integration initialized (strict_mode={strict_inventory_mode})")
+            strict_inventory_mode = os.environ.get(
+                "SRE_INVENTORY_STRICT_MODE", "true"
+            ).lower() == "true"
+            self.inventory_integration = get_sre_inventory_integration(
+                strict_mode=strict_inventory_mode
+            )
+            logger.info(
+                "SRE orchestrator inventory integration initialized "
+                "(strict_mode=%s)", strict_inventory_mode
+            )
         except Exception as e:
-            logger.warning(f"Inventory integration not available: {e}")
+            logger.warning("Inventory integration not available: %s", e)
             self.inventory_integration = None
 
-            
+        # Resource inventory client (for grounding context)
+        try:
+            self.resource_inventory_client = get_resource_inventory_client()
+            logger.info("SRE orchestrator resource inventory client initialized")
+        except Exception as exc:
+            logger.warning("Resource inventory client unavailable in SRE orchestrator: %s", exc)
+            self.resource_inventory_client = None
+
+        # Build tenant/subscription/resource-inventory grounding for agent context
+        await self._refresh_inventory_grounding()
+
+        if self.hybrid_formatting_enabled:
+            if not _HYBRID_CHAT_TYPES_AVAILABLE or create_chat_client is None or build_chat_options is None:
+                logger.warning(
+                    "Hybrid formatting enabled but Agent Framework chat dependencies are unavailable",
+                )
+            else:
+                self._hybrid_chat_client = create_chat_client()
+                if self._hybrid_chat_client:
+                    logger.info("Hybrid formatting enabled (deterministic + LLM narrative)")
+                else:
+                    logger.warning("Hybrid formatting enabled but chat client initialization failed")
+
+        # Initialize Azure AI SRE Agent
+        try:
+            sre_cfg = config.azure_ai_sre
+            if sre_cfg.enabled:
+                self.azure_sre_agent = AzureAISREAgent(
+                    project_endpoint=sre_cfg.project_endpoint,
+                    agent_name=sre_cfg.agent_name or "gccsreagent",
+                )
+                # If a pre-provisioned agent ID exists, use it instead of creating
+                if sre_cfg.agent_id:
+                    # Attach to existing agent in Azure AI Foundry
+                    if await self.azure_sre_agent.is_available():
+                        try:
+                            agent_obj = self.azure_sre_agent.get_agent(sre_cfg.agent_id)
+                            self.azure_sre_agent.agent = agent_obj
+                            logger.info(
+                                "Attached to pre-provisioned agent: %s",
+                                sre_cfg.agent_id,
+                            )
+                        except Exception as e:
+                            err_text = str(e)
+                            if "404" in err_text or "Resource not found" in err_text:
+                                logger.info(
+                                    "Pre-provisioned agent not found in Azure AI Project (%s): %s — "
+                                    "creating on-demand",
+                                    sre_cfg.agent_id,
+                                    err_text,
+                                )
+                            else:
+                                logger.warning(
+                                    "Could not attach to agent %s: %s — "
+                                    "creating on-demand",
+                                    sre_cfg.agent_id,
+                                    err_text,
+                                )
+
+                            try:
+                                await self.azure_sre_agent.create_agent()
+                            except Exception as create_exc:
+                                logger.warning(
+                                    "On-demand SRE agent creation failed after attach miss: %s",
+                                    create_exc,
+                                )
+                else:
+                    # Create agent on-demand
+                    if await self.azure_sre_agent.is_available():
+                        await self.azure_sre_agent.create_agent()
+            else:
+                logger.info("Azure AI SRE Agent disabled via config")
+        except Exception as e:
+            logger.warning("Azure AI SRE Agent initialization failed: %s", e)
+            self.azure_sre_agent = None
+
         # Subscribe to message bus
         await self.message_bus.subscribe(
             self.agent_id,
-            message_types=["request.*", "response", "event.*"]
+            message_types=["request.*", "response", "event.*"],
         )
 
-        logger.info("✓ SRE Orchestrator initialized")
+        # Initialize incident memory (best-effort — degrades to in-memory fallback)
+        try:
+            await self._incident_memory.initialize()
+            logger.info("SRE incident memory initialized")
+        except Exception as e:
+            logger.warning("Incident memory initialization failed: %s", e)
+
+        agent_status = "connected" if (
+            self.azure_sre_agent and await self.azure_sre_agent.is_available()
+        ) else "fallback_mode"
+        logger.info("SRE Orchestrator initialized (agent_status=%s)", agent_status)
+
+    async def _refresh_inventory_grounding(self) -> None:
+        """Build a compact resource-inventory summary for agent context grounding.
+
+        Populates self._inventory_grounding_context with tenant ID, subscription ID,
+        resource-group names, and cached resource-type counts so the agent can resolve
+        tool parameters (subscription_id, resource_group, etc.) without extra tool calls.
+        """
+        lines: List[str] = []
+
+        # -- Tenant / subscription from config / env --
+        tenant_id = (
+            getattr(getattr(config, "azure", None), "tenant_id", "") or
+            os.environ.get("AZURE_TENANT_ID", os.environ.get("TENANT_ID", ""))
+        )
+        subscription_id = (
+            getattr(getattr(config, "azure", None), "subscription_id", "") or
+            os.environ.get("SUBSCRIPTION_ID", os.environ.get("AZURE_SUBSCRIPTION_ID", ""))
+        )
+
+        if tenant_id:
+            lines.append(f"tenant_id: {tenant_id}")
+        if subscription_id:
+            lines.append(f"subscription_id: {subscription_id} (use directly — do NOT call subscription-list tools to discover it)")
+
+        if self.resource_inventory_client:
+            try:
+                sub = subscription_id or self.resource_inventory_client._default_subscription()
+
+                # Resource groups
+                try:
+                    rgs = await self.resource_inventory_client.get_resources(
+                        "Microsoft.Resources/resourceGroups", subscription_id=sub
+                    )
+                    if rgs:
+                        rg_names = sorted({
+                            r.get("name") or r.get("resource_group", "")
+                            for r in rgs if r.get("name") or r.get("resource_group")
+                        })
+                        lines.append(
+                            f"resource_groups ({len(rg_names)}): {', '.join(rg_names[:10])}"
+                            + (" …" if len(rg_names) > 10 else "")
+                        )
+                except Exception as exc:
+                    logger.debug("SRE grounding: RG lookup failed: %s", exc)
+
+                # Resource type counts from L1 cache (no network call)
+                try:
+                    cache = self.resource_inventory_client._cache
+                    prefix = f"resource_inv:{sub}:"
+                    type_counts: Dict[str, int] = {}
+                    with cache._l1_lock:
+                        for key, resources in cache._l1.items():
+                            if key.startswith(prefix):
+                                rtype = key[len(prefix):]
+                                if rtype and isinstance(resources, list):
+                                    type_counts[rtype] = len(resources)
+                    if type_counts:
+                        top_types = sorted(type_counts.items(), key=lambda x: -x[1])[:8]
+                        lines.append(
+                            "cached_resource_types: "
+                            + "; ".join(f"{t} ({n})" for t, n in top_types)
+                        )
+                except Exception as exc:
+                    logger.debug("SRE grounding: type counts failed: %s", exc)
+
+            except Exception as exc:
+                logger.debug("SRE inventory grounding refresh failed (non-fatal): %s", exc)
+
+        if lines:
+            self._inventory_grounding_context = "\n".join(lines)
+            logger.info("🗺️  SRE inventory grounding context refreshed (%d fields)", len(lines))
 
     async def _cleanup_impl(self) -> None:
         """Clean up orchestrator resources."""
         await self.message_bus.unsubscribe(self.agent_id)
 
-    def _build_intent_patterns(self) -> Dict[str, List[Tuple[str, List[str]]]]:
-        """Build intent patterns for request routing.
+    # ------------------------------------------------------------------
+    # Core request handler (agent-first with MCP fallback)
+    # ------------------------------------------------------------------
 
-        Returns:
-            Dictionary mapping categories to (pattern, tools) tuples
-        """
-        return {
-            # Health & Diagnostics
-            "health": [
-                # Container Apps - specific pattern first
-                (r"(check|health|status).*container\s*app",
-                 ["check_container_app_health"]),
-                # AKS/Kubernetes - specific pattern
-                (r"(check|health|status).*(aks|kubernetes|k8s|cluster)",
-                 ["check_aks_cluster_health"]),
-                # Generic resources (VMs, App Services, etc.)
-                (r"(check|health|status).*(vm|virtual\s*machine|app\s*service|sql|storage|load\s*balancer)",
-                 ["check_resource_health"]),
-                # Diagnostic logs
-                (r"(diagnostic|logs).*",
-                 ["get_diagnostic_logs", "search_logs_by_error"]),
-            ],
+    async def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Agent-first execution with MCP fallback.
 
-            # Incident Response
-            "incident": [
-                (r"(incident|triage|investigate|troubleshoot)",
-                 ["triage_incident", "generate_incident_summary"]),
-                (r"(alert|correlate)",
-                 ["correlate_alerts"]),
-                (r"(postmortem|rca|root cause)",
-                 ["generate_postmortem_template", "analyze_activity_log"]),
-            ],
-
-            # Performance
-            "performance": [
-                (r"(performance|metrics|cpu|memory|utilization)",
-                 ["get_performance_metrics", "identify_bottlenecks"]),
-                (r"(capacity|scale|sizing)",
-                 ["get_capacity_recommendations", "compare_baseline_metrics"]),
-            ],
-
-            # Cost Optimization
-            "cost": [
-                (r"(cost|spending|budget|savings)",
-                 ["get_cost_analysis", "get_cost_recommendations"]),
-                (r"(orphaned|unused|idle|waste)",
-                 ["identify_orphaned_resources", "analyze_idle_resources"]),
-            ],
-
-            # SLO Management
-            "slo": [
-                (r"(slo|service level|error budget)",
-                 ["calculate_error_budget", "get_slo_dashboard"]),
-                (r"(availability|uptime|reliability)",
-                 ["define_slo", "calculate_error_budget"]),
-            ],
-
-            # Security & Compliance
-            "security": [
-                (r"(security|secure score|vulnerabilities)",
-                 ["get_security_score", "list_security_recommendations"]),
-                (r"(compliance|policy|cis|nist)",
-                 ["check_compliance_status"]),
-            ],
-
-            # Remediation
-            "remediation": [
-                (r"(restart|reboot|fix)",
-                 ["plan_remediation", "execute_safe_restart"]),
-                (r"(scale|resize)",
-                 ["scale_resource"]),
-                (r"(cache|clear)",
-                 ["clear_cache"]),
-            ],
-
-            # Configuration Discovery
-            "config": [
-                (r"(app service|web app).*config",
-                 ["query_app_service_configuration"]),
-                (r"(container app).*config",
-                 ["query_container_app_configuration"]),
-                (r"(aks|kubernetes).*config",
-                 ["query_aks_configuration"]),
-                (r"(apim|api management).*config",
-                 ["query_apim_configuration"]),
-            ],
-        }
-
-    async def execute(
-        self,
-        request: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Execute orchestrator logic.
+        1. Try gccsreagent first — let it reason about intent and select tools
+        2. Execute any tool calls the agent requests (in parallel)
+        3. Send results back to agent for synthesis
+        4. Fall back to direct MCP execution if agent unavailable or errors
 
         Args:
-            request: Request with 'query' or 'intent' field
-            context: Optional workflow context
+            request: Dict with 'query', optional 'context', 'workflow_id', etc.
 
         Returns:
-            Orchestrated result
+            Orchestrated result with formatted_response, agent_metadata, etc.
         """
         query = request.get("query", request.get("intent", ""))
-        workflow_id = request.get("workflow_id", uuid.uuid4().hex)
+        workflow_id = request.get("workflow_id") or uuid.uuid4().hex
+        context = request.get("context", {})
 
-        logger.info(f"Orchestrating request: {query[:100]}...")
+        logger.info("Handling request: %s... (workflow=%s)", query[:80], workflow_id[:12])
 
         # Create workflow context
         if self._context_store:
             await self._context_store.create_workflow_context(
                 workflow_id,
-                initial_data={"query": query, "request": request}
+                initial_data={"query": query, "request": request},
             )
 
-        # Analyze intent and route
-        intent_category, tools = self._analyze_intent(query)
+        # 1. Try gccsreagent first
+        if self.azure_sre_agent and await self.azure_sre_agent.is_available():
+            try:
+                return await self._execute_via_agent(
+                    query, workflow_id, context, request,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Agent timeout, falling back to MCP direct")
+            except Exception as exc:
+                logger.error("Agent error: %s — falling back to MCP", exc, exc_info=True)
 
-        logger.info(
-            f"Intent: {intent_category}, Tools: {[t[:30] for t in tools]}"
+        # 2. Fallback: Direct MCP execution
+        return await self._execute_mcp_fallback(request, workflow_id)
+
+    async def _execute_via_agent(
+        self,
+        query: str,
+        workflow_id: str,
+        context: Dict[str, Any],
+        request: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute request via Azure AI SRE Agent.
+
+        Args:
+            query: User query
+            workflow_id: Workflow identifier
+            context: Request context
+            request: Full original request
+
+        Returns:
+            Formatted result dict
+        """
+        agent = self.azure_sre_agent
+
+        # Get or create conversation thread for this workflow
+        thread_id = await agent.get_or_create_thread(workflow_id)
+        if not thread_id:
+            raise RuntimeError("Failed to create agent thread")
+
+        # Build enriched context for the agent
+        enriched_context = {**context}
+        enriched_context["tenant_id"] = (
+            context.get("tenant_id")
+            or getattr(getattr(config, "azure", None), "tenant_id", "")
+            or os.environ.get("AZURE_TENANT_ID", os.environ.get("TENANT_ID", ""))
         )
+        enriched_context["subscription_id"] = (
+            context.get("subscription_id")
+            or os.environ.get("SUBSCRIPTION_ID", "")
+        )
+        enriched_context["workspace_id"] = (
+            context.get("workspace_id")
+            or os.environ.get("LOG_ANALYTICS_WORKSPACE_ID", "")
+        )
+        enriched_context["resource_group"] = (
+            context.get("resource_group")
+            or os.environ.get("RESOURCE_GROUP_NAME", "")
+        )
+        # Inject inventory grounding so agent can resolve tool params without extra tool calls
+        if self._inventory_grounding_context:
+            enriched_context["azure_grounding"] = self._inventory_grounding_context
+
+        # Classify domain (fast keyword path, no LLM cost)
+        try:
+            domain = await self._gateway.classify(query)
+        except Exception:
+            domain = None  # type: ignore[assignment]
+
+        # Inject similar-incident context prefix
+        try:
+            memory_prefix = await self._incident_memory.get_context_prefix(
+                query, domain=domain
+            )
+            if memory_prefix:
+                enriched_context["incident_history"] = memory_prefix
+        except Exception as mem_exc:
+            logger.debug("Incident memory lookup failed: %s", mem_exc)
+
+        # Build domain-narrow tool subset to reduce prompt token cost
+        tool_subset: Optional[List[Dict[str, Any]]] = None
+        try:
+            all_tool_defs = self._get_registered_tools()
+            if all_tool_defs and domain is not None:
+                subset = self._tool_registry.get_tool_definitions(domain, all_tool_defs)
+                if subset:
+                    tool_subset = subset
+        except Exception as ts_exc:
+            logger.debug("Tool subset build failed: %s", ts_exc)
+
+        # Send query to agent
+        agent_response = await agent.chat(
+            thread_id=thread_id,
+            message=query,
+            context=enriched_context,
+            tool_subset=tool_subset,
+            slim_prompt=True,
+        )
+
+        # Handle errors
+        if agent_response.get("error"):
+            raise RuntimeError(agent_response["error"])
+
+        # Execute any tool calls requested by agent
+        tool_calls = agent_response.get("tool_calls")
+        tools_executed = []
+
+        if tool_calls:
+            # Execute tools in parallel
+            tool_results = await agent.execute_tool_calls_parallel(
+                tool_calls=tool_calls,
+                executor_fn=self._execute_agent_tool_call,
+                workflow_id=workflow_id,
+            )
+            tools_executed = tool_results
+
+            # Send results back to agent for synthesis
+            run_id = agent_response.get("run_id", "")
+            final_response = await agent.submit_tool_results(
+                thread_id=thread_id,
+                run_id=run_id,
+                tool_results=tool_results,
+            )
+
+            if final_response.get("error"):
+                raise RuntimeError(final_response["error"])
+
+            formatted = self._format_agent_response(
+                final_response, workflow_id, tools_executed,
+            )
+            # Store resolved incident in memory for future context
+            await self._store_incident_memory(
+                query, workflow_id, domain, tools_executed, final_response
+            )
+            return formatted
+
+        # Agent responded directly without tool calls
+        if self._should_force_mcp_fallback(query, agent_response.get("content", "")):
+            logger.info(
+                "Agent returned non-actionable guidance for operational query; "
+                "forcing MCP fallback execution",
+            )
+            return await self._execute_mcp_fallback(request, workflow_id)
+
+        formatted = self._format_agent_response(
+            agent_response, workflow_id, tools_executed,
+        )
+        await self._store_incident_memory(
+            query, workflow_id, domain, tools_executed, agent_response
+        )
+        return formatted
+
+    @staticmethod
+    def _should_force_mcp_fallback(query: str, content: str) -> bool:
+        """Detect generic portal-style guidance for operational requests.
+
+        If the user asked for operational analysis/remediation and the agent
+        responds with navigation instructions instead of executing tools,
+        prefer deterministic MCP execution.
+        """
+        if not content:
+            return True
+
+        q = query.lower()
+        c = content.lower()
+
+        operational_markers = (
+            "cost", "analysis", "diagnos", "incident", "alert", "kql",
+            "health", "latency", "restart", "scale", "resource", "inventory",
+        )
+        portal_markers = (
+            "azure portal", "in the portal", "go to the portal", "navigate to",
+            "open the portal", "click", "menu", "blade",
+        )
+
+        is_operational_query = any(marker in q for marker in operational_markers)
+        is_portal_guidance = any(marker in c for marker in portal_markers)
+        return is_operational_query and is_portal_guidance
+
+    async def _execute_agent_tool_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a single tool call requested by the agent.
+
+        This is the executor_fn passed to execute_tool_calls_parallel().
+
+        Args:
+            tool_name: MCP tool name
+            arguments: Tool arguments from agent
+
+        Returns:
+            Tool execution result
+        """
+        # Get tool info from registry
+        tool_info = self.registry.get_tool(tool_name)
+        if not tool_info:
+            return {"error": f"Tool {tool_name} not registered", "success": False}
+
+        agent_id = tool_info["agent_id"]
+        agent = self.registry.get_agent(agent_id)
+        if not agent:
+            return {"error": f"Agent {agent_id} not available", "success": False}
+
+        # Preflight resource check
+        if self.inventory_integration and arguments:
+            try:
+                preflight = await self.inventory_integration.preflight_resource_check(
+                    tool_name, arguments,
+                )
+                if not preflight.get("ok", True):
+                    error_msg = preflight.get("result", {}).get("error", "Preflight failed")
+                    return {"error": error_msg, "success": False, "preflight_failed": True}
+            except Exception as e:
+                logger.warning("Preflight check error: %s", e)
+
+        # Execute via the registered agent
+        try:
+            tool_result = await agent.handle_request({
+                "tool": tool_name,
+                "parameters": arguments,
+            })
+            return tool_result.get("result", tool_result)
+        except Exception as e:
+            logger.error("Tool %s execution failed: %s", tool_name, e)
+            return {"error": str(e), "success": False}
+
+    def _format_agent_response(
+        self,
+        agent_response: Dict[str, Any],
+        workflow_id: str,
+        tools_executed: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Format agent response into the standard orchestrator output.
+
+        Args:
+            agent_response: Response from AzureAISREAgent.chat() or submit_tool_results()
+            workflow_id: Workflow identifier
+            tools_executed: Optional list of tool execution results
+
+        Returns:
+            Formatted result dict with formatted_response HTML and metadata
+        """
+        content = agent_response.get("content", "")
+        token_usage = agent_response.get("token_usage", {})
+        latency_ms = agent_response.get("latency_ms", 0)
+
+        # Build tool execution summary for response formatting
+        tools_called = []
+        tool_results_list = []
+        if tools_executed:
+            for tr in tools_executed:
+                tools_called.append(tr.get("name", "unknown"))
+                tool_results_list.append({
+                    "tool": tr.get("name", "unknown"),
+                    "status": "success" if tr.get("success") else "error",
+                    "result": tr.get("result", {}),
+                    "latency_ms": tr.get("latency_ms", 0),
+                })
+
+        # Build aggregated results structure (compatible with existing API)
+        results = {
+            "summary": {
+                "total_tools": len(tools_executed or []),
+                "successful": sum(1 for t in (tools_executed or []) if t.get("success")),
+                "failed": sum(1 for t in (tools_executed or []) if not t.get("success")),
+                "skipped": 0,
+                "needs_input": 0,
+                "intent": "agent_routed",
+            },
+            "results": tool_results_list,
+            "agent_content": content,
+        }
+
+        if not self.disable_response_formatting:
+            results["formatted_response"] = self._build_agent_html_response(
+                content, tool_results_list,
+            )
+
+        return {
+            "workflow_id": workflow_id,
+            "intent": "agent_routed",
+            "tools_executed": len(tools_executed or []),
+            "results": results,
+            "agent_metadata": {
+                "thread_id": agent_response.get("thread_id"),
+                "run_id": agent_response.get("run_id"),
+                "tools_called": tools_called,
+                "execution_source": "agent",
+                "latency_ms": latency_ms,
+                "token_usage": token_usage,
+            },
+        }
+
+    def _build_agent_html_response(
+        self,
+        agent_content: str,
+        tool_results: List[Dict[str, Any]],
+    ) -> str:
+        """Build HTML from agent content and tool results.
+
+        Args:
+            agent_content: Text response from the agent
+            tool_results: List of tool result dicts
+
+        Returns:
+            HTML string
+        """
+        html_parts = []
+
+        # Agent synthesis
+        if agent_content:
+            # Convert markdown-like content to HTML
+            escaped = html.escape(agent_content)
+            # Basic markdown → HTML conversion for agent output
+            escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+            escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
+            escaped = escaped.replace("\n\n", "</p><p>").replace("\n", "<br>")
+            html_parts.append(f"<div class='agent-response'><p>{escaped}</p></div>")
+
+        # Tool execution details (collapsible)
+        if tool_results:
+            successful = [r for r in tool_results if r.get("status") == "success"]
+            failed = [r for r in tool_results if r.get("status") != "success"]
+
+            if successful:
+                html_parts.append(
+                    f"<p><small>Tools executed: {len(successful)} successful"
+                    f"{f', {len(failed)} failed' if failed else ''}</small></p>"
+                )
+
+            # Format individual tool results
+            for result in tool_results:
+                tool_name = result.get("tool", "Unknown")
+                tool_result = result.get("result", {})
+                formatted = format_tool_result(tool_name, tool_result)
+                html_parts.append(f"<hr>{formatted}")
+
+        return "\n".join(html_parts) if html_parts else "<p>No results available.</p>"
+
+    def _get_registered_tools(self) -> Optional[List[Dict[str, Any]]]:
+        """Get tool definitions for agent registration.
+
+        Returns None to use the agent's built-in tool definitions.
+        """
+        # The AzureAISREAgent already has comprehensive tool definitions.
+        # Return None to let the agent use its own tools.
+        return None
+
+    async def _store_incident_memory(
+        self,
+        query: str,
+        workflow_id: str,
+        domain: Any,
+        tools_executed: List[Dict[str, Any]],
+        agent_response: Dict[str, Any],
+    ) -> None:
+        """Persist resolved incident to incident memory (best-effort)."""
+        try:
+            resolution = agent_response.get("content", "")[:500]
+            if not resolution:
+                return
+            tools_used = [t.get("name", "") for t in (tools_executed or [])]
+            await self._incident_memory.store(
+                workflow_id=workflow_id,
+                query=query,
+                domain=domain,
+                tools_used=tools_used,
+                resolution=resolution,
+                outcome="resolved",
+            )
+        except Exception as e:
+            logger.debug("Incident memory store failed: %s", e)
+
+    # ------------------------------------------------------------------
+    # MCP Fallback Path
+    # ------------------------------------------------------------------
+
+    async def _execute_mcp_fallback(
+        self,
+        request: Dict[str, Any],
+        workflow_id: str,
+    ) -> Dict[str, Any]:
+        """Execute request via direct MCP tool routing (graceful degradation).
+
+        This is the fallback path when gccsreagent is unavailable. It uses
+        simple keyword matching to select tools and executes them directly.
+
+        Args:
+            request: Original request
+            workflow_id: Workflow identifier
+
+        Returns:
+            Result dict in standard orchestrator format
+        """
+        query = request.get("query", request.get("intent", ""))
+        logger.info("MCP fallback execution for: %s...", query[:80])
+
+        # Simple keyword-based tool selection (fallback only)
+        tools = self._select_fallback_tools(query)
 
         # Stream progress
         await self._stream_event("progress", {
             "workflow_id": workflow_id,
             "status": "routing",
-            "intent": intent_category,
-            "tools": tools
+            "intent": "mcp_fallback",
+            "tools": tools,
         })
 
         # Execute tools
-        results = await self._execute_tools(
-            tools,
-            request,
-            workflow_id
-        )
-
-        logger.info(f"Tool execution complete: {len(results)} results")
-        for i, res in enumerate(results):
-            logger.info(f"  Result {i}: status={res.get('status')}, tool={res.get('tool')}")
+        results = await self._execute_tools(tools, request, workflow_id)
 
         # Aggregate results
-        aggregated = self._aggregate_results(results, intent_category)
+        aggregated = self._aggregate_results(results, "mcp_fallback")
+
+        hybrid_narrative = await self._generate_hybrid_narrative(query, aggregated)
+        if hybrid_narrative:
+            aggregated["hybrid_narrative"] = hybrid_narrative
 
         # Update workflow context
         if self._context_store:
@@ -279,55 +846,180 @@ class SREOrchestratorAgent(BaseSREAgent):
                 {
                     "metadata": {
                         "status": "completed",
-                        "intent": intent_category,
+                        "intent": "mcp_fallback",
                         "tools_executed": len(results),
-                        "user_interaction_required": aggregated.get("user_interaction_required", False)
+                        "execution_source": "mcp_fallback",
                     }
-                }
+                },
             )
 
-        # Format response if successful results exist
-        logger.info(f"Aggregated results: {len(aggregated.get('results', []))} items, has formatted_response check: {bool(aggregated.get('results')  and not aggregated.get('user_interaction_required'))}")
-        
-        if aggregated.get("results") and not aggregated.get("user_interaction_required"):
-            formatted_html = self.format_response(aggregated, intent_category)
+        # Format response unless disabled (raw payload mode)
+        if (
+            not self.disable_response_formatting
+            and aggregated.get("results")
+            and not aggregated.get("user_interaction_required")
+        ):
+            formatted_html = self.format_response(aggregated, "mcp_fallback")
             aggregated["formatted_response"] = formatted_html
-            logger.info(f"Generated formatted_response: {len(formatted_html)} chars")
 
         return {
             "workflow_id": workflow_id,
-            "intent": intent_category,
+            "intent": "mcp_fallback",
             "tools_executed": len(results),
-            "results": aggregated
+            "results": aggregated,
+            "agent_metadata": {
+                "thread_id": None,
+                "run_id": None,
+                "tools_called": [r.get("tool") for r in results],
+                "execution_source": "mcp_fallback",
+                "latency_ms": 0,
+                "token_usage": {},
+            },
         }
 
-    def _analyze_intent(self, query: str) -> Tuple[str, List[str]]:
-        """Analyze query intent and identify relevant tools.
+    def _select_fallback_tools(self, query: str) -> List[str]:
+        """Simple keyword-based tool selection for MCP fallback.
+
+        This replaces the old regex intent patterns with a minimal
+        keyword matcher. The agent handles the smart routing in
+        the primary path.
 
         Args:
             query: User query string
 
         Returns:
-            Tuple of (intent_category, list_of_tools)
+            List of tool names to execute
         """
-        query_lower = query.lower()
+        q = query.lower()
 
-        # Try to match intent patterns
-        for category, patterns in self._intent_patterns.items():
-            for pattern, tools in patterns:
-                if re.search(pattern, query_lower):
-                    return category, tools
+        # Container Apps explicit routing (covers list/revision/outage prompts)
+        if self._is_container_app_query(q):
+            if any(kw in q for kw in ("performance", "metrics", "cpu", "memory", "latency", "utilization")):
+                return ["get_performance_metrics"]
 
-        # Default: Use general diagnostics
-        return "general", ["describe_capabilities"]
+            if any(kw in q for kw in ("list", "show", "all", "which", "what")):
+                if "revision" in q or "active" in q:
+                    return ["query_container_app_configuration"]
+                return ["list_container_apps"]
+
+            if any(kw in q for kw in ("down", "outage", "unavailable", "failing", "failed")):
+                return ["check_container_app_health"]
+
+            if any(kw in q for kw in ("analyze", "diagnose", "troubleshoot", "investigate", "availability")):
+                return ["check_container_app_health"]
+
+        # Health checks
+        if any(kw in q for kw in ("health", "status", "check")):
+            if "container" in q:
+                return ["check_container_app_health"]
+            if any(kw in q for kw in ("aks", "kubernetes", "k8s", "cluster")):
+                return ["check_aks_cluster_health"]
+            return ["check_resource_health"]
+
+        # Incident/troubleshooting
+        if any(kw in q for kw in ("incident", "triage", "troubleshoot", "investigate")):
+            return ["triage_incident"]
+
+        # Performance
+        if any(kw in q for kw in ("performance", "metrics", "cpu", "memory", "bottleneck")):
+            if self._is_container_app_query(q):
+                return ["get_performance_metrics"]
+            return ["get_performance_metrics", "identify_bottlenecks"]
+
+        # Cost
+        if any(kw in q for kw in ("cost", "spending", "budget", "savings")):
+            return ["get_cost_analysis", "get_cost_recommendations"]
+
+        if any(kw in q for kw in ("orphaned", "unused", "idle", "waste")):
+            return ["identify_orphaned_resources"]
+
+        # SLO
+        if any(kw in q for kw in ("slo", "error budget", "service level")):
+            return ["calculate_error_budget", "get_slo_dashboard"]
+
+        # Security
+        if any(kw in q for kw in ("security", "secure score", "vulnerability")):
+            return ["get_security_score", "list_security_recommendations"]
+        if any(kw in q for kw in ("compliance", "policy", "cis", "nist")):
+            return ["check_compliance_status"]
+
+        # Remediation
+        if any(kw in q for kw in ("restart", "reboot", "fix")):
+            return ["plan_remediation"]
+        if any(kw in q for kw in ("scale", "resize")):
+            return ["scale_resource"]
+
+        # Logs
+        if any(kw in q for kw in ("log", "error", "diagnostic")):
+            return ["get_diagnostic_logs", "search_logs_by_error"]
+
+        # Config
+        if "config" in q:
+            if "container" in q:
+                return ["query_container_app_configuration"]
+            if any(kw in q for kw in ("aks", "kubernetes")):
+                return ["query_aks_configuration"]
+            if "apim" in q or "api management" in q:
+                return ["query_apim_configuration"]
+            return ["query_app_service_configuration"]
+
+        # Default
+        return ["describe_capabilities"]
+
+    @staticmethod
+    def _is_container_app_query(query: str) -> bool:
+        """Return True when a query clearly targets Azure Container Apps."""
+        q = query.lower()
+        q = re.sub(r"[’']s\b", "", q)
+        q = re.sub(r"[^a-z0-9\s_-]", " ", q)
+        q = re.sub(r"\s+", " ", q).strip()
+
+        patterns = (
+            r"\bcontainer[\s_-]*apps?\b",
+            r"\bcontainerapps?\b",
+            r"\bcontainre[\s_-]*apps?\b",
+        )
+        return any(re.search(pattern, q) for pattern in patterns)
+
+    # ------------------------------------------------------------------
+    # Legacy execute() — delegates to handle_request()
+    # ------------------------------------------------------------------
+
+    async def execute(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Execute orchestrator logic (legacy interface).
+
+        Delegates to handle_request() which uses agent-first routing.
+
+        Args:
+            request: Request with 'query' or 'intent' field
+            context: Optional workflow context
+
+        Returns:
+            Orchestrated result
+        """
+        # Merge context into request if provided separately
+        if context:
+            request = {**request, "context": {**request.get("context", {}), **context}}
+        return await self.handle_request(request)
+
+    # ------------------------------------------------------------------
+    # Tool execution (shared between agent path and fallback path)
+    # ------------------------------------------------------------------
 
     async def _execute_tools(
         self,
         tool_names: List[str],
         request: Dict[str, Any],
-        workflow_id: str
+        workflow_id: str,
     ) -> List[Dict[str, Any]]:
-        """Execute multiple tools in parallel or sequence.
+        """Execute multiple tools sequentially.
+
+        Used by the MCP fallback path. The agent path uses parallel execution
+        through AzureAISREAgent.execute_tool_calls_parallel().
 
         Args:
             tool_names: List of tool names to execute
@@ -338,32 +1030,26 @@ class SREOrchestratorAgent(BaseSREAgent):
             List of tool results
         """
         results = []
-
-        # For now, execute sequentially (can optimize for parallel later)
         for tool_name in tool_names:
             try:
                 result = await self._execute_single_tool(
-                    tool_name,
-                    request,
-                    workflow_id
+                    tool_name, request, workflow_id,
                 )
                 results.append(result)
-
             except Exception as exc:
-                logger.error(f"Tool {tool_name} failed: {exc}")
+                logger.error("Tool %s failed: %s", tool_name, exc)
                 results.append({
                     "tool": tool_name,
                     "status": "error",
-                    "error": str(exc)
+                    "error": str(exc),
                 })
-
         return results
 
     async def _execute_single_tool(
         self,
         tool_name: str,
         request: Dict[str, Any],
-        workflow_id: str
+        workflow_id: str,
     ) -> Dict[str, Any]:
         """Execute a single tool.
 
@@ -377,13 +1063,12 @@ class SREOrchestratorAgent(BaseSREAgent):
         """
         # Get tool info from registry
         tool_info = self.registry.get_tool(tool_name)
-
         if not tool_info:
-            logger.warning(f"Tool {tool_name} not found in registry")
+            logger.warning("Tool %s not found in registry", tool_name)
             return {
                 "tool": tool_name,
                 "status": "not_found",
-                "error": f"Tool {tool_name} not registered"
+                "error": f"Tool {tool_name} not registered",
             }
 
         agent_id = tool_info["agent_id"]
@@ -393,40 +1078,33 @@ class SREOrchestratorAgent(BaseSREAgent):
             "workflow_id": workflow_id,
             "status": "executing_tool",
             "tool": tool_name,
-            "agent": agent_id
+            "agent": agent_id,
         })
 
         # Get agent
         agent = self.registry.get_agent(agent_id)
-
         if not agent:
             return {
                 "tool": tool_name,
                 "status": "error",
-                "error": f"Agent {agent_id} not available"
+                "error": f"Agent {agent_id} not available",
             }
 
         # Prepare tool parameters
         parameters = await self._prepare_tool_parameters(
-            tool_name,
-            tool_info,
-            request
+            tool_name, tool_info, request,
         )
 
-        # Preflight resource check (after parameters are prepared)
+        # Preflight resource check
         if self.inventory_integration and parameters:
             try:
                 preflight = await self.inventory_integration.preflight_resource_check(
-                    tool_name, parameters
+                    tool_name, parameters,
                 )
-                # Check the correct key - it's "ok" not "passed"
                 if not preflight.get("ok", True):
-                    # Resource not found in inventory - return immediately without calling tool
                     error_msg = preflight.get("result", {}).get("error", "Preflight check failed")
                     suggestion = preflight.get("result", {}).get("suggestion", "")
-
-                    logger.info(f"Preflight check failed for {tool_name}: {error_msg}")
-
+                    logger.info("Preflight check failed for %s: %s", tool_name, error_msg)
                     return {
                         "tool": tool_name,
                         "agent": agent_id,
@@ -436,58 +1114,56 @@ class SREOrchestratorAgent(BaseSREAgent):
                             "error": error_msg,
                             "suggestion": suggestion,
                             "preflight_failed": True,
-                            "message": f"Resource not found in inventory. {suggestion}" if suggestion else "Resource not found in inventory."
-                        }
+                            "message": (
+                                f"Resource not found in inventory. {suggestion}"
+                                if suggestion
+                                else "Resource not found in inventory."
+                            ),
+                        },
                     }
-                # Log warning if present
                 if "warning" in preflight:
-                    logger.warning(f"Preflight warning: {preflight['warning']}")
+                    logger.warning("Preflight warning: %s", preflight["warning"])
             except Exception as e:
-                logger.warning(f"Preflight check failed: {e}")
-                # Don't block on inventory errors - continue to tool execution
+                logger.warning("Preflight check failed: %s", e)
 
         # Check if user input is needed
         if isinstance(parameters, dict) and parameters.get("status") == "needs_user_input":
-            logger.info(f"Tool {tool_name} requires user input")
             return {
                 "tool": tool_name,
                 "agent": agent_id,
                 "status": "needs_user_input",
-                "result": parameters
+                "result": parameters,
             }
 
-        # Skip tool if required parameters cannot be satisfied
+        # Skip tool if required parameters not available
         if parameters is None:
-            logger.info(f"Skipping {tool_name} - required parameters not available")
+            logger.info("Skipping %s - required parameters not available", tool_name)
             return {
                 "tool": tool_name,
                 "agent": agent_id,
                 "status": "skipped",
                 "result": {
                     "success": False,
-                    "message": "Tool requires parameters that are not available in current context"
-                }
+                    "message": "Tool requires parameters that are not available in current context",
+                },
             }
 
         # Execute tool via agent
         tool_result = await agent.handle_request({
             "tool": tool_name,
             "parameters": parameters,
-            **request
+            **request,
         })
 
-        # Enrich error messages with diagnostic information
-        if tool_name in ["get_performance_metrics", "identify_bottlenecks"]:
-            # BaseSREAgent wraps execute output under "result"
+        # Enrich error messages with diagnostic info for performance tools
+        if tool_name in ("get_performance_metrics", "identify_bottlenecks"):
             wrapped_result = tool_result.get("result", {}) if isinstance(tool_result, dict) else {}
             parsed_result = wrapped_result.get("parsed", {}) if isinstance(wrapped_result, dict) else {}
             metrics = []
-
             if isinstance(parsed_result, dict):
                 metrics = parsed_result.get("metrics", []) or []
             if not metrics and isinstance(wrapped_result, dict):
                 metrics = wrapped_result.get("metrics", []) or []
-
             if not metrics:
                 resource_id = parameters.get("resource_id", "")
                 diagnostic_info = await self._diagnose_no_metrics(resource_id, tool_result)
@@ -499,7 +1175,7 @@ class SREOrchestratorAgent(BaseSREAgent):
                 workflow_id,
                 step_id=f"tool-{tool_name}",
                 agent_id=agent_id,
-                result=tool_result
+                result=tool_result,
             )
 
         return {
@@ -508,16 +1184,24 @@ class SREOrchestratorAgent(BaseSREAgent):
             "status": "success" if tool_result.get("success") else tool_result.get("status", "error"),
             "inventory_integration": {
                 "enabled": self.inventory_integration is not None,
-                "statistics": self.inventory_integration.get_statistics() if self.inventory_integration else None
+                "statistics": (
+                    self.inventory_integration.get_statistics()
+                    if self.inventory_integration
+                    else None
+                ),
             },
-            "result": tool_result.get("result", tool_result)
+            "result": tool_result.get("result", tool_result),
         }
+
+    # ------------------------------------------------------------------
+    # Parameter preparation (kept from original)
+    # ------------------------------------------------------------------
 
     async def _prepare_tool_parameters(
         self,
         tool_name: str,
         tool_info: Dict[str, Any],
-        request: Dict[str, Any]
+        request: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Prepare parameters for tool execution.
 
@@ -525,8 +1209,8 @@ class SREOrchestratorAgent(BaseSREAgent):
         1. Request parameters
         2. Request context
         3. Environment defaults
-        4. Discovers resources if needed
-        5. Prompts user for ambiguous selections
+        4. Resource discovery if needed
+        5. User prompts for ambiguous selections
 
         Args:
             tool_name: Name of the tool
@@ -534,10 +1218,8 @@ class SREOrchestratorAgent(BaseSREAgent):
             request: Original request
 
         Returns:
-            Parameters dict, None if unavailable, or dict with "needs_user_input" status
+            Parameters dict, None if unavailable, or dict with needs_user_input status
         """
-        import os
-
         # Start with request parameters
         parameters = dict(request.get("parameters", {}))
 
@@ -559,9 +1241,7 @@ class SREOrchestratorAgent(BaseSREAgent):
             if ws_id:
                 parameters["workspace_id"] = ws_id
 
-        # Resolve/validate scope-based tools (Cost, Compliance, etc.)
-        # These tools require ARM scope paths such as:
-        # /subscriptions/{id} or /subscriptions/{id}/resourceGroups/{rg}
+        # Resolve/validate scope-based tools
         if self._tool_requires_scope(tool_name):
             normalized_scope = self._normalize_scope(
                 parameters.get("scope"),
@@ -571,102 +1251,80 @@ class SREOrchestratorAgent(BaseSREAgent):
                 parameters["scope"] = normalized_scope
             else:
                 logger.info(
-                    "Cannot execute %s - missing valid scope (expected /subscriptions/{id} or /subscriptions/{id}/resourceGroups/{rg})",
-                    tool_name,
+                    "Cannot execute %s - missing valid scope", tool_name,
                 )
                 return None
 
-        # Check for ambiguous parameters and handle user interaction
-        # Only do this in streaming/interactive mode
+        # Check for ambiguous parameters in interactive mode
         query = request.get("query", "")
         stream_enabled = request.get("stream", False)
-        
+
         if query and self.interaction_handler and stream_enabled:
             ambiguity_check = await self._check_and_handle_ambiguous_params(
-                tool_name,
-                parameters,
-                query
+                tool_name, parameters, query,
             )
-
             if ambiguity_check:
-                # Check if resource was auto-selected
                 if ambiguity_check.get("auto_selected"):
                     resource = ambiguity_check.get("resource", {})
-                    # Update parameters with auto-selected resource
                     if resource.get("id"):
                         parameters["resource_id"] = resource["id"]
                     if resource.get("name"):
                         parameters["resource_name"] = resource["name"]
                     if resource.get("resource_group"):
                         parameters["resource_group"] = resource["resource_group"]
-                    logger.info(f"Auto-selected resource: {resource.get('name')}")
+                    logger.info("Auto-selected resource: %s", resource.get("name"))
                 else:
-                    # User input needed - return special status
                     return ambiguity_check
 
         # Tool-specific parameter preparation
         tool_def = tool_info.get("definition", {}).get("function", {})
         required_params = self._get_required_parameters(tool_def)
 
-        # For health check and performance tools, try to discover resources if resource_id not provided
-        if tool_name in [
-            "check_resource_health", "check_container_app_health", "check_aks_cluster_health",
-            "get_performance_metrics", "identify_bottlenecks", "get_capacity_recommendations",
-            "compare_baseline_metrics"
-        ]:
-            if "resource_id" not in parameters:
-                # Try to discover resources
-                discovered = await self._discover_resources_for_tool(tool_name, parameters)
-                if discovered:
-                    # Use first discovered resource
-                    parameters["resource_id"] = discovered[0]
-                    logger.info(f"Discovered resource for {tool_name}: {discovered[0]}")
-                else:
-                    # Cannot execute without resource_id
-                    logger.info(f"Cannot execute {tool_name} - no resource_id and discovery failed")
-                    return None
+        # For health/performance tools, try resource discovery if resource_id missing
+        discovery_tools = {
+            "check_resource_health", "check_container_app_health",
+            "check_aks_cluster_health", "get_performance_metrics",
+            "identify_bottlenecks", "get_capacity_recommendations",
+            "compare_baseline_metrics",
+        }
+        if "resource_type" not in parameters and self._is_container_app_query(query):
+            parameters["resource_type"] = "container_app"
 
-        # Check if all required parameters are present
+        if tool_name in discovery_tools and "resource_id" not in parameters:
+            discovered = await self._discover_resources_for_tool(tool_name, parameters)
+            if discovered:
+                parameters["resource_id"] = discovered[0]
+                logger.info("Discovered resource for %s: %s", tool_name, discovered[0])
+            else:
+                logger.info("Cannot execute %s - no resource_id and discovery failed", tool_name)
+                return None
+
+        # Check required parameters
         missing = [p for p in required_params if p not in parameters]
         if missing:
-            logger.info(f"Tool {tool_name} missing required params: {missing}")
+            logger.info("Tool %s missing required params: %s", tool_name, missing)
             return None
 
         # Enrich with inventory
         if self.inventory_integration:
             try:
                 parameters = await self.inventory_integration.enrich_tool_parameters(
-                    tool_name, parameters, context
+                    tool_name, parameters, context,
                 )
             except Exception as e:
-                logger.warning(f"Parameter enrichment failed: {e}")
+                logger.warning("Parameter enrichment failed: %s", e)
 
         return parameters
-    
+
     def _get_required_parameters(self, tool_def: Dict[str, Any]) -> List[str]:
-        """Extract required parameters from tool definition.
-        
-        Args:
-            tool_def: Tool function definition
-            
-        Returns:
-            List of required parameter names
-        """
+        """Extract required parameters from tool definition."""
         parameters = tool_def.get("parameters", {})
-        if not parameters:
-            return []
-            
-        properties = parameters.get("properties", {})
-        required = parameters.get("required", [])
-        
-        return required
+        return parameters.get("required", [])
 
     def _tool_requires_scope(self, tool_name: str) -> bool:
         """Return True when the tool requires an ARM scope parameter."""
         return tool_name in {
-            "get_cost_analysis",
-            "analyze_cost_anomalies",
-            "check_compliance_status",
+            "get_cost_analysis", "analyze_cost_anomalies", "check_compliance_status",
         }
 
     def _normalize_scope(
@@ -674,58 +1332,41 @@ class SREOrchestratorAgent(BaseSREAgent):
         scope_value: Optional[Any],
         subscription_id: Optional[Any],
     ) -> Optional[str]:
-        """Normalize scope to an ARM path.
-
-        Accepted inputs:
-        - '/subscriptions/{id}'
-        - '/subscriptions/{id}/resourceGroups/{rg}'
-        - raw subscription GUID (converted to '/subscriptions/{id}')
-        """
+        """Normalize scope to an ARM path."""
         raw_scope = str(scope_value).strip() if scope_value else ""
         raw_subscription = str(subscription_id).strip() if subscription_id else ""
-
         candidate = raw_scope or raw_subscription
         if not candidate:
             return None
-
         if candidate.startswith("/subscriptions/"):
             return candidate
-
         if candidate.startswith("subscriptions/"):
             return f"/{candidate}"
-
-        if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", candidate):
+        if re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            candidate,
+        ):
             return f"/subscriptions/{candidate}"
-
         return None
-    
+
+    # ------------------------------------------------------------------
+    # Resource discovery (kept from original)
+    # ------------------------------------------------------------------
+
     async def _discover_resources_for_tool(
-        self,
-        tool_name: str,
-        parameters: Dict[str, Any]
+        self, tool_name: str, parameters: Dict[str, Any],
     ) -> List[str]:
-        """Discover resources for a tool.
-        
-        Args:
-            tool_name: Name of the tool
-            parameters: Current parameters
-            
-        Returns:
-            List of discovered resource IDs
-        """
-        # Check cache first
+        """Discover resources for a tool."""
         subscription_id = parameters.get("subscription_id", "default")
         resource_group = parameters.get("resource_group", "all")
         cache_key = f"{tool_name}_{subscription_id}_{resource_group}"
-        
+
         if cache_key in self.resource_cache:
             cache_entry = self.resource_cache[cache_key]
             now = datetime.now(timezone.utc)
             if now - cache_entry["timestamp"] < timedelta(seconds=self.resource_cache_ttl):
-                logger.info(f"Cache hit for {tool_name} ({len(cache_entry['data'])} resources)")
                 return cache_entry["data"]
-        
-        # Map tools to Azure CLI commands
+
         discovery_map = {
             "check_container_app_health": self._discover_container_apps,
             "check_aks_cluster_health": self._discover_aks_clusters,
@@ -733,307 +1374,190 @@ class SREOrchestratorAgent(BaseSREAgent):
             "get_performance_metrics": self._discover_vms,
             "identify_bottlenecks": self._discover_vms,
             "get_capacity_recommendations": self._discover_vms,
-            "compare_baseline_metrics": self._discover_vms
+            "compare_baseline_metrics": self._discover_vms,
         }
-        
+
+        performance_tools = {
+            "get_performance_metrics",
+            "identify_bottlenecks",
+            "get_capacity_recommendations",
+            "compare_baseline_metrics",
+        }
+        resource_type_hint = str(parameters.get("resource_type", "")).lower()
+        if tool_name in performance_tools and resource_type_hint in {
+            "container_app", "container app", "containerapp",
+        }:
+            discovery_map[tool_name] = self._discover_container_apps
+
         if tool_name not in discovery_map:
             return []
-        
+
         try:
-            discovery_func = discovery_map[tool_name]
-            resources = await discovery_func(parameters)
-            
+            resources = await discovery_map[tool_name](parameters)
             if resources:
-                logger.info(f"Discovered {len(resources)} resources for {tool_name}")
-                
-                # Cache the result
                 self.resource_cache[cache_key] = {
                     "data": resources,
-                    "timestamp": datetime.now(timezone.utc)
+                    "timestamp": datetime.now(timezone.utc),
                 }
-                
                 return resources
-            else:
-                logger.info(f"No resources found for {tool_name}")
-                return []
-                
-        except Exception as exc:
-            logger.error(f"Resource discovery failed for {tool_name}: {exc}")
             return []
-    
+        except Exception as exc:
+            logger.error("Resource discovery failed for %s: %s", tool_name, exc)
+            return []
+
     async def _discover_container_apps(self, parameters: Dict[str, Any]) -> List[str]:
-        """Discover Container Apps.
-        
-        Args:
-            parameters: Current parameters (may contain resource_group, subscription_id)
-            
-        Returns:
-            List of Container App resource IDs
-        """
-        resource_group = parameters.get("resource_group")
-        subscription_id = parameters.get("subscription_id")
-        
-        # Build command
-        if resource_group:
-            command = f'az containerapp list --resource-group {resource_group} --query "[].id" -o json'
-        else:
-            command = 'az containerapp list --query "[].id" -o json'
-            
-        result = await self._execute_azure_cli(command)
-        
+        """Discover Container Apps."""
+        rg = parameters.get("resource_group")
+        cmd = (
+            f'az containerapp list --resource-group {rg} --query "[].id" -o json'
+            if rg
+            else 'az containerapp list --query "[].id" -o json'
+        )
+        result = await self._execute_azure_cli(cmd)
         if result.get("status") == "success":
             output = result.get("output", [])
-            if isinstance(output, list):
-                return output
-        
+            return output if isinstance(output, list) else []
         return []
-    
+
     async def _discover_aks_clusters(self, parameters: Dict[str, Any]) -> List[str]:
-        """Discover AKS clusters.
-        
-        Args:
-            parameters: Current parameters
-            
-        Returns:
-            List of AKS cluster resource IDs
-        """
-        resource_group = parameters.get("resource_group")
-        
-        if resource_group:
-            command = f'az aks list --resource-group {resource_group} --query "[].id" -o json'
-        else:
-            command = 'az aks list --query "[].id" -o json'
-            
-        result = await self._execute_azure_cli(command)
-        
+        """Discover AKS clusters."""
+        rg = parameters.get("resource_group")
+        cmd = (
+            f'az aks list --resource-group {rg} --query "[].id" -o json'
+            if rg
+            else 'az aks list --query "[].id" -o json'
+        )
+        result = await self._execute_azure_cli(cmd)
         if result.get("status") == "success":
             output = result.get("output", [])
-            if isinstance(output, list):
-                return output
-        
+            return output if isinstance(output, list) else []
         return []
-    
+
     async def _discover_generic_resources(self, parameters: Dict[str, Any]) -> List[str]:
-        """Discover generic Azure resources.
-        
-        Args:
-            parameters: Current parameters
-            
-        Returns:
-            List of resource IDs (limited to common resource types)
-        """
-        # For generic resources, only discover common types that support Resource Health API
-        # VMs, App Services, SQL DBs, Storage Accounts, Load Balancers
+        """Discover generic Azure resources supporting Resource Health API."""
         resource_types = [
             "Microsoft.Compute/virtualMachines",
             "Microsoft.Web/sites",
             "Microsoft.Sql/servers/databases",
             "Microsoft.Storage/storageAccounts",
-            "Microsoft.Network/loadBalancers"
+            "Microsoft.Network/loadBalancers",
         ]
-        
-        resource_group = parameters.get("resource_group")
+        rg = parameters.get("resource_group")
         all_resources = []
-        
-        for resource_type in resource_types:
-            if resource_group:
-                command = f'az resource list --resource-group {resource_group} --resource-type {resource_type} --query "[].id" -o json'
-            else:
-                command = f'az resource list --resource-type {resource_type} --query "[].id" -o json'
-            
-            result = await self._execute_azure_cli(command)
-            
+
+        for rt in resource_types:
+            cmd = (
+                f'az resource list --resource-group {rg} --resource-type {rt} --query "[].id" -o json'
+                if rg
+                else f'az resource list --resource-type {rt} --query "[].id" -o json'
+            )
+            result = await self._execute_azure_cli(cmd)
             if result.get("status") == "success":
                 output = result.get("output", [])
                 if isinstance(output, list):
                     all_resources.extend(output)
-                    
-        return all_resources[:10]  # Limit to 10 resources to avoid overwhelming the user
-    
+
+        return all_resources[:10]
+
     async def _discover_vms(self, parameters: Dict[str, Any]) -> List[str]:
-        """Discover Virtual Machines for performance analysis.
-        
-        Args:
-            parameters: Current parameters (may contain resource_group, subscription_id)
-            
-        Returns:
-            List of VM resource IDs
-        """
-        resource_group = parameters.get("resource_group")
-        
-        # Build command to discover VMs
-        if resource_group:
-            command = f'az vm list --resource-group {resource_group} --query "[].id" -o json'
-        else:
-            command = 'az vm list --query "[].id" -o json'
-            
-        result = await self._execute_azure_cli(command)
-        
+        """Discover Virtual Machines for performance analysis."""
+        rg = parameters.get("resource_group")
+        cmd = (
+            f'az vm list --resource-group {rg} --query "[].id" -o json'
+            if rg
+            else 'az vm list --query "[].id" -o json'
+        )
+        result = await self._execute_azure_cli(cmd)
         if result.get("status") == "success":
             output = result.get("output", [])
-            if isinstance(output, list):
-                return output[:10]  # Limit to 10 VMs
-        
+            return output[:10] if isinstance(output, list) else []
         return []
-        return []
+
+    # ------------------------------------------------------------------
+    # Result aggregation (kept from original)
+    # ------------------------------------------------------------------
 
     def _aggregate_results(
         self,
         results: List[Dict[str, Any]],
-        intent_category: str
+        intent_category: str,
     ) -> Dict[str, Any]:
-        """Aggregate results from multiple tools.
+        """Aggregate results from multiple tools."""
+        successful = [r for r in results if r.get("status") == "success"]
+        failed = [r for r in results if r.get("status") in ("error", "not_found")]
+        skipped = [r for r in results if r.get("status") == "skipped"]
+        needs_input = [r for r in results if r.get("status") == "needs_user_input"]
 
-        Args:
-            results: List of tool results
-            intent_category: Intent category
-
-        Returns:
-            Aggregated results with user-friendly formatting
-        """
-        successful_results = [
-            r for r in results
-            if r.get("status") == "success"
-        ]
-
-        failed_results = [
-            r for r in results
-            if r.get("status") in ["error", "not_found"]
-        ]
-
-        skipped_results = [
-            r for r in results
-            if r.get("status") == "skipped"
-        ]
-
-        needs_input_results = [
-            r for r in results
-            if r.get("status") == "needs_user_input"
-        ]
-
-        # Build aggregated response
         aggregated = {
             "summary": {
                 "total_tools": len(results),
-                "successful": len(successful_results),
-                "failed": len(failed_results),
-                "skipped": len(skipped_results),
-                "needs_input": len(needs_input_results),
-                "intent": intent_category
+                "successful": len(successful),
+                "failed": len(failed),
+                "skipped": len(skipped),
+                "needs_input": len(needs_input),
+                "intent": intent_category,
             },
-            "results": successful_results,
-            "errors": failed_results if failed_results else None,
-            "skipped": skipped_results if skipped_results else None,
-            "needs_input": needs_input_results if needs_input_results else None,
+            "results": successful,
+            "errors": failed if failed else None,
+            "skipped": skipped if skipped else None,
+            "needs_input": needs_input if needs_input else None,
         }
 
-        # If user input is needed, prioritize that in the response
-        if needs_input_results:
-            # Return first user input request
-            first_input_request = needs_input_results[0].get("result", {})
+        # If user input needed, prioritize that
+        if needs_input:
+            first_input = needs_input[0].get("result", {})
             aggregated["user_interaction_required"] = True
-            aggregated["interaction_data"] = first_input_request
-            aggregated["message"] = first_input_request.get("message", "User input required")
+            aggregated["interaction_data"] = first_input
+            aggregated["message"] = first_input.get("message", "User input required")
             return aggregated
 
-        # Add helpful message if resources not found in inventory
-        not_found_results = [
-            r for r in failed_results
+        # Handle all-preflight-failed case
+        not_found = [
+            r for r in failed
             if r.get("result", {}).get("preflight_failed", False)
         ]
-
-        if not_found_results and len(not_found_results) == len(results):
-            # All tools failed preflight - resources not in inventory
-            resource_ids = [
-                r.get("result", {}).get("error", "unknown")
-                for r in not_found_results
-            ]
-
+        if not_found and len(not_found) == len(results):
             aggregated["message"] = self.formatter.format_error_message(
-                "❌ Resources not found in inventory.",
+                "Resources not found in inventory.",
                 suggestions=[
                     "Verify the resource exists in the Azure subscription",
-                    "Check that resource discovery is running (inventory may be out of sync)",
-                    "Provide the full resource ID if the resource was recently created",
-                    "Run 'list all resources' to see available resources in inventory"
-                ]
+                    "Check that resource discovery is running",
+                    "Provide the full resource ID if recently created",
+                    "Run 'list all resources' to see available resources",
+                ],
             )
-            # Don't proceed with other formatting if all resources not found
             return aggregated
 
-        # Add helpful message if all tools were skipped
-        if len(skipped_results) == len(results) and intent_category == "health":
+        # Handle all-skipped case
+        if len(skipped) == len(results) and intent_category in ("health", "mcp_fallback"):
             aggregated["message"] = self.formatter.format_error_message(
                 "Health check tools require specific resource information.",
                 suggestions=[
                     "Provide a resource name: 'Check health of container app my-app'",
                     "Specify a resource group: 'Check health in resource-group prod-rg'",
-                    "List available resources first: 'List all container apps'"
-                ]
+                    "List available resources first: 'List all container apps'",
+                ],
             )
 
-        # Add category-specific aggregation with friendly formatting
+        # Category-specific summaries
         if intent_category == "health":
-            aggregated["health_summary"] = self._summarize_health(successful_results)
+            aggregated["health_summary"] = self._summarize_health(successful)
         elif intent_category == "cost":
-            aggregated["cost_summary"] = self._summarize_cost(successful_results)
+            aggregated["cost_summary"] = self._summarize_cost(successful)
         elif intent_category == "performance":
-            perf_summary = self._summarize_performance(successful_results)
+            perf_summary = self._summarize_performance(successful)
             aggregated["performance_summary"] = perf_summary
-
-            # Add friendly message if no performance data found
-            if not perf_summary.get("has_data", False) and len(successful_results) > 0:
-                # Check if we have diagnostic information from any result
-                diagnostic_details = []
-                for result in successful_results:
-                    if "diagnostic_info" in result:
-                        diag = result["diagnostic_info"]
-                        if diag.get("issues_found"):
-                            diagnostic_details.extend(diag["issues_found"])
-
-                # Build friendly message with diagnostics
-                if diagnostic_details:
-                    issues_html = "<br>".join([f"• {issue}" for issue in diagnostic_details[:3]])
-                    aggregated["message"] = (
-                        f"⚠️ No performance metrics found. <strong>Issues detected:</strong><br>"
-                        f"{issues_html}<br><br>"
-                    )
-
-                    # Add recommendations from diagnostics
-                    recommendations = []
-                    for result in successful_results:
-                        if "diagnostic_info" in result:
-                            diag = result["diagnostic_info"]
-                            recommendations.extend(diag.get("recommendations", []))
-
-                    if recommendations:
-                        rec_html = "<br>".join([f"• {rec}" for rec in recommendations[:5]])
-                        aggregated["message"] += (
-                            f"<strong>💡 Recommendations:</strong><br>{rec_html}"
-                        )
-                else:
-                    # Generic message if no specific diagnostics available
-                    aggregated["message"] = (
-                        "⚠️ No performance metrics found for the specified resources. "
-                        "This could be because:<br>"
-                        "• The VM or resource is stopped/deallocated<br>"
-                        "• Monitoring agent is not installed or configured<br>"
-                        "• Metrics collection hasn't started yet (wait 3-5 minutes after starting)<br>"
-                        "• The resource doesn't support the requested metrics<br><br>"
-                        "💡 <strong>Tip:</strong> Ensure resources are running and have Azure Monitor configured."
-                    )
+            if not perf_summary.get("has_data") and successful:
+                aggregated["message"] = self._build_no_metrics_message(successful)
 
         return aggregated
 
+    # ------------------------------------------------------------------
+    # Summary helpers (kept from original)
+    # ------------------------------------------------------------------
+
     def _summarize_health(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Summarize health check results.
-
-        Args:
-            results: Health check results
-
-        Returns:
-            Health summary
-        """
+        """Summarize health check results."""
         healthy_count = 0
         unhealthy_count = 0
         unhealthy_details: List[Dict[str, Any]] = []
@@ -1042,7 +1566,6 @@ class SREOrchestratorAgent(BaseSREAgent):
             result_data = result.get("result", {})
             if not isinstance(result_data, dict):
                 continue
-
             parsed_data = result_data.get("parsed", {})
             if not isinstance(parsed_data, dict):
                 parsed_data = {}
@@ -1062,7 +1585,6 @@ class SREOrchestratorAgent(BaseSREAgent):
                 or parsed_data.get("availability_state")
                 or "unknown"
             )
-
             resource_id = parsed_data.get("resource_id", "")
             resource_name = (
                 parsed_data.get("container_app_name")
@@ -1070,7 +1592,7 @@ class SREOrchestratorAgent(BaseSREAgent):
                 or (resource_id.split("/")[-1] if resource_id else "Unknown Resource")
             )
 
-            if str(status).lower() in ["available", "healthy"]:
+            if str(status).lower() in ("available", "healthy"):
                 healthy_count += 1
                 continue
 
@@ -1079,11 +1601,10 @@ class SREOrchestratorAgent(BaseSREAgent):
                 health_data.get("reason_type")
                 or health_data.get("summary")
                 or parsed_data.get("note")
-                or "No additional diagnostic details provided"
+                or "No additional diagnostic details"
             )
             recent_errors = health_data.get("recent_errors") or []
             recent_error = recent_errors[0] if isinstance(recent_errors, list) and recent_errors else ""
-
             unhealthy_details.append({
                 "resource_name": str(resource_name),
                 "status": str(status),
@@ -1099,95 +1620,73 @@ class SREOrchestratorAgent(BaseSREAgent):
         }
 
     def _summarize_cost(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Summarize cost analysis results.
-
-        Args:
-            results: Cost analysis results
-
-        Returns:
-            Cost summary
-        """
+        """Summarize cost analysis results."""
         def _to_float(value: Any) -> float:
             if value is None:
                 return 0.0
             if isinstance(value, (int, float)):
                 return float(value)
-            text = str(value).strip()
+            text = str(value).strip().replace(",", "")
             if not text or text.upper() == "N/A":
                 return 0.0
-            text = text.replace(",", "")
             try:
                 return float(text)
             except ValueError:
                 return 0.0
 
-        total_savings_identified = 0.0
-        orphaned_resources = 0
+        total_savings = 0.0
+        orphaned = 0
 
         for result in results:
             result_data = result.get("result", {})
             if not isinstance(result_data, dict):
                 continue
+            parsed = result_data.get("parsed", {})
+            if not isinstance(parsed, dict):
+                parsed = {}
+            payload = parsed or result_data
 
-            parsed_data = result_data.get("parsed", {})
-            if not isinstance(parsed_data, dict):
-                parsed_data = {}
+            total_savings += _to_float(payload.get("potential_savings", 0.0))
 
-            payload = parsed_data or result_data
-
-            # Direct potential_savings from analysis tools
-            total_savings_identified += _to_float(payload.get("potential_savings", 0.0))
-
-            # Include savings from recommendation entries (Azure Advisor often provides annual values)
-            recommendations = payload.get("recommendations", [])
-            if isinstance(recommendations, list):
-                for rec in recommendations:
+            recs = payload.get("recommendations", [])
+            if isinstance(recs, list):
+                for rec in recs:
                     if not isinstance(rec, dict):
                         continue
-
                     monthly = _to_float(
                         rec.get("monthly_savings_amount")
                         or rec.get("monthly_savings")
                         or rec.get("estimated_monthly_savings")
                     )
                     if monthly > 0:
-                        total_savings_identified += monthly
+                        total_savings += monthly
                         continue
-
                     annual = _to_float(rec.get("savings_amount") or rec.get("annual_savings_amount"))
                     if annual > 0:
-                        total_savings_identified += annual / 12.0
+                        total_savings += annual / 12.0
 
-            # Orphaned resources summary
             total_orphaned = payload.get("total_orphaned_resources")
             if isinstance(total_orphaned, int):
-                orphaned_resources += total_orphaned
+                orphaned += total_orphaned
             else:
-                orphaned = payload.get("orphaned_resources", {})
-                if isinstance(orphaned, dict):
-                    orphaned_resources += sum(
-                        int(v.get("count", 0)) for v in orphaned.values() if isinstance(v, dict)
+                orph = payload.get("orphaned_resources", {})
+                if isinstance(orph, dict):
+                    orphaned += sum(
+                        int(v.get("count", 0)) for v in orph.values() if isinstance(v, dict)
                     )
-                elif isinstance(orphaned, list):
-                    orphaned_resources += len(orphaned)
+                elif isinstance(orph, list):
+                    orphaned += len(orph)
 
         return {
-            "potential_savings": f"${total_savings_identified:,.2f}",
-            "orphaned_resources": orphaned_resources,
-            "tools_analyzed": len(results)
+            "potential_savings": f"${total_savings:,.2f}",
+            "orphaned_resources": orphaned,
+            "tools_analyzed": len(results),
         }
 
     def _summarize_performance(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Summarize performance analysis results.
-
-        Args:
-            results: Performance results
-
-        Returns:
-            Performance summary
-        """
+        """Summarize performance analysis results."""
         bottlenecks_found = 0
-        capacity_recommendations = 0
+        capacity_recs = 0
         metrics_count = 0
         has_data = False
 
@@ -1195,344 +1694,267 @@ class SREOrchestratorAgent(BaseSREAgent):
             result_data = result.get("result", {})
             if not isinstance(result_data, dict):
                 continue
+            parsed = result_data.get("parsed", {})
+            if not isinstance(parsed, dict):
+                parsed = {}
 
-            # SRE MCP client stores structured payload under "parsed"
-            parsed_data = result_data.get("parsed", {})
-            if not isinstance(parsed_data, dict):
-                parsed_data = {}
-
-            bottlenecks = parsed_data.get("bottlenecks_found") or result_data.get("bottlenecks") or []
-            recommendations = parsed_data.get("recommendations") or result_data.get("recommendations") or []
-            metrics = parsed_data.get("metrics") or result_data.get("metrics") or []
+            bottlenecks = parsed.get("bottlenecks_found") or result_data.get("bottlenecks") or []
+            recs = parsed.get("recommendations") or result_data.get("recommendations") or []
+            metrics = parsed.get("metrics") or result_data.get("metrics") or []
 
             bottlenecks_found += len(bottlenecks)
-            capacity_recommendations += len(recommendations)
+            capacity_recs += len(recs)
             if metrics:
                 metrics_count += len(metrics)
                 has_data = True
 
         return {
             "bottlenecks_identified": bottlenecks_found,
-            "capacity_recommendations": capacity_recommendations,
+            "capacity_recommendations": capacity_recs,
             "metrics_count": metrics_count,
             "has_data": has_data,
-            "tools_analyzed": len(results)
+            "tools_analyzed": len(results),
         }
 
-    async def _diagnose_no_metrics(self, resource_id: str, tool_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Diagnose why there are no metrics for a resource.
+    def _build_no_metrics_message(self, results: List[Dict[str, Any]]) -> str:
+        """Build a helpful message when no metrics are found."""
+        diagnostic_details = []
+        recommendations = []
+        for result in results:
+            if "diagnostic_info" in result:
+                diag = result["diagnostic_info"]
+                if diag.get("issues_found"):
+                    diagnostic_details.extend(diag["issues_found"])
+                recommendations.extend(diag.get("recommendations", []))
 
-        Args:
-            resource_id: Azure resource ID
-            tool_result: The tool result that returned empty metrics (unused but kept for signature)
+        if diagnostic_details:
+            issues_html = "<br>".join(f"&bull; {i}" for i in diagnostic_details[:3])
+            msg = (
+                f"No performance metrics found. <strong>Issues detected:</strong><br>"
+                f"{issues_html}<br><br>"
+            )
+            if recommendations:
+                rec_html = "<br>".join(f"&bull; {r}" for r in recommendations[:5])
+                msg += f"<strong>Recommendations:</strong><br>{rec_html}"
+            return msg
 
-        Returns:
-            Dictionary with diagnostic information and recommendations
-        """
-        diagnostics = {
-            "issues_found": [],
-            "recommendations": []
-        }
+        return (
+            "No performance metrics found for the specified resources. "
+            "This could be because:<br>"
+            "&bull; The VM or resource is stopped/deallocated<br>"
+            "&bull; Monitoring agent is not installed or configured<br>"
+            "&bull; Metrics collection hasn't started yet (wait 3-5 minutes)<br>"
+            "&bull; The resource doesn't support the requested metrics<br><br>"
+            "<strong>Tip:</strong> Ensure resources are running and have Azure Monitor configured."
+        )
 
+    # ------------------------------------------------------------------
+    # Diagnostics helper (kept from original)
+    # ------------------------------------------------------------------
+
+    async def _diagnose_no_metrics(
+        self, resource_id: str, tool_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Diagnose why there are no metrics for a resource."""
+        diagnostics: Dict[str, Any] = {"issues_found": [], "recommendations": []}
         if not resource_id:
             diagnostics["issues_found"].append("No resource ID provided")
             diagnostics["recommendations"].append("Specify a resource ID to diagnose")
             return diagnostics
 
-        # Extract resource name and type from resource_id
-        resource_name = resource_id.split('/')[-1]
+        resource_name = resource_id.split("/")[-1]
         resource_type = "VM" if "/virtualMachines/" in resource_id else "resource"
 
-        # Parse resource group from resource_id
         resource_group = "unknown"
         try:
-            parts = resource_id.split('/')
-            rg_index = parts.index('resourceGroups') + 1
+            parts = resource_id.split("/")
+            rg_index = parts.index("resourceGroups") + 1
             resource_group = parts[rg_index]
         except (ValueError, IndexError):
-            logger.warning(f"Could not parse resource group from: {resource_id}")
+            pass
 
-        # Check if this is a VM - we can check power state using registered SRE MCP proxy agent
+        # Check VM power state via resource health
         if "/virtualMachines/" in resource_id:
             try:
                 proxy_agent = self.registry.get_agent("sre-mcp-server")
-                if not proxy_agent:
-                    raise RuntimeError("SRE MCP proxy agent not available")
-
-                # Use get_resource_health tool to check VM state
-                health_result = await proxy_agent.handle_request({
-                    "tool": "get_resource_health",
-                    "parameters": {"resource_id": resource_id}
-                })
-
-                if health_result.get("status") == "success":
-                    # BaseSREAgent wraps execute output under "result"
-                    result_wrapper = health_result.get("result", {})
-                    health_data = result_wrapper.get("result", result_wrapper) if isinstance(result_wrapper, dict) else {}
-                    availability_state = health_data.get("availability_state", "unknown")
-
-                    # Check if VM is unavailable/stopped
-                    if availability_state.lower() in ["unavailable", "degraded"]:
-                        reason = health_data.get("reason_type", "")
-                        diagnostics["issues_found"].append(
-                            f"VM '{resource_name}' is {availability_state}: {reason}"
-                        )
-                        if resource_group != "unknown":
-                            diagnostics["recommendations"].append(
-                                f"Start the VM: <code>az vm start -g {resource_group} -n {resource_name}</code>"
+                if proxy_agent:
+                    health_result = await proxy_agent.handle_request({
+                        "tool": "get_resource_health",
+                        "parameters": {"resource_id": resource_id},
+                    })
+                    if health_result.get("status") == "success":
+                        wrapper = health_result.get("result", {})
+                        health_data = wrapper.get("result", wrapper) if isinstance(wrapper, dict) else {}
+                        state = health_data.get("availability_state", "unknown")
+                        if state.lower() in ("unavailable", "degraded"):
+                            reason = health_data.get("reason_type", "")
+                            diagnostics["issues_found"].append(
+                                f"VM '{resource_name}' is {state}: {reason}"
                             )
-                        diagnostics["recommendations"].append(
-                            "Wait 3-5 minutes after starting for metrics to populate in Azure Monitor"
-                        )
-                        return diagnostics
-
+                            if resource_group != "unknown":
+                                diagnostics["recommendations"].append(
+                                    f"Start the VM: <code>az vm start -g {resource_group} -n {resource_name}</code>"
+                                )
+                            diagnostics["recommendations"].append(
+                                "Wait 3-5 minutes after starting for metrics to populate"
+                            )
+                            return diagnostics
             except Exception as e:
-                logger.debug(f"Could not check resource health: {e}")
-                # Continue to other checks
+                logger.debug("Could not check resource health: %s", e)
 
-        # Generic diagnostics for all resources
         diagnostics["issues_found"].append(
             f"No metrics data available for {resource_type} '{resource_name}'"
         )
-
-        # Provide actionable recommendations
-        diagnostics["recommendations"].append(
-            "✓ Verify the resource is running and operational"
-        )
-        diagnostics["recommendations"].append(
-            "✓ Check if Azure Monitor diagnostic settings are configured"
-        )
-
+        diagnostics["recommendations"].extend([
+            "Verify the resource is running and operational",
+            "Check if Azure Monitor diagnostic settings are configured",
+        ])
         if resource_type == "VM":
             diagnostics["recommendations"].append(
-                "✓ Ensure Azure Monitor agent or diagnostic extension is installed"
+                "Ensure Azure Monitor agent or diagnostic extension is installed"
             )
             if resource_group != "unknown":
                 diagnostics["recommendations"].append(
                     f"Check VM status: <code>az vm get-instance-view -g {resource_group} -n {resource_name}</code>"
                 )
-
         diagnostics["recommendations"].append(
-            "✓ Allow 3-5 minutes for metrics to populate after resource starts"
+            "Allow 3-5 minutes for metrics to populate after resource starts"
         )
-
-        diagnostics["recommendations"].append(
-            f"Check diagnostic settings: <code>az monitor diagnostic-settings list --resource {resource_id}</code>"
-        )
-
         return diagnostics
+
+    # ------------------------------------------------------------------
+    # Capabilities & routing
+    # ------------------------------------------------------------------
 
     async def route_to_specialist(
         self,
         specialist_type: str,
         request: Dict[str, Any],
-        workflow_id: str
+        workflow_id: str,
     ) -> Dict[str, Any]:
-        """Route request to a specialist agent.
-
-        Args:
-            specialist_type: Type of specialist (e.g., "incident", "cost")
-            request: Request data
-            workflow_id: Workflow identifier
-
-        Returns:
-            Specialist agent result
-        """
-        # Get specialist agent
+        """Route request to a specialist agent."""
         specialist = self.registry.get_agent_by_type(specialist_type)
-
         if not specialist:
-            logger.warning(f"Specialist agent {specialist_type} not available")
-            return {
-                "status": "error",
-                "error": f"Specialist {specialist_type} not available"
-            }
+            return {"status": "error", "error": f"Specialist {specialist_type} not available"}
 
-        # Send request via message bus
         try:
             response = await self.message_bus.send_request(
                 from_agent=self.agent_id,
                 to_agent=specialist.agent_id,
                 request_type="execute",
-                payload={
-                    "request": request,
-                    "workflow_id": workflow_id
-                },
-                timeout=60.0
+                payload={"request": request, "workflow_id": workflow_id},
+                timeout=60.0,
             )
-
             return response
-
         except Exception as exc:
-            logger.error(f"Failed to route to specialist {specialist_type}: {exc}")
-            return {
-                "status": "error",
-                "error": str(exc)
-            }
+            logger.error("Failed to route to specialist %s: %s", specialist_type, exc)
+            return {"status": "error", "error": str(exc)}
 
     def get_capabilities(self) -> Dict[str, Any]:
-        """Get orchestrator capabilities.
-
-        Returns:
-            Capabilities summary
-        """
+        """Get orchestrator capabilities."""
         tools = self.registry.list_tools()
         agents = self.registry.list_agents()
 
-        capabilities = {
-            "orchestrator_version": "1.0.0",
+        agent_available = bool(
+            self.azure_sre_agent
+            and self.azure_sre_agent.agents_client
+            and self.azure_sre_agent.credential
+        )
+
+        return {
+            "orchestrator_version": "2.0.0",
             "total_tools": len(tools),
             "total_agents": len(agents),
-            "categories": list(self._intent_patterns.keys()),
-            "tools_by_category": {}
+            "agent_routing": agent_available,
+            "execution_mode": "agent_first" if agent_available else "mcp_fallback",
+            "agent_diagnostics": (
+                self.azure_sre_agent.get_diagnostics()
+                if self.azure_sre_agent
+                else None
+            ),
         }
 
-        # Group tools by category
-        for category, patterns in self._intent_patterns.items():
-            category_tools = []
-            for _, tools_list in patterns:
-                category_tools.extend(tools_list)
-            capabilities["tools_by_category"][category] = list(set(category_tools))
-
-        return capabilities
+    # ------------------------------------------------------------------
+    # Azure CLI execution
+    # ------------------------------------------------------------------
 
     async def _execute_azure_cli(self, command: str) -> Dict[str, Any]:
-        """Execute Azure CLI command using singleton executor.
-
-        Args:
-            command: Azure CLI command to execute
-
-        Returns:
-            Command execution result
-        """
+        """Execute Azure CLI command using singleton executor."""
         try:
             executor = await get_azure_cli_executor()
             return await executor.execute(command, timeout=30, add_subscription=True)
         except Exception as exc:
-            logger.error(f"Azure CLI execution failed: {exc}")
-            return {
-                "status": "error",
-                "error": str(exc)
-            }
+            logger.error("Azure CLI execution failed: %s", exc)
+            return {"status": "error", "error": str(exc)}
+
+    # ------------------------------------------------------------------
+    # Interaction handling (kept from original)
+    # ------------------------------------------------------------------
 
     async def _check_and_handle_ambiguous_params(
         self,
         tool_name: str,
         parameters: Dict[str, Any],
-        query: str
+        query: str,
     ) -> Optional[Dict[str, Any]]:
-        """Check if parameters are ambiguous and prompt user for selection.
-
-        Args:
-            tool_name: Name of the tool
-            parameters: Current parameters
-            query: Original user query
-
-        Returns:
-            Selection prompt dict or None if no ambiguity
-        """
+        """Check if parameters are ambiguous and prompt user."""
         if not self.interaction_handler:
             return None
 
-        # Check if required parameters are missing
         missing_check = self.interaction_handler.check_required_params(
-            tool_name,
-            parameters
+            tool_name, parameters,
         )
-
         if missing_check:
-            # Need to discover resources
             resource_type = self.interaction_handler.needs_resource_discovery(
-                tool_name,
-                parameters,
-                query
+                tool_name, parameters, query,
             )
-
             if resource_type:
-                # Discover resources
-                resources = await self._discover_resources_by_type(
-                    resource_type,
-                    parameters
-                )
-
+                resources = await self._discover_resources_by_type(resource_type, parameters)
                 if resources:
-                    # Multiple resources found - prompt user to select
                     if len(resources) > 1:
                         return self.interaction_handler.format_selection_prompt(
                             resources,
                             self._get_resource_type_label(resource_type),
-                            action="use for this operation"
+                            action="use for this operation",
                         )
-                    # Single resource found - use it automatically
                     elif len(resources) == 1:
                         await self._stream_event("info", {
                             "message": f"Found {self._get_resource_type_label(resource_type)}: {resources[0].get('name')}"
                         })
-                        return {
-                            "auto_selected": True,
-                            "resource": resources[0]
-                        }
-
-            # Return missing params message
+                        return {"auto_selected": True, "resource": resources[0]}
             return missing_check
-
         return None
 
     async def _discover_resources_by_type(
-        self,
-        resource_type: str,
-        context: Dict[str, Any]
+        self, resource_type: str, context: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        """Discover resources by type.
-
-        Args:
-            resource_type: Type of resource to discover
-            context: Context parameters (resource_group, subscription, etc.)
-
-        Returns:
-            List of discovered resources
-        """
+        """Discover resources by type."""
         if not self.interaction_handler:
             return []
 
-        resource_group = context.get("resource_group")
+        rg = context.get("resource_group")
         name_filter = context.get("name_filter")
 
         try:
             if resource_type == "container_app":
-                return await self.interaction_handler.discover_container_apps(
-                    resource_group, name_filter
-                )
+                return await self.interaction_handler.discover_container_apps(rg, name_filter)
             elif resource_type == "vm":
-                return await self.interaction_handler.discover_virtual_machines(
-                    resource_group, name_filter
-                )
+                return await self.interaction_handler.discover_virtual_machines(rg, name_filter)
             elif resource_type == "resource_group":
-                subscription_id = context.get("subscription_id")
                 return await self.interaction_handler.discover_resource_groups(
-                    subscription_id
+                    context.get("subscription_id"),
                 )
             elif resource_type == "workspace":
-                return await self.interaction_handler.discover_log_analytics_workspaces(
-                    resource_group
-                )
+                return await self.interaction_handler.discover_log_analytics_workspaces(rg)
             else:
-                logger.warning(f"Unknown resource type for discovery: {resource_type}")
+                logger.warning("Unknown resource type for discovery: %s", resource_type)
                 return []
-
         except Exception as exc:
-            logger.error(f"Resource discovery failed for {resource_type}: {exc}")
+            logger.error("Resource discovery failed for %s: %s", resource_type, exc)
             return []
 
     def _get_resource_type_label(self, resource_type: str) -> str:
-        """Get user-friendly label for a resource type.
-
-        Args:
-            resource_type: Resource type key
-
-        Returns:
-            Human-readable label
-        """
+        """Get user-friendly label for a resource type."""
         labels = {
             "container_app": "Container App",
             "vm": "Virtual Machine",
@@ -1541,35 +1963,30 @@ class SREOrchestratorAgent(BaseSREAgent):
         }
         return labels.get(resource_type, resource_type.replace("_", " ").title())
 
+    # ------------------------------------------------------------------
+    # Response formatting (kept from original, enhanced)
+    # ------------------------------------------------------------------
+
     def format_response(
         self,
         aggregated_results: Dict[str, Any],
-        intent_category: str
+        intent_category: str,
     ) -> str:
-        """Format aggregated results into user-friendly HTML.
-
-        Args:
-            aggregated_results: Aggregated tool results
-            intent_category: Intent category
-
-        Returns:
-            HTML-formatted response
-        """
+        """Format aggregated results into user-friendly HTML."""
         html_parts = []
 
-        # Add summary header
         summary = aggregated_results.get("summary", {})
         successful = summary.get("successful", 0)
         total = summary.get("total_tools", 0)
 
         if successful > 0:
             html_parts.append(
-                f"<h3>✅ Operation Complete</h3>"
+                f"<h3>Operation Complete</h3>"
                 f"<p>Successfully executed {successful} out of {total} operations.</p>"
             )
         else:
             html_parts.append(
-                f"<h3>ℹ️ Results</h3>"
+                f"<h3>Results</h3>"
                 f"<p>Processed {total} operation(s).</p>"
             )
 
@@ -1578,32 +1995,31 @@ class SREOrchestratorAgent(BaseSREAgent):
         for result in results:
             tool_name = result.get("tool", "Unknown Tool")
             tool_result = result.get("result", {})
-
-            html_parts.append(f"<hr>")
+            html_parts.append("<hr>")
             formatted = format_tool_result(tool_name, tool_result)
             html_parts.append(formatted)
 
-        # Add category-specific summaries
+        # Category-specific summaries
         if intent_category == "health":
             health_summary = aggregated_results.get("health_summary", {})
             if health_summary:
                 html_parts.append("<hr>")
                 html_parts.append(
-                    f"<h4>📊 Health Summary</h4>"
-                    f"<p><strong>Healthy Resources:</strong> {health_summary.get('healthy_resources', 0)}</p>"
-                    f"<p><strong>Unhealthy Resources:</strong> {health_summary.get('unhealthy_resources', 0)}</p>"
+                    f"<h4>Health Summary</h4>"
+                    f"<p><strong>Healthy:</strong> {health_summary.get('healthy_resources', 0)}</p>"
+                    f"<p><strong>Unhealthy:</strong> {health_summary.get('unhealthy_resources', 0)}</p>"
                 )
-
                 unhealthy_details = health_summary.get("unhealthy_details", [])
                 if unhealthy_details:
-                    html_parts.append("<p><strong>🔎 Unhealthy Resource Details:</strong></p><ul>")
+                    html_parts.append("<p><strong>Unhealthy Resource Details:</strong></p><ul>")
                     for detail in unhealthy_details:
-                        name = html.escape(detail.get("resource_name", "Unknown Resource"))
+                        name = html.escape(detail.get("resource_name", "Unknown"))
                         status = html.escape(detail.get("status", "Unknown"))
                         reason = html.escape(detail.get("reason", ""))
                         recent_error = html.escape(detail.get("recent_error", ""))
-
-                        html_parts.append(f"<li><strong>{name}</strong> — Status: {status}<br>Reason: {reason}")
+                        html_parts.append(
+                            f"<li><strong>{name}</strong> — Status: {status}<br>Reason: {reason}"
+                        )
                         if recent_error:
                             html_parts.append(f"<br>Recent error: {recent_error}")
                         html_parts.append("</li>")
@@ -1614,18 +2030,157 @@ class SREOrchestratorAgent(BaseSREAgent):
             if cost_summary:
                 html_parts.append("<hr>")
                 html_parts.append(
-                    f"<h4>💰 Cost Summary</h4>"
+                    f"<h4>Cost Summary</h4>"
                     f"<p><strong>Potential Savings:</strong> {cost_summary.get('potential_savings', '$0.00')}</p>"
                     f"<p><strong>Orphaned Resources:</strong> {cost_summary.get('orphaned_resources', 0)}</p>"
                 )
 
-        # Add helpful message if all tools were skipped
+        hybrid_narrative = aggregated_results.get("hybrid_narrative")
+        if hybrid_narrative:
+            html_parts.append("<hr>")
+            html_parts.append("<h4>AI Narrative</h4>")
+            html_parts.append(
+                "<div class='alert alert-secondary'>"
+                f"<p>{html.escape(str(hybrid_narrative)).replace(chr(10), '<br>')}</p>"
+                "</div>"
+            )
+
+        # Add message if present
         message = aggregated_results.get("message")
         if message:
             html_parts.append(
                 f"<div class='alert alert-info'>"
-                f"<p><strong>💡 Tip:</strong> {message}</p>"
+                f"<p><strong>Tip:</strong> {message}</p>"
                 f"</div>"
             )
 
         return "\n".join(html_parts)
+
+    async def _generate_hybrid_narrative(
+        self,
+        query: str,
+        aggregated_results: Dict[str, Any],
+    ) -> Optional[str]:
+        """Optionally generate an LLM narrative on top of deterministic SRE stats."""
+        if not self.hybrid_formatting_enabled:
+            return None
+
+        if self._hybrid_chat_client is None and create_chat_client is not None:
+            self._hybrid_chat_client = create_chat_client()
+
+        if self._hybrid_chat_client is None or build_chat_options is None:
+            return None
+
+        facts = self._build_hybrid_facts(aggregated_results)
+        if not facts:
+            return None
+
+        try:
+            system_prompt = (
+                "You are an SRE assistant. Produce a concise operational narrative based ONLY on provided facts. "
+                "Do not invent numbers. Use plain text, max 3 short bullets. "
+                "Mention CPU/memory explicitly when present and call out any risk thresholds (CPU>80 or Memory>80)."
+            )
+            payload = {
+                "user_query": query,
+                "facts": facts,
+            }
+            messages = [
+                ChatMessage(role="system", text=system_prompt),
+                ChatMessage(role="user", text=json.dumps(payload, default=str)),
+            ]
+            chat_kwargs = build_chat_options(
+                conversation_id=f"sre-hybrid-{uuid.uuid4().hex[:8]}",
+                allow_multiple_tool_calls=False,
+                store=False,
+                temperature=0.1,
+                max_tokens=self.hybrid_narrative_max_tokens,
+            )
+            response = await asyncio.wait_for(
+                self._hybrid_chat_client.get_response(messages=messages, **chat_kwargs),
+                timeout=self.hybrid_narrative_timeout_seconds,
+            )
+            text = self._extract_hybrid_response_text(response)
+            if text:
+                return text[:1200]
+        except Exception as exc:
+            logger.warning("Hybrid narrative generation failed: %s", exc)
+
+        return None
+
+    def _build_hybrid_facts(self, aggregated_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Collect deterministic facts for optional hybrid narrative generation."""
+        facts: Dict[str, Any] = {
+            "summary": aggregated_results.get("summary", {}),
+            "performance": [],
+        }
+
+        results = aggregated_results.get("results", [])
+        if not isinstance(results, list):
+            return facts
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            if item.get("tool") != "get_performance_metrics":
+                continue
+
+            result_data = item.get("result", {})
+            if not isinstance(result_data, dict):
+                continue
+
+            parsed = result_data.get("parsed", {}) if isinstance(result_data.get("parsed"), dict) else result_data
+            if not isinstance(parsed, dict):
+                continue
+
+            resource_id = parsed.get("resource_id", "")
+            resource_name = resource_id.split("/")[-1] if isinstance(resource_id, str) and resource_id else "unknown"
+            perf_entry: Dict[str, Any] = {
+                "resource_name": resource_name,
+                "resource_type": parsed.get("resource_type"),
+                "metrics": {},
+            }
+
+            metrics = parsed.get("metrics", [])
+            if not isinstance(metrics, list):
+                continue
+
+            for metric in metrics[:8]:
+                if not isinstance(metric, dict):
+                    continue
+                metric_name_raw = str(metric.get("metric_name", "")).strip()
+                metric_name = re.sub(r"[^a-z0-9]", "", metric_name_raw.lower())
+                summary = metric.get("summary", {}) if isinstance(metric.get("summary"), dict) else {}
+                if metric_name in {"cpupercentage", "percentagecpu", "cpu"}:
+                    perf_entry["metrics"]["cpu_percent"] = summary
+                elif metric_name in {"memorypercentage", "memory", "memoryusage"}:
+                    perf_entry["metrics"]["memory_percent"] = summary
+                else:
+                    perf_entry["metrics"][metric_name_raw or metric_name] = summary
+
+            if perf_entry["metrics"]:
+                facts["performance"].append(perf_entry)
+
+        return facts
+
+    def _extract_hybrid_response_text(self, response: Optional[ChatResponse]) -> str:
+        """Normalize Agent Framework responses into a text payload."""
+        if response is None:
+            return ""
+
+        content = getattr(response, "content", None)
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+
+        messages = getattr(response, "messages", None)
+        if isinstance(messages, list):
+            for message in reversed(messages):
+                role = getattr(message, "role", None)
+                if role not in {"assistant", "system"}:
+                    continue
+
+                text = getattr(message, "text", None)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+
+        return ""

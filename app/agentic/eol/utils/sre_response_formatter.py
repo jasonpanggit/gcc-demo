@@ -465,17 +465,99 @@ class SREResponseFormatter:
             )
             return "\n".join(html_parts)
 
+        def _normalize_metric_name(name: Any) -> str:
+            return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+        def _extract_summary_value(metric_item: Dict[str, Any]) -> Optional[float]:
+            summary = metric_item.get("summary", {})
+            if isinstance(summary, dict):
+                for key in ("current", "average", "maximum", "minimum"):
+                    value = summary.get(key)
+                    if isinstance(value, (int, float)):
+                        return float(value)
+
+            for field_name in ("hourly_data", "aggregated_data", "raw_data"):
+                points = metric_item.get(field_name)
+                if isinstance(points, list) and points:
+                    last_point = points[-1]
+                    if isinstance(last_point, dict):
+                        for key in ("average", "value", "max", "min"):
+                            value = last_point.get(key)
+                            if isinstance(value, (int, float)):
+                                return float(value)
+            return None
+
+        def _find_metric_value(candidates: set[str]) -> Optional[float]:
+            if not isinstance(metrics_list, list):
+                return None
+            for metric_item in metrics_list:
+                if not isinstance(metric_item, dict):
+                    continue
+                metric_name = _normalize_metric_name(metric_item.get("metric_name", ""))
+                if metric_name in candidates:
+                    value = _extract_summary_value(metric_item)
+                    if value is not None:
+                        return value
+            return None
+
         # CPU metrics
         cpu = metrics.get("cpu_percent")
+        if cpu is None:
+            cpu = _find_metric_value(
+                {
+                    "cpu",
+                    "cpupercentage",
+                    "percentagecpu",
+                    "cpuusage",
+                    "cpuutilization",
+                    "nodecpuusagepercentage",
+                }
+            )
         if cpu is not None:
             icon = "⚠️" if cpu > 80 else "✅" if cpu < 60 else "ℹ️"
             html_parts.append(f"<p>{icon} <strong>CPU:</strong> {cpu:.1f}%</p>")
 
         # Memory metrics
         memory = metrics.get("memory_percent")
+        if memory is None:
+            memory = _find_metric_value(
+                {
+                    "memory",
+                    "memorypercentage",
+                    "memoryusage",
+                    "memoryutilization",
+                    "nodememoryworkingsetpercentage",
+                }
+            )
         if memory is not None:
             icon = "⚠️" if memory > 80 else "✅" if memory < 60 else "ℹ️"
             html_parts.append(f"<p>{icon} <strong>Memory:</strong> {memory:.1f}%</p>")
+
+        if isinstance(metrics_list, list) and metrics_list:
+            html_parts.append("<p><strong>Metric Details:</strong></p><ul>")
+            for metric_item in metrics_list[:6]:
+                if not isinstance(metric_item, dict):
+                    continue
+                metric_name = html.escape(str(metric_item.get("metric_name", "Metric")))
+                summary = metric_item.get("summary", {}) if isinstance(metric_item.get("summary"), dict) else {}
+
+                current = summary.get("current")
+                average = summary.get("average")
+                maximum = summary.get("maximum")
+
+                parts = []
+                if isinstance(current, (int, float)):
+                    parts.append(f"current={current:.2f}")
+                if isinstance(average, (int, float)):
+                    parts.append(f"avg={average:.2f}")
+                if isinstance(maximum, (int, float)):
+                    parts.append(f"max={maximum:.2f}")
+
+                unit = metric_item.get("unit")
+                suffix = f" ({html.escape(str(unit))})" if unit else ""
+                details = ", ".join(parts) if parts else "no summary values"
+                html_parts.append(f"<li><strong>{metric_name}</strong>{suffix}: {html.escape(details)}</li>")
+            html_parts.append("</ul>")
 
         # Bottlenecks
         bottlenecks = metrics.get("bottlenecks", [])

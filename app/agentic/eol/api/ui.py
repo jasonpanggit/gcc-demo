@@ -405,6 +405,37 @@ async def azure_ai_sre_ui(request: Request):
     return templates.TemplateResponse(request, "azure-ai-sre.html")
 
 
+@router.get("/patch-management", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="patch_management_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def patch_management_ui(request: Request):
+    """
+    Patch Management page.
+
+    Shows available patches for each Arc-enabled VM sourced from the OS
+    inventory.  Uses the Azure HybridCompute assessPatches REST API to
+    retrieve patch data on demand.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered patch-management.html template.
+    """
+    try:
+        return templates.TemplateResponse(request, "patch-management.html", {
+            "subscription_id": config.azure.subscription_id,
+            "resource_group": config.azure.resource_group_name,
+        })
+    except TemplateNotFound:
+        logger.warning("patch-management template not found; returning fallback HTML")
+        return HTMLResponse("<h1>Patch Management</h1><p>Template unavailable.</p>", status_code=200)
+
+
 @router.get("/resource-inventory", response_class=HTMLResponse)
 @with_timeout_and_stats(
     agent_name="resource_inventory_page",
