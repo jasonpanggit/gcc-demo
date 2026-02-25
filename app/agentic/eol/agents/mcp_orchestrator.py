@@ -113,6 +113,17 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         class NetworkMCPDisabledError(RuntimeError):  # type: ignore[override]
             """Fallback disabled error when Network MCP helper is unavailable."""
 
+_patch_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.patch_mcp_client import get_patch_mcp_client  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _patch_mcp_import_error = exc
+    try:
+        from utils.patch_mcp_client import get_patch_mcp_client  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _patch_mcp_import_error = fallback_exc
+        get_patch_mcp_client = None  # type: ignore[assignment]
+
 _sre_inventory_import_error: Optional[BaseException] = None
 try:
     from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration  # type: ignore[import-not-found]
@@ -159,6 +170,15 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     except ModuleNotFoundError:
         SRESubAgent = None  # type: ignore[assignment]
         build_sre_meta_tool = None  # type: ignore[assignment]
+
+try:
+    from app.agentic.eol.agents.patch_sub_agent import PatchSubAgent, build_patch_meta_tool  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from agents.patch_sub_agent import PatchSubAgent, build_patch_meta_tool  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        PatchSubAgent = None  # type: ignore[assignment]
+        build_patch_meta_tool = None  # type: ignore[assignment]
 
 try:
     from app.agentic.eol.utils.tool_router import ToolRouter  # type: ignore[import-not-found]
@@ -942,6 +962,8 @@ FORMATTING:
         self._monitor_history: List[Dict[str, str]] = []  # Prior monitor delegation request/response pairs
         self._sre_agent: Optional[Any] = None  # Lazy-initialized SRESubAgent
         self._sre_history: List[Dict[str, str]] = []  # Prior SRE delegation request/response pairs
+        self._patch_agent: Optional[Any] = None  # Lazy-initialized PatchSubAgent
+        self._patch_history: List[Dict[str, str]] = []  # Prior patch delegation request/response pairs
         self._tool_router: Optional[Any] = None  # Lazy-initialized ToolRouter (keyword fallback)
         self._tool_embedder: Optional[Any] = None  # Lazy-initialized ToolEmbedder (semantic primary)
         self._pipeline_router: Optional[Any] = None   # Phase 4/5 pipeline Router
@@ -2116,6 +2138,23 @@ FORMATTING:
                 _network_mcp_import_error,
             )
 
+        if get_patch_mcp_client is not None:
+            try:
+                patch_client = await get_patch_mcp_client()
+            except Exception as exc:  # pragma: no cover - optional dependency
+                logger.warning("Patch MCP server unavailable: %s", exc)
+            else:
+                logger.debug(
+                    "Patch MCP client initialised; catalog size hint=%s",
+                    len(getattr(patch_client, "available_tools", []) or []),
+                )
+                client_entries.append(("patch", patch_client))
+        else:
+            logger.debug(
+                "Patch MCP client import resolved to None; skipping registration (error=%s)",
+                _patch_mcp_import_error,
+            )
+
         if not client_entries or CompositeMCPClient is None:
             logger.error("No MCP clients available; tool execution disabled")
             self._mcp_client = None
@@ -2145,6 +2184,10 @@ FORMATTING:
         # Intercept the sre_agent meta-tool
         if tool_name == "sre_agent":
             return await self._handle_sre_delegation(arguments)
+
+        # Intercept the patch_agent meta-tool
+        if tool_name == "patch_agent":
+            return await self._handle_patch_delegation(arguments)
 
         if not self._mcp_client:
             return {
@@ -2344,6 +2387,106 @@ FORMATTING:
             len(sre_tools),
         )
 
+    def _init_patch_agent(self) -> None:
+        """Initialise the PatchSubAgent with patch tools from the composite client."""
+        if PatchSubAgent is None:
+            logger.warning("PatchSubAgent class not available — skipping initialization")
+            return
+
+        if not self._mcp_client:
+            logger.warning("Cannot init PatchSubAgent — no MCP client")
+            return
+
+        get_by_sources = getattr(self._mcp_client, "get_tools_by_sources", None)
+        if not callable(get_by_sources):
+            logger.warning("CompositeMCPClient missing get_tools_by_sources — cannot init PatchSubAgent")
+            return
+
+        patch_tools = get_by_sources(["patch"])
+        if not patch_tools:
+            logger.warning("No patch tools found — PatchSubAgent will not be initialised")
+            return
+
+        self._patch_agent = PatchSubAgent(
+            tool_definitions=patch_tools,
+            tool_invoker=self._mcp_client.call_tool,
+            event_callback=self._push_event,
+        )
+        logger.info(
+            "✅ PatchSubAgent initialised with %d tools",
+            len(patch_tools),
+        )
+
+    async def _handle_patch_delegation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Delegate a request to the PatchSubAgent, injecting prior patch context."""
+        user_request = arguments.get("request", "")
+        if not user_request:
+            return {"success": False, "error": "No 'request' argument provided to patch_agent."}
+
+        if not self._patch_agent:
+            self._init_patch_agent()
+
+        if not self._patch_agent:
+            return {"success": False, "error": "Patch agent not available — Patch MCP server may not be running."}
+
+        # Inject Azure context from arguments if provided
+        subscription_id = arguments.get("subscription_id")
+        resource_group = arguments.get("resource_group")
+        if subscription_id or resource_group:
+            self._patch_agent._context = {
+                "subscription_id": subscription_id,
+                "resource_group": resource_group,
+            }
+
+        # Build context-enriched message from prior patch interactions
+        enriched_request = user_request
+        if self._patch_history:
+            recent = self._patch_history[-3:]
+            context_parts = []
+            for i, entry in enumerate(recent, 1):
+                context_parts.append(
+                    f"--- Previous patch interaction {i} ---\n"
+                    f"User request: {entry['request']}\n"
+                    f"Agent response: {entry['response'][:2000]}\n"
+                )
+            context_block = "\n".join(context_parts)
+            enriched_request = (
+                f"CONTEXT FROM PRIOR PATCH INTERACTIONS (use this to resolve references "
+                f"like 'that VM', 'check it again', VM names, etc.):\n\n"
+                f"{context_block}\n"
+                f"--- Current request ---\n{user_request}"
+            )
+            logger.info(
+                "🔀 PatchSubAgent delegation with %d prior interactions as context",
+                len(recent),
+            )
+
+        logger.info("🔀 Delegating to PatchSubAgent: %s", user_request[:200])
+        try:
+            result = await self._patch_agent.run(enriched_request)
+            response_text = result.get("response", "")
+
+            # Save this interaction for future context
+            self._patch_history.append({
+                "request": user_request,
+                "response": response_text,
+            })
+            # Keep history bounded
+            if len(self._patch_history) > 10:
+                self._patch_history = self._patch_history[-10:]
+
+            return {
+                "success": result.get("success", False),
+                "response": response_text,
+                "tool_calls_made": result.get("tool_calls_made", 0),
+                "iterations": result.get("iterations", 0),
+                "duration_seconds": result.get("duration_seconds", 0),
+                "agent": "patch",
+            }
+        except Exception as exc:
+            logger.exception("PatchSubAgent delegation failed: %s", exc)
+            return {"success": False, "error": f"Patch agent error: {exc}"}
+
     async def aclose(self) -> None:
         """Release network clients and credentials."""
 
@@ -2458,6 +2601,29 @@ FORMATTING:
                     )
                     # Initialize the SRESubAgent now
                     self._init_sre_agent()
+
+            # --- Patch Agent Integration (same pattern as SRE) ---
+            if callable(get_excl_sre) and PatchSubAgent is not None and build_patch_meta_tool is not None:
+                # Count patch tools currently in the catalog
+                patch_tool_names = [
+                    t.get("function", {}).get("name", "")
+                    for t in self._tool_definitions
+                    if self._tool_source_map.get(t.get("function", {}).get("name", "")) == "patch"
+                ]
+                if patch_tool_names:
+                    # Remove patch tools and inject the meta-tool
+                    self._tool_definitions = [
+                        t for t in self._tool_definitions
+                        if self._tool_source_map.get(t.get("function", {}).get("name", "")) != "patch"
+                    ]
+                    self._tool_definitions.append(build_patch_meta_tool())
+                    logger.info(
+                        "🔀 Hybrid mode: replaced %d patch tools with patch_agent meta-tool (%d tools for orchestrator)",
+                        len(patch_tool_names),
+                        len(self._tool_definitions),
+                    )
+                    # Initialize the PatchSubAgent now
+                    self._init_patch_agent()
 
             # --- Initialize ToolRouter for intent-based pre-filtering ---
             if ToolRouter is not None and self._tool_router is None:

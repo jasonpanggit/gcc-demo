@@ -60,6 +60,13 @@ _SOURCE_GUIDANCE: Dict[str, str] = {
         "hybrid connectivity problems, DNS resolution failures, and NSG rule audits. "
         "All tools are read-only — no network resources are modified."
     ),
+    "patch": (
+        " [Azure Patch Management] Patch assessment and installation for Azure VMs and Arc-enabled servers. "
+        "Use for: checking patch compliance, assessing available patches, installing patches with classification filters, "
+        "monitoring installation status, and generating patch compliance reports. "
+        "Workflow: list VMs → assess patches → review critical/security patches → install with approval. "
+        "Can delegate to patch_agent meta-tool for complex patch management workflows."
+    ),
 }
 
 # Per-tool disambiguation: extra text appended to specific tools that the LLM

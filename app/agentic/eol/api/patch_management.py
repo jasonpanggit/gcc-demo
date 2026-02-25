@@ -354,6 +354,14 @@ async def list_machines(
             str(m.get("resource_id", "")).lower()
             for m in machines
         }
+        # Get EOL orchestrator for enrichment
+        eol_orchestrator = None
+        try:
+            from main import get_eol_orchestrator
+            eol_orchestrator = get_eol_orchestrator()
+        except Exception:
+            logger.debug("EOL orchestrator not available for Azure VM enrichment")
+
         for vm in azure_vms:
             # _to_documents() normalises field names:
             #   id → resource_id (ARM path), name → resource_name,
@@ -364,10 +372,13 @@ async def list_machines(
             if not rid or rid in arc_rid_set:
                 continue
             vm_name = vm.get("resource_name") or vm.get("name")
-            machines.append({
+            os_name = sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or ""
+
+            # Build base VM record
+            vm_record = {
                 "computer":        vm_name,
                 "name":            vm_name,
-                "os_name":         sp.get("os_image") or sp.get("os_type") or vm.get("os_name"),
+                "os_name":         os_name,
                 "os_type":         sp.get("os_type") or vm.get("os_type"),
                 "resource_id":     vm.get("resource_id") or vm.get("id"),
                 "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or config.azure.subscription_id,
@@ -375,7 +386,27 @@ async def list_machines(
                 "location":        vm.get("location"),
                 "vm_size":         sp.get("vm_size") or vm.get("vm_size"),
                 "vm_type":         "azure-vm",
-            })
+            }
+
+            # Enrich with EOL data if available
+            if eol_orchestrator and os_name:
+                try:
+                    # Extract OS name and version from os_name string
+                    # Examples: "Windows Server 2019", "Ubuntu 20.04", "RHEL 8.5"
+                    eol_result = await eol_orchestrator.get_eol_data(
+                        software_name=os_name,
+                        version=None  # Let the orchestrator parse version from the string
+                    )
+                    if eol_result and eol_result.get("success"):
+                        eol_data = eol_result.get("data", {})
+                        vm_record["eol_date"] = eol_data.get("eol_date") or eol_data.get("eol")
+                        vm_record["eol_status"] = eol_data.get("eol_status")
+                        vm_record["support_status"] = eol_data.get("support_status")
+                        vm_record["lts"] = eol_data.get("lts")
+                except Exception as e:
+                    logger.debug(f"Failed to enrich Azure VM {vm_name} with EOL data: {e}")
+
+            machines.append(vm_record)
     except Exception as exc:
         logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
 

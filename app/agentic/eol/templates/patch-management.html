@@ -1187,6 +1187,19 @@ function updateInstallCount() {
     if (btn) btn.disabled = count === 0;
 }
 
+function exitInstallMode() {
+    document.querySelectorAll('#modal-patch-tbody .patch-check').forEach(cb => cb.checked = false);
+    const selectAll = document.getElementById('select-all-patches');
+    if (selectAll) selectAll.checked = false;
+    const btn = document.getElementById('btn-do-install');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-download me-1"></i>Install Selected`;
+    }
+    const el = document.getElementById('install-sel-count');
+    if (el) el.textContent = 'Select patches to install';
+}
+
 async function doInstall() {
     const key = _installKey;
     if (!key) return;
@@ -1239,7 +1252,8 @@ async function doInstall() {
         const json = await resp.json();
         if (!resp.ok || !json.success) {
             const raw = json.detail || json.error || `HTTP ${resp.status}`;
-            throw new Error(typeof raw === 'object' ? JSON.stringify(raw) : String(raw));
+            const msg = typeof raw === 'object' ? (raw.message || raw.error?.message || JSON.stringify(raw)) : String(raw);
+            throw new Error(msg);
         }
 
         exitInstallMode();

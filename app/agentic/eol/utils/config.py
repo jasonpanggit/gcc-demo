@@ -86,6 +86,55 @@ class AgentPerformanceConfig:
 
 
 @dataclass
+class PatchManagementConfig:
+    """Patch management configuration for Azure VMs and Arc-enabled servers.
+
+    Controls behavior for patch assessment, installation, and compliance reporting
+    via the patch management orchestrator/agent/MCP architecture.
+    """
+
+    # Feature flags
+    use_orchestrator: bool = field(
+        default_factory=lambda: os.getenv("PATCH_USE_ORCHESTRATOR", "true").lower() == "true"
+    )
+    enable_streaming: bool = field(
+        default_factory=lambda: os.getenv("PATCH_ENABLE_STREAMING", "true").lower() == "true"
+    )
+
+    # Operation timeouts (seconds)
+    assessment_timeout: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_ASSESSMENT_TIMEOUT", "300"))
+    )
+    install_timeout: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_INSTALL_TIMEOUT", "1800"))
+    )
+
+    # Default patch classifications for installation
+    default_classifications: List[str] = field(default_factory=lambda: [
+        "Critical", "Security"
+    ])
+
+    # Compliance thresholds
+    compliance_warning_threshold: int = 5  # Warn if > 5 critical patches pending
+    compliance_check_interval_hours: int = 24  # How often to check compliance
+
+    # Reboot behavior defaults
+    default_reboot_setting: str = "IfRequired"  # IfRequired | NeverReboot | AlwaysReboot
+
+    # Assessment behavior
+    auto_assess_on_new_vm: bool = True  # Auto-assess when new VMs discovered
+    assessment_cache_ttl_hours: int = 24  # Cache assessment results for 24 hours
+
+    # Installation behavior
+    require_user_confirmation: bool = True  # Always require confirmation before install
+    enable_dry_run: bool = True  # Support dry-run mode for testing
+
+    # Reporting
+    enable_compliance_dashboard: bool = True
+    compliance_report_format: str = "markdown"  # markdown | json | html
+
+
+@dataclass
 class InventoryConfig:
     """Resource inventory discovery and caching configuration"""
 
@@ -151,6 +200,7 @@ class ConfigManager:
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._azure_ai_sre_config: Optional[AzureAISREConfig] = None
         self._agent_perf_config: Optional[AgentPerformanceConfig] = None
+        self._patch_config: Optional[PatchManagementConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -258,6 +308,13 @@ class ConfigManager:
         if self._agent_perf_config is None:
             self._agent_perf_config = AgentPerformanceConfig.from_env()
         return self._agent_perf_config
+
+    @property
+    def patch_management(self) -> PatchManagementConfig:
+        """Get patch management configuration"""
+        if self._patch_config is None:
+            self._patch_config = PatchManagementConfig()
+        return self._patch_config
 
     @property
     def inventory(self) -> InventoryConfig:
@@ -370,6 +427,8 @@ class ConfigManager:
             "AZURE_AI_SRE_ENABLED": "✅" if self.azure_ai_sre.enabled else "❌",
             "SRE_AGENT_STREAMING": "✅" if self.agent_performance.enable_streaming else "❌",
             "SRE_AGENT_CACHE": "✅" if self.agent_performance.enable_response_cache else "❌",
+            "PATCH_USE_ORCHESTRATOR": "✅" if self.patch_management.use_orchestrator else "❌",
+            "PATCH_STREAMING": "✅" if self.patch_management.enable_streaming else "❌",
         }
 
 
