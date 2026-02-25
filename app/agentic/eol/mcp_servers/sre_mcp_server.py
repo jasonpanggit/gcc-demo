@@ -8230,5 +8230,456 @@ async def get_prompt_examples(
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SLA Audit Tools
+# ─────────────────────────────────────────────────────────────────────────────
+
+@_server.tool(
+    name="audit_sla_compliance",
+    description=(
+        "Audit SLA compliance for a service or resource over a given time window. "
+        "Computes actual availability, P99 latency, and error rate against configurable "
+        "SLA targets (default: 99.9% availability, <2000ms P99, <1% error rate). "
+        "✅ USE THIS TOOL when users ask: 'Are we meeting our SLA?', 'SLA compliance audit', "
+        "'What is our current uptime vs SLA target?', 'Audit SLA for my app service'. "
+        "Queries Azure Monitor metrics and Application Insights when available."
+    ),
+)
+async def audit_sla_compliance(
+    context: Context,
+    resource_name: Annotated[str, "Service or resource name to audit"],
+    subscription_id: Annotated[str, "Azure subscription ID (optional)"] = "",
+    resource_group: Annotated[str, "Resource group (optional)"] = "",
+    time_range_days: Annotated[int, "Audit window in days (default: 30)"] = 30,
+    sla_availability_target: Annotated[float, "Availability SLA target as percentage (default: 99.9)"] = 99.9,
+    sla_latency_p99_ms: Annotated[float, "P99 latency SLA target in milliseconds (default: 2000)"] = 2000.0,
+    sla_error_rate_target: Annotated[float, "Maximum allowed error rate as percentage (default: 1.0)"] = 1.0,
+    workspace_id: Annotated[str, "Log Analytics workspace ID for telemetry queries (optional)"] = "",
+) -> list[TextContent]:
+    """Audit SLA compliance for a service against availability, latency, and error rate targets."""
+    try:
+        audit_id = f"sla-audit-{resource_name}-{uuid.uuid4().hex[:8]}"
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=time_range_days)
+
+        sla_targets = {
+            "availability_pct": sla_availability_target,
+            "latency_p99_ms": sla_latency_p99_ms,
+            "error_rate_pct": sla_error_rate_target,
+        }
+
+        measurements: dict = {
+            "availability_pct": None,
+            "latency_p99_ms": None,
+            "error_rate_pct": None,
+            "total_requests": None,
+            "source": "no_data",
+        }
+
+        # Try querying Application Insights via Log Analytics
+        if workspace_id and LogsQueryClient:
+            try:
+                credential = _get_credential()
+                logs_client = LogsQueryClient(credential)
+                timespan = timedelta(days=time_range_days)
+
+                kql_availability = f"""
+requests
+| where cloud_RoleName =~ '{resource_name}'
+| summarize
+    total = count(),
+    successful = countif(success == true),
+    failed = countif(success == false),
+    p99_ms = percentile(duration, 99)
+"""
+                result = logs_client.query_workspace(workspace_id, kql_availability, timespan=timespan)
+                if hasattr(result, "tables") and result.tables and result.tables[0].rows:
+                    row = result.tables[0].rows[0]
+                    total = float(row[0]) if row[0] else 0.0
+                    successful = float(row[1]) if row[1] else 0.0
+                    failed = float(row[2]) if row[2] else 0.0
+                    p99 = float(row[3]) if row[3] else None
+                    if total > 0:
+                        measurements["total_requests"] = int(total)
+                        measurements["availability_pct"] = round(successful / total * 100, 4)
+                        measurements["error_rate_pct"] = round(failed / total * 100, 4)
+                        measurements["latency_p99_ms"] = round(p99, 1) if p99 else None
+                        measurements["source"] = "application_insights"
+            except Exception as exc:
+                logger.warning("SLA audit: App Insights query failed for %s: %s", resource_name, exc)
+
+        # Build per-dimension compliance results
+        def _compliance(actual, target, higher_is_better=True):
+            if actual is None:
+                return {"status": "no_data", "actual": None, "target": target, "delta": None, "compliant": None}
+            if higher_is_better:
+                compliant = actual >= target
+                delta = round(actual - target, 4)
+            else:
+                compliant = actual <= target
+                delta = round(target - actual, 4)
+            return {
+                "status": "compliant" if compliant else "breached",
+                "actual": actual,
+                "target": target,
+                "delta": delta,
+                "compliant": compliant,
+            }
+
+        availability_result = _compliance(measurements["availability_pct"], sla_availability_target, higher_is_better=True)
+        latency_result = _compliance(measurements["latency_p99_ms"], sla_latency_p99_ms, higher_is_better=False)
+        error_rate_result = _compliance(measurements["error_rate_pct"], sla_error_rate_target, higher_is_better=False)
+
+        # Overall SLA status: any breach = breached
+        dimensions = [availability_result, latency_result, error_rate_result]
+        has_breach = any(d["compliant"] is False for d in dimensions)
+        all_compliant = all(d["compliant"] is True for d in dimensions)
+        overall_status = "compliant" if all_compliant else ("breached" if has_breach else "partial_data")
+
+        # Allowable downtime from availability SLA
+        total_minutes = time_range_days * 24 * 60
+        allowed_downtime_min = round((1 - sla_availability_target / 100) * total_minutes, 1)
+        actual_downtime_min: float | None = None
+        if measurements["availability_pct"] is not None:
+            actual_downtime_min = round((1 - measurements["availability_pct"] / 100) * total_minutes, 1)
+
+        response = {
+            "success": True,
+            "audit_id": audit_id,
+            "resource_name": resource_name,
+            "audit_window": {
+                "days": time_range_days,
+                "from": start_time.isoformat(),
+                "to": end_time.isoformat(),
+            },
+            "sla_targets": sla_targets,
+            "overall_status": overall_status,
+            "dimensions": {
+                "availability": availability_result,
+                "latency_p99": latency_result,
+                "error_rate": error_rate_result,
+            },
+            "downtime_budget": {
+                "allowed_minutes": allowed_downtime_min,
+                "actual_minutes": actual_downtime_min,
+                "remaining_minutes": round(allowed_downtime_min - actual_downtime_min, 1) if actual_downtime_min is not None else None,
+            },
+            "total_requests": measurements["total_requests"],
+            "measurement_source": measurements["source"],
+            "recommendations": [],
+        }
+
+        # Actionable recommendations
+        if availability_result["compliant"] is False:
+            response["recommendations"].append(
+                f"Availability is {availability_result['actual']}% — {abs(availability_result['delta'])}% below "
+                f"SLA target of {sla_availability_target}%. Review error logs and consider deploying redundancy."
+            )
+        if latency_result["compliant"] is False:
+            response["recommendations"].append(
+                f"P99 latency is {latency_result['actual']}ms — {abs(latency_result['delta'])}ms above "
+                f"SLA target of {sla_latency_p99_ms}ms. Profile slow dependencies and check database query times."
+            )
+        if error_rate_result["compliant"] is False:
+            response["recommendations"].append(
+                f"Error rate is {error_rate_result['actual']}% — {abs(error_rate_result['delta'])}% above "
+                f"SLA target of {sla_error_rate_target}%. Investigate top exception types via search_logs_by_error."
+            )
+        if measurements["source"] == "no_data":
+            response["recommendations"].append(
+                "No telemetry data found. Provide workspace_id (Log Analytics) for live measurements."
+            )
+
+        _log_audit_event("audit_sla_compliance", resource_name,
+                         {"audit_id": audit_id, "overall_status": overall_status}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error("Error in audit_sla_compliance: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
+
+
+@_server.tool(
+    name="get_sla_breach_report",
+    description=(
+        "Generate a detailed SLA breach report for a service: breach count, total downtime, "
+        "longest breach, breach timeline, and P1/P2/P3 severity classification. "
+        "✅ USE THIS TOOL when users ask: 'How many SLA breaches did we have?', "
+        "'Show me SLA breach history', 'What were our worst outages?', "
+        "'SLA breach report for last quarter'. "
+        "Correlates availability drops with alert history in Application Insights."
+    ),
+)
+async def get_sla_breach_report(
+    context: Context,
+    resource_name: Annotated[str, "Service or resource name"],
+    subscription_id: Annotated[str, "Azure subscription ID (optional)"] = "",
+    resource_group: Annotated[str, "Resource group (optional)"] = "",
+    time_range_days: Annotated[int, "Report window in days (default: 90)"] = 90,
+    sla_availability_target: Annotated[float, "Availability SLA target as percentage (default: 99.9)"] = 99.9,
+    workspace_id: Annotated[str, "Log Analytics workspace ID (optional)"] = "",
+) -> list[TextContent]:
+    """Generate an SLA breach report with severity classification and timeline."""
+    try:
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=time_range_days)
+
+        breaches = []
+        summary = {
+            "total_breaches": 0,
+            "total_downtime_minutes": 0.0,
+            "p1_breaches": 0,  # >1h continuous breach
+            "p2_breaches": 0,  # 15min–1h
+            "p3_breaches": 0,  # <15min
+            "worst_breach_minutes": 0.0,
+            "worst_breach_date": None,
+        }
+
+        measurement_source = "no_data"
+
+        if workspace_id and LogsQueryClient:
+            try:
+                credential = _get_credential()
+                logs_client = LogsQueryClient(credential)
+                timespan = timedelta(days=time_range_days)
+
+                # Bucket availability into hourly windows — flag breached hours
+                kql_breaches = f"""
+requests
+| where cloud_RoleName =~ '{resource_name}'
+| summarize
+    total = count(),
+    successful = countif(success == true)
+  by bin(timestamp, 1h)
+| extend availability_pct = iff(total > 0, todouble(successful) / todouble(total) * 100.0, 100.0)
+| where availability_pct < {sla_availability_target}
+| extend breach_minutes = round((1.0 - availability_pct / 100.0) * 60.0, 1)
+| project timestamp, availability_pct, total_requests = total, breach_minutes
+| order by timestamp asc
+"""
+                result = logs_client.query_workspace(workspace_id, kql_breaches, timespan=timespan)
+                if hasattr(result, "tables") and result.tables:
+                    for row in result.tables[0].rows:
+                        ts_raw, avail, reqs, breach_min = row[0], row[1], row[2], row[3]
+                        breach_min_f = float(breach_min) if breach_min else 0.0
+                        avail_f = float(avail) if avail else 0.0
+
+                        # Severity bucket
+                        if breach_min_f >= 60:
+                            severity = "P1"
+                            summary["p1_breaches"] += 1
+                        elif breach_min_f >= 15:
+                            severity = "P2"
+                            summary["p2_breaches"] += 1
+                        else:
+                            severity = "P3"
+                            summary["p3_breaches"] += 1
+
+                        summary["total_downtime_minutes"] += breach_min_f
+                        if breach_min_f > summary["worst_breach_minutes"]:
+                            summary["worst_breach_minutes"] = breach_min_f
+                            summary["worst_breach_date"] = str(ts_raw)
+
+                        breaches.append({
+                            "timestamp": str(ts_raw),
+                            "availability_pct": round(avail_f, 3),
+                            "total_requests": int(reqs) if reqs else 0,
+                            "breach_minutes": round(breach_min_f, 1),
+                            "severity": severity,
+                            "sla_target_pct": sla_availability_target,
+                            "shortfall_pct": round(sla_availability_target - avail_f, 3),
+                        })
+
+                summary["total_breaches"] = len(breaches)
+                summary["total_downtime_minutes"] = round(summary["total_downtime_minutes"], 1)
+                measurement_source = "application_insights"
+
+            except Exception as exc:
+                logger.warning("SLA breach report: query failed for %s: %s", resource_name, exc)
+
+        # Allowed downtime across the full window
+        total_minutes = time_range_days * 24 * 60
+        allowed_downtime = round((1 - sla_availability_target / 100) * total_minutes, 1)
+        sla_met = summary["total_downtime_minutes"] <= allowed_downtime if measurement_source != "no_data" else None
+
+        response = {
+            "success": True,
+            "resource_name": resource_name,
+            "report_window": {
+                "days": time_range_days,
+                "from": start_time.isoformat(),
+                "to": end_time.isoformat(),
+            },
+            "sla_target_availability_pct": sla_availability_target,
+            "allowed_downtime_minutes": allowed_downtime,
+            "sla_met": sla_met,
+            "summary": summary,
+            "breach_timeline": breaches[:50],  # Cap at 50 events for readability
+            "measurement_source": measurement_source,
+            "note": (
+                "Provide workspace_id for live breach data from Application Insights."
+                if measurement_source == "no_data"
+                else f"Based on {len(breaches)} hourly breach window(s) in Application Insights."
+            ),
+        }
+
+        _log_audit_event("get_sla_breach_report", resource_name,
+                         {"total_breaches": summary["total_breaches"], "sla_met": sla_met}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error("Error in get_sla_breach_report: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
+
+
+@_server.tool(
+    name="calculate_sla_risk",
+    description=(
+        "Calculate forward-looking SLA risk: given current burn rate and trends, "
+        "predict whether the SLA will be breached before the end of the current period. "
+        "✅ USE THIS TOOL when users ask: 'Will we breach our SLA this month?', "
+        "'What is our SLA risk?', 'Are we at risk of missing our availability target?', "
+        "'Project SLA compliance for the rest of the quarter'. "
+        "Uses burn rate extrapolation over the remaining window."
+    ),
+)
+async def calculate_sla_risk(
+    context: Context,
+    resource_name: Annotated[str, "Service or resource name"],
+    subscription_id: Annotated[str, "Azure subscription ID (optional)"] = "",
+    time_range_days: Annotated[int, "Total SLA measurement window in days (default: 30)"] = 30,
+    days_elapsed: Annotated[int, "Days already elapsed in the current SLA window (default: 15)"] = 15,
+    sla_availability_target: Annotated[float, "Availability SLA target as percentage (default: 99.9)"] = 99.9,
+    workspace_id: Annotated[str, "Log Analytics workspace ID (optional)"] = "",
+) -> list[TextContent]:
+    """Calculate SLA risk: predict breach probability based on current burn rate trends."""
+    try:
+        days_remaining = max(0, time_range_days - days_elapsed)
+
+        # Allowed downtime for the full window
+        total_minutes = time_range_days * 24 * 60
+        allowed_downtime_total = round((1 - sla_availability_target / 100) * total_minutes, 1)
+
+        # Try to get actual downtime consumed so far from App Insights
+        downtime_consumed: float | None = None
+        current_availability: float | None = None
+        measurement_source = "no_data"
+
+        if workspace_id and LogsQueryClient and days_elapsed > 0:
+            try:
+                credential = _get_credential()
+                logs_client = LogsQueryClient(credential)
+                timespan = timedelta(days=days_elapsed)
+
+                kql = f"""
+requests
+| where cloud_RoleName =~ '{resource_name}'
+| summarize
+    total = count(),
+    successful = countif(success == true)
+"""
+                result = logs_client.query_workspace(workspace_id, kql, timespan=timespan)
+                if hasattr(result, "tables") and result.tables and result.tables[0].rows:
+                    row = result.tables[0].rows[0]
+                    total = float(row[0]) if row[0] else 0.0
+                    successful = float(row[1]) if row[1] else 0.0
+                    if total > 0:
+                        current_availability = round(successful / total * 100, 4)
+                        elapsed_minutes = days_elapsed * 24 * 60
+                        downtime_consumed = round((1 - current_availability / 100) * elapsed_minutes, 1)
+                        measurement_source = "application_insights"
+            except Exception as exc:
+                logger.warning("SLA risk: query failed for %s: %s", resource_name, exc)
+
+        # Risk calculation
+        risk_level = "unknown"
+        risk_pct = None
+        projected_total_downtime = None
+        budget_remaining = None
+        will_breach = None
+
+        if downtime_consumed is not None and days_elapsed > 0:
+            budget_remaining = round(allowed_downtime_total - downtime_consumed, 1)
+            burn_rate_per_day = downtime_consumed / days_elapsed  # minutes of downtime per day
+
+            projected_additional_downtime = burn_rate_per_day * days_remaining
+            projected_total_downtime = round(downtime_consumed + projected_additional_downtime, 1)
+
+            # Breach prediction
+            will_breach = projected_total_downtime > allowed_downtime_total
+
+            # Risk percentage: how much of budget consumed at current pace
+            if allowed_downtime_total > 0:
+                risk_pct = round(projected_total_downtime / allowed_downtime_total * 100, 1)
+            else:
+                risk_pct = 0.0
+
+            if risk_pct >= 120:
+                risk_level = "critical"
+            elif risk_pct >= 100:
+                risk_level = "high"
+            elif risk_pct >= 75:
+                risk_level = "medium"
+            else:
+                risk_level = "low"
+
+        # Days until budget exhausted at current burn rate
+        days_until_breach: float | None = None
+        if downtime_consumed is not None and days_elapsed > 0 and budget_remaining is not None:
+            burn_rate_per_day = downtime_consumed / days_elapsed
+            if burn_rate_per_day > 0 and budget_remaining > 0:
+                days_until_breach = round(budget_remaining / burn_rate_per_day, 1)
+            elif budget_remaining <= 0:
+                days_until_breach = 0.0
+
+        response = {
+            "success": True,
+            "resource_name": resource_name,
+            "sla_window": {
+                "total_days": time_range_days,
+                "days_elapsed": days_elapsed,
+                "days_remaining": days_remaining,
+            },
+            "sla_availability_target_pct": sla_availability_target,
+            "downtime_budget": {
+                "total_allowed_minutes": allowed_downtime_total,
+                "consumed_minutes": downtime_consumed,
+                "remaining_minutes": budget_remaining,
+            },
+            "current_availability_pct": current_availability,
+            "projection": {
+                "projected_total_downtime_minutes": projected_total_downtime,
+                "will_breach_sla": will_breach,
+                "days_until_budget_exhausted": days_until_breach,
+            },
+            "risk": {
+                "level": risk_level,        # low / medium / high / critical / unknown
+                "burn_rate_pct": risk_pct,  # % of total budget consumed at current pace
+            },
+            "measurement_source": measurement_source,
+            "recommendation": (
+                f"⚠️ At current burn rate, SLA will be breached in ~{days_until_breach} day(s). "
+                "Reduce error rate or downtime immediately."
+                if (will_breach and days_until_breach is not None and days_until_breach <= days_remaining)
+                else "✅ On track to meet SLA for this window."
+                if risk_level in ("low", "medium") and will_breach is False
+                else "No telemetry data. Provide workspace_id for live risk calculation."
+                if measurement_source == "no_data"
+                else "Monitor closely — burn rate is elevated."
+            ),
+        }
+
+        _log_audit_event("calculate_sla_risk", resource_name,
+                         {"risk_level": risk_level, "will_breach": will_breach}, True)
+
+        return [TextContent(type="text", text=json.dumps(response, indent=2))]
+
+    except Exception as exc:
+        logger.error("Error in calculate_sla_risk: %s", exc, exc_info=True)
+        return [TextContent(type="text", text=json.dumps({"success": False, "error": str(exc)}, indent=2))]
+
+
 if __name__ == "__main__":
     _server.run()

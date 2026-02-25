@@ -937,6 +937,14 @@ class SREOrchestratorAgent(BaseSREAgent):
         if any(kw in q for kw in ("slo", "error budget", "service level")):
             return ["calculate_error_budget", "get_slo_dashboard"]
 
+        # SLA audit
+        if any(kw in q for kw in (
+            "sla", "service level agreement", "sla audit", "sla compliance",
+            "sla breach", "sla violation", "sla risk", "sla report",
+            "breach sla", "missed sla", "meeting our sla",
+        )):
+            return ["audit_sla_compliance", "get_sla_breach_report", "calculate_sla_risk"]
+
         # Security
         if any(kw in q for kw in ("security", "secure score", "vulnerability")):
             return ["get_security_score", "list_security_recommendations"]

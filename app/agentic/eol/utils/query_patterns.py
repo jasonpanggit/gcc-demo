@@ -138,6 +138,14 @@ class QueryPatterns:
         'three nines', 'four nines', 'five nines',
     ]
 
+    SLA_PATTERNS = [
+        'sla', 'service level agreement', 'sla compliance', 'sla audit',
+        'sla breach', 'sla violation', 'sla risk', 'meeting sla',
+        'uptime agreement', 'sla report', 'breach sla', 'missed sla',
+        'sla penalty', 'are we meeting', 'within sla', 'outside sla',
+        'sla target', 'availability commitment',
+    ]
+
     MONITORING_PATTERNS = [
         'workbook', 'monitor resource', 'monitoring',
         'kql query', 'kql', 'log analytics query',
@@ -229,6 +237,7 @@ class QueryPatterns:
             'cost': any(p in q for p in cls.COST_PATTERNS),
             'security': any(p in q for p in cls.SECURITY_PATTERNS),
             'slo': any(p in q for p in cls.SLO_PATTERNS),
+            'sla': any(p in q for p in cls.SLA_PATTERNS),
             'monitoring': any(p in q for p in cls.MONITORING_PATTERNS),
             'app_insights': any(p in q for p in cls.APP_INSIGHTS_PATTERNS),
             'eol': cls.matches_eol_pattern(query) or cls.matches_approaching_eol_pattern(query),
@@ -436,6 +445,13 @@ def classify_sre_domain(query: str) -> "SREDomain":
         if any(p in q for p in ("health", "up", "down", "unavailable", "503", "500", "504", "timeout", "status", "diagnostic")):
             return SREDomain.HEALTH
         return SREDomain.GENERAL
+
+    if domains.get("sla") or any(p in q for p in (
+        "sla", "service level agreement", "sla breach", "sla audit",
+        "sla compliance", "sla risk", "sla violation", "sla report",
+        "breach sla", "missed sla", "meeting our sla", "within sla",
+    )):
+        return SREDomain.SLA_AUDIT
 
     if domains.get("cost") or domains.get("security"):
         return SREDomain.COST_SECURITY

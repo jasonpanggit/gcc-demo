@@ -35,6 +35,9 @@ class SREDomain(str, Enum):
     RCA = "rca"
     REMEDIATION = "remediation"
 
+    # SLA audit and compliance reporting
+    SLA_AUDIT = "sla_audit"
+
     # Default when domain is ambiguous — routes to broad health+incident tools
     GENERAL = "general"
 
@@ -131,6 +134,18 @@ _SLO_TOOLS = ["define_slo", "calculate_error_budget", "get_slo_dashboard"]
 _DOMAIN_TOOLS[SREDomain.PERFORMANCE].extend(_SLO_TOOLS)
 _DOMAIN_TOOLS[SREDomain.COST_SECURITY].extend(_SLO_TOOLS)
 
+# SLA audit domain — dedicated compliance and breach reporting tools
+_DOMAIN_TOOLS[SREDomain.SLA_AUDIT] = [
+    "audit_sla_compliance",
+    "get_sla_breach_report",
+    "calculate_sla_risk",
+    "calculate_error_budget",
+    "get_slo_dashboard",
+    "monitor_slo_burn_rate",
+    "check_compliance_status",
+    "describe_capabilities",
+]
+
 
 class SREToolRegistry:
     """Static registry mapping SRE domains to curated tool subsets.
@@ -195,6 +210,7 @@ class SREToolRegistry:
             SREDomain.INCIDENT,
             SREDomain.PERFORMANCE,
             SREDomain.COST_SECURITY,
+            SREDomain.SLA_AUDIT,
             SREDomain.RCA,
             SREDomain.REMEDIATION,
             SREDomain.GENERAL,
