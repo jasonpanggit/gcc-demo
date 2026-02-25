@@ -7963,12 +7963,13 @@ async def describe_capabilities(
             },
             {
                 "category": "Security & Compliance Audits",
-                "description": "Azure resource compliance audits for security posture, network security, private endpoints, encryption, and public access",
+                "description": "Azure resource compliance audits for security posture, network security, private endpoints, encryption, public access, and regional compliance",
                 "tools": [
                     "SecurityComplianceAgent.audit_network - Network security compliance (NSG associations, firewall routing, outbound deny rules)",
                     "SecurityComplianceAgent.audit_private_endpoints - Private endpoint compliance for Storage, Key Vaults, SQL",
                     "SecurityComplianceAgent.audit_encryption - Encryption at rest compliance (Storage, SQL TDE)",
                     "SecurityComplianceAgent.audit_public_access - Public access compliance (Storage blob access)",
+                    "SecurityComplianceAgent.audit_regional_compliance - Regional compliance (Southeast Asia deployment)",
                     "SecurityComplianceAgent.audit_azure_resources - Comprehensive Azure resource compliance audit (all phases)",
                     "SecurityComplianceAgent.scan_security - Security posture scanning and assessment",
                     "SecurityComplianceAgent.check_compliance - Compliance framework validation (SOC2, HIPAA, PCI-DSS, ISO27001, GDPR, NIST)",
@@ -7978,6 +7979,7 @@ async def describe_capabilities(
                     "Audit network security compliance for prod-rg",
                     "Check if storage accounts use private endpoints",
                     "Verify encryption is enabled on all resources",
+                    "Check if all resources are in Southeast Asia region",
                     "Run a full compliance audit on my Azure resources",
                     "Check SOC2 compliance status",
                     "Scan security posture for my subscription",
@@ -7987,7 +7989,8 @@ async def describe_capabilities(
                     "network_security": ["Subnets must have NSGs", "Default deny internet outbound", "Internet traffic routes through firewall"],
                     "private_endpoints": ["Storage accounts require private endpoints", "Key Vaults require private endpoints", "SQL servers require private endpoints"],
                     "encryption": ["Storage encryption at rest enabled", "SQL TDE enabled"],
-                    "public_access": ["Storage public blob access disabled"]
+                    "public_access": ["Storage public blob access disabled"],
+                    "regional_compliance": ["All resources must be in southeastasia region"]
                 },
                 "severity_levels": ["Critical", "High", "Medium", "Low", "Informational"]
             }
@@ -8184,6 +8187,8 @@ async def get_prompt_examples(
                 "Audit network security compliance for prod-rg",
                 "Check if my storage accounts use private endpoints",
                 "Verify encryption is enabled on all resources",
+                "Check if all resources are deployed in Southeast Asia",
+                "Are any resources outside the southeastasia region?",
                 "Run a full compliance audit on my Azure resources",
                 "Check SOC2 compliance status for my subscription",
                 "Scan security posture for prod-rg",
@@ -8193,7 +8198,9 @@ async def get_prompt_examples(
                 "Is TDE enabled on all SQL databases?",
                 "Check if storage accounts have public access disabled",
                 "What are my critical security violations?",
-                "Generate compliance report for prod-rg"
+                "Generate compliance report for prod-rg",
+                "Audit regional compliance for all resources",
+                "Which resources are not in the compliant region?"
             ]
         }
     }
