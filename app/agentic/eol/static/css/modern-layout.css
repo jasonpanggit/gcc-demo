@@ -1616,7 +1616,7 @@ html.dark-mode #communicationsDebugInfo {
     color: var(--text-muted) !important;
 }
 
-/* Additional agent communication elements from agent_communication.css */
+/* Additional agent communication elements from agent-communication.css */
 html.dark-mode .interactions-column,
 html.dark-mode .flow-column {
     background: var(--bg-secondary) !important;

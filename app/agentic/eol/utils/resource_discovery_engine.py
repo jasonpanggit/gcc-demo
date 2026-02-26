@@ -1235,8 +1235,19 @@ class ResourceDiscoveryEngine:
                     selected["os_type"] = os_disk.get("osType")
                 else:
                     selected["os_type"] = None
+                # imageReference gives a friendlier OS name (e.g. "Windows Server 2025 Datacenter")
+                image_ref = storage_profile.get("imageReference") or {}
+                offer = image_ref.get("offer") or ""
+                sku   = image_ref.get("sku") or ""
+                if offer and sku:
+                    selected["os_image"] = f"{offer} {sku}"
+                elif offer:
+                    selected["os_image"] = offer
+                else:
+                    selected["os_image"] = None
             else:
                 selected["os_type"] = None
+                selected["os_image"] = None
             
             selected["provisioning_state"] = properties.get("provisioningState")
         elif "microsoft.web/sites" in rtype:

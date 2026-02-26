@@ -154,7 +154,7 @@ async def _load_cached_metadata() -> Optional[Dict[str, Any]]:
         # Try to find metadata file relative to this module
         import pathlib
         module_dir = pathlib.Path(__file__).parent.parent
-        metadata_path = module_dir / "static" / "data" / "azure_monitor_community_metadata.json"
+        metadata_path = module_dir / "static" / "data" / "azure-monitor-community-metadata.json"
         
         if not metadata_path.exists():
             logger.warning(f"Metadata file not found at {metadata_path}, will use HTML scraping")

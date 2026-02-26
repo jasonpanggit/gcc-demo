@@ -1,0 +1,1393 @@
+{% extends "base.html" %}
+{% block title %}Patch Management — Azure Agentic Platform{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── Page-level variables ─────────────────────────────────────────── */
+:root {
+    --patch-critical: #dc3545;
+    --patch-security: #fd7e14;
+    --patch-other:    #0d6efd;
+    --patch-none:     #198754;
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────── */
+.stat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.25);
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: .9rem;
+}
+
+/* ── VM card grid ─────────────────────────────────────────────────── */
+.vm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+    gap: 1.25rem;
+}
+
+.vm-card {
+    background: var(--bg-primary, #fff);
+    border: 1px solid var(--border-primary, #e5e7eb);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: box-shadow .2s, transform .2s;
+}
+.vm-card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,.08);
+    transform: translateY(-2px);
+}
+
+.vm-card-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: 1rem 1.25rem .75rem;
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+}
+.vm-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #0078d4, #106ebe);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+.vm-name    { font-weight: 700; font-size: 1rem; line-height: 1.2; }
+.vm-os      { color: var(--text-secondary, #6b7280); font-size: .82rem; margin-top: 2px; }
+.vm-badges  { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+
+/* ── Patch counters ───────────────────────────────────────────────── */
+.vm-card-body  { padding: .9rem 1.25rem; }
+.patch-counters {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-bottom: .85rem;
+}
+.patch-counter {
+    flex: 1 1 auto;
+    min-width: 70px;
+    text-align: center;
+    padding: .55rem .5rem;
+    border-radius: 10px;
+    background: var(--bg-secondary, #f9fafb);
+    border: 1px solid var(--border-primary, #e5e7eb);
+}
+.patch-counter .count-num  { font-size: 1.5rem; font-weight: 700; }
+.patch-counter .count-label{ font-size: .72rem; color: var(--text-secondary, #6b7280); text-transform: uppercase; letter-spacing: .04em; }
+.patch-counter.critical .count-num { color: var(--patch-critical); }
+.patch-counter.security .count-num { color: var(--patch-security); }
+.patch-counter.other    .count-num { color: var(--patch-other); }
+.patch-counter.all      .count-num { color: var(--text-primary, #111); }
+
+/* ── Action / state row ───────────────────────────────────────────── */
+.vm-card-footer {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    padding: .6rem 1.25rem .75rem;
+    border-top: 1px solid var(--border-primary, #e5e7eb);
+    background: var(--bg-secondary, #f9fafb);
+}
+.footer-status {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    min-height: 1.5em;
+}
+.footer-actions {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    justify-content: flex-end;
+}
+.last-assessed { font-size: .78rem; color: var(--text-secondary, #6b7280); flex: 1; }
+
+/* ── Patch detail drawer ──────────────────────────────────────────── */
+.patch-drawer {
+    display: none;
+    padding: 0 1.25rem 1.25rem;
+}
+.patch-drawer.open { display: block; }
+.patch-table-wrapper {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--border-primary, #e5e7eb);
+    border-radius: 10px;
+}
+.patch-table { margin: 0; font-size: .82rem; }
+.kb-link { text-decoration: none; white-space: nowrap; }
+.kb-link:hover { text-decoration: underline; }
+.kb-link code  { color: inherit; }
+.patch-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg-secondary, #f4f6f8) !important;
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-critical { background: #fde2e1; color: #c1121f; }
+.badge-security { background: #fff3cd; color: #856404; }
+.badge-other    { background: #dbeafe; color: #1d4ed8; }
+
+/* ── Empty / loading states ───────────────────────────────────────── */
+.empty-state {
+    text-align: center; padding: 3rem 1rem;
+    color: var(--text-secondary, #6b7280);
+}
+.empty-state i { font-size: 3rem; opacity: .25; display: block; margin-bottom: 1rem; }
+
+.spinner-sm { width: 1rem; height: 1rem; border-width: 2px; }
+
+/* ── Source badge ────────────────────────────────────────────────── */
+.source-badge {
+    font-size: .7rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.source-badge.arg  { background: rgba(13,202,240,.1); color: #0dcaf0; border: 1px solid rgba(13,202,240,.3); }
+.source-badge.live { background: rgba(25,135,84,.1);  color: #198754; border: 1px solid rgba(25,135,84,.3); }
+
+/* ── Modal info strip ─────────────────────────────────────────────── */
+.modal-info-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
+    padding: .85rem 1.25rem;
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+    background: var(--bg-secondary, #f9fafb);
+    font-size: .83rem;
+}
+.modal-info-item {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    color: var(--text-secondary, #6b7280);
+}
+.modal-info-item strong { color: var(--text-primary, #111); font-weight: 600; }
+.reboot-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600;
+}
+.reboot-badge.pending  { background: rgba(220,53,69,.1);  color: #dc3545; border: 1px solid rgba(220,53,69,.3); }
+.reboot-badge.none     { background: rgba(25,135,84,.1);   color: #198754; border: 1px solid rgba(25,135,84,.3); }
+
+/* ── Modal filter bar ─────────────────────────────────────────────── */
+.patch-filter-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .65rem 1.25rem;
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+}
+.filter-tabs { display: flex; gap: .35rem; }
+.filter-tab {
+    padding: 3px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-primary, #dee2e6);
+    background: transparent;
+    font-size: .8rem;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.filter-tab.active          { background: #0078d4; color: #fff; border-color: #0078d4; }
+.filter-tab.critical.active { background: #dc3545; border-color: #dc3545; }
+.filter-tab.other.active    { background: #0d6efd; border-color: #0d6efd; }
+
+/* ── Install action bar ───────────────────────────────────────────── */
+.install-panel {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .5rem 1.25rem;
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+    background: var(--bg-secondary, #f9fafb);
+    font-size: .83rem;
+}
+/* Checkbox visibility fix – !important overrides to beat Bootstrap */
+.install-panel .form-check-input,
+#modal-patch-tbody .form-check-input {
+    width: 1.1em !important;
+    height: 1.1em !important;
+    margin-top: 0 !important;
+    flex-shrink: 0;
+    border: 2px solid #6c757d !important;
+    border-radius: 3px !important;
+    background-color: #fff !important;
+    background-image: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s;
+}
+.install-panel .form-check-input:checked,
+#modal-patch-tbody .form-check-input:checked {
+    background-color: #0078d4 !important;
+    border-color: #0078d4 !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-width='3' d='m6 10 3 3 5-6'/%3e%3c/svg%3e") !important;
+    background-size: 80% !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+}
+.install-panel .form-check-input:indeterminate {
+    background-color: #0078d4 !important;
+    border-color: #0078d4 !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e") !important;
+    background-size: 80% !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+}
+html.dark-mode .install-panel {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+}
+html.dark-mode .install-panel .form-check-input,
+html.dark-mode #modal-patch-tbody .form-check-input {
+    background-color: var(--gray-200) !important;
+    border-color: var(--gray-400) !important;
+}
+html.dark-mode .install-panel .form-check-input:checked,
+html.dark-mode #modal-patch-tbody .form-check-input:checked {
+    background-color: #0078d4 !important;
+    border-color: #0078d4 !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-width='3' d='m6 10 3 3 5-6'/%3e%3c/svg%3e") !important;
+    background-size: 80% !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+}
+
+/* ── Dark-mode: modal strip ───────────────────────────────────── */
+html.dark-mode .modal-info-strip     { background: var(--gray-200); border-color: var(--gray-300); }
+html.dark-mode .modal-info-item      { color: var(--gray-600); }
+html.dark-mode .modal-info-item strong { color: var(--gray-800); }
+html.dark-mode .patch-filter-bar     { border-color: var(--gray-300); }
+html.dark-mode .filter-tab           { border-color: var(--gray-300); color: var(--gray-700); }
+
+/* ── Dark-mode overrides ──────────────────────────────────────────── */
+html.dark-mode .vm-card         { background: var(--gray-100); border-color: var(--gray-300); }
+html.dark-mode .vm-card-header  { border-color: var(--gray-300); }
+html.dark-mode .vm-card-footer  { background: var(--gray-100); border-color: var(--gray-300); }
+html.dark-mode .patch-counter   { background: var(--gray-200); border-color: var(--gray-300); }
+html.dark-mode .patch-counter.all .count-num { color: var(--gray-800); }
+html.dark-mode .patch-table-wrapper { border-color: var(--gray-300); }
+html.dark-mode .patch-table thead th { background: var(--gray-200) !important; color: var(--gray-800) !important; }
+html.dark-mode .badge-critical  { background: rgba(220,53,69,.2); color: #f88; }
+html.dark-mode .badge-security  { background: rgba(253,126,20,.2); color: #fbb; }
+html.dark-mode .badge-other     { background: rgba(13,110,253,.2); color: #7ec; }
+html.dark-mode .patch-counter.critical .count-num { color: #f88; }
+html.dark-mode .patch-counter.security .count-num { color: #fbb; }
+html.dark-mode .patch-counter.other .count-num    { color: #79b8ff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ── Hero ──────────────────────────────────────────────────────────── -->
+<div class="hero-section mb-4">
+    <div class="hero-content">
+        <h1 class="hero-title">
+            <span class="hero-icon me-3"><i class="fas fa-shield-virus"></i></span>Patch Management
+        </h1>
+        <p class="mb-3">
+            Patch visibility for <strong>Azure VMs</strong> (<code>Microsoft.Compute/virtualMachines</code>)
+            and <strong>Arc-enabled servers</strong> (<code>Microsoft.HybridCompute/machines</code>).
+            Past assessments are pre-loaded from Azure Resource Graph. Click
+            <strong>Re-assess</strong> to trigger a live <code>assessPatches</code> API call per machine.
+        </p>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="stat-pill"><i class="fas fa-server"></i><span id="stat-vms">0 VMs</span></span>
+            <span class="stat-pill" style="background:rgba(220,53,69,.2);border-color:rgba(220,53,69,.5);">
+                <i class="fas fa-exclamation-triangle"></i><span id="stat-critical">0 critical/security</span>
+            </span>
+            <span class="stat-pill"><i class="fas fa-list-ul"></i><span id="stat-total-patches">0 total patches</span></span>
+            <span class="stat-pill" id="pill-assessed" style="display:none;background:rgba(25,135,84,.15);border-color:rgba(25,135,84,.4);">
+                <i class="fas fa-check-circle"></i><span id="stat-assessed">0 assessed</span>
+            </span>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid px-4">
+    <!-- ── Toolbar ──────────────────────────────────────────────────── -->
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-6 col-12 mb-2 mb-md-0">
+            <div class="input-group input-group-sm" style="max-width:320px;">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" id="vm-search" class="form-control" placeholder="Filter machines…">
+            </div>
+        </div>
+        <div class="col-md-6 col-12 text-md-end d-flex gap-2 justify-content-md-end flex-wrap">
+            <button id="btn-assess-all" class="btn btn-primary btn-sm" onclick="assessAll()">
+                <i class="fas fa-sync-alt me-1"></i>Assess All
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadMachines()" title="Reload VM list">
+                <i class="fas fa-redo me-1"></i>Reload VMs
+            </button>
+        </div>
+    </div>
+
+    <!-- ── Status banner ──────────────────────────────────────────── -->
+    <div id="status-banner" class="alert alert-info py-2 mb-3 d-none">
+        <i class="fas fa-info-circle me-2"></i><span id="status-text">Loading…</span>
+    </div>
+
+    <!-- ── VM grid ────────────────────────────────────────────────── -->
+    <div id="vm-grid" class="vm-grid mb-4"></div>
+
+    <!-- ── Empty state ────────────────────────────────────────────── -->
+    <div id="empty-state" class="empty-state d-none">
+        <i class="fas fa-server"></i>
+        <p class="fw-semibold mb-1">No Arc-enabled servers found</p>
+        <p class="small">No machines with <em>Arc-enabled Server</em> type exist in the OS inventory.
+            Ensure Arc agents are reporting heartbeats to Log Analytics.</p>
+    </div>
+</div>
+
+<!-- ── Patch detail modal ──────────────────────────────────────────── -->
+<div class="modal fade" id="patchModal" tabindex="-1" aria-labelledby="patchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0" id="patchModalLabel">
+                        <i class="fas fa-shield-virus me-2"></i><span id="modal-machine-name"></span>
+                    </h5>
+                    <div class="d-flex align-items-center gap-2 mt-1">
+                        <span class="text-muted small">Patch Assessment</span>
+                        <span id="modal-source-badge"></span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <!-- Machine info strip -->
+            <div class="modal-info-strip" id="modal-info-strip">
+                <div class="modal-info-item"><i class="fas fa-desktop fa-fw"></i><span>OS:</span><strong id="modal-os-type">—</strong></div>
+                <div class="modal-info-item"><i class="fas fa-layer-group fa-fw"></i><span>Resource Group:</span><strong id="modal-rg">—</strong></div>
+                <div class="modal-info-item"><i class="fas fa-clock fa-fw"></i><span>Last Assessed:</span><strong id="modal-last-assessed">—</strong></div>
+                <div class="modal-info-item"><i class="fas fa-info-circle fa-fw"></i><span>Status:</span><strong id="modal-status">—</strong></div>
+                <div class="modal-info-item" id="modal-reboot-wrap" style="display:none">
+                    <i class="fas fa-power-off fa-fw"></i><span>Reboot:</span><span id="modal-reboot-badge"></span>
+                </div>
+            </div>
+
+            <div class="modal-body p-0">
+                <!-- Summary counters -->
+                <div class="d-flex gap-3 flex-wrap p-3 border-bottom align-items-center" id="modal-summary"></div>
+
+                <!-- Filter bar -->
+                <div class="patch-filter-bar">
+                    <div class="filter-tabs">
+                        <button class="filter-tab active" id="ftab-all"     onclick="setFilter('all')">All</button>
+                        <button class="filter-tab critical"  id="ftab-crit"    onclick="setFilter('critical')">Critical / Security</button>
+                        <button class="filter-tab other"     id="ftab-other"   onclick="setFilter('other')">Other</button>
+                    </div>
+                    <div class="ms-auto">
+                        <input type="text" id="modal-patch-search" class="form-control form-control-sm"
+                               style="max-width:200px" placeholder="Search patches…"
+                               oninput="applyPatchFilter()">
+                    </div>
+                </div>
+
+                <!-- ── Install action bar (always visible) ── -->
+                <div id="install-panel" class="install-panel">
+                    <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;user-select:none">
+                        <input type="checkbox" id="select-all-patches" class="form-check-input mt-0" onchange="toggleSelectAll(this)">
+                        <span class="fw-medium small">All</span>
+                    </label>
+                    <button class="btn btn-sm btn-outline-warning py-0" onclick="selectAllCritical()">
+                        <i class="fas fa-exclamation-triangle me-1"></i>Critical/Security
+                    </button>
+                    <span class="text-muted small" id="install-sel-count">Select patches to install</span>
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        <select id="install-reboot" class="form-select form-select-sm" style="width:auto">
+                            <option value="IfRequired">Reboot if required</option>
+                            <option value="NeverReboot">Never reboot</option>
+                            <option value="AlwaysReboot">Always reboot</option>
+                        </select>
+                        <button class="btn btn-sm btn-warning fw-medium" id="btn-do-install" onclick="doInstall()" disabled>
+                            <i class="fas fa-download me-1"></i>Install Selected
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Install progress bar ── -->
+                <div id="install-progress" class="install-progress-bar d-none"></div>
+
+                <!-- Patches table -->
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm align-middle mb-0" id="modal-patch-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="install-col ps-2" style="width:36px"></th>
+                                <th style="min-width:220px">Patch Name</th>
+                                <th>KB / ID</th>
+                                <th>Classifications</th>
+                                <th>Reboot</th>
+                                <th>Published</th>
+                                <th>State</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-patch-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="modal-empty" class="empty-state d-none py-3">
+                    <i class="fas fa-check-double" style="opacity:.3;font-size:2rem;display:block;margin-bottom:.5rem;"></i>
+                    <p class="mb-0">No available patches — this machine is up to date!</p>
+                </div>
+                <div id="modal-filter-empty" class="text-center py-3 text-muted small d-none">No patches match the current filter.</div>
+            </div>
+            <div class="modal-footer justify-content-between" id="modal-footer-ts"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ================================================================
+   Patch Management Page Script
+   ================================================================ */
+
+const SUB_ID  = "{{ subscription_id }}";
+const RES_GRP = "{{ resource_group }}";
+
+/* VM registry: machineName → { osData, patches, status } */
+const vmRegistry = {};
+let assessedCount  = 0;
+let _installKey    = null;  // composite machineKey of the VM open in the install modal
+let _pollTimer     = null;  // setInterval handle for install-status polling
+
+/* ── Utility helpers ──────────────────────────────────────────── */
+function escHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');  // escape single quotes so onclick attrs never break
+}
+
+function fmtDate(val) {
+    if (!val) return '—';
+    try { return new Date(val).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }); }
+    catch { return val; }
+}
+
+function classificationBadge(cls) {
+    const c = (cls || '').toLowerCase();
+    if (c === 'critical') return `<span class="badge badge-critical me-1">${escHtml(cls)}</span>`;
+    if (c === 'security') return `<span class="badge badge-security me-1">${escHtml(cls)}</span>`;
+    return `<span class="badge badge-other me-1">${escHtml(cls)}</span>`;
+}
+
+function setStatus(msg, type = 'info', hide = false) {
+    const el = document.getElementById('status-banner');
+    const txt = document.getElementById('status-text');
+    if (hide) { el.classList.add('d-none'); return; }
+    el.className = `alert alert-${type} py-2 mb-3`;
+    txt.textContent = msg;
+    el.classList.remove('d-none');
+}
+
+function updateHeroStats() {
+    let critical = 0, total = 0;
+    for (const v of Object.values(vmRegistry)) {
+        if (v.patches) {
+            critical += v.patches.critical_and_security_count || 0;
+            total    += v.patches.total_count || 0;
+        }
+    }
+    // stat-vms is set from API totals in loadMachines(); don't overwrite it here
+    document.getElementById('stat-critical').textContent = `${critical} critical/security`;
+    document.getElementById('stat-total-patches').textContent = `${total} total patches`;
+    if (assessedCount > 0) {
+        document.getElementById('stat-assessed').textContent = `${assessedCount} assessed`;
+        document.getElementById('pill-assessed').style.display = '';
+    }
+}
+
+/* ── Card rendering ───────────────────────────────────────────── */
+/* Composite key so two VMs with the same name (e.g. Arc vs Azure VM) get unique IDs */
+function machineKey(name, vmType) { return name + '||' + (vmType || 'arc'); }
+function cardId(key) { return 'vm-' + key.replace(/[^a-zA-Z0-9|]/g, '_').replace(/\|/g, '_'); }
+
+function buildCard(item) {
+    const name = item.computer || item.name || '(unknown)';
+    const os   = item.os_name || item.os_type || 'Unknown OS';
+    const key  = machineKey(name, item.vm_type);
+
+    const card = document.createElement('div');
+    card.className       = 'vm-card';
+    card.id              = cardId(key);
+    card.dataset.name    = name;
+    card.dataset.cardKey = key;
+    card.innerHTML       = cardHTML(name, os, item, key);
+    return card;
+}
+
+function cardHTML(name, os, item, key) {
+    const resourceId = item.resource_id || '';
+    const portalLink = resourceId
+        ? `https://portal.azure.com/#@/resource${resourceId}`
+        : '#';
+    const id = cardId(key);
+    return `
+    <div class="vm-card-header">
+        <div class="vm-icon"><i class="fas ${item.vm_type === 'azure-vm' ? 'fa-cloud' : 'fa-server'}"></i></div>
+        <div>
+            <div class="vm-name">${escHtml(name)}</div>
+            <div class="vm-os">${escHtml(os)}</div>
+        </div>
+        <div class="vm-badges ms-auto">
+            ${item.vm_type === 'azure-vm'
+                ? '<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Azure VM</span>'
+                : '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">Arc</span>'}
+            ${item.eol_status === 'expired'
+                ? '<span class="badge bg-danger">EOL</span>'
+                : item.eol_date
+                    ? `<span class="badge bg-warning text-dark">EOL ${fmtDate(item.eol_date)}</span>`
+                    : ''}
+        </div>
+    </div>
+    <div class="vm-card-body">
+        <div class="patch-counters" id="${id}-counters">
+            <div class="patch-counter critical">
+                <div class="count-num" id="${id}-crit">—</div>
+                <div class="count-label">Critical/Sec</div>
+            </div>
+            <div class="patch-counter other">
+                <div class="count-num" id="${id}-other">—</div>
+                <div class="count-label">Other</div>
+            </div>
+            <div class="patch-counter all">
+                <div class="count-num" id="${id}-total">—</div>
+                <div class="count-label">Total</div>
+            </div>
+        </div>
+    </div>
+    <div id="${id}-reboot" style="display:none;padding:.3rem 1.25rem 0;"></div>
+    <div class="vm-card-footer">
+        <div class="footer-status">
+            <span class="last-assessed" id="${id}-ts">Not yet assessed</span>
+            <span id="${id}-src" style="display:none"></span>
+        </div>
+        <div class="footer-actions">
+            ${portalLink !== '#'
+                ? `<a href="${escHtml(portalLink)}" target="_blank" class="btn btn-outline-secondary btn-sm" title="Open in Azure Portal">
+                        <i class="fas fa-external-link-alt"></i>
+                   </a>`
+                : ''}
+            <button class="btn btn-sm btn-outline-secondary" id="${id}-last-btn"
+                    data-machine="${escHtml(name)}"
+                    data-card-key="${escHtml(key)}"
+                    data-sub="${escHtml(item.subscription_id || '')}"
+                    data-vmtype="${escHtml(item.vm_type || 'arc')}"
+                    onclick="handleLastAssessClick(this)"
+                    title="Load patch data from Azure Resource Graph">
+                <i class="fas fa-history me-1"></i>Show Patches
+            </button>
+            <button class="btn btn-sm btn-primary" id="${id}-assess-btn"
+                    data-machine="${escHtml(name)}"
+                    data-card-key="${escHtml(key)}"
+                    data-sub="${escHtml(item.subscription_id || '')}"
+                    data-rg="${escHtml(item.resource_group || '')}"
+                    data-rid="${escHtml(item.resource_id || '')}"
+                    data-vmtype="${escHtml(item.vm_type || 'arc')}"
+                    onclick="handleAssessClick(this)">
+                <i class="fas fa-sync-alt me-1"></i>Assess
+            </button>
+        </div>
+    </div>`;
+}
+
+function setCardAssessing(key) {
+    const id = cardId(key);
+    const btn = document.getElementById(`${id}-assess-btn`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-sm me-1" role="status"></span>Triggering…`;
+    }
+    const tsEl = document.getElementById(`${id}-ts`);
+    if (tsEl) tsEl.textContent = 'Triggering assessment…';
+}
+
+function setCardTriggered(key) {
+    const id = cardId(key);
+    const btn = document.getElementById(`${id}-assess-btn`);
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-check me-1"></i>Triggered`;
+        btn.classList.replace('btn-primary', 'btn-success');
+        setTimeout(() => {
+            btn.innerHTML = `<i class="fas fa-redo me-1"></i>Re-assess`;
+            btn.classList.replace('btn-success', 'btn-primary');
+        }, 5000);
+    }
+    const tsEl = document.getElementById(`${id}-ts`);
+    if (tsEl) tsEl.textContent = 'Assessment triggered – use Show Patches once ready';
+}
+
+function setCardResult(key, patches, source) {
+    const id    = cardId(key);
+    const crit  = patches.critical_and_security_count || 0;
+    const other = patches.other_count || 0;
+    const total = patches.total_count || 0;
+
+    document.getElementById(`${id}-crit`).textContent  = crit;
+    document.getElementById(`${id}-other`).textContent = other;
+    document.getElementById(`${id}-total`).textContent = total;
+
+    const tsEl = document.getElementById(`${id}-ts`);
+    tsEl.textContent = patches.last_assessed
+        ? `Assessed ${fmtDate(patches.last_assessed)}`
+        : 'Assessment complete';
+
+    // Source badge
+    const srcEl = document.getElementById(`${id}-src`);
+    if (srcEl) {
+        if (source === 'arg') {
+            srcEl.className = 'source-badge arg';
+            srcEl.textContent = 'Resource Graph';
+            srcEl.title = 'Pre-loaded from Azure Resource Graph – click Re-assess for a live refresh';
+            srcEl.style.display = '';
+        } else if (source === 'live') {
+            srcEl.className = 'source-badge live';
+            srcEl.textContent = 'Live';
+            srcEl.title = 'Result from live assessPatches API call';
+            srcEl.style.display = '';
+        } else {
+            srcEl.style.display = 'none';
+        }
+    }
+
+    // Reboot-pending badge on card
+    const vm = vmRegistry[key] || {};
+    const rp = vm.argMeta?.reboot_pending;
+    const rebootEl = document.getElementById(`${id}-reboot`);
+    if (rebootEl) {
+        if (rp === true) {
+            rebootEl.innerHTML = '<span class="reboot-badge pending"><i class="fas fa-power-off"></i> Reboot needed</span>';
+            rebootEl.style.display = '';
+        } else if (rp === false) {
+            rebootEl.style.display = 'none';
+        }
+    }
+
+    const btn = document.getElementById(`${id}-assess-btn`);
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-redo me-1"></i>Re-assess`;
+        btn.classList.replace('btn-success', 'btn-primary');
+        btn.classList.replace('btn-danger',  'btn-primary');
+    }
+}
+
+function setCardError(key, err) {
+    const id = cardId(key);
+    const btn = document.getElementById(`${id}-assess-btn`);
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-sync-alt me-1"></i>Retry`;
+        btn.classList.replace('btn-primary', 'btn-danger');
+    }
+    const tsEl = document.getElementById(`${id}-ts`);
+    if (tsEl) {
+        tsEl.textContent = `Error: ${err}`;
+        tsEl.style.color = 'var(--bs-danger)';
+    }
+}
+
+/* ── Last-assessment (ARG fetch for a single VM) ─────────────── */
+function handleLastAssessClick(btn) {
+    const name = btn.dataset.machine;
+    if (!name) { console.warn('Last-assessment button has no machine name'); return; }
+    fetchLastAssessment(name, btn.dataset.sub || '', btn.dataset.vmtype || 'arc');
+}
+
+async function fetchLastAssessment(machineName, subId, vmType) {
+    const key = machineKey(machineName, vmType);
+    const id  = cardId(key);
+    const btn = document.getElementById(`${id}-last-btn`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-sm me-1" role="status"></span>Loading…`;
+    }
+
+    try {
+        const params = new URLSearchParams({ machine_name: machineName, vm_type: vmType || 'arc' });
+        if (subId) params.set('subscription_id', subId);
+        const resp = await fetch(`/api/patch-management/last-assessment?${params}`);
+        const json = await resp.json();
+
+        if (!resp.ok || !json.success) {
+            throw new Error(json.detail || json.error || `HTTP ${resp.status}`);
+        }
+
+        if (!json.found) {
+            setStatus(
+                json.message || `No assessment found in Resource Graph for '${machineName}'. Wait 1–3 min after triggering.`,
+                'warning'
+            );
+            setTimeout(() => setStatus('', 'info', true), 7000);
+            return;
+        }
+
+        // Populate registry and update correct card via composite key
+        vmRegistry[key] = vmRegistry[key] || { osData: {}, patches: null, status: 'idle' };
+        const wasAlreadyCounted = vmRegistry[key].patches !== null;
+        vmRegistry[key].patches = json.patches;
+        vmRegistry[key].status  = 'arg';
+        vmRegistry[key].argMeta = {
+            os_type:         json.os_type,
+            reboot_pending:  json.reboot_pending,
+            resource_group:  json.resource_group,
+            subscription_id: json.subscription_id,
+        };
+        setCardResult(key, json.patches, 'arg');
+        if (!wasAlreadyCounted) assessedCount++;
+        updateHeroStats();
+        showDetail(key);
+
+    } catch (err) {
+        setStatus(`Failed to load last assessment for '${machineName}': ${err.message}`, 'danger');
+        setTimeout(() => setStatus('', 'info', true), 6000);
+        console.error('fetchLastAssessment error', err);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-history me-1"></i>Show Patches`;
+        }
+    }
+}
+
+/* ── Load machines (Arc + Azure VMs) ──────────────────────────── */
+async function loadMachines() {
+    const grid = document.getElementById('vm-grid');
+    const emptyState = document.getElementById('empty-state');
+    grid.innerHTML = `<div class="text-center py-5 text-muted w-100">
+        <span class="spinner-border" role="status"></span>
+        <p class="mt-2">Loading VMs…</p>
+    </div>`;
+    emptyState.classList.add('d-none');
+    setStatus('Fetching Azure VMs and Arc-enabled servers…');
+
+    try {
+        const resp = await fetch('/api/patch-management/machines');
+        const json = await resp.json();
+
+        if (!json.success || !Array.isArray(json.data)) {
+            throw new Error(json.error || 'API returned unexpected format');
+        }
+
+        const vms = json.data;
+        grid.innerHTML = '';
+
+        if (vms.length === 0) {
+            emptyState.classList.remove('d-none');
+            setStatus('No VMs found.', 'warning');
+            return;
+        }
+
+        for (const item of vms) {
+            const name = item.computer || item.name;
+            if (!name) continue;
+            const key = machineKey(name, item.vm_type);
+            vmRegistry[key] = { osData: item, patches: null, status: 'idle' };
+            grid.appendChild(buildCard(item));
+        }
+
+        // Count from the data array — arc_count/azure_vm_count are stripped by
+        // the StandardResponse schema, so derive totals from vms directly.
+        const arcCount  = vms.filter(v => v.vm_type === 'arc').length;
+        const avmCount  = vms.filter(v => v.vm_type === 'azure-vm').length;
+        const totalCount = vms.length;
+        document.getElementById('stat-vms').textContent = `${totalCount} VM${totalCount !== 1 ? 's' : ''}`;
+        updateHeroStats();
+        setStatus(`Loaded ${arcCount} Arc server${arcCount !== 1 ? 's' : ''} and ${avmCount} Azure VM${avmCount !== 1 ? 's' : ''}.`, 'success');
+        setTimeout(() => setStatus('', 'info', true), 3000);
+
+        // Non-blocking: pre-populate cards with past ARG assessment data
+        loadArgPatchData();
+
+    } catch (err) {
+        grid.innerHTML = '';
+        emptyState.classList.remove('d-none');
+        setStatus(`Failed to load VMs: ${err.message}`, 'danger');
+        console.error('loadMachines error', err);
+    }
+}
+
+/* ── Data-attribute click handler (avoids onclick string injection) ─ */
+function handleAssessClick(btn) {
+    const name = btn.dataset.machine;
+    if (!name) { console.warn('Assess button has no machine name'); return; }
+    assessVM(name, btn.dataset.sub || '', btn.dataset.rg || '', btn.dataset.rid || '', btn.dataset.vmtype || 'arc');
+}
+
+/* ── Assess a single VM (fire-and-forget) ────────────────────────── */
+async function assessVM(machineName, overrideSub, overrideRG, resourceId, vmType) {
+    if (!machineName) {
+        console.error('assessVM called with empty machineName');
+        return;
+    }
+    const key = machineKey(machineName, vmType);
+    setCardAssessing(key);
+    vmRegistry[key] = vmRegistry[key] || { osData: {}, patches: null };
+    vmRegistry[key].status = 'triggering';
+
+    const payload = { machine_name: machineName, vm_type: vmType || 'arc' };
+    if (resourceId)   payload.resource_id   = resourceId;
+    else {
+        if (overrideSub) payload.subscription_id = overrideSub;
+        if (overrideRG)  payload.resource_group  = overrideRG;
+    }
+
+    try {
+        const resp = await fetch('/api/patch-management/assess', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const json = await resp.json();
+
+        if (!resp.ok || !json.success) {
+            let raw = json.detail || json.error || `HTTP ${resp.status}`;
+            let msg;
+            if (Array.isArray(raw)) {
+                msg = raw.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg || e}`).join('; ') || JSON.stringify(raw);
+            } else if (typeof raw === 'object') {
+                msg = JSON.stringify(raw);
+            } else {
+                msg = String(raw);
+            }
+            throw new Error(msg);
+        }
+
+        // Assessment triggered – no patch data returned; user uses Show Patches button
+        vmRegistry[key].status = 'triggered';
+        setCardTriggered(key);
+        setStatus(
+            `Assessment triggered for '${machineName}'. Use 'Show Patches' in 1–3 minutes to view results.`,
+            'success'
+        );
+        setTimeout(() => setStatus('', 'info', true), 8000);
+
+    } catch (err) {
+        vmRegistry[key].status = 'error';
+        setCardError(key, err.message);
+        console.error(`assessVM(${machineName}) error`, err);
+    }
+}
+
+/* ── Assess all VMs (fire-and-forget, sequential trigger) ───── */
+async function assessAll() {
+    const entries = Object.entries(vmRegistry);
+    if (entries.length === 0) { alert('No VMs loaded yet.'); return; }
+
+    document.getElementById('btn-assess-all').disabled = true;
+    setStatus(`Triggering patch assessment on ${entries.length} VM(s)…`);
+
+    for (const [key, vm] of entries) {
+        const [name] = key.split('||');
+        const item   = vm.osData || {};
+        if (!name) continue;
+        await assessVM(
+            name,
+            item.subscription_id || '',
+            item.resource_group  || '',
+            item.resource_id     || '',
+            item.vm_type         || 'arc',
+        );
+    }
+
+    document.getElementById('btn-assess-all').disabled = false;
+    setStatus(
+        `Assessment triggered for ${entries.length} VM(s). Use 'Show Patches' on each card in 1–3 minutes to view results.`,
+        'success'
+    );
+    setTimeout(() => setStatus('', 'info', true), 8000);
+}
+
+/* ── VM filter ────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('vm-search').addEventListener('input', function () {
+        const q = this.value.trim().toLowerCase();
+        document.querySelectorAll('#vm-grid .vm-card').forEach(card => {
+            const name = (card.dataset.name || '').toLowerCase();
+            card.style.display = (!q || name.includes(q)) ? '' : 'none';
+        });
+    });
+});
+
+/* ── Active filter state ──────────────────────────────────────── */
+let _modalPatches = [];   // full patch list for current modal
+let _activeFilter = 'all';
+
+function setFilter(f) {
+    _activeFilter = f;
+    ['all','crit','other'].forEach(k => {
+        const el = document.getElementById(`ftab-${k}`);
+        if (el) el.classList.remove('active');
+    });
+    const map = { all:'all', critical:'crit', other:'other' };
+    const tabEl = document.getElementById(`ftab-${map[f] || f}`);
+    if (tabEl) tabEl.classList.add('active');
+    applyPatchFilter();
+}
+
+function applyPatchFilter() {
+    const q   = (document.getElementById('modal-patch-search')?.value || '').toLowerCase();
+    const tbody = document.getElementById('modal-patch-tbody');
+    const emptyFlt = document.getElementById('modal-filter-empty');
+    let visible = 0;
+
+    tbody.querySelectorAll('tr').forEach(row => {
+        const cls  = (row.dataset.cls  || '').toLowerCase();
+        const text = (row.dataset.text || '').toLowerCase();
+        const passFilter =
+            _activeFilter === 'all'      ? true :
+            _activeFilter === 'critical' ? (cls.includes('critical') || cls.includes('security')) :
+            !(cls.includes('critical') || cls.includes('security'));
+        const passSearch = !q || text.includes(q);
+        const show = passFilter && passSearch;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    if (emptyFlt) emptyFlt.classList.toggle('d-none', visible > 0 || _modalPatches.length === 0);
+}
+
+/* ── Show patch detail modal ──────────────────────────────────── */
+function showDetail(key) {
+    // Reset install state whenever a new modal session opens
+    _installKey = key;
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    deselectAll();
+    document.getElementById('install-progress')?.classList.add('d-none');
+    const vm = vmRegistry[key];
+    if (!vm || !vm.patches) return;
+    const machineName = key.split('||')[0];
+
+    const patches  = vm.patches.available_patches || [];
+    const crit     = vm.patches.critical_and_security_count || 0;
+    const other    = vm.patches.other_count || 0;
+    const total    = vm.patches.total_count || (crit + other);
+    const source   = vm.status;           // 'arg' | 'done' | 'assessing'
+    const argMeta  = vm.argMeta || {};
+    const osData   = vm.osData  || {};
+
+    _modalPatches  = patches;
+    _activeFilter  = 'all';
+
+    // ── Header ────────────────────────────────────────────────────
+    document.getElementById('modal-machine-name').textContent = machineName;
+
+    const srcBadge = document.getElementById('modal-source-badge');
+    if (source === 'arg') {
+        srcBadge.className   = 'source-badge arg';
+        srcBadge.textContent = 'Azure Resource Graph';
+        srcBadge.title       = 'Data sourced from Resource Graph patchassessmentresources table';
+    } else if (source === 'done') {
+        srcBadge.className   = 'source-badge live';
+        srcBadge.textContent = 'Live Assessment';
+        srcBadge.title       = 'Data from live assessPatches API call';
+    } else {
+        srcBadge.className   = '';
+        srcBadge.textContent = '';
+    }
+
+    // ── Info strip ───────────────────────────────────────────────
+    const osType = argMeta.os_type || osData.os_type || osData.os_name || '—';
+    const rg     = argMeta.resource_group || osData.resource_group || osData.resource_group_name || '—';
+    const lastTs = vm.patches.last_assessed;
+    const status = vm.patches.status || '—';
+    const rb     = argMeta.reboot_pending;   // true | false | undefined
+
+    document.getElementById('modal-os-type').textContent      = osType;
+    document.getElementById('modal-rg').textContent           = rg;
+    document.getElementById('modal-last-assessed').textContent = lastTs
+        ? new Date(lastTs).toLocaleString()
+        : '—';
+    document.getElementById('modal-status').textContent = status;
+
+    const rebootWrap  = document.getElementById('modal-reboot-wrap');
+    const rebootBadge = document.getElementById('modal-reboot-badge');
+    if (rb !== undefined && rb !== null) {
+        rebootBadge.className   = `reboot-badge ${rb ? 'pending' : 'none'}`;
+        rebootBadge.innerHTML   = rb
+            ? '<i class="fas fa-power-off me-1"></i>Reboot required'
+            : '<i class="fas fa-check me-1"></i>No reboot needed';
+        rebootWrap.style.display = '';
+    } else {
+        rebootWrap.style.display = 'none';
+    }
+
+    // ── Summary counters ─────────────────────────────────────────
+    document.getElementById('modal-summary').innerHTML = `
+        <button class="btn btn-sm px-3" style="background:rgba(220,53,69,.08);color:#dc3545;border:1px solid rgba(220,53,69,.3);"
+                onclick="setFilter('critical')">
+            <i class="fas fa-exclamation-triangle me-1"></i>${crit} Critical / Security
+        </button>
+        <button class="btn btn-sm px-3" style="background:rgba(13,110,253,.08);color:#0d6efd;border:1px solid rgba(13,110,253,.3);"
+                onclick="setFilter('other')">
+            <i class="fas fa-info-circle me-1"></i>${other} Other
+        </button>
+        <button class="btn btn-sm px-3 ms-auto" style="background:rgba(108,117,125,.08);color:#6c757d;border:1px solid rgba(108,117,125,.3);"
+                onclick="setFilter('all')">
+            ${total} Total
+        </button>`;
+
+    // ── Reset filter UI ──────────────────────────────────────────
+    const searchEl = document.getElementById('modal-patch-search');
+    if (searchEl) searchEl.value = '';
+    ['all','crit','other'].forEach(k => {
+        const el = document.getElementById(`ftab-${k}`);
+        if (el) el.classList.remove('active');
+    });
+    document.getElementById('ftab-all')?.classList.add('active');
+
+    // ── Build patch table rows ───────────────────────────────────
+    const tbody  = document.getElementById('modal-patch-tbody');
+    const emptyEl = document.getElementById('modal-empty');
+    tbody.innerHTML = '';
+
+    if (patches.length === 0) {
+        emptyEl.classList.remove('d-none');
+    } else {
+        emptyEl.classList.add('d-none');
+        for (const p of patches) {
+            const classifications = p.classifications || [];
+            const badgesHtml      = classifications.map(classificationBadge).join('');
+            const reboot          = p.rebootBehavior  || p.reboot_behavior  || '—';
+            const kbId            = p.kbId            || p.kb_id            || p.patchId || '—';
+            const state           = p.assessmentState || p.assessment_state || '—';
+            const pub             = fmtDate(p.publishedDate || p.published_date);
+            const patchName       = p.patchName || p.patch_name || p.name || '—';
+            const clsStr          = classifications.join(',').toLowerCase();
+            const textIdx         = [patchName, kbId, clsStr].join(' ').toLowerCase();
+
+            const stateClass = state.toLowerCase() === 'available'
+                ? 'bg-success bg-opacity-10 text-success'
+                : 'bg-secondary bg-opacity-10 text-secondary';
+
+            // Build KB link: Windows KB#### → support.microsoft.com; others → Bing search
+            const kbUpper = kbId.toUpperCase();
+            let kbHtml;
+            if (kbId === '—') {
+                kbHtml = '<span class="text-muted small">—</span>';
+            } else if (kbUpper.startsWith('KB') && /^KB\d+$/i.test(kbId)) {
+                kbHtml = `<a href="https://www.bing.com/search?q=${encodeURIComponent(kbId + ' site:support.microsoft.com')}" target="_blank" rel="noopener"
+                             class="kb-link" title="Find ${escHtml(kbId)} on Microsoft Support">
+                             <code class="small">${escHtml(kbId)}</code>
+                             <i class="fas fa-external-link-alt ms-1" style="font-size:.65rem;opacity:.6"></i>
+                          </a>`;
+            } else {
+                const q = encodeURIComponent(kbId + ' ' + patchName);
+                kbHtml = `<a href="https://www.bing.com/search?q=${q}" target="_blank" rel="noopener"
+                             class="kb-link" title="Search for this patch">
+                             <code class="small">${escHtml(kbId)}</code>
+                             <i class="fas fa-external-link-alt ms-1" style="font-size:.65rem;opacity:.6"></i>
+                          </a>`;
+            }
+
+            const tr = document.createElement('tr');
+            tr.dataset.cls  = clsStr;
+            tr.dataset.text = textIdx;
+            tr.innerHTML = `
+                <td class="install-col ps-2">
+                    <input type="checkbox" class="form-check-input patch-check mt-0"
+                           data-kb="${escHtml(kbId)}"
+                           data-name="${escHtml(patchName)}"
+                           data-cls="${escHtml(clsStr)}"
+                           onchange="updateInstallCount()">
+                </td>
+                <td class="fw-medium">${escHtml(patchName)}</td>
+                <td>${kbHtml}</td>
+                <td>${badgesHtml || '<span class="text-muted small">—</span>'}</td>
+                <td class="small text-nowrap">${escHtml(reboot)}</td>
+                <td class="small text-nowrap">${pub}</td>
+                <td><span class="badge ${stateClass}">${escHtml(state)}</span></td>`;
+            tbody.appendChild(tr);
+        }
+    }
+
+    // ── Footer ───────────────────────────────────────────────────
+    const footerEl = document.getElementById('modal-footer-ts');
+    footerEl.innerHTML = `
+        <span class="text-muted small">
+            ${lastTs ? `Last assessed: ${new Date(lastTs).toLocaleString()}` : 'No timestamp available'}
+        </span>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-primary btn-sm"
+                    data-machine="${escHtml(machineName)}"
+                    data-sub="${escHtml(argMeta.subscription_id || osData.subscription_id || '')}"
+                    data-vmtype="${escHtml(osData.vm_type || argMeta.vm_type || 'arc')}"
+                    onclick="handleLastAssessClick(this)"
+                    title="Refresh results from Azure Resource Graph">
+                <i class="fas fa-history me-1"></i>Refresh from ARG
+            </button>
+            <button class="btn btn-primary btn-sm"
+                    data-machine="${escHtml(machineName)}"
+                    data-sub="${escHtml(argMeta.subscription_id || osData.subscription_id || '')}"
+                    data-rg="${escHtml(rg)}"
+                    data-rid="${escHtml(osData.resource_id || '')}"
+                    data-vmtype="${escHtml(osData.vm_type || argMeta.vm_type || 'arc')}"
+                    onclick="handleAssessClick(this)">
+                <i class="fas fa-sync-alt me-1"></i>Trigger New Assessment
+            </button>
+        </div>`;
+
+    new bootstrap.Modal(document.getElementById('patchModal')).show();
+}
+
+/* ── Install Updates ─────────────────────────────────────────── */
+function toggleSelectAll(cb) {
+    document.querySelectorAll('#modal-patch-tbody tr').forEach(tr => {
+        if (tr.style.display !== 'none') {
+            const patchCb = tr.querySelector('.patch-check');
+            if (patchCb) patchCb.checked = cb.checked;
+        }
+    });
+    updateInstallCount();
+}
+
+function selectAllCritical() {
+    document.querySelectorAll('#modal-patch-tbody tr').forEach(tr => {
+        if (tr.style.display !== 'none') {
+            const cls = tr.dataset.cls || '';
+            const cb  = tr.querySelector('.patch-check');
+            if (cb) cb.checked = cls.includes('critical') || cls.includes('security');
+        }
+    });
+    const all = document.getElementById('select-all-patches');
+    if (all) all.checked = false;
+    updateInstallCount();
+}
+
+function deselectAll() {
+    document.querySelectorAll('#modal-patch-tbody .patch-check').forEach(cb => { cb.checked = false; });
+    const all = document.getElementById('select-all-patches');
+    if (all) all.checked = false;
+    updateInstallCount();
+}
+
+function updateInstallCount() {
+    const count = document.querySelectorAll('#modal-patch-tbody .patch-check:checked').length;
+    const el = document.getElementById('install-sel-count');
+    if (el) el.textContent = count > 0 ? `${count} patch${count !== 1 ? 'es' : ''} selected` : 'Select patches to install';
+    const btn = document.getElementById('btn-do-install');
+    if (btn) btn.disabled = count === 0;
+}
+
+function exitInstallMode() {
+    document.querySelectorAll('#modal-patch-tbody .patch-check').forEach(cb => cb.checked = false);
+    const selectAll = document.getElementById('select-all-patches');
+    if (selectAll) selectAll.checked = false;
+    const btn = document.getElementById('btn-do-install');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-download me-1"></i>Install Selected`;
+    }
+    const el = document.getElementById('install-sel-count');
+    if (el) el.textContent = 'Select patches to install';
+}
+
+async function doInstall() {
+    const key = _installKey;
+    if (!key) return;
+    const [machineName] = key.split('||');
+    const vm      = vmRegistry[key] || {};
+    const osData  = vm.osData  || {};
+    const argMeta = vm.argMeta || {};
+
+    const vmType = osData.vm_type || 'arc';
+    const rid    = osData.resource_id || '';
+    const sub    = argMeta.subscription_id || osData.subscription_id || '';
+    const rg     = argMeta.resource_group  || osData.resource_group  || '';
+    const osType = argMeta.os_type || osData.os_type || 'Windows';
+    const reboot = document.getElementById('install-reboot')?.value || 'IfRequired';
+
+    const checked = [...document.querySelectorAll('#modal-patch-tbody .patch-check:checked')];
+    if (checked.length === 0) return;
+
+    const kbList = checked.map(cb => cb.dataset.kb).filter(k => k && k !== '—');
+    const allCls = [...new Set(
+        checked.flatMap(cb => (cb.dataset.cls || '').split(',').map(c => c.trim()).filter(Boolean))
+    )].map(c => c.charAt(0).toUpperCase() + c.slice(1));
+
+    const payload = {
+        machine_name:          machineName,
+        vm_type:               vmType,
+        os_type:               osType,
+        reboot_setting:        reboot,
+        maximum_duration:      'PT2H',
+        classifications:       allCls.length ? allCls : ['Critical', 'Security', 'Updates'],
+        kb_numbers_to_include: kbList,
+    };
+    if (rid) {
+        payload.resource_id = rid;
+    } else {
+        if (sub) payload.subscription_id = sub;
+        if (rg)  payload.resource_group  = rg;
+    }
+
+    const btn = document.getElementById('btn-do-install');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-sm me-1" role="status"></span>Starting…`;
+
+    try {
+        const resp = await fetch('/api/patch-management/install', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+        });
+        const json = await resp.json();
+        if (!resp.ok || !json.success) {
+            const raw = json.detail || json.error || `HTTP ${resp.status}`;
+            const msg = typeof raw === 'object' ? (raw.message || raw.error?.message || JSON.stringify(raw)) : String(raw);
+            throw new Error(msg);
+        }
+
+        exitInstallMode();
+        if (json.operation_url) {
+            _showInstallProgress(`Installing patches on <strong>${escHtml(json.machine || machineName)}</strong>… This may take several minutes.`, 'running');
+            _pollInstallStatus(json.operation_url, machineName);
+        } else if (json.status === 'Completed') {
+            const d = json.data || {};
+            _showInstallProgress(
+                `Install complete: <strong>${d.installed_patch_count || 0}</strong> installed, <strong>${d.failed_patch_count || 0}</strong> failed.`,
+                'success'
+            );
+        }
+    } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-download me-1"></i>Install Selected`;
+        setStatus(`Install failed for '${machineName}': ${err.message}`, 'danger');
+        console.error('doInstall error', err);
+    }
+}
+
+function _showInstallProgress(html, state) {
+    const el = document.getElementById('install-progress');
+    el.classList.remove('d-none');
+    const icon =
+        state === 'running'  ? `<span class="spinner-border spinner-sm me-2" role="status"></span>` :
+        state === 'success'  ? `<i class="fas fa-check-circle text-success me-2"></i>` :
+        state === 'warning'  ? `<i class="fas fa-exclamation-triangle text-warning me-2"></i>` :
+                               `<i class="fas fa-times-circle text-danger me-2"></i>`;
+    el.innerHTML = `
+        <div class="d-flex align-items-center flex-wrap gap-2">
+            ${icon}<span>${html}</span>
+            <button class="btn btn-sm btn-link text-muted ms-auto p-0"
+                    onclick="document.getElementById('install-progress').classList.add('d-none')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>`;
+}
+
+function _pollInstallStatus(operationUrl, machineName) {
+    if (_pollTimer) clearInterval(_pollTimer);
+    let attempts = 0;
+    _pollTimer = setInterval(async () => {
+        attempts++;
+        if (attempts > 72) {  // stop after 6 minutes
+            clearInterval(_pollTimer);
+            _showInstallProgress(
+                `Install status check timed out for '${escHtml(machineName)}'. Check the Azure portal for progress.`,
+                'warning'
+            );
+            return;
+        }
+        try {
+            const resp = await fetch(`/api/patch-management/install-status?operation_url=${encodeURIComponent(operationUrl)}`);
+            const json = await resp.json();
+            if (!json.is_done) return;  // still running
+            clearInterval(_pollTimer);
+            const data   = json.data   || {};
+            const status = json.status || 'Completed';
+            const inst   = data.installed_patch_count || 0;
+            const failed = data.failed_patch_count    || 0;
+            const state  = status.toLowerCase() === 'succeeded' ? 'success' : 'warning';
+            _showInstallProgress(
+                `Install <strong>${escHtml(status)}</strong>: <strong>${inst}</strong> installed, <strong>${failed}</strong> failed.`,
+                state
+            );
+            setStatus(
+                `Patch install ${status.toLowerCase()} for '${escHtml(machineName)}'. Use 'Show Patches' to view the updated patch state.`,
+                state === 'success' ? 'success' : 'warning'
+            );
+            setTimeout(() => setStatus('', 'info', true), 10000);
+        } catch (e) { console.warn('_pollInstallStatus tick', e); }
+    }, 5000);
+}
+
+// Cancel polling when the modal is closed
+document.getElementById('patchModal')?.addEventListener('hidden.bs.modal', () => {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+});
+
+/* ── Load past assessments from Azure Resource Graph ─────────── */
+async function loadArgPatchData() {
+    try {
+        const resp = await fetch('/api/patch-management/arg-patch-data');
+        if (!resp.ok) return;  // silent fail – ARG is best-effort
+        const json = await resp.json();
+        if (!json.success || !Array.isArray(json.data)) return;
+
+        let pre = 0;
+        for (const item of json.data) {
+            const argName = item.machine_name;
+            if (!argName) continue;
+
+            // Case-insensitive match on the name part of the composite key (name||vmType)
+            // Match all registry keys whose machine name matches (may be >1 if Arc + Azure VM share a name)
+            const matchingKeys = Object.keys(vmRegistry).filter(
+                k => k.split('||')[0].toLowerCase() === argName.toLowerCase()
+            );
+            if (matchingKeys.length === 0) continue;  // machine not in current view
+
+            for (const regKey of matchingKeys) {
+                // Only pre-populate if no live assessment has been done yet
+                if (vmRegistry[regKey].patches !== null) continue;
+
+                vmRegistry[regKey].patches = item.patches;
+                vmRegistry[regKey].status  = 'arg';
+                // Store ARG-specific metadata for the detail modal
+                vmRegistry[regKey].argMeta = {
+                    os_type:        item.os_type,
+                    reboot_pending: item.reboot_pending,
+                    resource_group: item.resource_group,
+                    subscription_id: item.subscription_id,
+                };
+                setCardResult(regKey, item.patches, 'arg');
+                assessedCount++;
+                pre++;
+            }
+        }
+
+        if (pre > 0) {
+            updateHeroStats();
+            setStatus(
+                `Pre-loaded ${pre} past assessment${pre !== 1 ? 's' : ''} from Azure Resource Graph.`,
+                'info'
+            );
+            setTimeout(() => setStatus('', 'info', true), 5000);
+        }
+    } catch (err) {
+        // ARG pre-population is best-effort; log but never break the page
+        console.warn('loadArgPatchData (non-critical):', err);
+    }
+}
+
+/* ── Init ─────────────────────────────────────────────────────── */
+loadMachines();
+</script>
+{% endblock %}

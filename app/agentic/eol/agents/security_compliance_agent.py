@@ -8,6 +8,7 @@ This agent handles:
 - Remediation recommendations
 - Security score tracking
 - Risk assessment and reporting
+- Azure resource compliance audits (network security, private endpoints, encryption, public access, regional compliance)
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ class SecurityComplianceAgent(BaseSREAgent):
     5. Remediation recommendations with priority ranking
     6. Security score calculation and trending
     7. Risk assessment and reporting
+    8. Azure resource compliance audits (network, private endpoints, encryption, public access, regional)
 
     Example usage:
         agent = SecurityComplianceAgent()
@@ -65,6 +67,24 @@ class SecurityComplianceAgent(BaseSREAgent):
             "action": "assess_vulnerabilities",
             "resource_ids": ["vm-1", "vm-2"],
             "severity_threshold": "medium"
+        })
+
+        # Audit Azure network compliance
+        result = await agent.handle_request({
+            "action": "audit_network",
+            "resource_group": "prod-rg"
+        })
+
+        # Audit regional compliance (Southeast Asia)
+        result = await agent.handle_request({
+            "action": "audit_regional_compliance",
+            "resource_group": "prod-rg"
+        })
+
+        # Full Azure resource compliance audit
+        result = await agent.handle_request({
+            "action": "audit_azure_resources",
+            "resource_group": "prod-rg"
         })
 
         # Full security audit
@@ -157,6 +177,182 @@ class SecurityComplianceAgent(BaseSREAgent):
             "access_controls": 0.10
         }
 
+        # Azure Resource Compliance Rules - Network Security
+        self.network_rules = {
+            "subnets_require_nsg": {
+                "name": "Subnets Must Have NSGs",
+                "severity": "high",
+                "description": "All subnets must have a Network Security Group associated",
+                "check_type": "network",
+                "resource_types": ["microsoft.network/virtualnetworks"]
+            },
+            "deny_internet_outbound": {
+                "name": "Default Deny Internet Outbound",
+                "severity": "medium",
+                "description": "NSG rules should deny outbound internet by default or route through firewall",
+                "check_type": "network",
+                "resource_types": ["microsoft.network/networksecuritygroups"]
+            },
+            "require_route_to_firewall": {
+                "name": "Internet Traffic Routes Through Firewall",
+                "severity": "high",
+                "description": "Internet-bound traffic must be routed through Azure Firewall",
+                "check_type": "network",
+                "resource_types": ["microsoft.network/routetables"]
+            }
+        }
+
+        # Azure Resource Compliance Rules - Private Endpoints
+        self.private_endpoint_rules = {
+            "storage_private_endpoints": {
+                "name": "Storage Accounts Require Private Endpoints",
+                "severity": "high",
+                "description": "Storage accounts should use private endpoints instead of public access",
+                "check_type": "private_endpoint",
+                "resource_types": ["microsoft.storage/storageaccounts"]
+            },
+            "keyvault_private_endpoints": {
+                "name": "Key Vaults Require Private Endpoints",
+                "severity": "high",
+                "description": "Key Vaults should use private endpoints",
+                "check_type": "private_endpoint",
+                "resource_types": ["microsoft.keyvault/vaults"]
+            },
+            "sql_private_endpoints": {
+                "name": "SQL Databases Require Private Endpoints",
+                "severity": "medium",
+                "description": "Azure SQL databases should use private endpoints",
+                "check_type": "private_endpoint",
+                "resource_types": ["microsoft.sql/servers"]
+            }
+        }
+
+        # Azure Resource Compliance Rules - Encryption
+        self.encryption_rules = {
+            "storage_encryption_at_rest": {
+                "name": "Storage Accounts Must Encrypt Data at Rest",
+                "severity": "critical",
+                "description": "All storage accounts must have encryption at rest enabled",
+                "check_type": "encryption",
+                "resource_types": ["microsoft.storage/storageaccounts"]
+            },
+            "sql_tde_enabled": {
+                "name": "SQL Transparent Data Encryption",
+                "severity": "critical",
+                "description": "SQL databases must have TDE enabled",
+                "check_type": "encryption",
+                "resource_types": ["microsoft.sql/servers/databases"]
+            }
+        }
+
+        # Azure Resource Compliance Rules - Public Access
+        self.public_access_rules = {
+            "storage_disable_public_access": {
+                "name": "Storage Public Access Disabled",
+                "severity": "high",
+                "description": "Storage accounts should have public blob/container access disabled",
+                "check_type": "public_access",
+                "resource_types": ["microsoft.storage/storageaccounts"]
+            }
+        }
+
+        # Azure Resource Compliance Rules - Regional Compliance
+        self.regional_compliance_rules = {
+            "resources_in_southeastasia": {
+                "name": "Resources Must Be Deployed in Southeast Asia",
+                "severity": "high",
+                "description": "All resources must be deployed in the southeastasia region for compliance",
+                "check_type": "regional",
+                "allowed_regions": ["southeastasia"],
+                "resource_types": ["all"]  # Applies to all resource types
+            }
+        }
+
+        # Azure Resource Compliance Rules - SLA Compliance
+        self.sla_compliance_rules = {
+            "resources_meet_sla_target": {
+                "name": "Resources Must Meet SLA Availability Target",
+                "severity": "high",
+                "description": "All resources must meet the defined SLA availability target (default 99.9%)",
+                "check_type": "sla",
+                "default_target": 99.9,  # 99.9% uptime
+                "resource_types": ["all"]
+            }
+        }
+
+        # Default SLA targets by resource type (based on Azure SLAs)
+        self.default_sla_targets = {
+            "microsoft.compute/virtualmachines": 99.9,  # Single VM with Premium SSD
+            "microsoft.web/sites": 99.95,  # App Service
+            "microsoft.containerinstance/containergroups": 99.9,  # Container Apps
+            "microsoft.storage/storageaccounts": 99.9,  # Storage (LRS)
+            "microsoft.sql/servers": 99.99,  # SQL Database
+            "microsoft.keyvault/vaults": 99.9,  # Key Vault
+            "microsoft.network/applicationgateways": 99.95,  # Application Gateway
+            "microsoft.network/loadbalancers": 99.99,  # Load Balancer
+            "microsoft.containerservice/managedclusters": 99.95,  # AKS
+            "microsoft.apimanagement/service": 99.95  # API Management
+        }
+
+        # SLA modifiers based on SKU and redundancy configuration
+        self.sla_modifiers = {
+            # Virtual Machines - SKU and availability configuration
+            "microsoft.compute/virtualmachines": {
+                "availability_zone_single": 99.99,  # Single VM in availability zone
+                "availability_zone_multiple": 99.99,  # Multiple VMs across zones
+                "availability_set": 99.95,  # Two or more VMs in availability set
+                "premium_ssd": 99.9,  # Single VM with Premium SSD
+                "standard_ssd": 99.5,  # Single VM with Standard SSD
+                "standard_hdd": 95.0   # Single VM with Standard HDD (no SLA)
+            },
+            # Storage Accounts - Redundancy type
+            "microsoft.storage/storageaccounts": {
+                "Premium_LRS": 99.9,
+                "Standard_LRS": 99.9,
+                "Standard_GRS": 99.99,  # Geo-redundant
+                "Standard_RAGRS": 99.99,  # Read-access geo-redundant
+                "Standard_ZRS": 99.99,  # Zone-redundant
+                "Standard_GZRS": 99.99,  # Geo-zone-redundant
+                "Premium_ZRS": 99.99
+            },
+            # SQL Database - Service tier
+            "microsoft.sql/servers": {
+                "Basic": 99.99,
+                "Standard": 99.99,
+                "Premium": 99.99,
+                "GeneralPurpose": 99.99,
+                "BusinessCritical": 99.995,  # Zone-redundant
+                "Hyperscale": 99.99
+            },
+            # App Service - Tier
+            "microsoft.web/sites": {
+                "Free": 0,  # No SLA
+                "Shared": 0,  # No SLA
+                "Basic": 99.95,
+                "Standard": 99.95,
+                "Premium": 99.95,
+                "PremiumV2": 99.95,
+                "PremiumV3": 99.95,
+                "Isolated": 99.95,
+                "IsolatedV2": 99.95
+            },
+            # AKS - Uptime SLA
+            "microsoft.containerservice/managedclusters": {
+                "Free": 0,  # No SLA
+                "Standard": 99.95,  # With Uptime SLA
+                "with_availability_zones": 99.99  # Uptime SLA + AZ
+            }
+        }
+
+        # Update severity levels with critical tier
+        self.severity_levels = {
+            "critical": {"priority": 1, "score_impact": -30, "sla_hours": 4},
+            "high": {"priority": 2, "score_impact": -20, "sla_hours": 24},
+            "medium": {"priority": 3, "score_impact": -10, "sla_hours": 72},
+            "low": {"priority": 4, "score_impact": -5, "sla_hours": 168},
+            "informational": {"priority": 5, "score_impact": -1, "sla_hours": 720}
+        }
+
     async def _initialize_impl(self) -> None:
         """Initialize agent-specific resources."""
         try:
@@ -220,7 +416,16 @@ class SecurityComplianceAgent(BaseSREAgent):
             "assess_vulnerabilities": self._assess_vulnerabilities,
             "policy_check": self._validate_policies,
             "recommendations": self._generate_recommendations,
-            "full": self._full_security_audit
+            "full": self._full_security_audit,
+            # Azure resource compliance audits
+            "audit_network": self._audit_network_compliance,
+            "audit_private_endpoints": self._audit_private_endpoint_compliance,
+            "audit_encryption": self._audit_encryption_compliance,
+            "audit_public_access": self._audit_public_access_compliance,
+            "audit_regional_compliance": self._audit_regional_compliance,
+            "audit_sla_compliance": self._audit_sla_compliance,
+            "calculate_composite_sla": self._calculate_composite_sla,
+            "audit_azure_resources": self._audit_azure_resource_compliance
         }
 
         handler = action_handlers.get(action)
@@ -1208,3 +1413,1485 @@ class SecurityComplianceAgent(BaseSREAgent):
             risk_factors.append("No significant risk factors identified")
 
         return risk_factors
+
+    # ============================================================================
+    # Azure Resource Compliance Audit Methods
+    # ============================================================================
+
+    async def _query_virtual_networks(self, resource_group: str = "") -> List[Dict]:
+        """Query VNets using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of VNet configurations
+        """
+        command = "az network vnet list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        # Parse JSON from stdout
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse VNet list output")
+            return []
+
+    async def _query_nsgs(self, resource_group: str = "") -> List[Dict]:
+        """Query NSGs using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of NSG configurations
+        """
+        command = "az network nsg list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse NSG list output")
+            return []
+
+    async def _query_nsg_rules(self, nsg_name: str, resource_group: str) -> List[Dict]:
+        """Query NSG rules for a specific NSG.
+
+        Args:
+            nsg_name: NSG name
+            resource_group: Resource group containing the NSG
+
+        Returns:
+            List of NSG rules
+        """
+        command = f"az network nsg rule list --nsg-name {nsg_name} --resource-group {resource_group} -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse NSG rules for {nsg_name}")
+            return []
+
+    async def _query_route_tables(self, resource_group: str = "") -> List[Dict]:
+        """Query route tables using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of route table configurations
+        """
+        command = "az network route-table list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse route table list output")
+            return []
+
+    async def _query_private_endpoints(self, resource_group: str = "") -> List[Dict]:
+        """Query private endpoints using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of private endpoint configurations
+        """
+        command = "az network private-endpoint list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse private endpoint list output")
+            return []
+
+    async def _query_storage_accounts(self, resource_group: str = "") -> List[Dict]:
+        """Query storage accounts using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of storage account configurations
+        """
+        command = "az storage account list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse storage account list output")
+            return []
+
+    async def _query_key_vaults(self, resource_group: str = "") -> List[Dict]:
+        """Query Key Vaults using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of Key Vault configurations
+        """
+        command = "az keyvault list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse Key Vault list output")
+            return []
+
+    async def _query_sql_servers(self, resource_group: str = "") -> List[Dict]:
+        """Query SQL servers using Azure CLI.
+
+        Args:
+            resource_group: Optional resource group filter
+
+        Returns:
+            List of SQL server configurations
+        """
+        command = "az sql server list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            data = json.loads(result.get("stdout", "[]"))
+            return data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse SQL server list output")
+            return []
+
+    async def _audit_network_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit network security compliance.
+
+        Checks:
+        - All subnets have NSGs
+        - NSG rules deny outbound internet or route through firewall
+        - Route tables direct internet traffic to firewall
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Network compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"network-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting network compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "network",
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Step 1: Check subnets have NSGs
+        vnets = await self._query_virtual_networks(resource_group)
+
+        for vnet in vnets:
+            vnet_name = vnet.get("name")
+            vnet_rg = vnet.get("resourceGroup")
+            subnets = vnet.get("subnets", [])
+
+            for subnet in subnets:
+                subnet_name = subnet.get("name")
+                nsg = subnet.get("networkSecurityGroup")
+
+                if not nsg:
+                    violations.append({
+                        "rule": "subnets_require_nsg",
+                        "severity": "high",
+                        "resource_type": "subnet",
+                        "resource_id": subnet.get("id"),
+                        "resource_name": f"{vnet_name}/{subnet_name}",
+                        "resource_group": vnet_rg,
+                        "violation": "Subnet does not have an NSG associated",
+                        "recommendation": f"Associate an NSG with subnet {subnet_name}"
+                    })
+
+        # Step 2: Check NSG rules for outbound internet deny
+        nsgs = await self._query_nsgs(resource_group)
+
+        for nsg in nsgs:
+            nsg_name = nsg.get("name")
+            nsg_rg = nsg.get("resourceGroup")
+
+            # Get NSG rules
+            rules = await self._query_nsg_rules(nsg_name, nsg_rg)
+
+            # Check for explicit deny rule for outbound internet
+            has_deny_internet_rule = False
+            for rule in rules:
+                if (rule.get("direction") == "Outbound" and
+                    rule.get("access") == "Deny" and
+                    ("Internet" in rule.get("destinationAddressPrefix", "") or
+                     "*" in rule.get("destinationAddressPrefix", ""))):
+                    has_deny_internet_rule = True
+                    break
+
+            if not has_deny_internet_rule:
+                violations.append({
+                    "rule": "deny_internet_outbound",
+                    "severity": "medium",
+                    "resource_type": "networksecuritygroup",
+                    "resource_id": nsg.get("id"),
+                    "resource_name": nsg_name,
+                    "resource_group": nsg_rg,
+                    "violation": "NSG does not have a default deny rule for outbound internet traffic",
+                    "recommendation": f"Add a deny rule for outbound internet traffic to NSG {nsg_name}"
+                })
+
+        # Step 3: Check route tables route internet to firewall
+        route_tables = await self._query_route_tables(resource_group)
+
+        for rt in route_tables:
+            rt_name = rt.get("name")
+            rt_rg = rt.get("resourceGroup")
+            routes = rt.get("routes", [])
+
+            # Check if there's a route for 0.0.0.0/0 to VirtualAppliance (firewall)
+            has_internet_firewall_route = False
+            for route in routes:
+                if (route.get("addressPrefix") == "0.0.0.0/0" and
+                    route.get("nextHopType") == "VirtualAppliance"):
+                    has_internet_firewall_route = True
+                    break
+
+            if not has_internet_firewall_route:
+                violations.append({
+                    "rule": "require_route_to_firewall",
+                    "severity": "high",
+                    "resource_type": "routetable",
+                    "resource_id": rt.get("id"),
+                    "resource_name": rt_name,
+                    "resource_group": rt_rg,
+                    "violation": "Route table does not route internet traffic through firewall",
+                    "recommendation": f"Add a route to {rt_name} directing 0.0.0.0/0 to Azure Firewall"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(vnets) + len(nsgs) + len(route_tables)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "network",
+                "scope": resource_group or "subscription",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "virtual_networks": len(vnets),
+                    "subnets": sum(len(vnet.get("subnets", [])) for vnet in vnets),
+                    "network_security_groups": len(nsgs),
+                    "route_tables": len(route_tables)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _audit_private_endpoint_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit private endpoint compliance.
+
+        Checks:
+        - Storage accounts use private endpoints
+        - Key Vaults use private endpoints
+        - SQL servers use private endpoints
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Private endpoint compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"pe-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting private endpoint compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "private_endpoints",
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Get all private endpoints
+        private_endpoints = await self._query_private_endpoints(resource_group)
+
+        # Build a map of resource IDs that have private endpoints
+        resources_with_pe = set()
+        for pe in private_endpoints:
+            private_link_service_connections = pe.get("privateLinkServiceConnections", [])
+            for conn in private_link_service_connections:
+                resource_id = conn.get("privateLinkServiceId", "")
+                if resource_id:
+                    resources_with_pe.add(resource_id.lower())
+
+        # Check storage accounts
+        storage_accounts = await self._query_storage_accounts(resource_group)
+        for storage in storage_accounts:
+            storage_id = storage.get("id", "").lower()
+            storage_name = storage.get("name")
+            storage_rg = storage.get("resourceGroup")
+
+            # Check if public network access is enabled or if no private endpoint exists
+            public_network_access = storage.get("publicNetworkAccess", "Enabled")
+            has_private_endpoint = storage_id in resources_with_pe
+
+            if public_network_access == "Enabled" and not has_private_endpoint:
+                violations.append({
+                    "rule": "storage_private_endpoints",
+                    "severity": "high",
+                    "resource_type": "storageaccount",
+                    "resource_id": storage.get("id"),
+                    "resource_name": storage_name,
+                    "resource_group": storage_rg,
+                    "violation": "Storage account has public access enabled without private endpoint",
+                    "recommendation": f"Configure private endpoint for storage account {storage_name}"
+                })
+
+        # Check Key Vaults
+        key_vaults = await self._query_key_vaults(resource_group)
+        for kv in key_vaults:
+            kv_id = kv.get("id", "").lower()
+            kv_name = kv.get("name")
+            kv_rg = kv.get("resourceGroup")
+
+            # Check if public network access is enabled
+            properties = kv.get("properties", {})
+            public_network_access = properties.get("publicNetworkAccess", "Enabled")
+            has_private_endpoint = kv_id in resources_with_pe
+
+            if public_network_access == "Enabled" and not has_private_endpoint:
+                violations.append({
+                    "rule": "keyvault_private_endpoints",
+                    "severity": "high",
+                    "resource_type": "keyvault",
+                    "resource_id": kv.get("id"),
+                    "resource_name": kv_name,
+                    "resource_group": kv_rg,
+                    "violation": "Key Vault has public access enabled without private endpoint",
+                    "recommendation": f"Configure private endpoint for Key Vault {kv_name}"
+                })
+
+        # Check SQL servers
+        sql_servers = await self._query_sql_servers(resource_group)
+        for sql in sql_servers:
+            sql_id = sql.get("id", "").lower()
+            sql_name = sql.get("name")
+            sql_rg = sql.get("resourceGroup")
+
+            # Check if public network access is enabled
+            properties = sql.get("properties", {})
+            public_network_access = properties.get("publicNetworkAccess", "Enabled")
+            has_private_endpoint = sql_id in resources_with_pe
+
+            if public_network_access == "Enabled" and not has_private_endpoint:
+                violations.append({
+                    "rule": "sql_private_endpoints",
+                    "severity": "medium",
+                    "resource_type": "sqlserver",
+                    "resource_id": sql.get("id"),
+                    "resource_name": sql_name,
+                    "resource_group": sql_rg,
+                    "violation": "SQL server has public access enabled without private endpoint",
+                    "recommendation": f"Configure private endpoint for SQL server {sql_name}"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(storage_accounts) + len(key_vaults) + len(sql_servers)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "private_endpoints",
+                "scope": resource_group or "subscription",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "storage_accounts": len(storage_accounts),
+                    "key_vaults": len(key_vaults),
+                    "sql_servers": len(sql_servers),
+                    "private_endpoints_configured": len(private_endpoints)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _audit_encryption_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit encryption at rest compliance.
+
+        Checks:
+        - Storage accounts have encryption enabled
+        - SQL databases have TDE enabled
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Encryption compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"encryption-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting encryption compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "encryption",
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Check storage accounts
+        storage_accounts = await self._query_storage_accounts(resource_group)
+        for storage in storage_accounts:
+            storage_name = storage.get("name")
+            storage_rg = storage.get("resourceGroup")
+
+            # Check encryption settings
+            properties = storage.get("properties", {})
+            encryption = properties.get("encryption", {})
+            services = encryption.get("services", {})
+
+            # Check if blob and file encryption is enabled
+            blob_encryption = services.get("blob", {}).get("enabled", False)
+            file_encryption = services.get("file", {}).get("enabled", False)
+
+            if not blob_encryption or not file_encryption:
+                violations.append({
+                    "rule": "storage_encryption_at_rest",
+                    "severity": "critical",
+                    "resource_type": "storageaccount",
+                    "resource_id": storage.get("id"),
+                    "resource_name": storage_name,
+                    "resource_group": storage_rg,
+                    "violation": "Storage account does not have encryption at rest enabled for all services",
+                    "recommendation": f"Enable encryption for blob and file services on storage account {storage_name}"
+                })
+
+        # Check SQL servers and databases (TDE check requires database-level query)
+        sql_servers = await self._query_sql_servers(resource_group)
+        for sql in sql_servers:
+            sql_name = sql.get("name")
+            sql_rg = sql.get("resourceGroup")
+
+            # Query databases for this server
+            try:
+                db_command = f"az sql db list --server {sql_name} --resource-group {sql_rg} -o json"
+                db_result = await self._call_tool("azure_cli_execute_command", {
+                    "command": db_command
+                })
+                databases = json.loads(db_result.get("stdout", "[]"))
+
+                for db in databases:
+                    db_name = db.get("name")
+                    # Skip master database
+                    if db_name == "master":
+                        continue
+
+                    # Check TDE status
+                    tde_command = f"az sql db tde show --server {sql_name} --resource-group {sql_rg} --database {db_name} -o json"
+                    tde_result = await self._call_tool("azure_cli_execute_command", {
+                        "command": tde_command
+                    })
+                    tde_config = json.loads(tde_result.get("stdout", "{}"))
+
+                    tde_status = tde_config.get("status", "Disabled")
+                    if tde_status != "Enabled":
+                        violations.append({
+                            "rule": "sql_tde_enabled",
+                            "severity": "critical",
+                            "resource_type": "sqldatabase",
+                            "resource_id": db.get("id"),
+                            "resource_name": f"{sql_name}/{db_name}",
+                            "resource_group": sql_rg,
+                            "violation": "SQL database does not have Transparent Data Encryption (TDE) enabled",
+                            "recommendation": f"Enable TDE for database {db_name} on server {sql_name}"
+                        })
+            except Exception as exc:
+                logger.warning(f"Failed to check TDE for SQL server {sql_name}: {exc}")
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(storage_accounts) + len(sql_servers)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "encryption",
+                "scope": resource_group or "subscription",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "storage_accounts": len(storage_accounts),
+                    "sql_servers": len(sql_servers)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _audit_public_access_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit public access compliance.
+
+        Checks:
+        - Storage accounts have public blob access disabled
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Public access compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"public-access-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting public access compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "public_access",
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Check storage accounts
+        storage_accounts = await self._query_storage_accounts(resource_group)
+        for storage in storage_accounts:
+            storage_name = storage.get("name")
+            storage_rg = storage.get("resourceGroup")
+
+            # Check public access settings
+            properties = storage.get("properties", {})
+            allow_blob_public_access = properties.get("allowBlobPublicAccess", True)
+
+            if allow_blob_public_access:
+                violations.append({
+                    "rule": "storage_disable_public_access",
+                    "severity": "high",
+                    "resource_type": "storageaccount",
+                    "resource_id": storage.get("id"),
+                    "resource_name": storage_name,
+                    "resource_group": storage_rg,
+                    "violation": "Storage account allows public blob access",
+                    "recommendation": f"Disable public blob access for storage account {storage_name}"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(storage_accounts)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "public_access",
+                "scope": resource_group or "subscription",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "storage_accounts": len(storage_accounts)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    def _determine_resource_sla(
+        self,
+        resource: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Determine SLA target for a resource based on SKU and configuration.
+
+        Args:
+            resource: Resource object with type, SKU, and properties
+
+        Returns:
+            Dict with sla_target, configuration, and reasoning
+        """
+        resource_type = resource.get("type", "").lower()
+        resource_name = resource.get("name")
+        sku = resource.get("sku", {})
+        properties = resource.get("properties", {})
+
+        # Default SLA
+        default_sla = self.default_sla_targets.get(resource_type, 99.9)
+
+        # Get SKU-specific modifiers
+        modifiers = self.sla_modifiers.get(resource_type, {})
+
+        if resource_type == "microsoft.compute/virtualmachines":
+            # Check for availability zones
+            zones = resource.get("zones", [])
+            if zones and len(zones) > 0:
+                return {
+                    "sla_target": 99.99,
+                    "configuration": f"Availability Zone ({', '.join(zones)})",
+                    "reasoning": "Single VM in availability zone"
+                }
+
+            # Check for availability set
+            availability_set = properties.get("availabilitySet")
+            if availability_set:
+                return {
+                    "sla_target": 99.95,
+                    "configuration": "Availability Set",
+                    "reasoning": "VM in availability set"
+                }
+
+            # Check disk type
+            storage_profile = properties.get("storageProfile", {})
+            os_disk = storage_profile.get("osDisk", {})
+            managed_disk = os_disk.get("managedDisk", {})
+            storage_account_type = managed_disk.get("storageAccountType", "Standard_LRS")
+
+            if "Premium" in storage_account_type:
+                return {
+                    "sla_target": 99.9,
+                    "configuration": f"Premium SSD ({storage_account_type})",
+                    "reasoning": "Single VM with Premium SSD"
+                }
+            elif "StandardSSD" in storage_account_type:
+                return {
+                    "sla_target": 99.5,
+                    "configuration": f"Standard SSD ({storage_account_type})",
+                    "reasoning": "Single VM with Standard SSD"
+                }
+            else:
+                return {
+                    "sla_target": 95.0,
+                    "configuration": f"Standard HDD ({storage_account_type})",
+                    "reasoning": "Single VM with Standard HDD (no formal SLA)"
+                }
+
+        elif resource_type == "microsoft.storage/storageaccounts":
+            # Check SKU for redundancy
+            sku_name = sku.get("name", "Standard_LRS")
+
+            sla = modifiers.get(sku_name, default_sla)
+            return {
+                "sla_target": sla,
+                "configuration": sku_name,
+                "reasoning": f"Storage with {sku_name} redundancy"
+            }
+
+        elif resource_type == "microsoft.sql/servers":
+            # For SQL, we'd need to query the database tier
+            # Default to 99.99% for SQL
+            return {
+                "sla_target": 99.99,
+                "configuration": "SQL Database",
+                "reasoning": "Azure SQL Database default SLA"
+            }
+
+        elif resource_type == "microsoft.web/sites":
+            # Check App Service plan tier
+            sku_tier = sku.get("tier", "Basic")
+
+            sla = modifiers.get(sku_tier, default_sla)
+            return {
+                "sla_target": sla,
+                "configuration": f"{sku_tier} tier",
+                "reasoning": f"App Service {sku_tier} tier"
+            }
+
+        elif resource_type == "microsoft.containerservice/managedclusters":
+            # Check for availability zones
+            agent_pool_profiles = properties.get("agentPoolProfiles", [])
+            has_zones = any(
+                pool.get("availabilityZones")
+                for pool in agent_pool_profiles
+            )
+
+            if has_zones:
+                return {
+                    "sla_target": 99.99,
+                    "configuration": "Uptime SLA with Availability Zones",
+                    "reasoning": "AKS with Uptime SLA and availability zones"
+                }
+
+            # Check if Uptime SLA is enabled (indicated by SKU)
+            sku_tier = sku.get("tier", "Free")
+            if sku_tier == "Standard" or sku_tier == "Paid":
+                return {
+                    "sla_target": 99.95,
+                    "configuration": "Uptime SLA enabled",
+                    "reasoning": "AKS with Uptime SLA"
+                }
+
+            return {
+                "sla_target": 0,
+                "configuration": "Free tier (no SLA)",
+                "reasoning": "AKS Free tier has no SLA"
+            }
+
+        else:
+            # Use default SLA for resource type
+            return {
+                "sla_target": default_sla,
+                "configuration": "Default",
+                "reasoning": f"Default SLA for {resource_type}"
+            }
+
+    async def _audit_regional_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit regional compliance.
+
+        Checks:
+        - All resources are deployed in the southeastasia region
+
+        Args:
+            request: Audit request with optional resource_group
+            context: Optional workflow context
+
+        Returns:
+            Regional compliance audit results
+        """
+        resource_group = request.get("resource_group", "")
+        workflow_id = f"regional-audit-{datetime.utcnow().timestamp()}"
+        allowed_region = "southeastasia"
+
+        logger.info(f"Starting regional compliance audit for {resource_group or 'subscription'}")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "regional_compliance",
+                "allowed_region": allowed_region,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+
+        # Query all resources in the resource group or subscription
+        command = "az resource list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            resources = json.loads(result.get("stdout", "[]"))
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse resource list output")
+            resources = []
+
+        # Check each resource's location
+        for resource in resources:
+            resource_name = resource.get("name")
+            resource_type = resource.get("type")
+            resource_location = resource.get("location", "").lower()
+            resource_rg = resource.get("resourceGroup")
+            resource_id = resource.get("id")
+
+            # Check if resource is in allowed region
+            if resource_location != allowed_region:
+                violations.append({
+                    "rule": "resources_in_southeastasia",
+                    "severity": "high",
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_group": resource_rg,
+                    "current_location": resource_location,
+                    "expected_location": allowed_region,
+                    "violation": f"Resource is deployed in '{resource_location}' instead of '{allowed_region}'",
+                    "recommendation": f"Migrate resource {resource_name} to {allowed_region} region or delete and recreate in compliant region"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Group violations by location for summary
+        locations_found = {}
+        for violation in violations:
+            loc = violation.get("current_location", "unknown")
+            if loc not in locations_found:
+                locations_found[loc] = []
+            locations_found[loc].append(violation["resource_name"])
+
+        # Calculate compliance score
+        total_resources_checked = len(resources)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "regional_compliance",
+                "scope": resource_group or "subscription",
+                "allowed_region": allowed_region,
+                "compliance_percentage": round(compliance_percentage, 2),
+                "resources_checked": {
+                    "total_resources": len(resources)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "by_location": {
+                        loc: len(res_list)
+                        for loc, res_list in locations_found.items()
+                    },
+                    "details": violations
+                },
+                "summary": {
+                    "compliant_resources": total_resources_checked - len(violations),
+                    "non_compliant_resources": len(violations),
+                    "non_compliant_locations": list(locations_found.keys())
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _audit_sla_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Audit SLA compliance for resources.
+
+        Checks:
+        - Resources meet their SLA availability targets
+        - Calculates actual uptime percentage from metrics
+        - Compares against defined SLA targets
+
+        Args:
+            request: Audit request with optional resource_group and sla_target
+            context: Optional workflow context
+
+        Returns:
+            SLA compliance audit results with uptime metrics
+        """
+        resource_group = request.get("resource_group", "")
+        custom_sla_target = request.get("sla_target", 99.9)  # Default 99.9%
+        workflow_id = f"sla-audit-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Starting SLA compliance audit for {resource_group or 'subscription'} (target: {custom_sla_target}%)")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_group": resource_group,
+                "audit_type": "sla_compliance",
+                "sla_target": custom_sla_target,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        violations = []
+        sla_summary = []
+
+        # Query all resources
+        command = "az resource list"
+        if resource_group:
+            command += f" --resource-group {resource_group}"
+        command += " -o json"
+
+        result = await self._call_tool("azure_cli_execute_command", {
+            "command": command
+        })
+
+        try:
+            resources = json.loads(result.get("stdout", "[]"))
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse resource list output")
+            resources = []
+
+        # Check SLA for each resource
+        for resource in resources:
+            resource_name = resource.get("name")
+            resource_type = resource.get("type", "").lower()
+            resource_id = resource.get("id")
+            resource_rg = resource.get("resourceGroup")
+
+            # Determine SLA target based on SKU and configuration
+            sla_info = self._determine_resource_sla(resource)
+            sla_target = sla_info["sla_target"]
+            sla_configuration = sla_info["configuration"]
+            sla_reasoning = sla_info["reasoning"]
+
+            # Query availability metrics for the resource (last 30 days)
+            try:
+                # Get availability percentage from Azure Monitor
+                metrics_command = (
+                    f"az monitor metrics list "
+                    f"--resource {resource_id} "
+                    f"--metric 'Availability' "
+                    f"--start-time {(datetime.utcnow() - timedelta(days=30)).isoformat()}Z "
+                    f"--end-time {datetime.utcnow().isoformat()}Z "
+                    f"--interval PT1H "
+                    f"--aggregation Average "
+                    f"-o json"
+                )
+
+                metrics_result = await self._call_tool("azure_cli_execute_command", {
+                    "command": metrics_command
+                })
+
+                metrics_data = json.loads(metrics_result.get("stdout", "{}"))
+
+                # Calculate average availability
+                if metrics_data.get("value"):
+                    timeseries = metrics_data["value"][0].get("timeseries", [])
+                    if timeseries and timeseries[0].get("data"):
+                        availability_values = [
+                            point.get("average", 0)
+                            for point in timeseries[0]["data"]
+                            if point.get("average") is not None
+                        ]
+
+                        if availability_values:
+                            actual_availability = sum(availability_values) / len(availability_values)
+                        else:
+                            # No availability data - assume 100% (benefit of doubt)
+                            actual_availability = 100.0
+                    else:
+                        actual_availability = 100.0
+                else:
+                    # No metrics available - assume 100%
+                    actual_availability = 100.0
+
+            except Exception as exc:
+                logger.warning(f"Failed to get metrics for {resource_name}: {exc}")
+                # If we can't get metrics, assume compliant (benefit of doubt)
+                actual_availability = 100.0
+
+            # Check if meets SLA target
+            meets_sla = actual_availability >= sla_target
+
+            sla_summary.append({
+                "resource_name": resource_name,
+                "resource_type": resource_type,
+                "resource_group": resource_rg,
+                "sla_target": sla_target,
+                "sla_configuration": sla_configuration,
+                "sla_reasoning": sla_reasoning,
+                "actual_availability": round(actual_availability, 2),
+                "meets_sla": meets_sla,
+                "gap": round(sla_target - actual_availability, 2) if not meets_sla else 0
+            })
+
+            if not meets_sla:
+                violations.append({
+                    "rule": "resources_meet_sla_target",
+                    "severity": "high",
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_group": resource_rg,
+                    "sla_target": sla_target,
+                    "sla_configuration": sla_configuration,
+                    "actual_availability": round(actual_availability, 2),
+                    "sla_gap": round(sla_target - actual_availability, 2),
+                    "violation": f"Resource availability {actual_availability:.2f}% is below SLA target {sla_target}% ({sla_configuration})",
+                    "recommendation": f"Investigate availability issues for {resource_name} - {abs(sla_target - actual_availability):.2f}% below target. Current configuration: {sla_configuration}"
+                })
+
+        # Categorize violations by severity
+        severity_breakdown = self._categorize_by_severity(violations)
+
+        # Calculate compliance score
+        total_resources_checked = len(resources)
+        compliance_percentage = (
+            ((total_resources_checked - len(violations)) / total_resources_checked * 100)
+            if total_resources_checked > 0 else 100
+        )
+
+        # Calculate overall availability
+        if sla_summary:
+            overall_availability = sum(s["actual_availability"] for s in sla_summary) / len(sla_summary)
+        else:
+            overall_availability = 100.0
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit": {
+                "type": "sla_compliance",
+                "scope": resource_group or "subscription",
+                "sla_target": custom_sla_target,
+                "measurement_period": "30 days",
+                "compliance_percentage": round(compliance_percentage, 2),
+                "overall_availability": round(overall_availability, 2),
+                "resources_checked": {
+                    "total_resources": len(resources)
+                },
+                "violations": {
+                    "total": len(violations),
+                    "by_severity": severity_breakdown,
+                    "details": violations
+                },
+                "sla_summary": sla_summary,
+                "summary": {
+                    "resources_meeting_sla": total_resources_checked - len(violations),
+                    "resources_below_sla": len(violations),
+                    "average_availability": round(overall_availability, 2),
+                    "worst_performers": sorted(
+                        sla_summary,
+                        key=lambda x: x["actual_availability"]
+                    )[:5]  # Top 5 worst performers
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _calculate_composite_sla(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Calculate composite SLA for a combination of resources.
+
+        This calculates the effective SLA when resources are combined in series
+        (all must be available) or parallel (at least one must be available).
+
+        Args:
+            request: Request containing:
+                - resource_ids: List of resource IDs to combine
+                - combination_type: "series" (default) or "parallel"
+                - custom_slas: Optional dict of resource_id -> SLA percentage
+            context: Optional workflow context
+
+        Returns:
+            Composite SLA calculation results
+        """
+        resource_ids = request.get("resource_ids", [])
+        combination_type = request.get("combination_type", "series")
+        custom_slas = request.get("custom_slas", {})
+        workflow_id = f"composite-sla-{datetime.utcnow().timestamp()}"
+
+        logger.info(f"Calculating composite SLA for {len(resource_ids)} resources ({combination_type})")
+
+        if not resource_ids:
+            raise AgentExecutionError("resource_ids is required for composite SLA calculation")
+
+        if combination_type not in ["series", "parallel"]:
+            raise AgentExecutionError("combination_type must be 'series' or 'parallel'")
+
+        # Create workflow context
+        await self.context_store.create_workflow_context(
+            workflow_id=workflow_id,
+            initial_data={
+                "resource_count": len(resource_ids),
+                "combination_type": combination_type,
+                "started_at": datetime.utcnow().isoformat(),
+                "agent": self.agent_id
+            }
+        )
+
+        resource_slas = []
+
+        # Get SLA for each resource
+        for resource_id in resource_ids:
+            # Get resource details
+            resource_command = f"az resource show --ids {resource_id} -o json"
+
+            try:
+                resource_result = await self._call_tool("azure_cli_execute_command", {
+                    "command": resource_command
+                })
+
+                resource = json.loads(resource_result.get("stdout", "{}"))
+                resource_name = resource.get("name")
+                resource_type = resource.get("type", "").lower()
+
+                # Check if custom SLA provided
+                if resource_id in custom_slas:
+                    sla = custom_slas[resource_id]
+                    sla_configuration = "Custom"
+                    sla_reasoning = "User-provided SLA"
+                else:
+                    # Determine SLA based on SKU and configuration
+                    sla_info = self._determine_resource_sla(resource)
+                    sla = sla_info["sla_target"]
+                    sla_configuration = sla_info["configuration"]
+                    sla_reasoning = sla_info["reasoning"]
+
+                # Try to get actual availability metrics
+                try:
+                    metrics_command = (
+                        f"az monitor metrics list "
+                        f"--resource {resource_id} "
+                        f"--metric 'Availability' "
+                        f"--start-time {(datetime.utcnow() - timedelta(days=30)).isoformat()}Z "
+                        f"--end-time {datetime.utcnow().isoformat()}Z "
+                        f"--interval PT1H "
+                        f"--aggregation Average "
+                        f"-o json"
+                    )
+
+                    metrics_result = await self._call_tool("azure_cli_execute_command", {
+                        "command": metrics_command
+                    })
+
+                    metrics_data = json.loads(metrics_result.get("stdout", "{}"))
+
+                    if metrics_data.get("value"):
+                        timeseries = metrics_data["value"][0].get("timeseries", [])
+                        if timeseries and timeseries[0].get("data"):
+                            availability_values = [
+                                point.get("average", 0)
+                                for point in timeseries[0]["data"]
+                                if point.get("average") is not None
+                            ]
+
+                            if availability_values:
+                                actual_availability = sum(availability_values) / len(availability_values)
+                            else:
+                                actual_availability = sla  # Use SLA target as default
+                        else:
+                            actual_availability = sla
+                    else:
+                        actual_availability = sla
+
+                except Exception as exc:
+                    logger.warning(f"Failed to get metrics for {resource_name}: {exc}")
+                    actual_availability = sla  # Use SLA target as fallback
+
+                resource_slas.append({
+                    "resource_id": resource_id,
+                    "resource_name": resource_name,
+                    "resource_type": resource_type,
+                    "sla_target": sla,
+                    "sla_configuration": sla_configuration,
+                    "sla_reasoning": sla_reasoning,
+                    "actual_availability": round(actual_availability, 2),
+                    "sla_decimal": sla / 100.0,  # Convert to decimal for calculation
+                    "actual_decimal": actual_availability / 100.0
+                })
+
+            except Exception as exc:
+                logger.error(f"Failed to get resource {resource_id}: {exc}")
+                raise AgentExecutionError(f"Failed to retrieve resource {resource_id}: {exc}")
+
+        # Calculate composite SLA
+        if combination_type == "series":
+            # Series: All must be available - multiply SLAs
+            # Composite SLA = SLA1 × SLA2 × SLA3 × ...
+            composite_sla_target = 1.0
+            composite_actual = 1.0
+
+            for res in resource_slas:
+                composite_sla_target *= res["sla_decimal"]
+                composite_actual *= res["actual_decimal"]
+
+            composite_sla_percentage = composite_sla_target * 100
+            composite_actual_percentage = composite_actual * 100
+
+            # Calculate expected downtime per year
+            downtime_minutes_per_year = (1 - composite_sla_target) * 365 * 24 * 60
+            actual_downtime_minutes = (1 - composite_actual) * 365 * 24 * 60
+
+        else:  # parallel
+            # Parallel: At least one must be available
+            # Composite SLA = 1 - (1-SLA1) × (1-SLA2) × (1-SLA3) × ...
+            failure_probability_target = 1.0
+            failure_probability_actual = 1.0
+
+            for res in resource_slas:
+                failure_probability_target *= (1 - res["sla_decimal"])
+                failure_probability_actual *= (1 - res["actual_decimal"])
+
+            composite_sla_target = 1 - failure_probability_target
+            composite_actual = 1 - failure_probability_actual
+
+            composite_sla_percentage = composite_sla_target * 100
+            composite_actual_percentage = composite_actual * 100
+
+            # Calculate expected downtime per year
+            downtime_minutes_per_year = failure_probability_target * 365 * 24 * 60
+            actual_downtime_minutes = failure_probability_actual * 365 * 24 * 60
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "composite_sla": {
+                "combination_type": combination_type,
+                "resource_count": len(resource_ids),
+                "resources": resource_slas,
+                "composite_sla_target": round(composite_sla_percentage, 4),
+                "composite_actual_availability": round(composite_actual_percentage, 4),
+                "expected_downtime_per_year": {
+                    "minutes": round(downtime_minutes_per_year, 2),
+                    "hours": round(downtime_minutes_per_year / 60, 2),
+                    "days": round(downtime_minutes_per_year / 60 / 24, 2)
+                },
+                "actual_downtime_per_year": {
+                    "minutes": round(actual_downtime_minutes, 2),
+                    "hours": round(actual_downtime_minutes / 60, 2),
+                    "days": round(actual_downtime_minutes / 60 / 24, 2)
+                },
+                "meets_target": composite_actual_percentage >= composite_sla_percentage,
+                "calculation_formula": (
+                    "SLA1 × SLA2 × ... × SLAn" if combination_type == "series"
+                    else "1 - (1-SLA1) × (1-SLA2) × ... × (1-SLAn)"
+                ),
+                "explanation": (
+                    "Series configuration: All resources must be available (multiplication)"
+                    if combination_type == "series"
+                    else "Parallel configuration: At least one resource must be available (redundancy)"
+                ),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _audit_azure_resource_compliance(
+        self,
+        request: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Execute full Azure resource compliance audit workflow.
+
+        Runs all phases: network → private endpoints → encryption → public access → regional compliance → SLA compliance
+
+        Args:
+            request: Full audit request
+            context: Optional workflow context
+
+        Returns:
+            Complete Azure resource compliance audit report
+        """
+        import asyncio
+
+        workflow_id = f"full-compliance-audit-{datetime.utcnow().timestamp()}"
+        request["workflow_id"] = workflow_id
+
+        logger.info(f"Starting full Azure resource compliance audit: {workflow_id}")
+
+        # Run all audits in parallel for efficiency
+        network_task = self._audit_network_compliance(request, context)
+        pe_task = self._audit_private_endpoint_compliance(request, context)
+        encryption_task = self._audit_encryption_compliance(request, context)
+        public_access_task = self._audit_public_access_compliance(request, context)
+        regional_task = self._audit_regional_compliance(request, context)
+        sla_task = self._audit_sla_compliance(request, context)
+
+        network_result, pe_result, encryption_result, public_access_result, regional_result, sla_result = await asyncio.gather(
+            network_task, pe_task, encryption_task, public_access_task, regional_task, sla_task
+        )
+
+        # Aggregate results
+        total_violations = (
+            network_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            pe_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            encryption_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            public_access_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            regional_result.get("audit", {}).get("violations", {}).get("total", 0) +
+            sla_result.get("audit", {}).get("violations", {}).get("total", 0)
+        )
+
+        all_violations = (
+            network_result.get("audit", {}).get("violations", {}).get("details", []) +
+            pe_result.get("audit", {}).get("violations", {}).get("details", []) +
+            encryption_result.get("audit", {}).get("violations", {}).get("details", []) +
+            public_access_result.get("audit", {}).get("violations", {}).get("details", []) +
+            regional_result.get("audit", {}).get("violations", {}).get("details", []) +
+            sla_result.get("audit", {}).get("violations", {}).get("details", [])
+        )
+
+        # Calculate overall compliance score
+        avg_compliance = sum([
+            network_result.get("audit", {}).get("compliance_percentage", 100),
+            pe_result.get("audit", {}).get("compliance_percentage", 100),
+            encryption_result.get("audit", {}).get("compliance_percentage", 100),
+            public_access_result.get("audit", {}).get("compliance_percentage", 100),
+            regional_result.get("audit", {}).get("compliance_percentage", 100),
+            sla_result.get("audit", {}).get("compliance_percentage", 100)
+        ]) / 6
+
+        # Categorize all violations
+        severity_breakdown = self._categorize_by_severity(all_violations)
+
+        # Determine overall status
+        overall_status = self._determine_compliance_status(avg_compliance)
+
+        return {
+            "status": "success",
+            "workflow_id": workflow_id,
+            "audit_type": "comprehensive",
+            "scope": request.get("resource_group", "subscription"),
+            "phases": {
+                "network_security": network_result,
+                "private_endpoints": pe_result,
+                "encryption": encryption_result,
+                "public_access": public_access_result,
+                "regional_compliance": regional_result,
+                "sla_compliance": sla_result
+            },
+            "executive_summary": {
+                "overall_status": overall_status,
+                "overall_compliance_percentage": round(avg_compliance, 2),
+                "total_violations": total_violations,
+                "violations_by_severity": severity_breakdown,
+                "critical_violations": severity_breakdown.get("critical", 0),
+                "high_violations": severity_breakdown.get("high", 0),
+                "average_availability": sla_result.get("audit", {}).get("overall_availability", 100)
+            },
+            "top_violations": sorted(
+                all_violations,
+                key=lambda v: self.severity_levels.get(v.get("severity", "low"), {}).get("priority", 5)
+            )[:10],
+            "completed_at": datetime.utcnow().isoformat()
+        }
+

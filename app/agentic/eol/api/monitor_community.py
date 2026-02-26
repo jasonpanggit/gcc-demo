@@ -109,7 +109,7 @@ async def get_all_resources():
         # Load from pre-generated metadata file
         from pathlib import Path
         
-        metadata_file = Path(__file__).parent.parent / "static" / "data" / "azure_monitor_community_metadata.json"
+        metadata_file = Path(__file__).parent.parent / "static" / "data" / "azure-monitor-community-metadata.json"
         logger.info(f"Loading metadata from: {metadata_file}")
         
         if not metadata_file.exists():

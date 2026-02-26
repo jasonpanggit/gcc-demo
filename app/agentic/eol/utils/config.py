@@ -86,6 +86,55 @@ class AgentPerformanceConfig:
 
 
 @dataclass
+class PatchManagementConfig:
+    """Patch management configuration for Azure VMs and Arc-enabled servers.
+
+    Controls behavior for patch assessment, installation, and compliance reporting
+    via the patch management orchestrator/agent/MCP architecture.
+    """
+
+    # Feature flags
+    use_orchestrator: bool = field(
+        default_factory=lambda: os.getenv("PATCH_USE_ORCHESTRATOR", "true").lower() == "true"
+    )
+    enable_streaming: bool = field(
+        default_factory=lambda: os.getenv("PATCH_ENABLE_STREAMING", "true").lower() == "true"
+    )
+
+    # Operation timeouts (seconds)
+    assessment_timeout: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_ASSESSMENT_TIMEOUT", "300"))
+    )
+    installation_timeout: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_INSTALLATION_TIMEOUT", "600"))
+    )
+    list_timeout: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_LIST_TIMEOUT", "180"))
+    )
+
+    # Batch processing
+    batch_size: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_BATCH_SIZE", "20"))
+    )
+    parallel_limit: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_PARALLEL_LIMIT", "5"))
+    )
+
+    # Compliance thresholds
+    critical_patch_age_days: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_CRITICAL_AGE_DAYS", "7"))
+    )
+    important_patch_age_days: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_IMPORTANT_AGE_DAYS", "30"))
+    )
+
+    # Caching
+    cache_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("PATCH_CACHE_TTL", "300"))
+    )
+
+
+@dataclass
 class InventoryConfig:
     """Resource inventory discovery and caching configuration"""
 
@@ -258,6 +307,15 @@ class ConfigManager:
         if self._agent_perf_config is None:
             self._agent_perf_config = AgentPerformanceConfig.from_env()
         return self._agent_perf_config
+
+    @property
+    def patch_management(self) -> PatchManagementConfig:
+        """Get patch management configuration"""
+        if not hasattr(self, '_patch_mgmt_config'):
+            self._patch_mgmt_config = None
+        if self._patch_mgmt_config is None:
+            self._patch_mgmt_config = PatchManagementConfig()
+        return self._patch_mgmt_config
 
     @property
     def inventory(self) -> InventoryConfig:

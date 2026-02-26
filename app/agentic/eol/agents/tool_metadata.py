@@ -11,7 +11,7 @@ _DEFAULT_METADATA_PATH = (
     Path(__file__).resolve().parent.parent
     / "static"
     / "data"
-    / "azure_mcp_tool_metadata.json"
+    / "azure-mcp-tool-metadata.json"
 )
 
 

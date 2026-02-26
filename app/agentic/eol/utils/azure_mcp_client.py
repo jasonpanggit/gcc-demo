@@ -122,8 +122,9 @@ class AzureMCPClient:
             # MCP server configuration - wraps npx execution to filter non-JSON stdout
             wrapper_path = (
                 Path(__file__).resolve().parent.parent
-                / "mcp_servers"
-                / "json_stdout_filter.js"
+                / "static"
+                / "js"
+                / "json-stdout-filter.js"
             )
 
             if wrapper_path.is_file():

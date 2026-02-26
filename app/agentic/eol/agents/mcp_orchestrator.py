@@ -141,6 +141,17 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         class StorageMCPDisabledError(RuntimeError):  # type: ignore[override]
             """Fallback disabled error when Storage MCP helper is unavailable."""
 
+_patch_mcp_import_error: Optional[BaseException] = None
+try:
+    from app.agentic.eol.utils.patch_mcp_client import get_patch_mcp_client  # type: ignore[import-not-found]
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    _patch_mcp_import_error = exc
+    try:
+        from utils.patch_mcp_client import get_patch_mcp_client  # type: ignore[import-not-found]
+    except ModuleNotFoundError as fallback_exc:
+        _patch_mcp_import_error = fallback_exc
+        get_patch_mcp_client = None  # type: ignore[assignment]
+
 _sre_inventory_import_error: Optional[BaseException] = None
 try:
     from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration  # type: ignore[import-not-found]
@@ -187,6 +198,15 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     except ModuleNotFoundError:
         SRESubAgent = None  # type: ignore[assignment]
         build_sre_meta_tool = None  # type: ignore[assignment]
+
+try:
+    from app.agentic.eol.agents.patch_sub_agent import PatchSubAgent, build_patch_meta_tool  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from agents.patch_sub_agent import PatchSubAgent, build_patch_meta_tool  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        PatchSubAgent = None  # type: ignore[assignment]
+        build_patch_meta_tool = None  # type: ignore[assignment]
 
 try:
     from app.agentic.eol.utils.tool_router import ToolRouter  # type: ignore[import-not-found]

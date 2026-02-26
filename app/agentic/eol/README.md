@@ -181,7 +181,7 @@ app/agentic/eol/
 ├── templates/                        # Web interface templates
 │   ├── base.html                     # Base template with common layout
 │   ├── index.html                    # Dashboard homepage with statistics
-│   ├── inventory_asst.html           # Inventory assistant conversational interface
+│   ├── inventory-asst.html           # Inventory assistant conversational interface
 │   ├── eol.html                      # EOL analysis interface (deprecated)
 │   ├── eol-searches.html             # EOL search history viewer
 │   ├── inventory.html                # Inventory management
