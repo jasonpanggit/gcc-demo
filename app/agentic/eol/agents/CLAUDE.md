@@ -1,6 +1,6 @@
 # CLAUDE.md - Agents
 
-Guide for `app/agentic/eol/agents` (37 Python modules).
+Guide for `app/agentic/eol/agents` (41 Python modules).
 
 ---
 
@@ -8,10 +8,11 @@ Guide for `app/agentic/eol/agents` (37 Python modules).
 
 - **Orchestrators:** `mcp_orchestrator.py`, `eol_orchestrator.py`, `inventory_orchestrator.py`, `sre_orchestrator.py`
 - **Base classes:** `base_eol_agent.py`, `base_sre_agent.py`, `domain_sub_agent.py`
-- **Domain Sub-Agents:** `sre_sub_agent.py`, `patch_sub_agent.py`, `monitor_agent.py` (extend DomainSubAgent with specialized system prompts and ReAct loops)
+- **Domain Sub-Agents:** `sre_sub_agent.py`, `patch_sub_agent.py`, `monitor_agent.py`, `network_agent.py` (extend DomainSubAgent with specialized system prompts and ReAct loops)
 - **SRE specialists:** incident, performance, cost, security, health, configuration, SLO, remediation agents
   - `security_compliance_agent.py`: Enhanced with Azure resource compliance audits (network, private endpoints, encryption, public access)
 - **Vendor/domain agents:** microsoft, redhat, ubuntu, oracle, vmware, endoflife/eolstatus, and language/runtime specific agents
+- **Tool routing:** `tool_router.py`, `router.py` for intelligent tool selection and query routing
 
 ---
 
@@ -61,6 +62,6 @@ pytest -m unit
 
 ---
 
-**Version:** 2.3 (Updated 2026-02-26)
-**Total modules:** 37
-**Recent updates:** Added PatchSubAgent for Azure patch management via orchestrator/agent/MCP architecture
+**Version:** 2.4 (Updated 2026-02-26)
+**Total modules:** 41
+**Recent updates:** Post-merge - added NetworkAgent, tool routing agents, expanded domain sub-agents
