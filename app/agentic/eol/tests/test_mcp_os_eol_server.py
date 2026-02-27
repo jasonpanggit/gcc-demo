@@ -21,7 +21,8 @@ class TestOSEOLMCPServer:
     def test_server_has_tool_definitions(self):
         """Test that server file contains tool definitions."""
         content = Path("mcp_servers/os_eol_mcp_server.py").read_text()
-        assert "@_server.tool()" in content or "@mcp.tool()" in content
+        # Check for tool decorator (flexible pattern matching)
+        assert "@_server.tool" in content or "@mcp.tool" in content
         assert "async def" in content
 
     def test_server_has_fastmcp_import(self):

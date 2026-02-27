@@ -21,8 +21,8 @@ class TestInventoryMCPServer:
     def test_server_has_tool_definitions(self):
         """Test that server file contains tool definitions."""
         content = Path("mcp_servers/inventory_mcp_server.py").read_text()
-        assert "@_server.tool()" in content
-        # Check for key tools
+        # Check for tool decorator (may be @_server.tool() or @_server.tool( with newline)
+        assert "@_server.tool" in content or "@mcp.tool" in content
         assert "async def" in content
 
     def test_server_has_fastmcp_import(self):
