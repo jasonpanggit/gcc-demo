@@ -191,6 +191,73 @@ class InventoryConfig:
     cosmos_autoscale_max_ru: int = 4000
 
 
+# ============================================================================
+# Phase 2 Day 6: Centralized Timeout Configuration
+# ============================================================================
+
+@dataclass
+class TimeoutConfig:
+    """Centralized timeout configuration for all components.
+
+    Provides consistent timeout values across orchestrators, agents, MCP tools,
+    and Azure SDK calls. All values in seconds (float for sub-second precision).
+
+    Environment variables:
+        ORCHESTRATOR_TIMEOUT: Overall orchestrator timeout (default: 30.0s)
+        AGENT_TIMEOUT: Individual agent timeout (default: 10.0s)
+        MCP_TOOL_TIMEOUT: MCP tool execution timeout (default: 5.0s)
+        AZURE_SDK_TIMEOUT: Azure SDK call timeout (default: 15.0s)
+        HTTP_CLIENT_TIMEOUT: Generic HTTP client timeout (default: 20.0s)
+        DB_QUERY_TIMEOUT: Database query timeout (default: 10.0s)
+    """
+
+    # Orchestrator-level timeouts
+    orchestrator_timeout: float = field(
+        default_factory=lambda: float(os.getenv("ORCHESTRATOR_TIMEOUT", "30.0"))
+    )
+
+    # Agent-level timeouts
+    agent_timeout: float = field(
+        default_factory=lambda: float(os.getenv("AGENT_TIMEOUT", "10.0"))
+    )
+
+    # MCP tool timeouts
+    mcp_tool_timeout: float = field(
+        default_factory=lambda: float(os.getenv("MCP_TOOL_TIMEOUT", "5.0"))
+    )
+
+    # Azure SDK timeouts
+    azure_sdk_timeout: float = field(
+        default_factory=lambda: float(os.getenv("AZURE_SDK_TIMEOUT", "15.0"))
+    )
+
+    # HTTP client timeouts
+    http_client_timeout: float = field(
+        default_factory=lambda: float(os.getenv("HTTP_CLIENT_TIMEOUT", "20.0"))
+    )
+
+    # Database query timeouts
+    db_query_timeout: float = field(
+        default_factory=lambda: float(os.getenv("DB_QUERY_TIMEOUT", "10.0"))
+    )
+
+    @classmethod
+    def from_env(cls) -> "TimeoutConfig":
+        """Create TimeoutConfig from environment variables."""
+        return cls()
+
+    def get_all_timeouts(self) -> Dict[str, float]:
+        """Get all timeout values as a dictionary."""
+        return {
+            "orchestrator_timeout": self.orchestrator_timeout,
+            "agent_timeout": self.agent_timeout,
+            "mcp_tool_timeout": self.mcp_tool_timeout,
+            "azure_sdk_timeout": self.azure_sdk_timeout,
+            "http_client_timeout": self.http_client_timeout,
+            "db_query_timeout": self.db_query_timeout,
+        }
+
+
 class ConfigManager:
     """Centralized configuration manager"""
 
@@ -201,6 +268,7 @@ class ConfigManager:
         self._azure_ai_sre_config: Optional[AzureAISREConfig] = None
         self._agent_perf_config: Optional[AgentPerformanceConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
+        self._timeout_config: Optional[TimeoutConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
     def _load_appsettings(self) -> Dict[str, Any]:
@@ -368,6 +436,13 @@ class ConfigManager:
 
             self._inventory_config = inv
         return self._inventory_config
+
+    @property
+    def timeouts(self) -> TimeoutConfig:
+        """Get centralized timeout configuration (Phase 2, Day 6)"""
+        if self._timeout_config is None:
+            self._timeout_config = TimeoutConfig.from_env()
+        return self._timeout_config
 
     def validate_config(self) -> Dict[str, Any]:
         """
