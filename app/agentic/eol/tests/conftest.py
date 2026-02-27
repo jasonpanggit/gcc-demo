@@ -373,13 +373,11 @@ def factory_sre_orchestrator(mock_cosmos_client, mock_openai_client, mock_sre_mc
     """
     def _create_orchestrator(**kwargs):
         """Create SRE Orchestrator with optional overrides."""
-        from agents.sre_orchestrator import SREOrchestrator
+        from agents.sre_orchestrator import SREOrchestratorAgent
 
         with patch('utils.cosmos_cache.base_cosmos', mock_cosmos_client):
-            with patch('openai.AsyncAzureOpenAI', return_value=mock_openai_client):
-                with patch('utils.sre_mcp_client.sre_mcp_client', mock_sre_mcp_client):
-                    orchestrator = SREOrchestrator(**kwargs)
-                    return orchestrator
+            orchestrator = SREOrchestratorAgent()
+            return orchestrator
 
     return _create_orchestrator
 
