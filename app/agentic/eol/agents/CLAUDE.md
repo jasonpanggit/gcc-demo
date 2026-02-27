@@ -62,6 +62,44 @@ pytest -m unit
 
 ---
 
-**Version:** 2.4 (Updated 2026-02-26)
+## NetworkAgent
+
+**File:** `network_agent.py`
+**Base class:** `DomainSubAgent`
+**Max iterations:** 15
+
+### Enhanced Capabilities (as of 2026-02-27)
+
+9 advanced network auditing tools added on top of the 7 core diagnostic tools (16 total).
+
+**Advanced tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `simulate_nsg_flow` | Evaluate 5-tuple flows (src/dst IP, port, protocol) through NSG rules |
+| `analyze_route_path` | Trace routing path from subnet to destination with asymmetry detection |
+| `generate_connectivity_matrix` | N×N subnet reachability analysis combining routing + NSG |
+| `assess_network_security_posture` | CIS Azure / NIST / PCI-DSS compliance scoring with remediation |
+| `inventory_network_resources` | Detect orphaned NSGs, unused route tables, idle public IPs |
+| `analyze_dns_resolution_path` | Trace DNS resolution through Private DNS zones |
+| `analyze_private_connectivity_coverage` | Zero-trust PaaS exposure analysis (5-tier classification) |
+| `validate_hub_spoke_topology` | Architecture health scoring (0–100) with violation detection |
+
+**Diagnostic Workflows:**
+- Cross-VNet connectivity troubleshooting: `generate_connectivity_matrix` → `simulate_nsg_flow` → `analyze_route_path`
+- Network security audits: `assess_network_security_posture` → `inventory_network_resources` → `analyze_private_connectivity_coverage`
+- Hub-spoke health checks: `validate_hub_spoke_topology` → `analyze_route_path` per violation
+- DNS troubleshooting: `analyze_dns_resolution_path` → `inspect_vnet` → `inspect_nsg_rules`
+
+**Integration points:**
+- `security_compliance_agent.py` — complements network-layer posture with broad resource policy checks
+- `inventory_orchestrator.py` — NetworkAgent handles network-layer orphan detection
+- `SREOrchestratorAgent` — delegates connectivity incidents to NetworkAgent via `network_agent` meta-tool
+
+See `.claude/docs/NETWORK-AGENT-GUIDE.md` for complete tool reference, examples, and workflows.
+
+---
+
+**Version:** 2.5 (Updated 2026-02-27)
 **Total modules:** 41
-**Recent updates:** Post-merge - added NetworkAgent, tool routing agents, expanded domain sub-agents
+**Recent updates:** NetworkAgent enhanced with 9 advanced auditing tools (connectivity matrix, security posture, hub-spoke validation, DNS path, private endpoint coverage)
