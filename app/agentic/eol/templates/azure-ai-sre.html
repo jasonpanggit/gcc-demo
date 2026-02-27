@@ -44,6 +44,79 @@
     <!-- SRE Chat Interface -->
     <div class="row">
         <div class="col-12 mb-4">
+            <!-- Suggested Prompts -->
+            <div class="card mb-3" id="suggested-prompts-card">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span class="fw-semibold" style="font-size:0.9rem;">
+                        <i class="fas fa-lightbulb me-2 text-warning"></i>Try asking…
+                    </span>
+                    <button class="btn btn-sm btn-link text-muted p-0" onclick="toggleSuggestedPrompts()" id="toggle-prompts-btn" title="Hide suggestions">
+                        <i class="fas fa-chevron-up"></i>
+                    </button>
+                </div>
+                <div class="card-body py-2 px-3" id="suggested-prompts-body">
+                    <!-- Health & Availability -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-heartbeat me-1"></i>Health &amp; Availability
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is the health of my container apps?')">What is the health of my container apps?</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Are there any unhealthy resources in my subscription?')">Are there any unhealthy resources?</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show recent alerts and incidents in the last 24 hours')">Recent alerts last 24h</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check the CPU and memory utilization of my VMs')">CPU &amp; memory utilization</button>
+                        </div>
+                    </div>
+                    <!-- Incident Triage -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-fire-extinguisher me-1"></i>Incident Triage
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Why is my container app returning 503 errors?')">Why 503 errors on my container app?</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('My application latency has spiked — what changed recently?')">Latency spike — what changed?</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Triage the highest severity active alerts and suggest remediation')">Triage active high-severity alerts</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is causing elevated error rates on my API endpoints?')">Elevated error rates on API</button>
+                        </div>
+                    </div>
+                    <!-- Network Diagnostics -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-network-wired me-1"></i>Network Diagnostics
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my virtual networks and subnets')">List VNets &amp; subnets</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my network security groups')">List network security groups</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Test network connectivity from my container app to the database')">Test connectivity to database</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Validate my hub-spoke network topology')">Validate hub-spoke topology</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check DNS resolution for my private endpoint')">DNS resolution check</button>
+                        </div>
+                    </div>
+                    <!-- Security & Compliance -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-shield-alt me-1"></i>Security &amp; Compliance
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Assess my network security posture against CIS benchmarks')">CIS network security posture</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Which of my VMs are running end-of-life operating systems?')">VMs with end-of-life OS</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Analyze private endpoint coverage for zero-trust')">Private endpoint coverage</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Are there any NSG rules allowing unrestricted public access?')">NSG rules with public access</button>
+                        </div>
+                    </div>
+                    <!-- Inventory & Cost -->
+                    <div class="mb-0">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-boxes me-1"></i>Inventory &amp; Cost
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Inventory my network resources and identify unused ones')">Network resource inventory</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List all my virtual machines and their current status')">List VMs &amp; status</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show my storage accounts and their replication settings')">Storage accounts</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
             {{ render_chat(mode='sre', custom_config={'empty_message': 'Ask me about Azure resource health, incidents, or performance issues!'}) }}
         </div>
     </div>
@@ -79,6 +152,35 @@
 {{ chat_init_script(mode='sre', agent_name='sre-orchestrator') }}
 
 <style>
+.prompt-chip {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 1rem;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+    border-color: #dee2e6;
+    color: #495057;
+}
+.prompt-chip:hover {
+    background-color: #0078d4;
+    border-color: #0078d4;
+    color: #fff;
+    transform: translateY(-1px);
+}
+html.dark-mode .prompt-chip {
+    border-color: var(--border-primary);
+    color: var(--text-secondary);
+    background-color: transparent;
+}
+html.dark-mode .prompt-chip:hover {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+#suggested-prompts-card .card-body small.text-muted {
+    font-size: 0.7rem;
+}
+
 .chat-card-body {
     display: flex;
     flex-direction: column;
@@ -240,4 +342,15 @@ html.dark-mode #chat-history pre {
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>
 <script src="/static/js/azure-ai-sre.js"></script>
+<script>
+function toggleSuggestedPrompts() {
+    const body = document.getElementById('suggested-prompts-body');
+    const btn = document.getElementById('toggle-prompts-btn');
+    const icon = btn.querySelector('i');
+    const isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? '' : 'none';
+    icon.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    btn.title = isHidden ? 'Hide suggestions' : 'Show suggestions';
+}
+</script>
 {% endblock %}
