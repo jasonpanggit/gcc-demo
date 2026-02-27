@@ -14,6 +14,10 @@ import pytest
 from pathlib import Path
 
 
+# Get the base directory (tests/../mcp_servers)
+BASE_DIR = Path(__file__).parent.parent / "mcp_servers"
+SERVER_FILE = BASE_DIR / "compute_mcp_server.py"
+
 @pytest.mark.unit
 @pytest.mark.mcp
 class TestComputeMCPServer:
@@ -26,7 +30,7 @@ class TestComputeMCPServer:
         Expected: File exists in mcp_servers directory
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
 
         # Assert
         assert server_path.exists(), f"Server file not found: {server_path}"
@@ -38,7 +42,7 @@ class TestComputeMCPServer:
         Expected: At least one tool decorator found
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
         content = server_path.read_text()
 
         # Assert
@@ -52,7 +56,7 @@ class TestComputeMCPServer:
         Expected: FastMCP import present
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
         content = server_path.read_text()
 
         # Assert
@@ -66,7 +70,7 @@ class TestComputeMCPServer:
         Expected: Server instance creation found
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
         content = server_path.read_text()
 
         # Assert
@@ -80,7 +84,7 @@ class TestComputeMCPServer:
         Expected: Docstring present at top of file
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
         content = server_path.read_text()
 
         # Assert
@@ -94,7 +98,7 @@ class TestComputeMCPServer:
         Expected: Docstring explains what the tool does
         """
         # Arrange
-        server_path = Path("mcp_servers/compute_mcp_server.py")
+        server_path = SERVER_FILE
         content = server_path.read_text()
 
         # Find the function definition
