@@ -191,6 +191,207 @@ class TestCircuitBreakerManager:
         assert manager.is_open("test-service")
 
 
+# ============================================================================
+# Integration Tests (Phase 2, Day 5)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestCircuitBreakerIntegration:
+    """Integration tests for circuit breaker with orchestrators and Azure SDK."""
+
+    async def test_circuit_breaker_with_azure_sdk_pattern(self):
+        """Test circuit breaker wrapping Azure SDK-style async calls."""
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1.0, name="azure-sdk")
+
+        # Simulate Azure SDK call pattern
+        async def azure_sdk_call():
+            await asyncio.sleep(0.01)  # Simulate network delay
+            return {"status": "success", "data": "resource_info"}
+
+        result = await cb.call(azure_sdk_call)
+
+        assert result["status"] == "success"
+        assert cb.state == CircuitBreakerState.CLOSED
+
+    async def test_circuit_breaker_metrics_tracking(self):
+        """Test that circuit breaker tracks metrics for monitoring."""
+        cb = CircuitBreaker(failure_threshold=3, name="metrics-test")
+
+        # Successful calls
+        success_func = AsyncMock(return_value="ok")
+        for i in range(5):
+            await cb.call(success_func)
+
+        metrics = cb.metrics
+        assert metrics["success_count"] == 5
+        assert metrics["total_calls"] == 5
+        assert metrics["failure_count"] == 0
+
+        # Failed calls
+        fail_func = AsyncMock(side_effect=ValueError("Fail"))
+        for i in range(2):
+            try:
+                await cb.call(fail_func)
+            except ValueError:
+                pass
+
+        metrics = cb.metrics
+        assert metrics["failure_count"] == 2
+        assert metrics["total_calls"] == 7
+
+    async def test_circuit_breaker_per_service_thresholds(self):
+        """Test configuring different thresholds for different services."""
+        manager = CircuitBreakerManager()
+
+        # Service with low threshold (sensitive)
+        sensitive_breaker = manager.get_breaker(
+            "sensitive-service",
+            failure_threshold=2,
+            recovery_timeout=5.0
+        )
+
+        # Service with high threshold (tolerant)
+        tolerant_breaker = manager.get_breaker(
+            "tolerant-service",
+            failure_threshold=10,
+            recovery_timeout=60.0
+        )
+
+        assert sensitive_breaker.failure_threshold == 2
+        assert tolerant_breaker.failure_threshold == 10
+
+    async def test_circuit_breaker_with_timeout_and_retry(self):
+        """Test circuit breaker working with timeout scenarios."""
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.5, name="timeout-test")
+
+        # Simulate timeout error
+        async def slow_call():
+            await asyncio.sleep(0.01)
+            raise asyncio.TimeoutError("Request timeout")
+
+        # First failure
+        with pytest.raises(asyncio.TimeoutError):
+            await cb.call(slow_call)
+
+        assert cb.state == CircuitBreakerState.CLOSED
+
+        # Second failure opens circuit
+        with pytest.raises(asyncio.TimeoutError):
+            await cb.call(slow_call)
+
+        assert cb.state == CircuitBreakerState.OPEN
+
+    async def test_circuit_breaker_concurrent_calls(self):
+        """Test circuit breaker with concurrent async operations."""
+        cb = CircuitBreaker(failure_threshold=3, name="concurrent-test")
+
+        async def concurrent_operation(delay: float, should_fail: bool):
+            await asyncio.sleep(delay)
+            if should_fail:
+                raise ValueError("Concurrent failure")
+            return "success"
+
+        # Run concurrent successful calls
+        tasks = [
+            cb.call(concurrent_operation, 0.01, False)
+            for _ in range(5)
+        ]
+        results = await asyncio.gather(*tasks)
+
+        assert all(r == "success" for r in results)
+        assert cb.state == CircuitBreakerState.CLOSED
+
+    async def test_circuit_breaker_orchestrator_fallback_pattern(self):
+        """Test circuit breaker with orchestrator fallback pattern."""
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1.0, name="fallback-test")
+
+        async def primary_service():
+            raise ConnectionError("Primary service unavailable")
+
+        async def fallback_service():
+            return {"source": "fallback", "data": "cached_data"}
+
+        # Try primary, circuit opens after threshold
+        for i in range(2):
+            try:
+                await cb.call(primary_service)
+            except ConnectionError:
+                pass
+
+        assert cb.state == CircuitBreakerState.OPEN
+
+        # Use fallback when circuit is open
+        try:
+            await cb.call(primary_service)
+        except CircuitBreakerOpenError:
+            # Expected - circuit is open
+            result = await fallback_service()
+            assert result["source"] == "fallback"
+
+    async def test_circuit_breaker_recovery_validation(self):
+        """Test that circuit properly recovers and validates with probe calls."""
+        cb = CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=0.2,  # Short timeout for test
+            half_open_max_calls=2,
+            name="recovery-test"
+        )
+
+        # Open the circuit
+        fail_func = AsyncMock(side_effect=ValueError("Fail"))
+        for i in range(2):
+            try:
+                await cb.call(fail_func)
+            except ValueError:
+                pass
+
+        assert cb.state == CircuitBreakerState.OPEN
+
+        # Wait for recovery timeout
+        await asyncio.sleep(0.3)
+
+        # Now should transition to HALF_OPEN and allow probe
+        success_func = AsyncMock(return_value="recovered")
+        result = await cb.call(success_func)
+
+        assert result == "recovered"
+        assert cb.state == CircuitBreakerState.CLOSED
+
+    async def test_circuit_breaker_error_aggregation_integration(self):
+        """Test circuit breaker integration with error aggregator."""
+        from utils.error_aggregator import ErrorAggregator
+
+        cb = CircuitBreaker(failure_threshold=3, name="error-agg-test")
+        error_agg = ErrorAggregator()
+
+        # Simulate orchestrator pattern: multiple agents with circuit breaker
+        async def agent_call(agent_name: str, should_fail: bool):
+            try:
+                if should_fail:
+                    raise ValueError(f"{agent_name} failed")
+                return f"{agent_name} success"
+            except Exception as e:
+                error_agg.add_error(e, {"agent": agent_name, "circuit": cb.name})
+                raise
+
+        # Execute multiple agent calls
+        agents = ["agent1", "agent2", "agent3"]
+        for agent in agents:
+            try:
+                await cb.call(agent_call, agent, should_fail=True)
+            except ValueError:
+                pass
+
+        # Verify errors were aggregated
+        assert error_agg.get_error_count() == 3
+        assert cb.state == CircuitBreakerState.OPEN
+
+        # Check error aggregation
+        summary = error_agg.get_summary()
+        assert summary["total_errors"] == 3
+
+
 @pytest.mark.unit
 def test_module_singleton_exists():
     """Test that module-level singleton manager exists."""

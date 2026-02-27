@@ -1,10 +1,24 @@
 """
 Centralized logging configuration for the EOL Multi-Agent App
+
+Supports both standard logging and structured logging with correlation ID.
 """
 import logging
 import os
 import sys
-from typing import Optional
+from typing import Any, Dict, Optional
+
+try:
+    import structlog
+    STRUCTLOG_AVAILABLE = True
+except ImportError:
+    STRUCTLOG_AVAILABLE = False
+
+try:
+    from utils.correlation_id import get_correlation_id
+    CORRELATION_ID_AVAILABLE = True
+except ImportError:
+    CORRELATION_ID_AVAILABLE = False
 
 
 class ColoredFormatter(logging.Formatter):
@@ -122,14 +136,141 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
 def get_logger(name: str, level: Optional[str] = None) -> logging.Logger:
     """
     Get or create a logger instance
-    
+
     Args:
         name: Logger name
         level: Optional log level override
-    
+
     Returns:
         Logger instance
     """
     if level:
         return setup_logger(name, level)
     return logging.getLogger(name)
+
+
+# ============================================================================
+# Structured Logging Support (Phase 2, Day 5)
+# ============================================================================
+
+def add_correlation_id(logger: Any, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Processor to add correlation ID to structured logs.
+
+    Args:
+        logger: The logger instance
+        method_name: The logging method name
+        event_dict: The event dictionary
+
+    Returns:
+        Modified event dictionary with correlation_id
+    """
+    if CORRELATION_ID_AVAILABLE:
+        cid = get_correlation_id()
+        if cid:
+            event_dict["correlation_id"] = cid
+    return event_dict
+
+
+def configure_structlog(level: str = "INFO") -> None:
+    """
+    Configure structlog with standard processors and correlation ID support.
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    if not STRUCTLOG_AVAILABLE:
+        raise ImportError("structlog is not installed. Install with: pip install structlog")
+
+    # Determine if running in Azure environment
+    is_azure_app_service = os.environ.get('WEBSITE_SITE_NAME') is not None
+    is_container_app = os.environ.get('CONTAINER_APP_NAME') is not None
+    use_json_output = is_azure_app_service or is_container_app
+
+    processors = [
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        add_correlation_id,  # Add correlation ID to all logs
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+    ]
+
+    if use_json_output:
+        # Use JSON renderer for Azure environments (easier parsing)
+        processors.append(structlog.processors.JSONRenderer())
+    else:
+        # Use colored console renderer for local development
+        processors.append(structlog.dev.ConsoleRenderer(colors=True))
+
+    structlog.configure(
+        processors=processors,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+
+def get_structured_logger(name: str, **initial_values: Any) -> Any:
+    """
+    Get a structured logger with correlation ID support.
+
+    Args:
+        name: Logger name (typically __name__)
+        **initial_values: Initial context values to bind to the logger
+
+    Returns:
+        Structured logger instance (structlog.BoundLogger)
+
+    Example:
+        >>> logger = get_structured_logger(__name__, component="orchestrator")
+        >>> logger.info("processing_request", query="eol data", agent_count=3)
+        # Output: {"event": "processing_request", "query": "eol data",
+        #          "agent_count": 3, "correlation_id": "...", "component": "orchestrator"}
+    """
+    if not STRUCTLOG_AVAILABLE:
+        raise ImportError("structlog is not installed. Install with: pip install structlog")
+
+    logger = structlog.get_logger(name)
+
+    # Bind initial values if provided
+    if initial_values:
+        logger = logger.bind(**initial_values)
+
+    return logger
+
+
+def log_with_context(
+    logger: Any,
+    level: str,
+    message: str,
+    **context: Any
+) -> None:
+    """
+    Log a message with additional context using structured logging.
+
+    Args:
+        logger: Structured logger instance
+        level: Log level (debug, info, warning, error, critical)
+        message: Log message
+        **context: Additional context key-value pairs
+
+    Example:
+        >>> logger = get_structured_logger(__name__)
+        >>> log_with_context(logger, "info", "agent_completed",
+        ...                  agent="microsoft", duration_ms=450)
+    """
+    log_method = getattr(logger, level.lower())
+    log_method(message, **context)
+
+
+def is_structlog_configured() -> bool:
+    """
+    Check if structlog is configured.
+
+    Returns:
+        True if structlog is available and configured, False otherwise
+    """
+    return STRUCTLOG_AVAILABLE and structlog.is_configured()
