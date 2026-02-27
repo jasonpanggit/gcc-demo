@@ -153,9 +153,13 @@ _FAST_PATH_BLOCKED_TOOLS: frozenset = frozenset({
     # Network action tools — require specific src/dst params, never valid for list queries
     "test_network_connectivity",
     "check_dns_resolution",
-    # Network assessment tools — full compliance/posture scans; require LLM planning
+    # Network assessment/analysis tools — complex multi-param; require LLM planning
     "assess_network_security_posture",
-    "inventory_network_resources",
+    "analyze_route_path",
+    "simulate_nsg_flow",
+    "generate_connectivity_matrix",
+    "analyze_private_connectivity_coverage",
+    "analyze_dns_resolution_path",
 })
 
 _FAST_PATH_PATTERNS = re.compile(
@@ -311,10 +315,28 @@ _ACTION_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (re.compile(r"\b(?:list|show|get|display|enumerate)\s+(?:(?:my|all|the)\s+)?(?:nsg|nsgs|network\s+security\s+groups?)", re.I), "nsg_list"),
     (re.compile(r"\b(?:nsg|nsgs|network\s+security\s+groups?)\s+(?:in|for|within)", re.I), "nsg_list"),
     (re.compile(r"\bwhat\s+(?:nsg|nsgs|network\s+security\s+groups?)\s+(?:do|are|exist)", re.I), "nsg_list"),
-    # NSG rule inspection
+    # NSG rule inspection (specific NSG)
     (re.compile(r"\bcheck\s+(?:nsg|network\s+security\s+group)\s+rules?", re.I), "inspect_nsg_rules"),
+    (re.compile(r"\b(?:show|inspect|get)\s+(?:nsg\s+)?rules?\s+for\b", re.I), "inspect_nsg_rules"),
+    (re.compile(r"\brules?\s+(?:in|for|of)\s+(?:my\s+)?(?:nsg|network\s+security\s+group)", re.I), "inspect_nsg_rules"),
+    # Private endpoint listing
+    (re.compile(r"\b(?:list|show|get|display|enumerate)\s+(?:(?:my|all|the)\s+)?private\s+endpoints?", re.I), "private_endpoint_list"),
+    (re.compile(r"\bwhat\s+private\s+endpoints?\s+(?:do|are|exist)", re.I), "private_endpoint_list"),
+    # Network resource inventory
+    (re.compile(r"\binventor(?:y|ize)\s+(?:my\s+|all\s+)?network\s+resources?", re.I), "inventory_network_resources"),
+    (re.compile(r"\bnetwork\s+resource\s+inventor(?:y|ize)", re.I), "inventory_network_resources"),
+    # Hub-spoke topology validation
+    (re.compile(r"\bvalidate\s+(?:my\s+|the\s+)?hub[- ]spoke\s+topolog", re.I), "validate_hub_spoke_topology"),
+    (re.compile(r"\bhub[- ]spoke\s+(?:topolog|architect|health|validat)", re.I), "validate_hub_spoke_topology"),
+    # VPN / ExpressRoute inspection
+    (re.compile(r"\b(?:check|show|inspect)\s+(?:my\s+)?vpn\s+gateway", re.I), "inspect_vpn_expressroute"),
+    (re.compile(r"\bexpressroute\s+circuit\s+(?:state|status|health)", re.I), "inspect_vpn_expressroute"),
+    # App Gateway / WAF
+    (re.compile(r"\b(?:check|show|inspect)\s+(?:application\s+gateway|appgw|app\s+gw)", re.I), "inspect_appgw_waf"),
+    (re.compile(r"\b(?:show|inspect)\s+waf\s+polic", re.I), "inspect_appgw_waf"),
     # Effective route lookup
     (re.compile(r"\bcheck\s+(?:effective\s+)?routes?\b", re.I), "get_effective_routes"),
+    (re.compile(r"\b(?:show|get)\s+effective\s+(?:routes?|nsg\s+rules?)", re.I), "get_effective_routes_and_rules"),
 ]
 
 

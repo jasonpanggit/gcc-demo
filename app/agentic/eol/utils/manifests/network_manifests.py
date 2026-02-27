@@ -178,4 +178,149 @@ MANIFESTS: list[ToolManifest] = [
         conflict_note="",
         preferred_over=frozenset(),
     ),
+    # ── New capabilities (Phase 3+) ──────────────────────────────────────────
+    ToolManifest(
+        tool_name="analyze_route_path",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"route", "path", "network", "lpm", "routing", "trace"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "analyze route path from my subnet",
+            "trace routing path to destination IP",
+            "which route does traffic take from subnet-a to 10.1.0.5",
+            "show route from my subnet to the database",
+        ),
+        conflicts_with=frozenset({"get_effective_routes_and_rules"}),
+        conflict_note=(
+            "analyze_route_path traces a specific source→destination path using LPM. "
+            "Use get_effective_routes_and_rules when the user wants all effective routes for a NIC."
+        ),
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="simulate_nsg_flow",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"nsg", "flow", "simulate", "traffic", "allow", "deny", "network"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "simulate NSG traffic flow",
+            "will my VM be allowed to reach port 443",
+            "simulate traffic flow through NSG rules",
+            "check if traffic from my VM is allowed by NSG",
+        ),
+        conflicts_with=frozenset({"inspect_nsg_rules"}),
+        conflict_note=(
+            "simulate_nsg_flow evaluates whether specific traffic is allowed/denied. "
+            "Use inspect_nsg_rules to list all rules for an NSG without traffic simulation."
+        ),
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="generate_connectivity_matrix",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"connectivity", "matrix", "subnet", "network", "analysis"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "generate connectivity matrix for my subnets",
+            "show which subnets can talk to each other",
+            "subnet connectivity matrix",
+            "can all my subnets reach each other",
+        ),
+        conflicts_with=frozenset(),
+        conflict_note="",
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="inventory_network_resources",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"inventory", "network", "resources", "cost", "unused"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "inventory my network resources",
+            "show all network resources in my subscription",
+            "find unused network resources",
+            "network resource inventory for cost optimization",
+        ),
+        conflicts_with=frozenset(),
+        conflict_note="",
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="analyze_private_connectivity_coverage",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"private", "endpoint", "connectivity", "zero_trust", "paas", "network"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "analyze private endpoint coverage",
+            "check zero-trust private connectivity",
+            "which PaaS services are not using private endpoints",
+            "assess private connectivity for zero-trust",
+        ),
+        conflicts_with=frozenset({"private_endpoint_list"}),
+        conflict_note=(
+            "analyze_private_connectivity_coverage is a full zero-trust posture assessment. "
+            "Use private_endpoint_list to simply enumerate existing private endpoints."
+        ),
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="analyze_dns_resolution_path",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"dns", "resolution", "path", "fqdn", "vnet", "trace", "network"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "trace DNS resolution path for api.example.com",
+            "analyze DNS path from my VNet",
+            "how does DNS resolve for my FQDN",
+            "debug DNS resolution chain from vnet-prod",
+        ),
+        conflicts_with=frozenset({"check_dns_resolution"}),
+        conflict_note=(
+            "analyze_dns_resolution_path traces the full resolution chain from a source VNet. "
+            "Use check_dns_resolution for simple DNS checks without source VNet context."
+        ),
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="assess_network_security_posture",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"security", "posture", "cis", "nist", "pci", "compliance", "network", "audit"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "assess my network security posture",
+            "run CIS Azure network compliance check",
+            "security posture assessment for my network",
+            "check network compliance against NIST",
+            "network security audit",
+        ),
+        conflicts_with=frozenset({"nsg_list", "inspect_nsg_rules"}),
+        conflict_note=(
+            "assess_network_security_posture is a full CIS/NIST/PCI compliance scan — "
+            "never use it for simple NSG listing or rule inspection queries."
+        ),
+        preferred_over=frozenset(),
+    ),
+    ToolManifest(
+        tool_name="validate_hub_spoke_topology",
+        source="network",
+        domains=frozenset({"network"}),
+        tags=frozenset({"hub", "spoke", "topology", "validate", "architecture", "network"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "validate my hub-spoke topology",
+            "check hub-spoke network architecture",
+            "is my hub-spoke topology healthy",
+            "validate hub and spoke VNet peering",
+        ),
+        conflicts_with=frozenset(),
+        conflict_note="",
+        preferred_over=frozenset(),
+    ),
 ]
