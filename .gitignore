@@ -82,6 +82,7 @@ tests/
 .pytest_cache/
 __pycache__/
 tests/
+.coverage
 
 # Project TODO file
 # Ignore TODO.md in any directory
@@ -98,6 +99,7 @@ litellm/
 
 # claude code related files
 .claude/
+.planning/
 CLAUDE.md
 
 # github
