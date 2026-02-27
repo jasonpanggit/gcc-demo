@@ -153,6 +153,9 @@ _FAST_PATH_BLOCKED_TOOLS: frozenset = frozenset({
     # Network action tools — require specific src/dst params, never valid for list queries
     "test_network_connectivity",
     "check_dns_resolution",
+    # Network assessment tools — full compliance/posture scans; require LLM planning
+    "assess_network_security_posture",
+    "inventory_network_resources",
 })
 
 _FAST_PATH_PATTERNS = re.compile(
@@ -304,6 +307,10 @@ _ACTION_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (re.compile(r"\bcheck\s+dns\b", re.I), "check_dns_resolution"),
     (re.compile(r"\bdns\s+resolut", re.I), "check_dns_resolution"),
     (re.compile(r"\bresolv(?:e|ing)\s+(?:dns|domain)", re.I), "check_dns_resolution"),
+    # NSG listing — list/show/get/enumerate NSGs
+    (re.compile(r"\b(?:list|show|get|display|enumerate)\s+(?:(?:my|all|the)\s+)?(?:nsg|nsgs|network\s+security\s+groups?)", re.I), "nsg_list"),
+    (re.compile(r"\b(?:nsg|nsgs|network\s+security\s+groups?)\s+(?:in|for|within)", re.I), "nsg_list"),
+    (re.compile(r"\bwhat\s+(?:nsg|nsgs|network\s+security\s+groups?)\s+(?:do|are|exist)", re.I), "nsg_list"),
     # NSG rule inspection
     (re.compile(r"\bcheck\s+(?:nsg|network\s+security\s+group)\s+rules?", re.I), "inspect_nsg_rules"),
     # Effective route lookup
