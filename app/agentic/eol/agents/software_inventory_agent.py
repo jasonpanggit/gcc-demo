@@ -93,7 +93,8 @@ class SoftwareInventoryAgent:
             self.credential = None
             logger.warning("Azure SDK not available – Software inventory agent will operate in mock mode")
         else:
-            self.credential = DefaultAzureCredential()
+            from utils.azure_client_manager import get_azure_sdk_manager
+            self.credential = get_azure_sdk_manager().get_credential()
         self._logs_client: Optional[LogsQueryClient] = None
         self._full_cache_scopes: Dict[str, bool] = {}
         

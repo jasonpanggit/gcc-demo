@@ -77,7 +77,8 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         
         if AZURE_AI_AVAILABLE:
             try:
-                self.credential = DefaultAzureCredential()
+                from utils.azure_client_manager import get_azure_sdk_manager
+                self.credential = get_azure_sdk_manager().get_credential()
                 
                 # Initialize Azure AI Project Client
                 if self.project_endpoint:

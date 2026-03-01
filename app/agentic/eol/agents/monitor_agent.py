@@ -476,14 +476,8 @@ RULES:
                     api_version=api_version,
                 )
             else:
-                from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-
-                credential = AsyncDefaultAzureCredential(
-                    exclude_interactive_browser_credential=True,
-                    exclude_shared_token_cache_credential=True,
-                    exclude_visual_studio_code_credential=True,
-                    exclude_powershell_credential=True,
-                )
+                from utils.azure_client_manager import get_azure_sdk_manager
+                credential = get_azure_sdk_manager().get_async_credential()
                 token = await credential.get_token("https://cognitiveservices.azure.com/.default")
                 client = AsyncAzureOpenAI(
                     api_key=token.token,

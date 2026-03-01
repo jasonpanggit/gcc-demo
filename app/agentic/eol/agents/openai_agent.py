@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from azure.identity import DefaultAzureCredential
+from utils.azure_client_manager import get_azure_sdk_manager
 from openai import AzureOpenAI
 
 try:
@@ -59,14 +59,8 @@ class OpenAIAgent:
                 logger.warning("Azure OpenAI not configured - OpenAI agent will not be available")
                 return
             
-            # Use managed identity for authentication
-            self._credential = DefaultAzureCredential(
-                exclude_environment_credential=True,
-                exclude_shared_token_cache_credential=True,
-                exclude_visual_studio_code_credential=True,
-                exclude_powershell_credential=True,
-                exclude_cli_credential=True,
-            )
+            # Use managed identity for authentication via shared AzureSDKManager
+            self._credential = get_azure_sdk_manager().get_credential()
             
             logger.info("OpenAI agent credential initialized successfully")
             
