@@ -36,6 +36,11 @@ except ImportError:
 
 from utils.eol_inventory import eol_inventory
 
+try:
+    from utils.config import config as _app_config
+except ImportError:
+    _app_config = None  # type: ignore[assignment]
+
 # Import logger
 try:
     from utils import get_logger
@@ -711,7 +716,22 @@ class EOLOrchestratorAgent:
 
             # Orchestrator-level Cosmos cache lookup (eol_inventory is single source of truth)
             if not effective_ignore_cache:
-                cached_eol = await eol_inventory.get(normalized_name, normalized_version)
+                _db_timeout = (
+                    _app_config.timeouts.db_query_timeout
+                    if _app_config is not None
+                    else 10.0
+                )
+                try:
+                    cached_eol = await asyncio.wait_for(
+                        eol_inventory.get(normalized_name, normalized_version),
+                        timeout=_db_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "⚠️ EOL inventory cache read timed out after %.1fs for %s %s — treating as cache miss",
+                        _db_timeout, normalized_name, normalized_version,
+                    )
+                    cached_eol = None
                 if cached_eol:
                     # Validate the cached record is actually useful.  Records written
                     # before the agent fixes may have confidence=0 / no eol_date — those
