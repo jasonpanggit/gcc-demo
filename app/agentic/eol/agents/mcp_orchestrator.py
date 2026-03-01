@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 try:
     from app.agentic.eol.utils.logger import get_logger
@@ -970,6 +970,8 @@ FORMATTING:
         self.communication_queue: Optional[asyncio.Queue[Dict[str, Any]]] = None
         self.communication_buffer: List[Dict[str, Any]] = []
         self.max_buffer_size = 100
+        # Background task tracking (GC prevention — fire-and-forget pattern)
+        self._background_tasks: Set[asyncio.Task] = set()
         # High safety limit to allow complex multi-step reasoning without artificial constraints
         # Time-based warnings will notify user of long-running operations
         configured_iterations = max_reasoning_iterations or int(os.getenv("MCP_AGENT_MAX_ITERATIONS", "50"))
@@ -1913,9 +1915,49 @@ FORMATTING:
             len(sre_tools),
         )
 
+    def _spawn_background(self, coro, *, name: Optional[str] = None) -> asyncio.Task:
+        """Schedule coro as a background task, tracking it to prevent GC.
+
+        The task is added to _background_tasks and automatically removed
+        (via discard callback) when it completes or raises. Exceptions are
+        logged at DEBUG level — they never propagate to callers.
+
+        Args:
+            coro: Awaitable to run in background
+            name: Optional task name for debugging
+
+        Returns:
+            The created asyncio.Task (caller may ignore it)
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._background_tasks.discard(t)
+            if not t.cancelled():
+                exc = t.exception()
+                if exc is not None:
+                    logger.debug(
+                        "Background task %r raised: %s: %s",
+                        t.get_name(), type(exc).__name__, exc,
+                    )
+
+        task.add_done_callback(_on_done)
+        return task
+
+    async def shutdown(self) -> None:
+        """Cancel all pending background tasks and wait for cancellation."""
+        if self._background_tasks:
+            tasks = list(self._background_tasks)
+            logger.debug("Cancelling %d background tasks on shutdown", len(tasks))
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
     async def aclose(self) -> None:
         """Release network clients and credentials."""
-
+        await self.shutdown()
         await self._maybe_aclose(self._chat_client)
         await self._maybe_aclose(self._mcp_client)
         await self._maybe_aclose(self._default_credential)
@@ -2106,7 +2148,7 @@ FORMATTING:
             # Build semantic index in a fire-and-forget background task so it never
             # blocks the calling request (embedding 140+ tools can take seconds).
             if self._tool_embedder and self._tool_definitions:
-                asyncio.create_task(self._build_embedding_index_bg())
+                self._spawn_background(self._build_embedding_index_bg(), name="embedding_index_build")
 
     async def _build_embedding_index_bg(self) -> None:
         """Background task: build ToolEmbedder semantic index without blocking callers."""
