@@ -80,9 +80,15 @@ Each task was committed atomically:
 2. **Task 1 GREEN: Implement cache_config.py** - `e6b8d08` (feat)
 3. **Task 2: Centralize SreCache TTL + Cosmos timeout guard** - `2bf8a81` (feat)
 
-**Plan metadata:** _(to be committed with this file)_
+**Plan metadata:** `8629cd1` (docs: complete plan)
 
 _Note: TDD Task 1 produced 2 commits (test → feat). No REFACTOR needed — implementation was clean._
+
+## Self-Check: PASSED
+
+- ✅ `utils/cache_config.py` exists on disk
+- ✅ `tests/unit/test_cache_config.py` exists on disk
+- ✅ 4 commits with `03-04` reference found in git log
 
 ## Files Created/Modified
 
