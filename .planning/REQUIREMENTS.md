@@ -57,8 +57,8 @@
 
 ### Performance Optimization (Concerns #19, #20, #9)
 
-- [ ] **PRF-01**: Cosmos DB writes executed asynchronously using fire-and-forget pattern
-- [ ] **PRF-02**: Background task set pattern prevents garbage collection of fire-and-forget tasks
+- [x] **PRF-01**: Cosmos DB writes executed asynchronously using fire-and-forget pattern
+- [x] **PRF-02**: Background task set pattern prevents garbage collection of fire-and-forget tasks
 - [x] **PRF-03**: Azure SDK clients reused via singleton pattern (credential and client caching)
 - [x] **PRF-04**: Connection pooling configured for Azure SDK clients (pool_maxsize=20 for sync, limit=100 for async)
 - [x] **PRF-05**: DefaultAzureCredential created once at startup with persistent token caching
@@ -98,7 +98,7 @@
 ### Performance
 
 - [ ] **NFR-PRF-01**: P95 latency for EOL queries ≤ 2 seconds (measured end-to-end)
-- [ ] **NFR-PRF-02**: Async Cosmos writes complete within 1 second (non-blocking)
+- [x] **NFR-PRF-02**: Async Cosmos writes complete within 1 second (non-blocking)
 - [x] **NFR-PRF-03**: Azure SDK client initialization overhead < 100ms after first request
 - [x] **NFR-PRF-04**: Connection pool efficiency ≥ 80% (reuse vs. create new connections)
 - [ ] **NFR-PRF-05**: Memory footprint stable under load (no memory leaks in fire-and-forget tasks)
@@ -122,7 +122,7 @@
 ### Scalability
 
 - [ ] **NFR-SCL-01**: Connection pooling supports 50+ concurrent requests without degradation
-- [ ] **NFR-SCL-02**: Fire-and-forget task tracking handles 100+ background tasks
+- [x] **NFR-SCL-02**: Fire-and-forget task tracking handles 100+ background tasks
 - [ ] **NFR-SCL-03**: Circuit breaker pattern scales to 10+ Azure service dependencies
 - [ ] **NFR-SCL-04**: Cache strategy reduces Azure API calls by 60% for repeated queries
 
@@ -161,10 +161,10 @@
 
 ### Async Patterns & Testing (Research: async-patterns-testing.md)
 
-- [ ] **TECH-TST-01**: Implement fire-and-forget task set pattern in orchestrators
-- [ ] **TECH-TST-02**: Add `_background_tasks: Set[asyncio.Task]` to orchestrator classes
-- [ ] **TECH-TST-03**: Implement `_spawn_background()` method with automatic cleanup callbacks
-- [ ] **TECH-TST-04**: Implement graceful shutdown method to cancel background tasks
+- [x] **TECH-TST-01**: Implement fire-and-forget task set pattern in orchestrators
+- [x] **TECH-TST-02**: Add `_background_tasks: Set[asyncio.Task]` to orchestrator classes
+- [x] **TECH-TST-03**: Implement `_spawn_background()` method with automatic cleanup callbacks
+- [x] **TECH-TST-04**: Implement graceful shutdown method to cancel background tasks
 - [ ] **TECH-TST-05**: Configure `pytest.ini` with `asyncio_mode = auto`
 - [ ] **TECH-TST-06**: Create `conftest.py` with reusable fixtures for Azure clients, MCP servers, agents
 - [ ] **TECH-TST-07**: Use `AsyncMock` for all async operations in tests
@@ -544,8 +544,8 @@ Explicitly excluded from this 2-week refactoring project:
 
 | Requirement ID | Category | Description | Status |
 |---------------|----------|-------------|--------|
-| PRF-01 | Performance | Async Cosmos writes (fire-and-forget) | Pending |
-| PRF-02 | Performance | Background task set pattern | Pending |
+| PRF-01 | Performance | Async Cosmos writes (fire-and-forget) | Complete ✅ |
+| PRF-02 | Performance | Background task set pattern | Complete ✅ |
 | PRF-03 | Performance | Azure SDK client singleton | Pending |
 | PRF-04 | Performance | Connection pooling configuration | Pending |
 | PRF-05 | Performance | DefaultAzureCredential singleton | Pending |
@@ -560,12 +560,12 @@ Explicitly excluded from this 2-week refactoring project:
 | TECH-AZ-06 | Technical | DefaultAzureCredential setup | Pending |
 | TECH-AZ-07 | Technical | FastAPI lifespan initialization | Pending |
 | TECH-AZ-08 | Technical | FastAPI shutdown cleanup | Pending |
-| TECH-TST-01 | Technical | Fire-and-forget task set pattern | Pending |
-| TECH-TST-02 | Technical | _background_tasks set in orchestrators | Pending |
-| TECH-TST-03 | Technical | _spawn_background() method | Pending |
-| TECH-TST-04 | Technical | Graceful shutdown implementation | Pending |
+| TECH-TST-01 | Technical | Fire-and-forget task set pattern | Complete ✅ |
+| TECH-TST-02 | Technical | _background_tasks set in orchestrators | Complete ✅ |
+| TECH-TST-03 | Technical | _spawn_background() method | Complete ✅ |
+| TECH-TST-04 | Technical | Graceful shutdown implementation | Complete ✅ |
 | NFR-PRF-01 | Non-Functional | P95 latency ≤ 2s | Pending |
-| NFR-PRF-02 | Non-Functional | Async writes complete < 1s | Pending |
+| NFR-PRF-02 | Non-Functional | Async writes complete < 1s | Complete ✅ |
 | NFR-PRF-03 | Non-Functional | Client init overhead < 100ms | Pending |
 | NFR-PRF-04 | Non-Functional | Connection pool efficiency ≥ 80% | Pending |
 | NFR-PRF-05 | Non-Functional | Memory stability under load | Pending |

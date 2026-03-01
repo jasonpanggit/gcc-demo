@@ -595,7 +595,7 @@ class AgentError:
 Plans:
 - [x] 03-01-PLAN.md — AzureSDKManager singleton: credential/client caching, connection pooling, FastAPI lifespan wiring ✅ 2026-03-01
 - [ ] 03-02-PLAN.md — Update 4 agents to use shared credential from AzureSDKManager
-- [ ] 03-03-PLAN.md — Fire-and-forget task set pattern: _background_tasks, _spawn_background(), async Cosmos writes
+- [x] 03-03-PLAN.md — Fire-and-forget task set pattern: _background_tasks, _spawn_background(), async Cosmos writes ✅ 2026-03-01
 - [ ] 03-04-PLAN.md — Cache TTL standardization (cache_config.py) + async timeout guards in eol_orchestrator
 - [ ] 03-05-PLAN.md — Phase 3 validation: regression tests, integration tests, human checkpoint
 
@@ -1699,7 +1699,7 @@ Track requirement completion in REQUIREMENTS.md with checkboxes.
 |-------|--------|----------|-----------------|
 | Phase 1: Testing | ✅ | 100% | 2026-02-27 |
 | Phase 2: Error/Config | ✅ | 100% | 2026-02-27 |
-| Phase 3: Performance | 🔄 | 20% (1/5 plans) | Day 10 (target) |
+| Phase 3: Performance | 🔄 | 40% (2/5 plans) | Day 10 (target) |
 | Phase 4: Quality | ☐ | 0% | Day 14 (target) |
 
 ---
