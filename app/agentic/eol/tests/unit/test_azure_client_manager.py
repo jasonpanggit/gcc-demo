@@ -318,3 +318,48 @@ class TestLifespanIntegration:
         assert "azure_manager" in source and ".aclose()" in source, (
             "_run_shutdown_tasks() must call azure_manager.aclose()"
         )
+
+
+# ============================================================================
+# Tests 10-11: Credential sharing across agent calls
+# ============================================================================
+
+class TestCredentialSharing:
+    def setup_method(self):
+        from utils.azure_client_manager import AzureSDKManager
+        AzureSDKManager._instance = None
+
+    def teardown_method(self):
+        from utils.azure_client_manager import AzureSDKManager
+        AzureSDKManager._instance = None
+
+    def test_agents_share_same_credential(self):
+        """Two agents using get_azure_sdk_manager() must receive the same credential object."""
+        from unittest.mock import MagicMock, patch
+        from utils.azure_client_manager import AzureSDKManager, get_azure_sdk_manager
+
+        # Reset singleton for clean test
+        AzureSDKManager._instance = None
+
+        mock_cred = MagicMock()
+        with patch("utils.azure_client_manager.DefaultAzureCredential", return_value=mock_cred):
+            manager = get_azure_sdk_manager()
+            cred1 = manager.get_credential()
+            cred2 = manager.get_credential()
+
+        assert cred1 is cred2, "Credential must be the same object — no re-instantiation"
+
+    def test_get_credential_is_idempotent(self):
+        """get_credential() must return same object on multiple calls; constructor called once."""
+        from unittest.mock import MagicMock, patch
+        from utils.azure_client_manager import AzureSDKManager, get_azure_sdk_manager
+
+        AzureSDKManager._instance = None
+        with patch("utils.azure_client_manager.DefaultAzureCredential") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            manager = get_azure_sdk_manager()
+            _ = manager.get_credential()
+            _ = manager.get_credential()
+            _ = manager.get_credential()
+        # DefaultAzureCredential constructor called exactly once
+        mock_cls.assert_called_once()
