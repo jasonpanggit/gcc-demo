@@ -57,7 +57,6 @@ from api.monitor_community import router as monitor_community_router
 from api.metrics import router as metrics_router
 from api.teams_bot import router as teams_bot_router
 from api.sre_audit import router as sre_audit_router
-from api.azure_ai_sre import router as azure_ai_sre_router
 from api.sre_orchestrator import router as sre_orchestrator_router
 from api.patch_management import router as patch_management_router
 
@@ -104,7 +103,6 @@ app.include_router(monitor_community_router)
 app.include_router(metrics_router)
 app.include_router(teams_bot_router)
 app.include_router(sre_audit_router)
-app.include_router(azure_ai_sre_router)
 app.include_router(sre_orchestrator_router)
 app.include_router(patch_management_router)  # Arc VM patch assessment
 
@@ -469,7 +467,16 @@ async def _run_startup_tasks():
     """Initialize services on startup"""
     try:
         logger.info(f"🚀 Starting {config.app.title} v{config.app.version}")
-        
+
+        # Initialize Azure SDK singleton manager (credential + connection pool warm-up)
+        try:
+            from utils.azure_client_manager import get_azure_sdk_manager
+            azure_manager = get_azure_sdk_manager()
+            await azure_manager.initialize()
+            logger.info("✅ Azure SDK manager initialized (credential + connection pool ready)")
+        except Exception as e:
+            logger.warning("⚠️ Azure SDK manager initialization failed (will retry on first use): %s", e)
+
         # ===== CRITICAL: Set global environment variables for all MCP clients =====
         # These must be set BEFORE any MCP client initialization to ensure proper authentication
         # and prevent mock data from being used
@@ -653,6 +660,15 @@ async def _run_shutdown_tasks():
             logger.debug("Playwright pool cleanup cancelled")
         except Exception as e:
             logger.debug(f"Playwright pool cleanup: {e}")
+
+        # Close Azure SDK manager (releases async connection pools and credential)
+        try:
+            from utils.azure_client_manager import get_azure_sdk_manager
+            azure_manager = get_azure_sdk_manager()
+            await azure_manager.aclose()
+            logger.info("✅ Azure SDK manager closed gracefully")
+        except Exception as e:
+            logger.warning("⚠️ Azure SDK manager close failed: %s", e)
 
         logger.info("✅ Shutdown completed")
     except Exception as e:
