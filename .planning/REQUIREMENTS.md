@@ -62,9 +62,9 @@
 - [x] **PRF-03**: Azure SDK clients reused via singleton pattern (credential and client caching)
 - [x] **PRF-04**: Connection pooling configured for Azure SDK clients (pool_maxsize=20 for sync, limit=100 for async)
 - [x] **PRF-05**: DefaultAzureCredential created once at startup with persistent token caching
-- [ ] **PRF-06**: Cache TTL configuration standardized across all cache implementations
-- [ ] **PRF-07**: L1 in-memory cache + L2 Cosmos cache strategy consistently implemented
-- [ ] **PRF-08**: Async operations use proper timeout management with `asyncio.wait_for()`
+- [x] **PRF-06**: Cache TTL configuration standardized across all cache implementations
+- [x] **PRF-07**: L1 in-memory cache + L2 Cosmos cache strategy consistently implemented
+- [x] **PRF-08**: Async operations use proper timeout management with `asyncio.wait_for()`
 
 ### Code Quality (Concerns #12, #14, #15, #21)
 
@@ -121,10 +121,10 @@
 
 ### Scalability
 
-- [ ] **NFR-SCL-01**: Connection pooling supports 50+ concurrent requests without degradation
+- [x] **NFR-SCL-01**: Connection pooling supports 50+ concurrent requests without degradation
 - [x] **NFR-SCL-02**: Fire-and-forget task tracking handles 100+ background tasks
 - [ ] **NFR-SCL-03**: Circuit breaker pattern scales to 10+ Azure service dependencies
-- [ ] **NFR-SCL-04**: Cache strategy reduces Azure API calls by 60% for repeated queries
+- [x] **NFR-SCL-04**: Cache strategy reduces Azure API calls by 60% for repeated queries
 
 ### Security
 

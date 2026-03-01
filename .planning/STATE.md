@@ -4,23 +4,23 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03-performance-optimizations-days-8-10
 status: executing
-last_updated: "2026-03-01T08:57:43.292Z"
+last_updated: "2026-03-01T09:08:33.746Z"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State: GCC Demo Production Readiness
 
 ## Current Status
 
-**Phase:** Phase 3 In Progress (Plan 3/5 complete)
+**Phase:** Phase 3 In Progress (Plan 4/5 complete)
 **Status:** Executing 03-performance-optimizations-days-8-10
 **Last Updated:** 2026-03-01
-**Progress:** [██████░░░░] 60%
+**Progress:** [████████░░] 80%
 
 ---
 
@@ -49,8 +49,8 @@ progress:
 - **Success Rate:** 93%
 
 ### Phase 3: Performance Optimizations (Days 8-10) - IN PROGRESS 🔄
-- **Status:** 🔄 In Progress (Plan 3/5 complete, 2026-03-01)
-- **Requirements Completed:** 25/28 (includes PRF-01, PRF-02, PRF-03, NFR-PRF-02, NFR-PRF-03, NFR-PRF-04, NFR-SCL-01, NFR-SCL-02)
+- **Status:** 🔄 In Progress (Plan 4/5 complete, 2026-03-01)
+- **Requirements Completed:** 25/28 (includes PRF-01 through PRF-08, NFR-PRF-02, NFR-SCL-01 through NFR-SCL-04)
 - **Key Deliverables:** AzureSDKManager ✅, fire-and-forget task set ✅, agent migration ✅, cache TTL ✅, validation ⬜
 - **Branch:** `feature/prod-ready-phase-3`
 
@@ -62,6 +62,14 @@ progress:
 ---
 
 ## Recent Activity
+
+### 2026-03-01 - Phase 3 Plan 04 Complete
+- ✅ Created `utils/cache_config.py` with `CacheTTLProfile` IntEnum, module constants, `get_ttl()`, `TTL_PROFILE_MAP`
+- ✅ `SRECacheManager.TTL_PROFILES` replaced with `TTL_PROFILE_MAP` import from cache_config
+- ✅ `await eol_inventory.get()` wrapped with `asyncio.wait_for(timeout=db_query_timeout)` in eol_orchestrator
+- ✅ 13 new unit tests in `test_cache_config.py` (all passing)
+- ✅ test_sre_cache.py updated to use cache_config constants (36 tests still pass)
+- ✅ Zero regressions (pre-existing failures confirmed pre-existing via git stash verification)
 
 ### 2026-03-01 - Phase 3 Plan 02 Complete
 - ✅ All 6 agents migrated to use `get_azure_sdk_manager().get_credential()` (sync) or `.get_async_credential()` (async)
@@ -92,6 +100,9 @@ progress:
 
 ## Key Decisions
 
+- **2026-03-01 (03-04):** TTL_PROFILE_MAP includes `daily` key (86400s = LONG_LIVED) — existing sre_cache had 5 profiles, plan template had 4; adding `daily` prevents silent cache skip for security/compliance tools.
+- **2026-03-01 (03-04):** real_time changed 60s → 300s (EPHEMERAL), medium changed 1800s → 900s (SHORT_LIVED) — aligns SreCache with standard tier definitions per PRF-06.
+- **2026-03-01 (03-04):** `_app_config = None` fallback in eol_orchestrator import — consistent with existing try/except ImportError pattern; timeout falls back to 10.0s.
 - **2026-03-01 (03-02):** `openai_agent.py` top-level import replaced (no mock-mode guard in that file) — cleanest migration path.
 - **2026-03-01 (03-02):** `monitor_agent.py`/`domain_sub_agent.py` local imports preserved inside method body — minimal diff, no import-order risk.
 - **2026-03-01 (03-02):** Tests 10-11 go directly GREEN — AzureSDKManager caching was built in 03-01; tests verify existing contract.
