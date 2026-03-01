@@ -179,6 +179,7 @@ class EOLOrchestratorAgent:
         self._close_lock = asyncio.Lock()
         self._closed = False
         self._owns_agents = close_provided_agents or agents is None
+        self._background_tasks: Set[asyncio.Task] = set()
 
         if agents is not None:
             self.agents = dict(agents)
@@ -285,8 +286,49 @@ class EOLOrchestratorAgent:
                 exc,
             )
 
+    def _spawn_background(self, coro, *, name: Optional[str] = None) -> asyncio.Task:
+        """Schedule coro as a background task, tracking it to prevent GC.
+
+        The task is added to _background_tasks and automatically removed
+        (via discard callback) when it completes or raises. Exceptions are
+        logged at DEBUG level — they never propagate to callers.
+
+        Args:
+            coro: Awaitable to run in background
+            name: Optional task name for debugging
+
+        Returns:
+            The created asyncio.Task (caller may ignore it)
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._background_tasks.discard(t)
+            if not t.cancelled():
+                exc = t.exception()
+                if exc is not None:
+                    logger.debug(
+                        "Background task %r raised: %s: %s",
+                        t.get_name(), type(exc).__name__, exc,
+                    )
+
+        task.add_done_callback(_on_done)
+        return task
+
+    async def shutdown(self) -> None:
+        """Cancel all pending background tasks and wait for cancellation."""
+        if self._background_tasks:
+            tasks = list(self._background_tasks)
+            logger.debug("Cancelling %d background tasks on shutdown", len(tasks))
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
     async def aclose(self) -> None:
         """Release orchestrator resources and owned agent instances."""
+        await self.shutdown()
         async with self._close_lock:
             if self._closed:
                 return
@@ -1054,20 +1096,26 @@ class EOLOrchestratorAgent:
                 if persist_to_cosmos:
                     best_result.setdefault("cache_source", "cosmos_eol_table")
                     best_result.setdefault("cached", False)
-                    try:
-                        # Use normalized names for cache storage to ensure cache hits
-                        upsert_ok = await eol_inventory.upsert(normalized_name, normalized_version, best_result)
-                        if not upsert_ok:
-                            logger.warning(
-                                "⚠️ EOL inventory upsert skipped or failed for %s %s (normalized: %s %s, container ready: %s)",
-                                software_name,
-                                version or "(any)",
-                                normalized_name,
-                                normalized_version or "(any)",
-                                getattr(eol_inventory, "initialized", False),
-                            )
-                    except Exception as exc:
-                        logger.debug("EOL inventory upsert skipped: %s", exc)
+                    # Capture locals for the closure before spawning
+                    _nn, _nv, _res = normalized_name, normalized_version, best_result
+                    _sn, _sv = software_name, version
+
+                    async def _do_upsert(_nn=_nn, _nv=_nv, _res=_res, _sn=_sn, _sv=_sv):
+                        try:
+                            upsert_ok = await eol_inventory.upsert(_nn, _nv, _res)
+                            if not upsert_ok:
+                                logger.warning(
+                                    "⚠️ EOL inventory upsert skipped or failed for %s %s (normalized: %s %s, container ready: %s)",
+                                    _sn,
+                                    _sv or "(any)",
+                                    _nn,
+                                    _nv or "(any)",
+                                    getattr(eol_inventory, "initialized", False),
+                                )
+                        except Exception as exc:
+                            logger.debug("EOL inventory upsert skipped: %s", exc)
+
+                    self._spawn_background(_do_upsert(), name=f"cosmos_upsert_{normalized_name}")
                 else:
                     logger.info(
                         "Skipping Cosmos save for %s %s due to low confidence %.2f (< %.2f)",
