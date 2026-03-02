@@ -1572,166 +1572,25 @@ FORMATTING:
             else:
                 self._update_tool_metadata()
             return True
-        client_entries: List[Tuple[str, Any]] = []
 
-        if _AZURE_MCP_AVAILABLE and get_azure_mcp_client is not None:
-            try:
-                azure_client = await get_azure_mcp_client()
-            except Exception as exc:  # pragma: no cover - service dependency
-                logger.warning("Azure MCP client unavailable: %s", exc)
-            else:
-                client_entries.append(("azure", azure_client))
-
-        if get_cli_executor_client is not None:
-            try:
-                cli_client = await get_cli_executor_client()
-            except AzureCliExecutorDisabledError:
-                logger.info("Azure CLI MCP server disabled via configuration; skipping registration")
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Azure CLI MCP server unavailable: %s", exc)
-            else:
-                client_entries.append(("azure_cli", cli_client))
-
-        if get_os_eol_mcp_client is not None:
-            try:
-                os_eol_client = await get_os_eol_mcp_client()
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("OS EOL MCP server unavailable: %s", exc)
-            else:
-                logger.debug("OS EOL MCP client initialised; catalog size hint=%s", len(getattr(os_eol_client, "available_tools", []) or []))
-                client_entries.append(("os_eol", os_eol_client))
-        else:
-            logger.debug(
-                "OS EOL MCP client import resolved to None; skipping registration (error=%s)",
-                _os_eol_mcp_import_error,
-            )
-
-        if get_inventory_mcp_client is not None:
-            try:
-                inventory_client = await get_inventory_mcp_client()
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Inventory MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "Inventory MCP client initialised; catalog size hint=%s",
-                    len(getattr(inventory_client, "available_tools", []) or []),
-                )
-                client_entries.append(("inventory", inventory_client))
-        else:
-            logger.debug(
-                "Inventory MCP client import resolved to None; skipping registration (error=%s)",
-                _inventory_mcp_import_error,
-            )
-
-        if get_workbook_mcp_client is not None:
-            try:
-                workbook_client = await get_workbook_mcp_client()
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Azure Monitor Community MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "Azure Monitor Community MCP client initialised; catalog size hint=%s",
-                    len(getattr(workbook_client, "available_tools", []) or []),
-                )
-                client_entries.append(("monitor", workbook_client))
-        else:
-            logger.debug(
-                "Azure Monitor Community MCP client import resolved to None; skipping registration (error=%s)",
-                _workbook_mcp_import_error,
-            )
-
-        if get_sre_mcp_client is not None:
-            try:
-                sre_client = await get_sre_mcp_client()
-            except SREMCPDisabledError:
-                logger.info("SRE MCP server disabled via configuration; skipping registration")
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("SRE MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "SRE MCP client initialised; catalog size hint=%s",
-                    len(getattr(sre_client, "available_tools", []) or []),
-                )
-                client_entries.append(("sre", sre_client))
-        else:
-            logger.debug(
-                "SRE MCP client import resolved to None; skipping registration (error=%s)",
-                _sre_mcp_import_error,
-            )
-
-        if get_network_mcp_client is not None:
-            try:
-                network_client = await get_network_mcp_client()
-            except NetworkMCPDisabledError:
-                logger.info("Network MCP server disabled via configuration; skipping registration")
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Network MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "Network MCP client initialised; catalog size hint=%s",
-                    len(getattr(network_client, "available_tools", []) or []),
-                )
-                client_entries.append(("network", network_client))
-        else:
-            logger.debug(
-                "Network MCP client import resolved to None; skipping registration (error=%s)",
-                _network_mcp_import_error,
-            )
-
-        if get_compute_mcp_client is not None:
-            try:
-                compute_client = await get_compute_mcp_client()
-            except ComputeMCPDisabledError:
-                logger.info("Compute MCP server disabled via configuration; skipping registration")
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Compute MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "Compute MCP client initialised; catalog size hint=%s",
-                    len(getattr(compute_client, "available_tools", []) or []),
-                )
-                client_entries.append(("compute", compute_client))
-        else:
-            logger.debug(
-                "Compute MCP client import resolved to None; skipping registration (error=%s)",
-                _compute_mcp_import_error,
-            )
-
-        if get_storage_mcp_client is not None:
-            try:
-                storage_client = await get_storage_mcp_client()
-            except StorageMCPDisabledError:
-                logger.info("Storage MCP server disabled via configuration; skipping registration")
-            except Exception as exc:  # pragma: no cover - optional dependency
-                logger.warning("Storage MCP server unavailable: %s", exc)
-            else:
-                logger.debug(
-                    "Storage MCP client initialised; catalog size hint=%s",
-                    len(getattr(storage_client, "available_tools", []) or []),
-                )
-                client_entries.append(("storage", storage_client))
-        else:
-            logger.debug(
-                "Storage MCP client import resolved to None; skipping registration (error=%s)",
-                _storage_mcp_import_error,
-            )
-
-        if not client_entries or MCPHost is None:
-            logger.error("No MCP clients available; tool execution disabled")
+        # Initialize MCPHost using declarative configuration
+        try:
+            self._mcp_client = await MCPHost.from_config()
+            self._registered_client_labels = self._mcp_client.get_client_labels()
+        except Exception as exc:
+            logger.error("MCPHost.from_config() failed: %s", exc)
             self._mcp_client = None
             self._registered_client_labels = []
             self._tool_source_map = {}
             return False
 
-        self._mcp_client = MCPHost(client_entries)
-        self._registered_client_labels = [label for label, _ in client_entries]
-        logger.info(
-            "MCP clients registered: %s",
-            ", ".join(label for label, _ in client_entries),
-        )
+        if not self._mcp_client:
+            logger.error("No MCP clients available; tool execution disabled")
+            return False
+
         await self._refresh_tool_definitions()
         if self._tool_definitions:
-            logger.info("✅ Loaded %d MCP tools", len(self._tool_definitions))
+            logger.info("✅ Loaded %d MCP tools via from_config()", len(self._tool_definitions))
             return True
 
         logger.warning("MCP clients initialised but no tools were registered")

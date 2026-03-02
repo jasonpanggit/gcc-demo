@@ -26,6 +26,57 @@ ToolDefinition = Dict[str, Any]
 ClientEntry = Tuple[str, Any]
 
 
+async def _get_client_for_label(label: str) -> Any:
+    """Return an initialised MCP client instance for *label*, or raise.
+
+    All imports are lazy (inside this function) so that importing
+    ``mcp_host`` does not trigger heavy client-module loading.  Each
+    factory is only imported when ``MCPHost.from_config()`` actually
+    needs that server.
+
+    Raises
+    ------
+    ValueError
+        If *label* has no registered factory.
+    Exception
+        Any exception raised by the underlying factory function is
+        propagated to the caller; ``from_config()`` wraps the call in
+        a try/except and logs a WARNING before skipping the server.
+    """
+    if label == "azure":
+        from .azure_mcp_client import get_azure_mcp_client
+        return await get_azure_mcp_client()
+    elif label == "sre":
+        from .sre_mcp_client import get_sre_mcp_client
+        return await get_sre_mcp_client()
+    elif label == "network":
+        from .network_mcp_client import get_network_mcp_client
+        return await get_network_mcp_client()
+    elif label == "compute":
+        from .compute_mcp_client import get_compute_mcp_client
+        return await get_compute_mcp_client()
+    elif label == "storage":
+        from .storage_mcp_client import get_storage_mcp_client
+        return await get_storage_mcp_client()
+    elif label == "monitor":
+        from .monitor_mcp_client import get_workbook_mcp_client
+        return await get_workbook_mcp_client()
+    elif label == "patch":
+        from .patch_mcp_client import get_patch_mcp_client
+        return await get_patch_mcp_client()
+    elif label == "os_eol":
+        from .os_eol_mcp_client import get_os_eol_mcp_client
+        return await get_os_eol_mcp_client()
+    elif label == "inventory":
+        from .inventory_mcp_client import get_inventory_mcp_client
+        return await get_inventory_mcp_client()
+    elif label == "azure_cli_executor":
+        from .azure_cli_executor_client import get_cli_executor_client
+        return await get_cli_executor_client()
+    else:
+        raise ValueError(f"No factory registered for label '{label}'")
+
+
 class MCPHost:
     """
     MCP Host that coordinates multiple MCP clients.
@@ -77,6 +128,65 @@ class MCPHost:
         self._tool_map: Dict[str, Tuple[Any, str]] = {}
         self._tool_sources: Dict[str, str] = {}
         self._build_catalog()
+
+    @classmethod
+    async def from_config(
+        cls,
+        config_path: Optional[str] = None,
+    ) -> "MCPHost":
+        """Create a fully initialised MCPHost from ``mcp_servers.yaml``.
+
+        Reads the enabled server list from the YAML config (via
+        :class:`~utils.mcp_config_loader.MCPConfigLoader`), calls each
+        server's factory function, and returns a registered
+        :class:`MCPHost` instance.
+
+        **Graceful degradation:** If a factory raises, that server is
+        skipped (WARNING log) and initialisation continues.  Unknown
+        labels (present in YAML but not in the factory mapping) are also
+        skipped with a WARNING.
+
+        Parameters
+        ----------
+        config_path:
+            Optional path to ``mcp_servers.yaml``.  Defaults to
+            ``<eol-root>/config/mcp_servers.yaml``.
+
+        Returns
+        -------
+        MCPHost
+            Initialised host with all successfully created clients
+            registered in the tool registry.
+        """
+        # Lazy import to avoid circular-import risk at module load time.
+        from .mcp_config_loader import MCPConfigLoader
+
+        loader = MCPConfigLoader(config_path)
+        server_configs = loader.get_enabled_servers()
+        n = len(server_configs)
+        logger.info("Initializing MCPHost from config: %d enabled servers", n)
+
+        clients: List[ClientEntry] = []
+        for server_cfg in server_configs:
+            label = server_cfg.label
+            try:
+                client = await _get_client_for_label(label)
+                clients.append((label, client))
+            except ValueError as exc:
+                # Label not in factory mapping
+                logger.warning("Skipping server '%s': %s", label, exc)
+            except Exception as exc:  # pylint: disable=broad-except
+                # Factory raised — log and continue (graceful degradation)
+                logger.warning("Skipping server '%s': %s", label, exc)
+
+        m = len(clients)
+        logger.info(
+            "MCPHost.from_config() complete: %d/%d servers initialized", m, n
+        )
+
+        host = cls(clients)
+        await host.ensure_registered()
+        return host
 
     def _build_catalog(self) -> None:
         """
