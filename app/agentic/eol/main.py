@@ -554,6 +554,16 @@ async def _run_startup_tasks():
             logger.warning(f"⚠️ Azure MCP Server not available: {e}")
             logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
 
+        # Pre-initialize MCPHost from declarative config (warm-up — non-blocking)
+        try:
+            logger.info("🔧 Pre-initializing MCPHost from declarative config...")
+            from utils.mcp_host import MCPHost as _MCPHost
+            await _MCPHost.from_config()
+            logger.info("✅ MCPHost pre-initialized from config/mcp_servers.yaml")
+        except Exception as e:
+            logger.warning("⚠️ MCPHost pre-initialization skipped: %s", e)
+            logger.info("   MCPHost will initialize lazily on first request")
+
         # Initialize SRE Orchestrator System (agents + tools)
         try:
             logger.info("🚀 Initializing SRE Orchestrator System...")
