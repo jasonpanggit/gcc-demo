@@ -408,11 +408,11 @@ export class AgentCommunicationHandler {
      */
     _createFlowDiagram() {
         const agentColors = {
-            'User': '#e3f2fd',
-            'Orchestrator': '#f3e5f5',
-            'Microsoft EOL': '#e8f5e8',
-            'EndOfLife': '#fff3e0',
-            'Generic': '#fce4ec'
+            'User': 'var(--flow-node-user-bg)',
+            'Orchestrator': 'var(--flow-node-orchestrator-bg)',
+            'Microsoft EOL': 'var(--flow-node-ms-eol-bg)',
+            'EndOfLife': 'var(--flow-node-endoflife-bg)',
+            'Generic': 'var(--flow-node-generic-bg)'
         };
 
         let flowHtml = '<div class="flow-diagram">';
@@ -422,7 +422,7 @@ export class AgentCommunicationHandler {
         }
 
         this.agentFlow.forEach((agent, index) => {
-            const color = agentColors[agent] || '#f5f5f5';
+            const color = agentColors[agent] || 'var(--flow-node-default-bg)';
             const isLast = index === this.agentFlow.length - 1;
 
             flowHtml += `
@@ -439,7 +439,7 @@ export class AgentCommunicationHandler {
         if (this.taskCompleted) {
             flowHtml += `
                 <div class="flow-arrow completion">↓</div>
-                <div class="flow-node completion" style="background-color: #c8e6c9">
+                <div class="flow-node completion" style="background-color: var(--flow-node-completion-bg)">
                     <div class="node-content">✅ Completed</div>
                 </div>
             `;

@@ -7,73 +7,6 @@
 <!-- DataTables via CDN -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.min.css">
-<style>
-html:not(.dark-mode) #status-bar #badge-total {
-    background: var(--gray-200) !important;
-    border: 1px solid var(--gray-300) !important;
-    color: var(--gray-800) !important;
-}
-
-html.dark-mode #status-bar .badge.bg-secondary,
-html.dark-mode #status-bar .badge.bg-success,
-html.dark-mode #status-bar .badge.bg-primary {
-    color: #ffffff !important;
-}
-
-html.dark-mode .dataTables_wrapper,
-html.dark-mode .dataTables_wrapper .dataTables_length,
-html.dark-mode .dataTables_wrapper .dataTables_filter,
-html.dark-mode .dataTables_wrapper .dataTables_info,
-html.dark-mode .dataTables_wrapper .dataTables_paginate {
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode .dataTables_wrapper .dataTables_filter label,
-html.dark-mode .dataTables_wrapper .dataTables_length label,
-html.dark-mode .filter-card .form-label {
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode #resource-table_wrapper .dataTables_filter,
-html.dark-mode #resource-table_wrapper .dataTables_filter label,
-html.dark-mode #resource-table_wrapper .dataTables_length,
-html.dark-mode #resource-table_wrapper .dataTables_length label {
-    color: var(--text-primary) !important;
-}
-
-html.dark-mode .dataTables_wrapper input,
-html.dark-mode .dataTables_wrapper select,
-html.dark-mode .dataTables_wrapper .form-control,
-html.dark-mode .dataTables_wrapper .form-select {
-    background: var(--gray-700) !important;
-    border-color: var(--gray-600) !important;
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode .dataTables_wrapper .paginate_button .page-link,
-html.dark-mode .dataTables_wrapper .page-item .page-link {
-    background: var(--gray-700) !important;
-    border-color: var(--gray-600) !important;
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode .filter-card .input-group-text {
-    background: var(--gray-700) !important;
-    border-color: var(--gray-600) !important;
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode .filter-card #search-bar {
-    background: var(--gray-700) !important;
-    border-color: var(--gray-600) !important;
-    color: var(--gray-100) !important;
-}
-
-html.dark-mode .filter-card #search-bar::placeholder {
-    color: var(--gray-300) !important;
-    opacity: 1;
-}
-</style>
 {% endblock %}
 
 {% block content %}
@@ -300,7 +233,7 @@ html.dark-mode .filter-card #search-bar::placeholder {
                         <div class="row mt-2">
                             <div class="col-12">
                                 <div class="input-group input-group-sm">
-                                    <span class="input-group-text"><i class="bi bi-funnel"></i></span>
+                                    <span class="input-group-text quick-search-addon"><i class="bi bi-funnel quick-search-icon"></i></span>
                                     <input type="text" id="search-bar" class="form-control form-control-sm"
                                            placeholder="Quick search across all columns..." oninput="quickSearch(this.value)">
                                 </div>
@@ -343,7 +276,7 @@ html.dark-mode .filter-card #search-bar::placeholder {
             <div id="details-panel" class="details-panel">
                 <div class="details-header">
                     <h6 class="mb-0" id="details-title">Resource Details</h6>
-                    <button class="btn btn-sm btn-outline-light" onclick="closeDetailsPanel()">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="closeDetailsPanel()" title="Close details" aria-label="Close details">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
@@ -393,15 +326,15 @@ html.dark-mode .filter-card #search-bar::placeholder {
         <div class="row mt-3">
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header bg-dark text-white d-flex align-items-center py-2">
+                    <div class="card-header monitoring-dashboard-header d-flex align-items-center py-2">
                         <i class="bi bi-speedometer2 me-2"></i>
                         <strong>Monitoring Dashboard</strong>
-                        <div class="ms-auto d-flex align-items-center gap-2">
-                            <small class="text-light">Updated: <span id="dash-last-updated">--</span></small>
-                            <button class="btn btn-sm btn-outline-light py-0" onclick="forceRefreshDashboard()" title="Refresh now">
+                        <div class="ms-auto d-flex align-items-center gap-2 monitoring-dashboard-controls">
+                            <small class="text-body-secondary">Updated: <span id="dash-last-updated">--</span></small>
+                            <button class="btn btn-sm btn-outline-secondary py-0" onclick="forceRefreshDashboard()" title="Refresh now">
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-light py-0" onclick="toggleDashboardPolling()">
+                            <button class="btn btn-sm btn-outline-secondary py-0" onclick="toggleDashboardPolling()">
                                 <span id="dash-poll-btn-text">Stop Auto-Refresh</span>
                             </button>
                         </div>
@@ -539,7 +472,7 @@ html.dark-mode .filter-card #search-bar::placeholder {
             <div class="modal-content">
                 <div class="modal-header py-2">
                     <h6 class="modal-title">Refresh Inventory</h6>
-                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal" title="Close" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-2">

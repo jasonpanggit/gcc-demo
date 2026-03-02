@@ -3,6 +3,7 @@ EOL Multi-Agent Application - Optimized Main Module
 Provides REST API endpoints for software inventory and EOL analysis
 """
 import asyncio
+import json
 import os
 import sys
 import time
@@ -13,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ from utils.endpoint_decorators import (
     readonly_endpoint,
     write_endpoint
 )
+from utils.local_mock_api import build_mock_response, mock_mode_enabled
 
 # Initialize logger first
 logger = get_logger(__name__, config.app.log_level)
@@ -78,6 +80,69 @@ app.add_middleware(RequestTrackingMiddleware)
 # Attach authentication middleware (controls via AUTH_MODE env var)
 from utils.auth import AuthMiddleware
 app.add_middleware(AuthMiddleware)
+
+
+@app.middleware("http")
+async def local_mock_api_fallback_middleware(request: Request, call_next):
+    """Serve deterministic local mock payloads in mock mode.
+
+    In local dev, many cloud-backed handlers can take 30-60s before failing.
+    For endpoints with known mock payloads, short-circuit immediately.
+    """
+    use_mock = mock_mode_enabled()
+    is_mockable_request = request.url.path.startswith("/api/") or request.url.path == "/healthz/inventory"
+
+    if not use_mock or not is_mockable_request:
+        return await call_next(request)
+
+    eager_mock_payload = build_mock_response(
+        request.url.path,
+        request.method,
+        request.url.query,
+    )
+    if eager_mock_payload is not None:
+        return JSONResponse(status_code=200, content=eager_mock_payload)
+
+    try:
+        response = await call_next(request)
+    except Exception:  # pylint: disable=broad-except
+        mock_payload = build_mock_response(
+            request.url.path,
+            request.method,
+            request.url.query,
+        )
+        if mock_payload is not None:
+            return JSONResponse(status_code=200, content=mock_payload)
+        raise
+
+    if response.status_code >= 400:
+        mock_payload = build_mock_response(
+            request.url.path,
+            request.method,
+            request.url.query,
+        )
+        if mock_payload is not None:
+            return JSONResponse(status_code=200, content=mock_payload)
+
+    # Some handlers return HTTP 200 with {"success": false} in degraded mode.
+    content_type = response.headers.get("content-type", "")
+    if "application/json" in content_type and response.status_code < 400:
+        body = getattr(response, "body", b"") or b""
+        if body:
+            try:
+                payload = json.loads(body)
+                if isinstance(payload, dict) and payload.get("success") is False:
+                    mock_payload = build_mock_response(
+                        request.url.path,
+                        request.method,
+                        request.url.query,
+                    )
+                    if mock_payload is not None:
+                        return JSONResponse(status_code=200, content=mock_payload)
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+    return response
 
 # Expose metrics collector on app.state for use across modules
 app.state.metrics = metrics_collector

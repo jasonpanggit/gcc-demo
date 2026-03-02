@@ -519,31 +519,6 @@
         }
     }
 
-    /* White outline button styling for hero sections */
-    .btn-outline-light {
-        background: transparent;
-        color: white;
-        border: 2px solid white !important;
-        padding: var(--spacing-md) var(--spacing-xl);
-        font-weight: 600;
-        border-radius: var(--radius-lg);
-        text-decoration: none;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-        min-width: 160px;
-        justify-content: center;
-    }
-
-    .btn-outline-light:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: white;
-        border: 2px solid white !important;
-        transform: translateY(-2px);
-        text-decoration: none;
-    }
-
     /* Critical: Prevent overlap on all desktop sizes */
     @media (min-width: 768px) {
         .pagination-controls {
@@ -1440,16 +1415,16 @@
 <!-- Import modular JavaScript -->
 <script type="module">
     // Import state management
-    import { state, saveViewState, tryRestoreViewState, updateCurrentPage, setCurrentInventory, setFilteredInventory } from '/static/js/inventory-state.js?v=2';
+    import { state, saveViewState, tryRestoreViewState, updateCurrentPage, setCurrentInventory, setFilteredInventory } from '/static/js/inventory-state.js';
     
     // Import display functions
-    import { displayInventory, displayInventoryWithPagination, goToPage, previousPage, nextPage } from '/static/js/inventory-display.js?v=4';
+    import { displayInventory, displayInventoryWithPagination, goToPage, previousPage, nextPage } from '/static/js/inventory-display.js';
     
     // Import Azure helpers
-    import { getAzurePortalLink, getComputerTypeBadge, escapeHtml } from '/static/js/azure-helpers.js?v=6';
+    import { getAzurePortalLink, getComputerTypeBadge, escapeHtml } from '/static/js/azure-helpers.js';
     
     // Import filter and sort functions
-    import { initializeSorting, filterInventory, applyFilters, clearAllFilters, changePageSize, sortTable, resetSort } from '/static/js/inventory-filters.js?v=2';
+    import { initializeSorting, filterInventory, applyFilters, clearAllFilters, changePageSize, sortTable, resetSort } from '/static/js/inventory-filters.js';
 
     // Template variables (injected by Jinja2)
     const SUBSCRIPTION_ID = '{{ subscription_id }}' || '';

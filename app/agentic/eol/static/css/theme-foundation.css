@@ -84,6 +84,24 @@ html body h6 {
     color: var(--text-primary);
 }
 
+/* Shared JS-rendered flow node tokens */
+html body {
+    --flow-node-user-bg: #e3f2fd;
+    --flow-node-orchestrator-bg: #f3e5f5;
+    --flow-node-ms-eol-bg: #e8f5e8;
+    --flow-node-endoflife-bg: #fff3e0;
+    --flow-node-generic-bg: #fce4ec;
+    --flow-node-default-bg: #f5f5f5;
+    --flow-node-completion-bg: #c8e6c9;
+}
+
+/* Central Bootstrap badge normalization to avoid utility class conflicts */
+html body .badge.bg-secondary {
+    background: var(--gray-700) !important;
+    border: 1px solid var(--gray-600) !important;
+    color: #ffffff !important;
+}
+
 /* Dark mode final normalization */
 html.dark-mode body .card,
 html.dark-mode body .modern-card,
@@ -99,6 +117,16 @@ html.dark-mode body [class*=" card-"] {
     background: var(--bg-secondary) !important;
     border-color: var(--border-primary) !important;
     color: var(--text-primary) !important;
+}
+
+html.dark-mode body {
+    --flow-node-user-bg: rgba(59, 130, 246, 0.2);
+    --flow-node-orchestrator-bg: rgba(168, 85, 247, 0.2);
+    --flow-node-ms-eol-bg: rgba(34, 197, 94, 0.2);
+    --flow-node-endoflife-bg: rgba(251, 146, 60, 0.2);
+    --flow-node-generic-bg: rgba(244, 114, 182, 0.2);
+    --flow-node-default-bg: var(--bg-tertiary);
+    --flow-node-completion-bg: rgba(34, 197, 94, 0.22);
 }
 
 html.dark-mode body .card-header,
@@ -136,6 +164,55 @@ html.dark-mode body input {
     color: var(--text-primary) !important;
 }
 
+/* Resource inventory quick-search explicit dark-mode fix */
+html.dark-mode body .filter-card .quick-search-addon,
+html.dark-mode body .filter-card .quick-search-icon,
+html.dark-mode body .filter-card #search-bar {
+    background: var(--bg-tertiary, #1f2937) !important;
+    border-color: var(--border-primary, #374151) !important;
+    color: var(--text-primary, #f3f4f6) !important;
+}
+
+html.dark-mode body .filter-card #search-bar::placeholder {
+    color: var(--text-muted, #9ca3af) !important;
+    opacity: 1;
+}
+
+/* Resource inventory DataTables toolbar search: keep aligned with quick-search in dark mode */
+html.dark-mode body #resource-table_wrapper .dataTables_filter,
+body.dark-mode #resource-table_wrapper .dataTables_filter,
+html[data-theme="dark"] body #resource-table_wrapper .dataTables_filter,
+body[data-theme="dark"] #resource-table_wrapper .dataTables_filter,
+html.dark-mode body #resource-table_wrapper .dataTables_filter label,
+body.dark-mode #resource-table_wrapper .dataTables_filter label,
+html[data-theme="dark"] body #resource-table_wrapper .dataTables_filter label,
+body[data-theme="dark"] #resource-table_wrapper .dataTables_filter label {
+    color: var(--text-primary, #f3f4f6) !important;
+}
+
+html.dark-mode body #resource-table_wrapper .dataTables_filter input[type="search"],
+body.dark-mode #resource-table_wrapper .dataTables_filter input[type="search"],
+html[data-theme="dark"] body #resource-table_wrapper .dataTables_filter input[type="search"],
+body[data-theme="dark"] #resource-table_wrapper .dataTables_filter input[type="search"] {
+    background: var(--bg-tertiary, #1f2937) !important;
+    border-color: var(--border-primary, #374151) !important;
+    color: var(--text-primary, #f3f4f6) !important;
+    -webkit-text-fill-color: var(--text-primary, #f3f4f6) !important;
+}
+
+/* Resource inventory type badges: increase icon/text contrast in dark mode */
+html.dark-mode body .resource-type-badge {
+    color: var(--text-primary, #f3f4f6) !important;
+    background: var(--bg-tertiary, #1f2937) !important;
+    border-color: var(--border-primary, #374151) !important;
+}
+
+html.dark-mode body .resource-type-badge i,
+html.dark-mode body .resource-type-badge .bi {
+    color: inherit !important;
+    opacity: 1 !important;
+}
+
 html.dark-mode body .bg-light,
 html.dark-mode body .alert-light,
 html.dark-mode body .badge.bg-light {
@@ -155,6 +232,12 @@ html.dark-mode body .bg-info.text-dark,
 html.dark-mode body .bg-success.text-dark,
 html.dark-mode body .bg-light.text-dark {
     color: var(--gray-900) !important;
+}
+
+html.dark-mode body .badge.bg-secondary {
+    background: var(--bg-tertiary) !important;
+    border: 1px solid var(--border-primary) !important;
+    color: #ffffff !important;
 }
 
 html.dark-mode body .alert-info {
@@ -238,4 +321,294 @@ html body [class*="-header"]:not(.hero-section):not(.hero-title):not(.hero-subti
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
+}
+
+/* ============================================================
+   CENTRALIZED BOOTSTRAP COMPONENT NORMALIZATION
+   Prevent per-page theme drift for common UI components.
+   ============================================================ */
+
+/* Badges */
+html body .badge.bg-primary,
+html body .badge.bg-dark {
+    color: #ffffff !important;
+}
+
+html body .badge.bg-success,
+html body .badge.bg-danger {
+    color: #ffffff !important;
+}
+
+html body .badge.bg-warning,
+html body .badge.bg-info,
+html body .badge.text-dark {
+    color: var(--gray-900) !important;
+}
+
+/* Buttons */
+html body .btn-primary,
+html body .btn-secondary,
+html body .btn-success,
+html body .btn-danger,
+html body .btn-dark,
+html body .btn-info {
+    color: #ffffff !important;
+}
+
+html body .btn-warning,
+html body .btn-light {
+    color: var(--gray-900) !important;
+}
+
+html body .btn-outline-light {
+    background: transparent !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .btn-outline-light:hover,
+html body .btn-outline-light:focus,
+html body .btn-outline-light:active {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Alerts */
+html body .alert {
+    border-color: var(--border-primary) !important;
+}
+
+html body .alert-primary,
+html body .alert-secondary,
+html body .alert-light,
+html body .alert-dark {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Forms */
+html body .form-control::placeholder,
+html body .form-select::placeholder,
+html body textarea::placeholder,
+html body input::placeholder {
+    color: var(--text-muted) !important;
+    opacity: 1;
+}
+
+html body .form-check-input {
+    background-color: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html body .form-check-input:checked {
+    background-color: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+}
+
+html body .input-group-text i,
+html body .input-group-text .bi,
+html body .input-group-text .fas,
+html body .input-group-text .fa {
+    color: inherit !important;
+    opacity: 1 !important;
+}
+
+html body .dataTables_wrapper .dataTables_filter,
+html body .dataTables_wrapper .dataTables_filter label {
+    color: var(--text-primary) !important;
+}
+
+html body .dataTables_wrapper .dataTables_filter input[type="search"] {
+    background: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+html body .card-header .text-light,
+html body .modal-header .text-light,
+html body .offcanvas-header .text-light,
+html body .toast-header .text-light {
+    color: var(--text-primary) !important;
+}
+
+/* Tables */
+html body .table-light,
+html body .table-light td,
+html body .table-light th,
+html body .table-dark,
+html body .table-dark td,
+html body .table-dark th {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+/* Navigation / list */
+html body .dropdown-menu,
+html body .dropdown-item,
+html body .list-group-item,
+html body .nav-tabs .nav-link,
+html body .nav-pills .nav-link,
+html body .page-link {
+    color: var(--text-primary) !important;
+}
+
+html body .dropdown-item:hover,
+html body .list-group-item:hover,
+html body .nav-tabs .nav-link:hover,
+html body .nav-pills .nav-link:hover,
+html body .page-link:hover {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Overlay components */
+html body .modal-content,
+html body .popover,
+html body .popover-header,
+html body .popover-body,
+html body .tooltip-inner {
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Dark mode normalization */
+html.dark-mode body .badge.bg-primary,
+html.dark-mode body .badge.bg-secondary,
+html.dark-mode body .badge.bg-success,
+html.dark-mode body .badge.bg-danger,
+html.dark-mode body .badge.bg-dark {
+    color: #ffffff !important;
+}
+
+html.dark-mode body .badge.bg-warning,
+html.dark-mode body .badge.bg-info,
+html.dark-mode body .badge.text-dark {
+    color: var(--gray-900) !important;
+}
+
+html.dark-mode body .btn-primary,
+html.dark-mode body .btn-secondary,
+html.dark-mode body .btn-success,
+html.dark-mode body .btn-danger,
+html.dark-mode body .btn-dark,
+html.dark-mode body .btn-info {
+    color: #ffffff !important;
+}
+
+html.dark-mode body .btn-warning,
+html.dark-mode body .btn-light {
+    color: var(--gray-900) !important;
+}
+
+html.dark-mode body .btn-outline-light,
+body.dark-mode .btn-outline-light,
+html[data-theme="dark"] body .btn-outline-light,
+body[data-theme="dark"] .btn-outline-light {
+    background: transparent !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .btn-outline-light:hover,
+html.dark-mode body .btn-outline-light:focus,
+html.dark-mode body .btn-outline-light:active,
+body.dark-mode .btn-outline-light:hover,
+body.dark-mode .btn-outline-light:focus,
+body.dark-mode .btn-outline-light:active,
+html[data-theme="dark"] body .btn-outline-light:hover,
+html[data-theme="dark"] body .btn-outline-light:focus,
+html[data-theme="dark"] body .btn-outline-light:active,
+body[data-theme="dark"] .btn-outline-light:hover,
+body[data-theme="dark"] .btn-outline-light:focus,
+body[data-theme="dark"] .btn-outline-light:active {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .alert-primary,
+html.dark-mode body .alert-secondary,
+html.dark-mode body .alert-light,
+html.dark-mode body .alert-dark {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .form-control::placeholder,
+html.dark-mode body .form-select::placeholder,
+html.dark-mode body textarea::placeholder,
+html.dark-mode body input::placeholder {
+    color: var(--text-muted) !important;
+    opacity: 1;
+}
+
+html.dark-mode body .form-check-input {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode body .dataTables_wrapper .dataTables_filter,
+html.dark-mode body .dataTables_wrapper .dataTables_filter label,
+body.dark-mode .dataTables_wrapper .dataTables_filter,
+body.dark-mode .dataTables_wrapper .dataTables_filter label,
+html[data-theme="dark"] body .dataTables_wrapper .dataTables_filter,
+html[data-theme="dark"] body .dataTables_wrapper .dataTables_filter label,
+body[data-theme="dark"] .dataTables_wrapper .dataTables_filter,
+body[data-theme="dark"] .dataTables_wrapper .dataTables_filter label {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .dataTables_wrapper .dataTables_filter input[type="search"],
+body.dark-mode .dataTables_wrapper .dataTables_filter input[type="search"],
+html[data-theme="dark"] body .dataTables_wrapper .dataTables_filter input[type="search"],
+body[data-theme="dark"] .dataTables_wrapper .dataTables_filter input[type="search"] {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+html.dark-mode body .table-light,
+html.dark-mode body .table-light td,
+html.dark-mode body .table-light th,
+html.dark-mode body .table-dark,
+html.dark-mode body .table-dark td,
+html.dark-mode body .table-dark th {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode body .dropdown-menu,
+html.dark-mode body .dropdown-item,
+html.dark-mode body .list-group-item,
+html.dark-mode body .nav-tabs .nav-link,
+html.dark-mode body .nav-pills .nav-link,
+html.dark-mode body .page-link {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
+}
+
+html.dark-mode body .dropdown-item:hover,
+html.dark-mode body .list-group-item:hover,
+html.dark-mode body .nav-tabs .nav-link:hover,
+html.dark-mode body .nav-pills .nav-link:hover,
+html.dark-mode body .page-link:hover {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .modal-content,
+html.dark-mode body .popover,
+html.dark-mode body .popover-header,
+html.dark-mode body .popover-body,
+html.dark-mode body .tooltip-inner {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
 }

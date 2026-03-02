@@ -152,10 +152,10 @@ function renderInventoryRow(item, itemId) {
             </td>
             <td>
                 ${isSearchable ?
-                    `<div class="software-name-clickable" 
+                                        `<div class="software-name-clickable text-primary" 
                           onclick="handleManualEOLCheck('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}')"
                           title="Click to search EOL information for ${escapeHtml(item.name)}${item.version ? ' v' + escapeHtml(item.version) : ''}"
-                          style="cursor: pointer; color: #0d6efd;">
+                                                    style="cursor: pointer;">
                         <strong>${escapeHtml(item.name || 'Unknown')}</strong>
                         <small class="text-muted d-block mt-1">
                             <i class="fas fa-search me-1 icon-sm"></i>
@@ -167,7 +167,7 @@ function renderInventoryRow(item, itemId) {
                 ${item.name && item.name.includes('(Arc-enabled)') ? '<i class="fas fa-cloud ms-1 text-success" title="Arc-enabled OS"></i>' : ''}
             </td>
             <td>
-                <span class="badge bg-secondary text-light">${escapeHtml(item.version || 'N/A')}</span>
+                <span class="badge bg-secondary">${escapeHtml(item.version || 'N/A')}</span>
             </td>
             <td>${escapeHtml(item.publisher || 'Unknown')}</td>
             <td>

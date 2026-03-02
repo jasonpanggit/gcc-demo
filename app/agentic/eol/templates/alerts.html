@@ -78,6 +78,14 @@
         font-style: italic;
     }
 
+    .unit-select {
+        max-width: 100px;
+    }
+
+    .initially-hidden {
+        display: none;
+    }
+
     .alert-preview-panel {
         background: var(--bg-primary);
         border-radius: var(--radius-lg);
@@ -212,6 +220,10 @@
         background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
     }
 
+    .summary-icon.neutral {
+        background: linear-gradient(135deg, var(--gray-500), var(--gray-700));
+    }
+
     .summary-value {
         font-size: var(--font-size-2xl);
         font-weight: 700;
@@ -263,6 +275,18 @@
         transform: translateY(-2px);
         box-shadow: var(--shadow-md);
         color: white;
+    }
+
+    .btn-transient-success {
+        background: linear-gradient(135deg, var(--success-color), #047857) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+    }
+
+    .btn-transient-error {
+        background: linear-gradient(135deg, var(--danger-color), #b91c1c) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
     }
 
     .no-data-message {
@@ -629,7 +653,7 @@
             <div class="summary-label">Info Alerts</div>
         </div>
         <div class="summary-card">
-            <div class="summary-icon" style="background: linear-gradient(135deg, #6b7280, #4b5563);">
+            <div class="summary-icon neutral">
                 <i class="fas fa-desktop"></i>
             </div>
             <div class="summary-value" id="total-os">—</div>
@@ -681,7 +705,7 @@
                         <div class="input-group">
                             <input type="number" class="form-control" id="critical-period" value="3" min="1" max="60"
                                 onchange="updatePreview()">
-                            <select class="form-select" id="critical-unit" style="max-width: 100px;"
+                            <select class="form-select unit-select" id="critical-unit"
                                 onchange="updatePreview()">
                                 <option value="months" selected>Months</option>
                                 <option value="years">Years</option>
@@ -696,7 +720,7 @@
                         <div class="input-group">
                             <input type="number" class="form-control" id="warning-period" value="6" min="1" max="60"
                                 onchange="updatePreview()">
-                            <select class="form-select" id="warning-unit" style="max-width: 100px;"
+                            <select class="form-select unit-select" id="warning-unit"
                                 onchange="updatePreview()">
                                 <option value="months" selected>Months</option>
                                 <option value="years">Years</option>
@@ -711,7 +735,7 @@
                         <div class="input-group">
                             <input type="number" class="form-control" id="info-period" value="12" min="1" max="60"
                                 onchange="updatePreview()">
-                            <select class="form-select" id="info-unit" style="max-width: 100px;"
+                            <select class="form-select unit-select" id="info-unit"
                                 onchange="updatePreview()">
                                 <option value="months" selected>Months</option>
                                 <option value="years">Years</option>
@@ -783,7 +807,7 @@
                     </div>
                 </div>
 
-                <div id="smtp-config" style="display: none;">
+                <div id="smtp-config" class="initially-hidden">
                     <!-- Provider Presets -->
                     <div class="config-row">
                         <div class="config-group">
@@ -835,11 +859,11 @@
                     </div>
 
                     <!-- Gmail App Password Instructions -->
-                    <div id="gmail-instructions" class="alert alert-info" style="display: none;">
+                    <div id="gmail-instructions" class="alert alert-info initially-hidden">
                         <h6><i class="fas fa-info-circle me-2"></i>Gmail Setup Instructions</h6>
                         <ol class="mb-0">
                             <li>Enable 2-factor authentication on your Google account</li>
-                            <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App
+                                <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Google App
                                     Passwords</a></li>
                             <li>Generate an App Password for "Mail"</li>
                             <li>Use that 16-character password here (not your regular password)</li>
@@ -937,10 +961,10 @@
                 <button class="btn btn-preview" onclick="updatePreview()">
                     <i class="fas fa-eye me-2"></i>Update Preview
                 </button>
-                <button class="btn btn-secondary" onclick="reloadAlertConfiguration()">
+                <button id="reload-config-btn" class="btn btn-secondary" onclick="reloadAlertConfiguration()">
                     <i class="fas fa-sync-alt me-2"></i>Reload from DB
                 </button>
-                <button class="btn btn-create-alert" onclick="saveAlertConfiguration()">
+                <button id="save-config-btn" class="btn btn-create-alert" onclick="saveAlertConfiguration()">
                     <i class="fas fa-save me-2"></i>Save Configuration
                 </button>
             </div>
@@ -967,7 +991,7 @@
             </div>
 
             <!-- Preview Table -->
-            <div id="preview-content" style="display: none;">
+            <div id="preview-content" class="initially-hidden">
                 <div class="table-responsive">
                     <table class="os-preview-table">
                         <thead>
@@ -988,7 +1012,7 @@
             </div>
 
             <!-- No Data Message -->
-            <div id="preview-no-data" class="no-data-message" style="display: none;">
+            <div id="preview-no-data" class="no-data-message initially-hidden">
                 <i class="fas fa-info-circle fa-2x mb-3 text-muted"></i>
                 <h5 class="text-muted">No OS Data Available</h5>
                 <p class="text-muted">Load OS inventory data to see alert preview</p>
@@ -1134,7 +1158,7 @@
                 </div>
 
                 <!-- Loading Indicator -->
-                <div id="notification-loading" class="text-center py-4" style="display: none;">
+                <div id="notification-loading" class="text-center py-4 initially-hidden">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Loading notifications...</span>
                     </div>
@@ -1142,7 +1166,7 @@
                 </div>
 
                 <!-- No Notifications Message -->
-                <div id="notification-no-data" class="no-data-message" style="display: none;">
+                <div id="notification-no-data" class="no-data-message initially-hidden">
                     <i class="fas fa-bell-slash fa-2x mb-3 text-muted"></i>
                     <h5 class="text-muted">No Notifications Found</h5>
                     <p class="text-muted">No notification history available with current filters</p>
@@ -1871,26 +1895,28 @@
     }
 
     function showSaveSuccess() {
-        const btn = document.querySelector('.btn-create-alert');
+        const btn = document.getElementById('save-config-btn');
+        if (!btn) return;
         const originalText = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-check me-2"></i>Saved!';
-        btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+        btn.classList.add('btn-transient-success');
 
         setTimeout(() => {
             btn.innerHTML = originalText;
-            btn.style.background = '';
+            btn.classList.remove('btn-transient-success');
         }, 2000);
     }
 
     function showSaveError(message) {
-        const btn = document.querySelector('.btn-create-alert');
+        const btn = document.getElementById('save-config-btn');
+        if (!btn) return;
         const originalText = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Error!';
-        btn.style.background = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+        btn.classList.add('btn-transient-error');
 
         setTimeout(() => {
             btn.innerHTML = originalText;
-            btn.style.background = '';
+            btn.classList.remove('btn-transient-error');
         }, 3000);
 
         alert(message);
@@ -1899,7 +1925,8 @@
     async function reloadAlertConfiguration() {
         // console.log('Reloading alert configuration from Cosmos DB...');
 
-        const btn = document.querySelector('.btn-secondary');
+        const btn = document.getElementById('reload-config-btn');
+        if (!btn) return;
         const originalText = btn.innerHTML;
 
         try {
@@ -1967,11 +1994,11 @@
 
                 // Show success feedback
                 btn.innerHTML = '<i class="fas fa-check me-2"></i>Reloaded!';
-                btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+                btn.classList.add('btn-transient-success');
 
                 setTimeout(() => {
                     btn.innerHTML = originalText;
-                    btn.style.background = '';
+                    btn.classList.remove('btn-transient-success');
                     btn.disabled = false;
                 }, 2000);
 
@@ -1987,11 +2014,11 @@
 
             // Show error feedback
             btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Error!';
-            btn.style.background = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+            btn.classList.add('btn-transient-error');
 
             setTimeout(() => {
                 btn.innerHTML = originalText;
-                btn.style.background = '';
+                btn.classList.remove('btn-transient-error');
                 btn.disabled = false;
             }, 3000);
 
@@ -2069,7 +2096,7 @@
                 // Provide Gmail-specific error suggestions
                 if (smtpData.server.includes('gmail.com')) {
                     if (errorMessage.includes('authentication') || errorMessage.includes('password')) {
-                        suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Use an App Password, not your regular password</li><li>Enable 2-factor authentication first</li><li>Generate App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></li></ul>';
+                        suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Use an App Password, not your regular password</li><li>Enable 2-factor authentication first</li><li>Generate App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Google App Passwords</a></li></ul>';
                     } else if (errorMessage.includes('connection') || errorMessage.includes('timeout')) {
                         suggestions = '<br><strong>Gmail Tips:</strong><ul class="mb-0 mt-2"><li>Use port 587 with TLS enabled</li><li>Or use port 465 with SSL enabled</li><li>Check your internet connection</li></ul>';
                     } else if (errorMessage.includes('SSL') || errorMessage.includes('TLS')) {
