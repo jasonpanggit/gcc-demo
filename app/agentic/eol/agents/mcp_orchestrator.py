@@ -23,7 +23,6 @@ try:
         ExecutionPlan,
         OrchestratorResult,
         PlanStep,
-        ToolEntry,
     )
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.cache_stats_manager import cache_stats_manager
@@ -34,7 +33,6 @@ except ModuleNotFoundError:  # pragma: no cover - packaged runtime fallback
         ExecutionPlan,
         OrchestratorResult,
         PlanStep,
-        ToolEntry,
     )
     from utils.logger import get_logger  # type: ignore[import-not-found]
     from utils.cache_stats_manager import cache_stats_manager  # type: ignore[import-not-found]
@@ -840,7 +838,7 @@ FORMATTING:
 
             # Check for legacy_react sentinel — fall back to ReAct loop
             if plan.steps and plan.steps[0].tool_name == "legacy_react":
-                logger.info("🚀 [PIPELINE] Plan requested legacy_react fallback")
+                logger.warning("🚀 [PIPELINE] Plan requested legacy_react fallback")
                 return None
 
             # Stage 4: Execute
@@ -2380,7 +2378,7 @@ FORMATTING:
             if not step_id or not command:
                 continue
             try:
-                logger.info("🔀 CLI fallback: step=%s → %s", step_id, command)
+                logger.warning("🔀 CLI fallback: step=%s → %s", step_id, command)
                 tool_result = await self._invoke_mcp_tool(
                     "azure_cli_execute_command", {"command": command}
                 )

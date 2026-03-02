@@ -296,7 +296,7 @@ class SoftwareInventoryAgent:
         cache_allowed = use_cache and (not full_dataset_requested or cache_has_full)
 
         if cache_allowed:
-            logger.info("🔍 Attempting to retrieve cached software inventory data from Cosmos DB%s", scope_note)
+            logger.debug("🔍 Attempting to retrieve cached software inventory data from Cosmos DB%s", scope_note)
             try:
                 cache_start_time = datetime.utcnow()
                 cache_result = inventory_cache.get_cached_data_with_metadata(

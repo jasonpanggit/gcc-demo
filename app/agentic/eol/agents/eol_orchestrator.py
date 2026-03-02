@@ -509,7 +509,7 @@ class EOLOrchestratorAgent:
         """
         try:
             start_time = time.time()
-            logger.info(f"🔍 Starting OS inventory with EOL analysis (last {days} days)")
+            logger.debug(f"🔍 Starting OS inventory with EOL analysis (last {days} days)")
             
             # Get OS inventory
             os_agent = self.agents["os_inventory"]
