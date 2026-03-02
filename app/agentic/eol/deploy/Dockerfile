@@ -83,6 +83,7 @@ COPY api ./api
 COPY agents ./agents
 COPY utils ./utils
 COPY mcp_servers ./mcp_servers
+COPY config ./config
 COPY static ./static
 COPY templates ./templates
 COPY main.py ./

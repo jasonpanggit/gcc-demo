@@ -216,7 +216,8 @@ class SREOrchestratorAgent(BaseSREAgent):
             self.resource_inventory_client = None
 
         # Build tenant/subscription/resource-inventory grounding for agent context
-        await self._refresh_inventory_grounding()
+        # TODO: Implement _refresh_inventory_grounding method
+        # await self._refresh_inventory_grounding()
 
         if self.hybrid_formatting_enabled:
             if not _HYBRID_CHAT_TYPES_AVAILABLE or create_chat_client is None or build_chat_options is None:
