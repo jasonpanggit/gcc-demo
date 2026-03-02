@@ -1,263 +1,71 @@
-# GCC Demos, Modules & Automation
+# GCC Demo Platform
 
-Opinionated Terraform landing zone for hybrid network + governance scenarios. Pick a demo, deploy with one command, tear it down when done. Modular building blocks let you evolve from a tiny hub to full hybrid (VPN / ExpressRoute / Arc) with optional routing & security layers.
+Terraform-based demo platform for hybrid connectivity, security, Azure Arc, AVD, and the EOL agentic application.
 
-## 🔑 What You Get (At a Glance)
-| Capability | Provided By |
-|------------|-------------|
-| Hub / Spoke VNets, Subnets, Peering | networking module |
-| Hybrid Connectivity (VPN / ER) | gateways module + Windows 2016 VPN script |
-| Azure Firewall + Optional Explicit Proxy + NAT | firewall module |
-| Azure Route Server + NVA (FRR) | networking + compute (linux) |
-| Windows Servers (2016 VPN / 2025 Arc) | compute module + scripts |
-| Azure Arc (Private Link Scope) | arc + identity modules + Arc script |
-| Azure Monitor Private Link Scope | monitoring module |
-| AI-Powered Agentic Applications | agentic module + EOL app |
-| Azure Virtual Desktop (AVD) | avd module |
-| Script & Extension Storage | storage module |
+## What is in this repo
 
-## 🧪 Demo Scenarios (demos/)
-Each demo tfvars file toggles only the components needed for that scenario (cost + deployment time targets included in the interactive menu).
+- Root deployment entry points: `main.tf`, `variables.tf`, `outputs.tf`, `run-demo.sh`
+- Demo configurations: `demos/*/*.tfvars`
+- Reusable modules: `modules/*`
+- EOL application: `app/agentic/eol`
+- VM bootstrap scripts: `scripts/*`
+- Workbook automation: `workbooks/end-of-life`
 
-| Key | File | Focus | Approx Cost* | Deploy Time* |
-|-----|------|-------|--------------|--------------|
-| agentic-eol | `demos/agentic/eol-agentic-demo.tfvars` | AI-powered EOL analysis app with Azure OpenAI | ~$200/mo | 25-35m |
-| arc | `demos/arc/arc-demo.tfvars` | Azure Arc onboarding (Win 2025) | ~$150/mo | 30-40m |
-| vpn | `demos/vpn/vpn-demo.tfvars` | Site‑to‑Site VPN (Win 2016 RRAS) | ~$1,250/mo | 45-60m |
-| expressroute | `demos/expressroute/expressroute-demo.tfvars` | ExpressRoute + Route Server | ~$800–2,000/mo | 30-45m (+ provider) |
-| avd | `demos/avd/avd-demo.tfvars` | Azure Virtual Desktop environment | ~$500/mo | 20-30m |
-| hub-onprem | `demos/hub-spoke/hub-onprem-basic-demo.tfvars` | Minimal hub + on‑prem simulation | ~$0 | <5m |
-| hub-non-gen | `demos/hub-spoke/hub-non-gen-basic-demo.tfvars` | Basic hub + spoke | ~$0 | <5m |
-| hub-non-gen-gen | `demos/hub-spoke/hub-non-gen-gen-basic-demo.tfvars` | Dual spokes (Gen / Non‑Gen) | ~$0 | <5m |
-
-*Approximate: Depends on region/SKUs. Destroy when finished to avoid charges.
-
-## 🚀 Deploy a Demo (Interactive Runner)
-Recommended path: use the curated menu that shows cost + ETA before apply.
+## Quick start
 
 ```bash
+cp credentials.tfvars.example credentials.tfvars
+# edit credentials.tfvars
+
 ./run-demo.sh
 ```
 
-Flow:
-1. Script validates prerequisites (Terraform, Azure CLI, login, credentials.tfvars)
-2. Choose a demo number
-3. Select action: Plan | Apply | Destroy | State | Outputs
-4. Apply auto-approves (cost warning shown first); destroy asks for confirmation
+Manual plan/apply:
 
-Non-interactive (manual) alternative:
 ```bash
-cp credentials.tfvars.example credentials.tfvars
 terraform init
-terraform apply -var-file="credentials.tfvars" -var-file="demos/vpn/vpn-demo.tfvars" --auto-approve
+terraform plan -var-file="credentials.tfvars" -var-file="demos/arc/arc-demo.tfvars"
+terraform apply -var-file="credentials.tfvars" -var-file="demos/arc/arc-demo.tfvars"
 ```
 
-## 🔄 Post-Deployment Setup
+## Active demo tfvars
 
-After deploying the arc-demo scenario, you can automatically configure the **Software End-of-Life (EOL) Analysis Solution** using actual Terraform output values:
+- `demos/agentic/eol-agentic-demo.tfvars`
+- `demos/agentic/eol-agentic-container-demo.tfvars`
+- `demos/arc/arc-demo.tfvars`
+- `demos/avd/avd-demo.tfvars`
+- `demos/eol-agentic/eol-agentic-demo.tfvars`
+- `demos/expressroute/expressroute-demo.tfvars`
+- `demos/hub-spoke/hub-onprem-basic-demo.tfvars`
+- `demos/hub-spoke/hub-non-gen-basic-demo.tfvars`
+- `demos/hub-spoke/hub-non-gen-gen-basic-demo.tfvars`
+- `demos/vpn/vpn-demo.tfvars`
+
+## Modules in use
+
+- `modules/networking`
+- `modules/routing`
+- `modules/firewall`
+- `modules/gateways`
+- `modules/compute`
+- `modules/storage`
+- `modules/monitoring`
+- `modules/arc`
+- `modules/agentic`
+- `modules/container_apps`
+- `modules/avd`
+
+## EOL app and workbook flow
+
+1. Deploy a demo (typically Arc or Agentic).
+2. For workbook post-config, run `workbooks/end-of-life/post-deploy-setup.sh`.
+3. For app runtime/deploy docs, see `app/agentic/eol/README.md` and `app/agentic/eol/deploy/README.md`.
+
+## Cleanup
 
 ```bash
-# Run after successful arc-demo deployment
-./workbooks/end-of-life/post-deploy-setup.sh
+terraform destroy -var-file="credentials.tfvars" -var-file="demos/arc/arc-demo.tfvars"
 ```
-
-This script will:
-- ✅ Extract actual Azure subscription ID, resource group names, and workspace names from Terraform outputs
-- 🔧 Update all EOL solution configuration files with your environment values
-- 📋 Generate a deployment summary with next steps
-- 🚀 Prepare the EOL solution for immediate deployment
-
-The EOL solution provides comprehensive software inventory analysis for Azure Arc-connected machines, checking end-of-life status using the endoflife.date API. See [`workbooks/end-of-life/README.md`](workbooks/end-of-life/README.md) for full details.
-
-## 🧩 Terraform Modules (7)
-| Module | Purpose | Highlights |
-|--------|---------|-----------|
-| networking | VNets, subnets, peering, route tables, Route Server | Hub / spokes, conditional subnets |
-| compute | Windows & Linux VMs | Win 2016 (VPN), Win 2025 (Arc), NVA, Squid |
-| gateways | VPN, ExpressRoute, Local Network Gateway | BGP ready, S2S + ER coexistence |
-| firewall | Azure Firewall (optionally explicit proxy) | App/Net rules, Arc egress rules, NAT for external proxy access |
-| storage | Script storage account + container (if enabled) | Script hosting for CSE |
-| identity | Service Principal & role assignments | Least privilege for Arc onboarding |
-| arc | Arc Private Link Scope & endpoints | Private control plane, Arc integration |
-
-All modules are conditionally invoked via booleans in tfvars (e.g. `deploy_vpn_gateway`, `deploy_hub_firewall`).
-
-## 🧰 Scripts (scripts/)
-Automation pieces consumed by Custom Script Extensions or manual lab usage:
-
-| Path | Purpose | Trigger |
-|------|---------|--------|
-| `scripts/vpn/` | Windows 2016 RRAS S2S VPN setup (IKEv2, logging) | `onprem_windows_vpn_setup = true` |
-| `scripts/arc/` | Windows 2025 Azure Arc agent install & connect | `onprem_windows_arc_setup = true` + `deploy_onprem_windows_server_2025 = true` |
-| `scripts/nva/` | Linux NVA routing bootstrap (IPv4 forward) | Future / manual wiring |
-| `scripts/squid/` | Squid proxy quick config for egress tests | Future / manual wiring |
-
-See each subfolder README for parameters & troubleshooting.
-
-## ⚙️ Core Deployment Flags (Examples)
-```hcl
-# Hybrid connectivity
-deploy_vpn_gateway              = true
-deploy_expressroute_gateway     = false
-
-# Security / routing
-deploy_hub_firewall             = true
-deploy_route_server             = true
-deploy_linux_nva                = true
-
-# Servers & automation
-deploy_onprem_windows_server_2016 = true
-onprem_windows_vpn_setup          = true
-deploy_onprem_windows_server_2025 = true
-onprem_windows_arc_setup          = true
-
-# Storage for scripts
-deploy_script_storage           = true
-```
-
-## 🔐 Credentials & Setup
-1. Copy `credentials.tfvars.example` → `credentials.tfvars`
-2. Populate subscription, tenant, SPN (for Arc) values
-3. (Optional) Adjust demo tfvars or create a variant
-4. Run `./run-demo.sh` and apply
-
-## 🧹 Teardown
-Always destroy when done:
-```bash
-./run-demo.sh   # choose demo -> Destroy
-# or manually
-terraform destroy -var-file="credentials.tfvars" -var-file="demos/vpn/vpn-demo.tfvars"
-```
-
----
-The rest of this document retains deeper architectural and configuration detail for advanced customization.
-
-## 🔧 Modular Architecture
-
-### Core Modules
-1. **Agentic** - AI-powered applications with Azure OpenAI and multi-agent workflows
-2. **Networking** - VNets, subnets, peering, Route Server
-3. **Compute** - Windows Server 2016/2025 VMs with automation
-4. **Gateways** - VPN Gateway, ExpressRoute Gateway, Local Network Gateway
-5. **Firewall** - Azure Firewall with configurable DNS proxy and policies
-6. **Storage** - Storage accounts for scripts and automation
-7. **Arc** - Azure Arc private link scope and hybrid connectivity
-8. **AVD** - Azure Virtual Desktop infrastructure and session hosts
-9. **Monitoring** - Log Analytics, Application Insights, and private link scopes
-10. **Routing** - Custom route tables and BGP configurations
-
-### Windows Server Options
-- **Windows Server 2016**: Optimized for Site-to-Site VPN scenarios
-- **Windows Server 2025**: Enhanced for Azure Arc hybrid management
-- **Automated Configuration**: PowerShell scripts for VPN, Arc agent, and networking
-
-## 🧰 Script Automation
-
-The `scripts/` directory contains automation used by Custom Script Extensions or for manual lab bootstrapping. Each script set has its own README with parameters, usage, and troubleshooting.
-
-| Area | Path | Purpose |
-|------|------|---------|
-| Azure Arc | [`scripts/arc/`](scripts/arc/README.md) | Onboards Windows Server 2025 into Azure Arc (agent install, connect, Private Link support) |
-| VPN (On-Prem) | [`scripts/vpn/`](scripts/vpn/README.md) | Configures Windows Server (lab) as Site-to-Site IKEv2 RRAS endpoint with logging |
-| Network Virtual Appliance | [`scripts/nva/`](scripts/nva/README.md) | Minimal Linux routing / forwarding bootstrap (enable IPv4 forwarding, baseline rules) |
-| Squid Proxy | [`scripts/squid/`](scripts/squid/README.md) | Sets up a lab HTTP/HTTPS forward proxy for controlled egress scenarios |
-
-### Terraform Integration Flags (Examples)
-```hcl
-# Enable on-prem Windows VPN automation
-onprem_windows_vpn_setup = true
-
-# Enable Arc onboarding for Windows Server 2025
-onprem_windows_arc_setup = true
-deploy_onprem_windows_server_2025 = true
-
-# (If you wire NVA or Squid scripts via extensions)
-deploy_linux_nva     = true
-deploy_squid_proxy   = true
-```
-
-### When to Use Which Script
-- Use **VPN** script when demonstrating hybrid connectivity (S2S tunnel + BGP)
-- Use **Arc** script for hybrid server governance, inventory, and policy demos
-- Use **NVA** script to experiment with custom routing / BGP adjacencies
-- Use **Squid** script to test egress restriction or Private Link scenarios
-
-> For production adaptations, harden each script (auth, logging, least privilege) beyond the lab defaults documented in their respective READMEs.
-
-## Variable Configuration
-
-### Configuration Files
-- **`terraform.tfvars`**: Complete configuration file with all 65+ variables organized by functional sections
-- **`terraform.tfvars.example`**: Template file showing all available variables with defaults
-- **Demo Files**: Specialized configurations for specific scenarios
-  - `vnet-demo.tfvars`: VNet peering demonstration
-  - `arc-demo.tfvars`: Azure Arc onboarding demo
-
-### Variable Organization
-Variables are organized into logical sections for better management:
-
-1. **General Configuration**: Basic Azure settings (location, environment, project)
-2. **Hub VNet**: Core hub virtual network configuration
-3. **Subnets**: Address space allocation for all hub subnets
-4. **Hub Services**: Azure Firewall, Bastion, Route Server, NVA
-5. **Azure Firewall**: Advanced firewall features and proxy settings
-6. **Azure Arc**: Arc service principal and private link configuration
-7. **Azure Monitor**: Log Analytics and private link scope settings
-8. **On-Premises**: Simulated on-premises environment
-9. **Additional VNets**: Gen and Non-Gen virtual networks
-10. **VNet Peering**: Cross-VNet connectivity configuration
-11. **Storage**: Script storage for VM extensions
-12. **ExpressRoute**: Circuit and gateway configuration
-13. **Advanced BGP**: Custom routing scenarios
-
-### Quick Start
-1. Copy the example file: `cp terraform.tfvars.example terraform.tfvars`
-2. Edit `terraform.tfvars` to match your requirements
-3. Deploy: `terraform init && terraform apply`
-
-### Cost Optimization
-Use deployment flags to control costs:
-```hcl
-# Minimal hub deployment
-deploy_hub_vnet = true
-deploy_hub_firewall = false      # Save ~$1,200/month
-deploy_bastion = false           # Save ~$140/month
-deploy_expressroute_gateway = false  # Save ~$200/month
-deploy_script_storage = false    # Save ~$20/month
-```
-
-## Architecture Components
-
-### 1. Hub VNet Infrastructure (Optional)
-- **Address Space**: 172.16.0.0/16
-- **ExpressRoute Gateway** for private connectivity
-- **Azure Firewall** with optional force tunneling
-- **Route Server** for BGP routing with NVA
-- **Linux NVA** for advanced routing scenarios
-- **Azure Bastion** for secure management access
-
-### 2. Gen VNet Infrastructure (Optional)
-- **Address Space**: 10.0.0.0/16
-- **Gen Workload Subnet** for generative AI workloads
-- **Conditional Routing**: Option to route traffic through Non-Gen firewall
-- **VNet Peering**: Optional connectivity to Non-Gen VNet
-
-### 3. Non-Gen VNet Infrastructure (Optional)
-- **Address Space**: 100.0.0.0/16
-- **Azure Firewall** for non-generative workload security
-- **Simplified Architecture**: Dedicated firewall for non-gen workloads
-- **VNet Peering**: Connectivity to Hub and optionally Gen VNets
-
-### 4. Network Virtual Appliance (NVA)
-- **Ubuntu 20.04 LTS** with FRRouting for BGP
-- **BGP Configuration**: ASN 65001 with route advertisement
-- **Custom Routes**: Configurable route advertisement
-- **High Availability**: Configurable for redundancy
-
-### 5. Windows Server 2025 with Azure Arc (Optional)
-- **Windows Server 2025** Datacenter Azure Edition
-- **Enhanced Arc Onboarding**: Automated preparation and configuration
-- **IMDS Blocking**: Prevents Azure VM metadata service access
 - **Proxy Support**: Integration with Azure Firewall explicit proxy
 - **Comprehensive Monitoring**: Azure Monitor and Log Analytics integration
 - **Policy Compliance**: Azure Policy and Guest Configuration support

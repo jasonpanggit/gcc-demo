@@ -33,7 +33,7 @@ try:
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.response_formatter import ResponseFormatter
     from app.agentic.eol.utils.tool_registry import get_tool_registry
-    from app.agentic.eol.utils.mcp_host import get_mcp_host
+    from app.agentic.eol.utils.mcp_host import MCPHost
 except ModuleNotFoundError:
     from agents.orchestrator_models import (
         ExecutionPlan,
@@ -45,7 +45,7 @@ except ModuleNotFoundError:
     from utils.logger import get_logger
     from utils.response_formatter import ResponseFormatter
     from utils.tool_registry import get_tool_registry
-    from utils.mcp_host import get_mcp_host
+    from utils.mcp_host import MCPHost
 
 
 logger = get_logger(__name__)
@@ -186,7 +186,7 @@ class BaseOrchestrator(ABC):
     async def initialize(self) -> None:
         """Initialize orchestrator and dependencies.
 
-        Lazy-initializes shared utilities (tool registry, MCP host, formatters).
+        Lazy-initializes shared utilities (tool registry, formatters).
         Idempotent - safe to call multiple times.
         """
         if self._initialized:
@@ -198,9 +198,10 @@ class BaseOrchestrator(ABC):
             self._tool_registry = get_tool_registry()
             logger.debug("Tool registry initialized")
 
-            # Initialize MCP host
-            self._mcp_host = get_mcp_host()
-            logger.debug("MCP host initialized")
+            # Initialize MCP host (if needed by subclass)
+            # Note: MCPHost is available as a class, not via getter
+            self._mcp_host = None  # Subclasses can instantiate if needed
+            logger.debug("MCP host placeholder set")
 
             # Initialize response formatter
             self._response_formatter = ResponseFormatter()
@@ -242,6 +243,15 @@ class BaseOrchestrator(ABC):
         Allows using orchestrator with 'async with' pattern.
         """
         await self.cleanup()
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.cleanup()
+        return False
 
     # ========================================================================
     # Main Entry Point
@@ -551,12 +561,12 @@ class BaseOrchestrator(ABC):
     # Background Task Management
     # ========================================================================
 
-    def _spawn_background(self, coro, name: str) -> asyncio.Task:
+    def _spawn_background(self, name: str, coro) -> asyncio.Task:
         """Spawn and track a background task.
 
         Args:
-            coro: Coroutine to run
             name: Task name for logging
+            coro: Coroutine to run
 
         Returns:
             Created asyncio.Task
