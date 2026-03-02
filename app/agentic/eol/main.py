@@ -650,7 +650,29 @@ async def _run_shutdown_tasks():
             logger.debug("Inventory scheduler cleanup cancelled")
         except Exception as e:
             logger.debug(f"Inventory scheduler cleanup: {e}")
-            
+
+        # Graceful shutdown for SRE orchestrator background tasks (CQ-07)
+        try:
+            from utils.sre_startup import get_sre_orchestrator_instance
+            sre_orch = get_sre_orchestrator_instance()
+            if sre_orch is not None and hasattr(sre_orch, "shutdown"):
+                await sre_orch.shutdown()
+                logger.info("✅ SRE orchestrator background tasks cancelled")
+        except asyncio.CancelledError:
+            logger.debug("SRE orchestrator shutdown cancelled")
+        except Exception as e:
+            logger.debug(f"SRE orchestrator shutdown: {e}")
+
+        # Graceful shutdown for Inventory orchestrator background tasks (CQ-07)
+        try:
+            if inventory_asst_orchestrator is not None and hasattr(inventory_asst_orchestrator, "shutdown"):
+                await inventory_asst_orchestrator.shutdown()
+                logger.info("✅ Inventory orchestrator background tasks cancelled")
+        except asyncio.CancelledError:
+            logger.debug("Inventory orchestrator shutdown cancelled")
+        except Exception as e:
+            logger.debug(f"Inventory orchestrator shutdown: {e}")
+
         # Cleanup Playwright pool
         try:
             from utils.playwright_pool import playwright_pool

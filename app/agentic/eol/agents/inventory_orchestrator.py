@@ -135,6 +135,25 @@ Guidelines:
 
         logger.info("✅ Microsoft Agent Framework inventory assistant orchestrator initialized")
 
+    async def shutdown(self) -> None:
+        """Graceful shutdown — cancel any tracked background tasks.
+
+        CQ-07: all orchestrators implement graceful shutdown.  The inventory
+        orchestrator uses local asyncio.create_task() calls for concurrent plan
+        steps (awaited inline), so no persistent background tasks are expected.
+        Any tasks stored in an optional _background_tasks set are cancelled here.
+        """
+        tasks = list(getattr(self, "_background_tasks", set()))
+        if tasks:
+            logger.debug(
+                "Cancelling %d background tasks on Inventory shutdown", len(tasks)
+            )
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if hasattr(self, "_background_tasks"):
+                self._background_tasks.clear()
+
     # ------------------------------------------------------------------
     # Public API expected by FastAPI routes
     # ------------------------------------------------------------------
