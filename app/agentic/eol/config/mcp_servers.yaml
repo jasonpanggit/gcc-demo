@@ -1,0 +1,123 @@
+version: "1.0"
+
+# Declarative MCP server definitions.
+# Operators can enable/disable any server by setting the corresponding env var.
+# All python server paths are relative to the eol/ application root.
+# The MCPConfigLoader resolves them to absolute paths at load time.
+
+servers:
+
+  # Azure MCP (external npm package, highest priority)
+  - name: azure_mcp
+    label: azure
+    command: node
+    args:
+      - "npx"
+      - "-y"
+      - "@azure/mcp@latest"
+      - "server"
+      - "start"
+    domains:
+      - azure
+    priority: 5
+    enabled: ${AZURE_MCP_ENABLED:-true}
+
+  # SRE MCP server
+  - name: sre_mcp
+    label: sre
+    command: python
+    args:
+      - "mcp_servers/sre_mcp_server.py"
+    domains:
+      - sre
+      - health
+    priority: 10
+    enabled: ${SRE_ENABLED:-true}
+
+  # Network MCP server
+  - name: network_mcp
+    label: network
+    command: python
+    args:
+      - "mcp_servers/network_mcp_server.py"
+    domains:
+      - network
+    priority: 10
+    enabled: ${NETWORK_MCP_ENABLED:-true}
+
+  # Compute MCP server
+  - name: compute_mcp
+    label: compute
+    command: python
+    args:
+      - "mcp_servers/compute_mcp_server.py"
+    domains:
+      - compute
+    priority: 10
+    enabled: ${COMPUTE_MCP_ENABLED:-true}
+
+  # Storage MCP server
+  - name: storage_mcp
+    label: storage
+    command: python
+    args:
+      - "mcp_servers/storage_mcp_server.py"
+    domains:
+      - storage
+    priority: 10
+    enabled: ${STORAGE_MCP_ENABLED:-true}
+
+  # Monitor MCP server
+  - name: monitor_mcp
+    label: monitor
+    command: python
+    args:
+      - "mcp_servers/monitor_mcp_server.py"
+    domains:
+      - monitoring
+    priority: 10
+    enabled: ${MONITOR_MCP_ENABLED:-true}
+
+  # Patch MCP server
+  - name: patch_mcp
+    label: patch
+    command: python
+    args:
+      - "mcp_servers/patch_mcp_server.py"
+    domains:
+      - patch
+    priority: 10
+    enabled: ${PATCH_MCP_ENABLED:-true}
+
+  # OS EOL MCP server
+  - name: os_eol_mcp
+    label: os_eol
+    command: python
+    args:
+      - "mcp_servers/os_eol_mcp_server.py"
+    domains:
+      - eol
+    priority: 10
+    enabled: ${OS_EOL_MCP_ENABLED:-true}
+
+  # Inventory MCP server
+  - name: inventory_mcp
+    label: inventory
+    command: python
+    args:
+      - "mcp_servers/inventory_mcp_server.py"
+    domains:
+      - inventory
+    priority: 10
+    enabled: ${INVENTORY_MCP_ENABLED:-true}
+
+  # Azure CLI Executor MCP server (lowest priority)
+  - name: azure_cli_executor
+    label: azure_cli_executor
+    command: python
+    args:
+      - "mcp_servers/azure_cli_executor_server.py"
+    domains:
+      - azure
+    priority: 15
+    enabled: ${AZURE_CLI_EXECUTOR_ENABLED:-true}
