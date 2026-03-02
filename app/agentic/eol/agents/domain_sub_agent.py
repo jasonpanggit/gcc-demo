@@ -9,6 +9,8 @@ Sub-classes only need to provide:
 - ``_SYSTEM_PROMPT``: domain-specific instructions
 - ``_MAX_ITERATIONS``: iteration budget (defaults to 15)
 - ``_DOMAIN_NAME``: short label for logging (e.g., "sre", "monitor")
+- ``_SUPPORTED_DOMAINS``: list of domain identifiers (defaults to [_DOMAIN_NAME])
+- ``_CAPABILITIES``: list of capability descriptions (optional)
 
 Everything else — the ReAct loop, LLM calls, tool invocation, SSE events,
 timeout handling — is provided by this base class.
@@ -19,6 +21,12 @@ Usage::
         _DOMAIN_NAME = "sre"
         _MAX_ITERATIONS = 20
         _SYSTEM_PROMPT = "You are the SRE specialist…"
+        _SUPPORTED_DOMAINS = ["sre", "incident_response", "monitoring"]
+        _CAPABILITIES = [
+            "Health checks and diagnostics",
+            "Incident response workflows",
+            "Performance monitoring"
+        ]
 
     agent = SRESubAgent(
         tool_definitions=sre_tool_defs,
@@ -35,6 +43,22 @@ import os
 import time
 from copy import deepcopy
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
+
+try:
+    from agents.orchestrator_models import Capability
+except ModuleNotFoundError:
+    try:
+        from app.agentic.eol.agents.orchestrator_models import Capability
+    except ModuleNotFoundError:
+        # Fallback for environments without orchestrator_models
+        from dataclasses import dataclass, field
+        @dataclass
+        class Capability:
+            name: str
+            description: str
+            domains: List[str] = field(default_factory=list)
+            tool_requirements: List[str] = field(default_factory=list)
+            metadata: Dict[str, Any] = field(default_factory=dict)
 
 try:
     from utils.logging_config import get_logger
@@ -55,6 +79,7 @@ class DomainSubAgent:
     - Runs its own ReAct loop with a conservative iteration limit
     - Emits SSE events through the orchestrator's callback
     - Is stateless per-invocation (no persistent conversation history)
+    - Advertises its capabilities and supported domains for discovery
     """
 
     # ── Override in subclass ──────────────────────────────────────────
@@ -62,6 +87,8 @@ class DomainSubAgent:
     _SYSTEM_PROMPT: str = "You are a helpful assistant with access to tools."
     _MAX_ITERATIONS: int = 15
     _TIMEOUT_SECONDS: float = 45.0
+    _SUPPORTED_DOMAINS: List[str] = []  # Override with ["domain1", "domain2"]
+    _CAPABILITIES: List[str] = []  # Override with ["capability1", "capability2"]
 
     def __init__(
         self,
@@ -326,3 +353,84 @@ class DomainSubAgent:
             "max_iterations": self._MAX_ITERATIONS,
             "timeout_seconds": self._TIMEOUT_SECONDS,
         }
+
+    def get_supported_domains(self) -> List[str]:
+        """Get list of domain identifiers this agent supports.
+
+        Returns:
+            List of domain names (e.g., ["sre", "incident_response", "monitoring"])
+
+        Usage:
+            This allows orchestrators to discover which domains an agent can handle,
+            enabling dynamic routing decisions.
+
+        Example:
+            >>> agent = SRESubAgent(...)
+            >>> agent.get_supported_domains()
+            ['sre', 'incident_response', 'monitoring']
+        """
+        # If subclass defined supported domains, use those
+        if self._SUPPORTED_DOMAINS:
+            return self._SUPPORTED_DOMAINS.copy()
+
+        # Otherwise, default to the primary domain name
+        return [self._DOMAIN_NAME]
+
+    def get_capabilities(self) -> List[Capability]:
+        """Get list of capabilities this agent provides.
+
+        Returns:
+            List of Capability objects describing what this agent can do
+
+        Usage:
+            This allows orchestrators to discover agent capabilities at runtime,
+            enabling capability-based routing and agent selection.
+
+        Example:
+            >>> agent = SRESubAgent(...)
+            >>> capabilities = agent.get_capabilities()
+            >>> for cap in capabilities:
+            ...     print(f"{cap.name}: {cap.description}")
+            Health Checks: Diagnose and monitor service health
+            Incident Response: Handle production incidents
+        """
+        capabilities = []
+
+        # If subclass defined capability descriptions, convert to Capability objects
+        if self._CAPABILITIES:
+            for cap_desc in self._CAPABILITIES:
+                # Simple string capabilities get converted to structured format
+                if isinstance(cap_desc, str):
+                    capabilities.append(Capability(
+                        name=cap_desc,
+                        description=f"{self._DOMAIN_NAME} agent capability: {cap_desc}",
+                        domains=self.get_supported_domains(),
+                        tool_requirements=[],
+                        metadata={"agent": self._DOMAIN_NAME}
+                    ))
+                elif isinstance(cap_desc, dict):
+                    # Allow dict format for more detailed capability specs
+                    capabilities.append(Capability(
+                        name=cap_desc.get("name", "Unnamed capability"),
+                        description=cap_desc.get("description", ""),
+                        domains=cap_desc.get("domains", self.get_supported_domains()),
+                        tool_requirements=cap_desc.get("tool_requirements", []),
+                        metadata=cap_desc.get("metadata", {"agent": self._DOMAIN_NAME})
+                    ))
+
+        # If no explicit capabilities defined, create a default based on tools
+        if not capabilities:
+            tool_names = [t.get("function", {}).get("name", "") for t in self._tool_definitions]
+            capabilities.append(Capability(
+                name=f"{self._DOMAIN_NAME.title()} Operations",
+                description=f"Domain-specific operations using {len(tool_names)} tools",
+                domains=self.get_supported_domains(),
+                tool_requirements=tool_names[:5],  # First 5 tools as sample
+                metadata={
+                    "agent": self._DOMAIN_NAME,
+                    "tool_count": len(tool_names),
+                    "auto_generated": True
+                }
+            ))
+
+        return capabilities
