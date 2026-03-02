@@ -1006,7 +1006,7 @@ Please create a comprehensive, user-friendly response that addresses their quest
             
             # Get inventory data and apply filter if needed
             if software_filter:
-                logger.info(f"🔍 Getting inventory and filtering for: '{software_filter}'")
+                logger.debug(f"🔍 Getting inventory and filtering for: '{software_filter}'")
                 inventory_data = await inventory_agent.get_software_inventory(days=days)
                 operation_type = "filtered_search"
                 # Apply basic filter on the results
