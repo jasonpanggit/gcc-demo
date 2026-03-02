@@ -154,6 +154,10 @@ class SREOrchestratorAgent(BaseSREAgent):
         self._incident_memory = get_sre_incident_memory()
         self._tool_registry = SREToolRegistry()
 
+        # Unified router (Phase 3) — lazy-initialized
+        self.router: Optional[Any] = None
+        self._unified_router_initialized: bool = False
+
         # Resource discovery cache (in-memory, short TTL)
         self.resource_cache: Dict[str, Any] = {}
         self.resource_cache_ttl = 300  # 5 minutes
@@ -254,7 +258,66 @@ class SREOrchestratorAgent(BaseSREAgent):
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _refresh_inventory_grounding(self) -> None:
+    # ========================================================================
+    # Unified Router Integration (Phase 3)
+    # ========================================================================
+
+    def _ensure_unified_router(self) -> None:
+        """Lazily wire the unified router onto self.router.
+
+        Called on first use of process_with_routing() to avoid circular
+        import issues at module load time.
+        """
+        if self._unified_router_initialized:
+            return
+        try:
+            try:
+                from app.agentic.eol.utils.unified_router import get_unified_router
+            except ModuleNotFoundError:
+                from utils.unified_router import get_unified_router  # type: ignore[import-not-found]
+
+            self.router = get_unified_router()
+            self._unified_router_initialized = True
+            logger.debug("SREOrchestratorAgent: unified router wired")
+        except Exception as exc:
+            logger.warning(
+                "SREOrchestratorAgent: failed to wire unified router: %s — "
+                "process_with_routing() will raise if called",
+                exc,
+            )
+
+    async def process_with_routing(
+        self,
+        query: str,
+        strategy: str = "fast",
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        """Route a query using the unified router and return a RoutingPlan.
+
+        This provides the same interface as BaseOrchestrator.process_with_routing()
+        so callers can use either orchestrator interchangeably for routing.
+
+        Args:
+            query:    User's natural language query.
+            strategy: Routing strategy — "fast" | "quality" | "comprehensive".
+            context:  Optional context dict passed through to the router.
+
+        Returns:
+            RoutingPlan with orchestrator, domain, tools, and timing metadata.
+
+        Raises:
+            ValueError: If the unified router cannot be initialized.
+        """
+        if self.router is None:
+            self._ensure_unified_router()
+        if self.router is None:
+            raise ValueError(
+                "UnifiedRouter not available on SREOrchestratorAgent. "
+                "Check that unified_router module is importable."
+            )
+        return await self.router.route(query, context=context, strategy=strategy)
+
+
         """Build a compact resource-inventory summary for agent context grounding.
 
         Populates self._inventory_grounding_context with tenant ID, subscription ID,

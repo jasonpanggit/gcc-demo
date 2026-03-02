@@ -34,6 +34,7 @@ try:
     from app.agentic.eol.utils.response_formatter import ResponseFormatter
     from app.agentic.eol.utils.tool_registry import get_tool_registry
     from app.agentic.eol.utils.mcp_host import MCPHost
+    from app.agentic.eol.utils.unified_router import UnifiedRouter, RoutingStrategy, RoutingPlan
 except ModuleNotFoundError:
     from agents.orchestrator_models import (
         ExecutionPlan,
@@ -46,6 +47,7 @@ except ModuleNotFoundError:
     from utils.response_formatter import ResponseFormatter
     from utils.tool_registry import get_tool_registry
     from utils.mcp_host import MCPHost
+    from utils.unified_router import UnifiedRouter, RoutingStrategy, RoutingPlan  # type: ignore[import-not-found]
 
 
 logger = get_logger(__name__)
@@ -109,6 +111,9 @@ class BaseOrchestrator(ABC):
         self._mcp_host = None
         self._response_formatter = None
         self._initialized = False
+
+        # Optional unified router (injected or lazy-set by subclasses)
+        self.router: Optional[UnifiedRouter] = None
 
         # Background task tracking
         self._background_tasks: List[asyncio.Task] = []
@@ -327,6 +332,44 @@ class BaseOrchestrator(ABC):
                 duration_ms=duration_ms,
                 error=error_result,
             )
+
+    # ========================================================================
+    # Unified Router Integration
+    # ========================================================================
+
+    async def process_with_routing(
+        self,
+        query: str,
+        strategy: "RoutingStrategy" = "fast",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> RoutingPlan:
+        """Route a query using the unified router and return a RoutingPlan.
+
+        Subclasses can use the returned plan to pre-select tools before
+        entering their orchestration loop, without replacing the existing
+        process_message() / handle_request() paths.
+
+        Backward compatibility: callers that do NOT set self.router will
+        receive a ValueError. Existing callers that bypass this method are
+        unaffected.
+
+        Args:
+            query:    User's natural language query.
+            strategy: Routing strategy — "fast" | "quality" | "comprehensive".
+            context:  Optional context dict passed through to the router.
+
+        Returns:
+            RoutingPlan with orchestrator, domain, tools, and timing metadata.
+
+        Raises:
+            ValueError: If self.router has not been configured.
+        """
+        if self.router is None:
+            raise ValueError(
+                f"UnifiedRouter not configured on {type(self).__name__}. "
+                "Assign self.router before calling process_with_routing()."
+            )
+        return await self.router.route(query, context=context, strategy=strategy)
 
     # ========================================================================
     # Tool Management

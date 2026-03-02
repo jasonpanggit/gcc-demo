@@ -950,6 +950,9 @@ FORMATTING:
         self._tool_embedder: Optional[Any] = None  # Lazy-initialized ToolEmbedder (semantic primary)
         self._pipeline_router: Optional[Any] = None   # Phase 4/5 pipeline Router
         self._pipeline_retriever: Optional[Any] = None  # Phase 4/5 pipeline ToolRetriever
+
+        # Unified router (Phase 3) — set lazily on first use to avoid circular import issues
+        self._unified_router_initialized: bool = False
         self._pipeline_shadow: bool = os.getenv("MCP_PIPELINE_SHADOW", "").lower() in ("1", "true", "yes")
         # Phase 7: MCP_AGENT_PIPELINE defaults to "true" — full 6-stage pipeline is the default.
         # Set MCP_AGENT_PIPELINE=false (or "legacy") to fall back to the legacy ReAct loop.
@@ -2435,7 +2438,35 @@ FORMATTING:
             self._registered_client_labels = []
 
     async def ensure_mcp_ready(self) -> bool:
-        return await self._ensure_mcp_client()
+        result = await self._ensure_mcp_client()
+        # Also wire the unified router once MCP is ready
+        if result and not self._unified_router_initialized:
+            self._ensure_unified_router()
+        return result
+
+    def _ensure_unified_router(self) -> None:
+        """Lazily wire the unified router onto self.router (BaseOrchestrator attribute).
+
+        Called once after MCP clients are ready so the tool_registry is
+        populated before router.route() is ever called.
+        """
+        if self._unified_router_initialized:
+            return
+        try:
+            try:
+                from app.agentic.eol.utils.unified_router import get_unified_router
+            except ModuleNotFoundError:
+                from utils.unified_router import get_unified_router  # type: ignore[import-not-found]
+
+            self.router = get_unified_router()
+            self._unified_router_initialized = True
+            logger.debug("MCPOrchestratorAgent: unified router wired")
+        except Exception as exc:
+            logger.warning(
+                "MCPOrchestratorAgent: failed to wire unified router: %s — "
+                "process_with_routing() will raise if called",
+                exc,
+            )
 
     async def get_tool_catalog(self) -> List[Dict[str, Any]]:
         await self._ensure_mcp_client()
