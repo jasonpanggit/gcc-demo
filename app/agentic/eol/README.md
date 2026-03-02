@@ -28,6 +28,13 @@ Mock-data run (no Azure dependencies):
 ./run_mock.sh
 ```
 
+## Environment variables
+
+- This app reads configuration from process environment variables (`os.getenv`).
+- Local runs should export variables in your shell before starting the app.
+- Deployed runs should set variables in Azure App Service/Container Apps configuration.
+- There is no runtime dependency on an `.env.example` template file.
+
 ## Tests
 
 ```bash
