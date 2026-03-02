@@ -826,6 +826,13 @@ Plans:
 **Risk Level:** LOW
 **Dependencies:** Phases 1-3 (full test coverage required)
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Retry enhancement (TDD): RetryStats, TryAgain, on_retry, retry_on_result + 16 tests
+- [ ] 04-02-PLAN.md — PlaywrightPool hard cap + SRE/Inventory graceful shutdown + import cleanup + logging standardization
+- [ ] 04-03-PLAN.md — Architecture docs (AGENT-HIERARCHY.md) + Phase 4 integration tests + human checkpoint
+
 ### Day 11: Retry Logic Enhancement
 
 #### Morning (4 hours)
