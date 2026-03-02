@@ -430,7 +430,7 @@ class InventoryMCPClient:
             return await self._enable_fallback(reason=str(exc))
 
     async def _enable_fallback(self, reason: str) -> bool:
-        logger.info("Enabling in-process inventory tools fallback (%s)", reason)
+        logger.warning("Enabling in-process inventory tools fallback (%s)", reason)
         self._fallback_executor = InventoryFallbackExecutor()
         try:
             await self._fallback_executor.initialize()

@@ -123,7 +123,7 @@ class OSInventoryAgent:
         except Exception as exc:
             logger.debug("OS EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
 
-        logger.info(f"🔍 EOL cache miss for {normalized_name} {normalized_version}, querying orchestrator...")
+        logger.debug("EOL cache miss for %s %s, querying orchestrator...", normalized_name, normalized_version)
 
         try:
             from ..main import get_eol_orchestrator

@@ -436,7 +436,7 @@ class OSEolMCPClient:
             return await self._enable_fallback(reason=str(exc))
 
     async def _enable_fallback(self, reason: str) -> bool:
-        logger.info("Enabling in-process OS EOL tools fallback (%s)", reason)
+        logger.warning("Enabling in-process OS EOL tools fallback (%s)", reason)
         executor = OSEOLFallbackExecutor()
         try:
             await executor.initialize()

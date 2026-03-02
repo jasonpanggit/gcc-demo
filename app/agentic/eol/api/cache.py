@@ -19,9 +19,7 @@ Note: This module extracts 17+ cache-related endpoints from main.py
 """
 from datetime import datetime
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter
 
 from utils import get_logger
 from utils.response_models import StandardResponse

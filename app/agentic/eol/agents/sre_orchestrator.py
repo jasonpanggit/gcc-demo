@@ -22,11 +22,10 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 try:
-    from app.agentic.eol.agents.base_sre_agent import BaseSREAgent, AgentExecutionError
+    from app.agentic.eol.agents.base_sre_agent import BaseSREAgent
     from app.agentic.eol.agents.sre_sub_agent import SRESubAgent  # type: ignore[import-not-found]
     from app.agentic.eol.utils.sre_mcp_client import get_sre_mcp_client, SREMCPDisabledError  # type: ignore[import-not-found]
     from app.agentic.eol.utils.agent_registry import get_agent_registry
@@ -39,7 +38,6 @@ try:
         format_tool_result,
     )
     from app.agentic.eol.utils.sre_interaction_handler import (
-        SREInteractionHandler,
         get_interaction_handler,
     )
     from app.agentic.eol.utils.sre_inventory_integration import get_sre_inventory_integration
@@ -50,7 +48,7 @@ try:
     from app.agentic.eol.utils.sre_tool_registry import SREToolRegistry
     from app.agentic.eol.utils.query_patterns import classify_sre_domain
 except ModuleNotFoundError:
-    from agents.base_sre_agent import BaseSREAgent, AgentExecutionError
+    from agents.base_sre_agent import BaseSREAgent
     from agents.sre_sub_agent import SRESubAgent  # type: ignore[import-not-found]
     from utils.sre_mcp_client import get_sre_mcp_client, SREMCPDisabledError  # type: ignore[import-not-found]
     from utils.agent_registry import get_agent_registry
@@ -63,7 +61,6 @@ except ModuleNotFoundError:
         format_tool_result,
     )
     from utils.sre_interaction_handler import (
-        SREInteractionHandler,
         get_interaction_handler,
     )
     from utils.sre_inventory_integration import get_sre_inventory_integration

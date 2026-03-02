@@ -18,16 +18,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from azure.identity import DefaultAzureCredential
-from openai import AzureOpenAI
 
 # Import utilities and configuration
-from utils import get_logger, config, create_error_response
-from utils.cosmos_cache import base_cosmos
+from utils import get_logger, config
 from utils.cache_stats_manager import cache_stats_manager
-from utils.response_models import StandardResponse, ensure_standard_format
+from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
-    standard_endpoint,
     readonly_endpoint,
     write_endpoint
 )
@@ -1811,10 +1808,10 @@ async def get_eol_agent_responses_OLD():
         for response in inventory_responses:
             response['orchestrator_type'] = 'inventory_asst_orchestrator'
         all_responses.extend(inventory_responses)
-        logger.info(f"🔍 [API] Inventory assistant orchestrator returned {len(inventory_responses)} EOL responses")
+        logger.debug("Inventory assistant orchestrator returned %d EOL responses", len(inventory_responses))
     else:
-        logger.warning("🔍 [API] Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
-    
+        logger.warning("Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
+
     # Get responses from EOL orchestrator
     eol_orchestrator = get_eol_orchestrator()
     if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
@@ -1823,14 +1820,14 @@ async def get_eol_agent_responses_OLD():
         for response in eol_responses:
             response['orchestrator_type'] = 'eol_orchestrator'
         all_responses.extend(eol_responses)
-        logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
+        logger.debug("EOL orchestrator returned %d EOL responses", len(eol_responses))
     else:
-        logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
-    
+        logger.warning("EOL orchestrator not available or missing get_eol_agent_responses method")
+
     # Sort by timestamp (newest first)
     all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-    
-    logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
+
+    logger.debug("Total EOL responses returned: %d", len(all_responses))
     
     return {
         "success": True,
@@ -2624,7 +2621,6 @@ async def clear_inventory_cache_OLD():
 )
 async def index(request: Request):
     """OLD - Duplicate endpoint moved to api/ui.py"""
-    pass
 
 
 # ============================================================================

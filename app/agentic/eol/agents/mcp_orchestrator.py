@@ -9,10 +9,8 @@ import os
 import shlex
 import time
 import uuid
-from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 try:
@@ -359,7 +357,6 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     DefaultAzureCredential = None  # type: ignore[assignment]
     _DEFAULT_CREDENTIAL_AVAILABLE = False
 
-import html
 
 logger = get_logger(__name__, level=os.getenv("LOG_LEVEL", "DEBUG"))
 

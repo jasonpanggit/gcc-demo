@@ -475,7 +475,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             query_encoded = query.replace(" ", "%20")
             url = f"https://www.bing.com/search?q={query_encoded}&form=DEEPSH"
             
-            logger.info(f"🔍 Searching Bing: {query}")
+            logger.debug("Searching Bing: %s", query)
             
             # Navigate to Bing search with realistic behavior
             try:
