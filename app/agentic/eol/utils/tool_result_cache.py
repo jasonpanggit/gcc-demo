@@ -56,8 +56,7 @@ class ToolResultCache:
 
     Args:
         default_ttl_seconds: TTL applied when ``set()`` is called without an
-            explicit override.  Defaults to 300 s (5 min), matching
-            ``AgentPerformanceConfig.cache_ttl_seconds``.
+            explicit override.  Defaults to 300 s (5 min).
         max_size: Maximum number of entries before LRU eviction kicks in.
     """
 

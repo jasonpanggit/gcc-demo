@@ -85,11 +85,11 @@
                             <i class="fas fa-network-wired me-1"></i>Network Diagnostics
                         </small>
                         <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my virtual networks and subnets')">List VNets &amp; subnets</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my network security groups')">List network security groups</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Test network connectivity from my container app to the database')">Test connectivity to database</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Validate my hub-spoke network topology')">Validate hub-spoke topology</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check DNS resolution for my private endpoint')">DNS resolution check</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Analyze the service-to-service dependency map for my container app')">Dependency map</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Trace the dependency chain for a failing API call')">Trace failing API call</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What external dependencies is my container app calling?')">App external dependencies</button>
                         </div>
                     </div>
                     <!-- Security & Compliance -->
@@ -98,10 +98,10 @@
                             <i class="fas fa-shield-alt me-1"></i>Security &amp; Compliance
                         </small>
                         <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Assess my network security posture against CIS benchmarks')">CIS network security posture</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Which of my VMs are running end-of-life operating systems?')">VMs with end-of-life OS</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Analyze private endpoint coverage for zero-trust')">Private endpoint coverage</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Are there any NSG rules allowing unrestricted public access?')">NSG rules with public access</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is my Defender for Cloud secure score?')">Defender secure score</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my high-severity security recommendations')">High-severity recommendations</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check my CIS compliance status')">CIS compliance status</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check my NIST compliance status')">NIST compliance status</button>
                         </div>
                     </div>
                     <!-- Inventory & Cost -->
@@ -110,9 +110,10 @@
                             <i class="fas fa-boxes me-1"></i>Inventory &amp; Cost
                         </small>
                         <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Inventory my network resources and identify unused ones')">Network resource inventory</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List all my virtual machines and their current status')">List VMs &amp; status</button>
-                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show my storage accounts and their replication settings')">Storage accounts</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Find orphaned or idle resources wasting budget')">Orphaned &amp; idle resources</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show my cost breakdown by resource group')">Cost by resource group</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Are there any spending anomalies this month?')">Spending anomalies</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What are my top Azure Advisor cost recommendations?')">Advisor cost recommendations</button>
                         </div>
                     </div>
                 </div>
@@ -341,7 +342,7 @@ html.dark-mode #chat-history pre {
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>
-<script src="/static/js/azure-ai-sre.js"></script>
+<script src="/static/js/sre.js"></script>
 <script>
 function toggleSuggestedPrompts() {
     const body = document.getElementById('suggested-prompts-body');

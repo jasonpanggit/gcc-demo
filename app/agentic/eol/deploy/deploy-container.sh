@@ -164,9 +164,6 @@ LOG_WORKSPACE_ID=$(jq -r '.AzureServices.LogAnalytics.WorkspaceId' "$APPSETTINGS
 AI_PROJECT_NAME=$(jq -r '.AzureServices.AIFoundry.ProjectName' "$APPSETTINGS_FILE")
 AI_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
 AI_PROJECT_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.ProjectEndpoint // .AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
-AI_SRE_AGENT_NAME=$(jq -r '.AzureServices.AIFoundry.SREAgentName // "gccsreagent"' "$APPSETTINGS_FILE")
-AI_SRE_AGENT_ID=$(jq -r '.AzureServices.AIFoundry.SREAgentId // empty' "$APPSETTINGS_FILE")
-AI_SRE_ENABLED=$(jq -r '.AzureServices.AIFoundry.SREEnabled // "true"' "$APPSETTINGS_FILE")
 PLAYWRIGHT_LLM_EXTRACTION=$(jq -r '.AppSettings.PlaywrightLLMExtraction // "false"' "$APPSETTINGS_FILE")
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
@@ -174,19 +171,6 @@ AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true
 GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
-
-# Read SRE Performance configuration
-SRE_AGENT_TOOL_TIMEOUT=$(jq -r '.AzureServices.SREPerformance.ToolCallTimeout // "30"' "$APPSETTINGS_FILE")
-SRE_AGENT_TOTAL_TIMEOUT=$(jq -r '.AzureServices.SREPerformance.TotalTimeout // "120"' "$APPSETTINGS_FILE")
-SRE_PARALLEL_TOOLS=$(jq -r '.AzureServices.SREPerformance.ParallelToolLimit // "5"' "$APPSETTINGS_FILE")
-SRE_CACHE_TTL=$(jq -r '.AzureServices.SREPerformance.CacheTTL // "300"' "$APPSETTINGS_FILE")
-SRE_CONNECTION_POOL_SIZE=$(jq -r '.AzureServices.SREPerformance.ConnectionPoolSize // "10"' "$APPSETTINGS_FILE")
-SRE_ENABLE_STREAMING=$(jq -r '.AzureServices.SREPerformance.EnableStreaming // "true"' "$APPSETTINGS_FILE")
-SRE_ENABLE_CACHE=$(jq -r '.AzureServices.SREPerformance.EnableCache // "true"' "$APPSETTINGS_FILE")
-SRE_DISABLE_FORMAT_RESPONSE=$(jq -r '.AzureServices.SREPerformance.DisableFormatResponse // "false"' "$APPSETTINGS_FILE")
-SRE_HYBRID_FORMATTING_ENABLED=$(jq -r '.AzureServices.SREPerformance.HybridFormattingEnabled // "false"' "$APPSETTINGS_FILE")
-SRE_HYBRID_TIMEOUT_SECONDS=$(jq -r '.AzureServices.SREPerformance.HybridTimeoutSeconds // "15"' "$APPSETTINGS_FILE")
-SRE_HYBRID_MAX_TOKENS=$(jq -r '.AzureServices.SREPerformance.HybridMaxTokens // "240"' "$APPSETTINGS_FILE")
 
 # Normalize project endpoint for Azure AI Foundry agents if appsettings contains base endpoint
 if [[ -n "$AI_PROJECT_NAME" ]] && [[ "$AI_PROJECT_NAME" != "null" ]] && [[ "$AI_PROJECT_ENDPOINT" != *"/api/projects/"* ]]; then
@@ -242,36 +226,6 @@ ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_NAME=$AI_PROJECT_NAME"
 ENV_VARS="$ENV_VARS AZURE_AI_ENDPOINT=$AI_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_ENDPOINT=$AI_PROJECT_ENDPOINT"
 
-# Add Azure AI SRE Agent configuration if available
-if [[ -n "$AI_SRE_AGENT_NAME" ]] && [[ "$AI_SRE_AGENT_NAME" != "null" ]]; then
-    ENV_VARS="$ENV_VARS AZURE_AI_SRE_AGENT_NAME=$AI_SRE_AGENT_NAME"
-    echo "✅ Azure AI SRE agent name configured: $AI_SRE_AGENT_NAME"
-fi
-
-if [[ -n "$AI_SRE_AGENT_ID" ]] && [[ "$AI_SRE_AGENT_ID" != "null" ]]; then
-    ENV_VARS="$ENV_VARS AZURE_AI_SRE_AGENT_ID=$AI_SRE_AGENT_ID"
-    echo "✅ Azure AI SRE agent ID configured"
-fi
-
-if [[ -n "$AI_SRE_ENABLED" ]] && [[ "$AI_SRE_ENABLED" != "null" ]]; then
-    ENV_VARS="$ENV_VARS AZURE_AI_SRE_ENABLED=$AI_SRE_ENABLED"
-fi
-
-# Add SRE Performance configuration
-ENV_VARS="$ENV_VARS SRE_AGENT_TOOL_TIMEOUT=$SRE_AGENT_TOOL_TIMEOUT"
-ENV_VARS="$ENV_VARS SRE_AGENT_TOTAL_TIMEOUT=$SRE_AGENT_TOTAL_TIMEOUT"
-ENV_VARS="$ENV_VARS SRE_PARALLEL_TOOLS=$SRE_PARALLEL_TOOLS"
-ENV_VARS="$ENV_VARS SRE_CACHE_TTL=$SRE_CACHE_TTL"
-ENV_VARS="$ENV_VARS SRE_CONNECTION_POOL_SIZE=$SRE_CONNECTION_POOL_SIZE"
-ENV_VARS="$ENV_VARS SRE_ENABLE_STREAMING=$SRE_ENABLE_STREAMING"
-ENV_VARS="$ENV_VARS SRE_ENABLE_CACHE=$SRE_ENABLE_CACHE"
-ENV_VARS="$ENV_VARS SRE_DISABLE_FORMAT_RESPONSE=$SRE_DISABLE_FORMAT_RESPONSE"
-ENV_VARS="$ENV_VARS SRE_HYBRID_FORMATTING_ENABLED=$SRE_HYBRID_FORMATTING_ENABLED"
-ENV_VARS="$ENV_VARS SRE_HYBRID_TIMEOUT_SECONDS=$SRE_HYBRID_TIMEOUT_SECONDS"
-ENV_VARS="$ENV_VARS SRE_HYBRID_MAX_TOKENS=$SRE_HYBRID_MAX_TOKENS"
-echo "✅ SRE Performance configuration: timeout=${SRE_AGENT_TOOL_TIMEOUT}s, parallel=${SRE_PARALLEL_TOOLS}, cache=${SRE_ENABLE_CACHE}"
-echo "✅ SRE Response formatting disabled: ${SRE_DISABLE_FORMAT_RESPONSE}"
-echo "✅ SRE Hybrid formatting: enabled=${SRE_HYBRID_FORMATTING_ENABLED}, timeout=${SRE_HYBRID_TIMEOUT_SECONDS}s, max_tokens=${SRE_HYBRID_MAX_TOKENS}"
 
 # Add Kusto configuration if available
 if [[ -n "$KUSTO_CLUSTER_URI" ]]; then

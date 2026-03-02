@@ -150,6 +150,8 @@ _FAST_PATH_BLOCKED_TOOLS: frozenset = frozenset({
     "policy",           # group: Azure Policy namespace
     "billing",          # group: Billing namespace
     "advisor",          # group: Azure Advisor namespace
+    # Meta/utility tools — should never be selected by fast-path heuristic
+    "describe_capabilities",
     # Network action tools — require specific src/dst params, never valid for list queries
     "test_network_connectivity",
     "check_dns_resolution",
