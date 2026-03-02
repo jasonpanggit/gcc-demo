@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from .tool_registry import get_tool_registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,12 +101,40 @@ class StorageMCPClient:
 
             logger.info("✓ Storage MCP server initialized with %d tools", len(self.available_tools))
             self._initialized = True
+
+            # Register with centralized tool registry
+            await self._register_with_registry()
+
             return True
 
         except Exception as exc:
             logger.error("Failed to start Storage MCP server: %s", exc)
             await self.cleanup()
             return False
+
+    async def _register_with_registry(self) -> None:
+        """Register this MCP client with the centralized tool registry."""
+        try:
+            registry = get_tool_registry()
+            await registry.register_server(
+                label="storage",
+                client=self,
+                domain="storage",
+                priority=10,
+                auto_discover=True
+            )
+            logger.debug("Registered Storage MCP client with tool registry")
+        except ValueError as exc:
+            if "already registered" in str(exc):
+                logger.debug("Storage MCP client already registered with tool registry")
+            else:
+                raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to register Storage MCP client with tool registry: %s",
+                exc,
+                exc_info=True
+            )
 
     async def cleanup(self) -> None:
         try:

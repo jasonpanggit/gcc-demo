@@ -27,6 +27,11 @@ try:  # Prefer absolute import when the package root is available
 except ModuleNotFoundError:  # pragma: no cover - support execution without top-level package
     from agents.eol_orchestrator import EOLOrchestratorAgent  # type: ignore[import-not-found]
 
+try:
+    from .tool_registry import get_tool_registry
+except ImportError:  # pragma: no cover - optional dependency
+    get_tool_registry = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:  # pragma: no cover - typing support only
     from mcp import ClientSession as ClientSessionType  # type: ignore[import-not-found]
 else:  # pragma: no cover - runtime when MCP is optional
@@ -429,11 +434,41 @@ class OSEolMCPClient:
                 len(self.available_tools),
                 ", ".join(tool.get("function", {}).get("name", "<unknown>") for tool in self.available_tools),
             )
+
+            # Register with centralized tool registry
+            await self._register_with_registry()
+
             return True
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Failed to start OS EOL MCP server: %s", exc)
             await self.cleanup()
             return await self._enable_fallback(reason=str(exc))
+
+    async def _register_with_registry(self) -> None:
+        """Register this MCP client with the centralized tool registry."""
+        if get_tool_registry is None:
+            return  # Tool registry not available
+        try:
+            registry = get_tool_registry()
+            await registry.register_server(
+                label="os_eol",
+                client=self,
+                domain="eol",
+                priority=10,
+                auto_discover=True
+            )
+            logger.debug("Registered OS EOL MCP client with tool registry")
+        except ValueError as exc:
+            if "already registered" in str(exc):
+                logger.debug("OS EOL MCP client already registered with tool registry")
+            else:
+                raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to register OS EOL MCP client with tool registry: %s",
+                exc,
+                exc_info=True
+            )
 
     async def _enable_fallback(self, reason: str) -> bool:
         logger.warning("Enabling in-process OS EOL tools fallback (%s)", reason)

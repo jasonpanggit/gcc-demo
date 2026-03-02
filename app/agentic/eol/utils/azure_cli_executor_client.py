@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from .tool_registry import get_tool_registry
+
 logger = logging.getLogger(__name__)
 
 _log_level_name = os.getenv("AZURE_CLI_EXECUTOR_LOG_LEVEL")
@@ -109,12 +111,40 @@ class AzureCliExecutorClient:
 
             logger.info("Azure CLI executor MCP server initialized with %d tools", len(self.available_tools))
             self._initialized = True
+
+            # Register with centralized tool registry
+            await self._register_with_registry()
+
             return True
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Failed to start Azure CLI executor MCP server: %s", exc)
             await self.cleanup()
             return False
+
+    async def _register_with_registry(self) -> None:
+        """Register this MCP client with the centralized tool registry."""
+        try:
+            registry = get_tool_registry()
+            await registry.register_server(
+                label="azure_cli_executor",
+                client=self,
+                domain="azure",
+                priority=15,  # Slightly lower priority than other Azure tools
+                auto_discover=True
+            )
+            logger.debug("Registered Azure CLI Executor MCP client with tool registry")
+        except ValueError as exc:
+            if "already registered" in str(exc):
+                logger.debug("Azure CLI Executor MCP client already registered with tool registry")
+            else:
+                raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to register Azure CLI Executor MCP client with tool registry: %s",
+                exc,
+                exc_info=True
+            )
 
     async def cleanup(self) -> None:
         """Shut down the CLI MCP server."""

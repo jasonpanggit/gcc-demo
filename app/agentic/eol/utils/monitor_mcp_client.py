@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from .tool_registry import get_tool_registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,10 +75,37 @@ class WorkbookMCPClient:
             else:
                 logger.info("Azure Monitor Community MCP server initialized with %d tools", len(self.available_tools))
 
+            # Register with centralized tool registry
+            await self._register_with_registry()
+
         except Exception as exc:
             logger.error("Failed to start Azure Monitor Community MCP server: %s", exc)
             await self.cleanup()
             raise
+
+    async def _register_with_registry(self) -> None:
+        """Register this MCP client with the centralized tool registry."""
+        try:
+            registry = get_tool_registry()
+            await registry.register_server(
+                label="monitor",
+                client=self,
+                domain="monitoring",
+                priority=10,
+                auto_discover=True
+            )
+            logger.debug("Registered Monitor MCP client with tool registry")
+        except ValueError as exc:
+            if "already registered" in str(exc):
+                logger.debug("Monitor MCP client already registered with tool registry")
+            else:
+                raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to register Monitor MCP client with tool registry: %s",
+                exc,
+                exc_info=True
+            )
 
     def get_available_tools(self) -> List[Dict[str, Any]]:
         """Return available tools in OpenAI format."""
