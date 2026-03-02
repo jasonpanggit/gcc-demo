@@ -163,7 +163,7 @@ class OSEOLFallbackExecutor:
         async with self._lock:
             if self._orchestrator is None:
                 try:
-                    logger.info("Starting EOL orchestrator for in-process MCP fallback")
+                    logger.warning("Starting EOL orchestrator for in-process MCP fallback")
                     self._orchestrator = EOLOrchestratorAgent()
                     self._last_initialization_error = None
                 except Exception as exc:  # pragma: no cover - optional dependency issues

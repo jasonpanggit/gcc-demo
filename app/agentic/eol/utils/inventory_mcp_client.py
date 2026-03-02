@@ -171,7 +171,7 @@ class InventoryFallbackExecutor:
         async with self._lock:
             if self._os_agent is None:
                 try:
-                    logger.info("Starting OS inventory agent for in-process MCP fallback")
+                    logger.warning("Starting OS inventory agent for in-process MCP fallback")
                     self._os_agent = OSInventoryAgent()
                     self._last_initialization_error = None
                 except Exception as exc:  # pragma: no cover - optional dependency issues
@@ -189,7 +189,7 @@ class InventoryFallbackExecutor:
         async with self._lock:
             if self._software_agent is None:
                 try:
-                    logger.info("Starting software inventory agent for in-process MCP fallback")
+                    logger.warning("Starting software inventory agent for in-process MCP fallback")
                     self._software_agent = SoftwareInventoryAgent()
                     self._last_initialization_error = None
                 except Exception as exc:  # pragma: no cover - optional dependency issues

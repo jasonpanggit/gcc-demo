@@ -549,7 +549,7 @@ class SREOrchestratorAgent(BaseSREAgent):
     ) -> Dict[str, Any]:
         """Return a helpful scoped message when SRESubAgent is unavailable."""
         query = request.get("query", request.get("intent", ""))
-        logger.info("MCP fallback (SRESubAgent unavailable) for: %s...", query[:80])
+        logger.warning("MCP fallback (SRESubAgent unavailable) for: %s...", query[:80])
 
         fallback_html = (
             "<p>The SRE agent is currently unavailable (MCP server may still be starting up).</p>"

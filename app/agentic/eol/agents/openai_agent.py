@@ -385,13 +385,13 @@ FORMATTING:
                 
                 # Log detected patterns
                 if intent_analysis["matched_eol_patterns"] or intent_analysis["matched_approaching_patterns"] or intent_analysis["matched_inventory_patterns"]:
-                    logger.info(f"🔍 Detected patterns in query:")
+                    logger.debug(f"🔍 Detected patterns in query:")
                     if intent_analysis["matched_approaching_patterns"]:
-                        logger.info(f"  ⏰ Approaching EOL: {intent_analysis['matched_approaching_patterns'][:3]}")
+                        logger.debug(f"  ⏰ Approaching EOL: {intent_analysis['matched_approaching_patterns'][:3]}")
                     if intent_analysis["matched_eol_patterns"]:
-                        logger.info(f"  🕰️  EOL: {intent_analysis['matched_eol_patterns'][:3]}")
+                        logger.debug(f"  🕰️  EOL: {intent_analysis['matched_eol_patterns'][:3]}")
                     if intent_analysis["matched_inventory_patterns"]:
-                        logger.info(f"  📦 Inventory: {intent_analysis['matched_inventory_patterns'][:3]}")
+                        logger.debug(f"  📦 Inventory: {intent_analysis['matched_inventory_patterns'][:3]}")
                 
                 # Determine tool choice based on centralized intent analysis
                 tool_choice = "auto"
@@ -404,19 +404,19 @@ FORMATTING:
                 if intent_analysis["is_approaching_eol_query"]:
                     tool_choice = {"type": "function", "function": {"name": "find_approaching_eol"}}
                     logger.info(f"⏰ FORCING find_approaching_eol tool")
-                    logger.info(f"🔍 Query: '{query}'")
+                    logger.debug(f"🔍 Query: '{query}'")
                 
                 # Check for EOL patterns (specific software EOL queries)
                 elif intent_analysis["is_eol_query"]:
                     tool_choice = {"type": "function", "function": {"name": "check_software_eol"}}
                     logger.info(f"🕰️ FORCING check_software_eol tool")
-                    logger.info(f"📅 Query: '{query}'")
+                    logger.debug(f"📅 Query: '{query}'")
                 
                 # Check for get_inventory patterns
                 elif intent_analysis["is_inventory_query"]:
                     tool_choice = {"type": "function", "function": {"name": "get_inventory"}}
                     logger.info(f"🎯 FORCING get_inventory tool")
-                    logger.info(f"📦 Query: '{query}'")
+                    logger.debug(f"📦 Query: '{query}'")
                     
                     # Log what we expect the AI to do with Windows filtering
                     if 'windows' in query_lower:
@@ -426,7 +426,7 @@ FORMATTING:
                 elif any(pattern in query_lower for pattern in search_inventory_patterns):
                     tool_choice = {"type": "function", "function": {"name": "search_inventory"}}
                     matched = [p for p in search_inventory_patterns if p in query_lower]
-                    logger.info(f"🔍 FORCING search_inventory tool - matched: {matched}")
+                    logger.debug(f"🔍 FORCING search_inventory tool - matched: {matched}")
                 
                 logger.info(f"🔧 Final tool_choice decision: {tool_choice}")
                 
@@ -777,7 +777,7 @@ FORMATTING:
         """Call the inventory agent with search parameters via orchestrator"""
         try:
             search_terms = args.get("search_terms", "")
-            logger.info(f"🔍 _call_inventory_agent: searching for '{search_terms}'")
+            logger.debug(f"🔍 _call_inventory_agent: searching for '{search_terms}'")
             
             # Use the orchestrator's inventory agent if available
             if hasattr(self, 'orchestrator') and self.orchestrator and hasattr(self.orchestrator, 'inventory_agent'):
@@ -847,7 +847,7 @@ FORMATTING:
             days = args.get("days", 90)
             software_filter = args.get("software_filter", "")
             
-            logger.info(f"🔍 _call_get_inventory: days={days}, filter='{software_filter}'")
+            logger.debug(f"🔍 _call_get_inventory: days={days}, filter='{software_filter}'")
             
             # Use the orchestrator's inventory agent if available
             if hasattr(self, 'orchestrator') and self.orchestrator and hasattr(self.orchestrator, 'inventory_agent'):
@@ -856,7 +856,7 @@ FORMATTING:
                 
                 # Use software inventory agent directly since search_software was removed
                 if software_filter:
-                    logger.info(f"🔍 Getting inventory and filtering for: '{software_filter}'")
+                    logger.debug(f"🔍 Getting inventory and filtering for: '{software_filter}'")
                     inventory_data = await inventory_agent.get_software_inventory(days=days)
                     # Apply basic filter on the results
                     if isinstance(inventory_data, dict) and inventory_data.get("data"):
@@ -992,7 +992,7 @@ Please create a comprehensive, user-friendly response that addresses their quest
             Dictionary containing inventory data, summary statistics, and metadata
         """
         try:
-            logger.info(f"🔍 OpenAI Agent retrieving inventory data (days={days}, filter='{software_filter}')")
+            logger.debug(f"🔍 OpenAI Agent retrieving inventory data (days={days}, filter='{software_filter}')")
             
             # Use the orchestrator's inventory agent if available
             if hasattr(self, 'orchestrator') and self.orchestrator and hasattr(self.orchestrator, 'inventory_agent'):
@@ -1006,7 +1006,7 @@ Please create a comprehensive, user-friendly response that addresses their quest
             
             # Get inventory data and apply filter if needed
             if software_filter:
-                logger.info(f"🔍 Getting inventory and filtering for: '{software_filter}'")
+                logger.debug(f"🔍 Getting inventory and filtering for: '{software_filter}'")
                 inventory_data = await inventory_agent.get_software_inventory(days=days)
                 operation_type = "filtered_search"
                 # Apply basic filter on the results
@@ -1137,7 +1137,7 @@ Please create a comprehensive, user-friendly response that addresses their quest
             days_ahead = args.get("days_ahead", 365)
             software_types = args.get("software_types", ["application", "operating_system"])
             
-            logger.info(f"🔍 Finding software approaching EOL within {days_ahead} days")
+            logger.debug(f"🔍 Finding software approaching EOL within {days_ahead} days")
             
             # Step 1: Get inventory data
             inventory_result = await self._call_get_inventory({"days": 90})
@@ -1161,7 +1161,7 @@ Please create a comprehensive, user-friendly response that addresses their quest
                 if any(sw_type in software_type for sw_type in software_types):
                     filtered_software.append(software)
             
-            logger.info(f"🔍 Filtered to {len(filtered_software)} software items matching types: {software_types}")
+            logger.debug(f"🔍 Filtered to {len(filtered_software)} software items matching types: {software_types}")
             
             # Step 3: Check EOL status for each software
             approaching_eol = []
