@@ -78,7 +78,8 @@ class OSInventoryAgent:
             self.credential = None
             logger.warning("Azure SDK not available – OS inventory agent will operate in mock mode")
         else:
-            self.credential = DefaultAzureCredential()
+            from utils.azure_client_manager import get_azure_sdk_manager
+            self.credential = get_azure_sdk_manager().get_credential()
 
         self._logs_client: Optional[LogsQueryClient] = None
         self._cache_has_full_dataset: bool = False
@@ -122,7 +123,7 @@ class OSInventoryAgent:
         except Exception as exc:
             logger.debug("OS EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
 
-        logger.info(f"🔍 EOL cache miss for {normalized_name} {normalized_version}, querying orchestrator...")
+        logger.debug("EOL cache miss for %s %s, querying orchestrator...", normalized_name, normalized_version)
 
         try:
             from ..main import get_eol_orchestrator

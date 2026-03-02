@@ -9,7 +9,7 @@
     "ContainerApp": {
       "Name": "your-container-app-name",
       "Environment": "your-container-app-environment",
-      "Url": "https://your-app.region.azurecontainerapps.io"
+      "Url": "https://your-app.region.azurecontainerapps.io/"
     },
     "ContainerRegistry": {
       "Name": "your-acr-name",
@@ -18,20 +18,21 @@
     }
   },
   "ServicePrincipal": {
+    "_comment": "SPN for Azure CLI execution",
     "ClientId": "your-service-principal-client-id",
     "ClientSecret": "your-service-principal-secret",
-    "UseServicePrincipal": true,
-    "Comment": "Set UseServicePrincipal to false to use Managed Identity instead"
+    "UseServicePrincipal": true
   },
   "ManagedIdentity": {
-    "ClientId": "your-managed-identity-client-id",
-    "Comment": "Used when UseServicePrincipal is false"
+    "_comment": "System Assigned Managed Identity for the Container App",
+    "ClientId": "your-managed-identity-client-id"
   },
   "AzureServices": {
     "OpenAI": {
       "Endpoint": "https://your-openai.openai.azure.com/",
       "Deployment": "gpt-4o-mini",
-      "ApiVersion": "2024-08-01-preview"
+      "ApiVersion": "2024-08-01-preview",
+      "EmbeddingDeployment": "text-embedding-3-small"
     },
     "CosmosDB": {
       "Endpoint": "https://your-cosmos.documents.azure.com:443/",
@@ -44,7 +45,7 @@
     "AIFoundry": {
       "ProjectName": "your-ai-project-name",
       "Endpoint": "https://your-ai-foundry.cognitiveservices.azure.com/",
-      "ProjectEndpoint": "https://your-ai-foundry.cognitiveservices.azure.com/",
+      "ProjectEndpoint": "https://your-ai-foundry.services.ai.azure.com/api/projects/your-ai-project-name",
       "SREAgentName": "gccsreagent",
       "SREAgentId": "your-sre-agent-id-optional",
       "SREEnabled": "true",
@@ -54,6 +55,20 @@
       "ClusterUri": "https://data-explorer.azure.com",
       "Database": "ARG",
       "Description": "Azure Resource Graph endpoint for KQL queries"
+    },
+    "SREPerformance": {
+      "ToolCallTimeout": 30,
+      "TotalTimeout": 120,
+      "ParallelToolLimit": 5,
+      "CacheTTL": 300,
+      "ConnectionPoolSize": 10,
+      "EnableStreaming": true,
+      "EnableCache": true,
+      "DisableFormatResponse": true,
+      "HybridFormattingEnabled": true,
+      "HybridTimeoutSeconds": 15,
+      "HybridMaxTokens": 240,
+      "Comment": "Performance tuning for SRE agent integration"
     }
   },
   "TeamsBot": {

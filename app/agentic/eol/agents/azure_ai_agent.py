@@ -77,7 +77,8 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         
         if AZURE_AI_AVAILABLE:
             try:
-                self.credential = DefaultAzureCredential()
+                from utils.azure_client_manager import get_azure_sdk_manager
+                self.credential = get_azure_sdk_manager().get_credential()
                 
                 # Initialize Azure AI Project Client
                 if self.project_endpoint:
@@ -239,31 +240,28 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                 )
             
             # Perform grounded search using Azure AI Agent Service
-            logger.info(f"🔍 [DEBUG] Calling search_with_grounding for {software_name} {version or ''}")
+            logger.debug("Calling search_with_grounding for %s %s", software_name, version or "")
             result = await self.search_with_grounding(software_name, version, technology_context)
-            
+
             # Debug: Log the raw result from search_with_grounding
-            logger.info(f"🔍 [DEBUG] Raw result from search_with_grounding: {result}")
-            logger.info(f"🔍 [DEBUG] Result type: {type(result)}")
-            logger.info(f"🔍 [DEBUG] Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-            
+            logger.debug("Raw result from search_with_grounding: %s", result)
+            logger.debug("Result type: %s", type(result))
+            logger.debug("Result keys: %s", list(result.keys()) if isinstance(result, dict) else "Not a dict")
+
             if result.get("success", False):
                 data = result.get("data", {})
-                logger.info(f"🔍 [DEBUG] Success case - data object: {data}")
-                logger.info(f"🔍 [DEBUG] Data type: {type(data)}")
-                logger.info(f"🔍 [DEBUG] Data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-                
+                logger.debug("Success case - data object: %s", data)
+                logger.debug("Data type: %s", type(data))
+                logger.debug("Data keys: %s", list(data.keys()) if isinstance(data, dict) else "Not a dict")
+
                 # Debug individual data fields
                 eol_date = data.get("eol_date")
                 support_end_date = data.get("support_end_date")
                 confidence = data.get("confidence", 0.8)
                 source_urls = data.get("source_urls", [])
-                
-                logger.info(f"🔍 [DEBUG] Extracted values:")
-                logger.info(f"🔍 [DEBUG]   - eol_date: '{eol_date}' (type: {type(eol_date)})")
-                logger.info(f"🔍 [DEBUG]   - support_end_date: '{support_end_date}' (type: {type(support_end_date)})")
-                logger.info(f"🔍 [DEBUG]   - confidence: {confidence} (type: {type(confidence)})")
-                logger.info(f"🔍 [DEBUG]   - source_urls: {source_urls} (type: {type(source_urls)})")
+
+                logger.debug("Extracted values: eol_date=%r support_end_date=%r confidence=%r source_urls=%r",
+                             eol_date, support_end_date, confidence, source_urls)
                 
                 response = self.create_success_response(
                     software_name=software_name,
@@ -285,7 +283,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                     }
                 )
                 
-                logger.info(f"🔍 [DEBUG] Final response being returned: {response}")
+                logger.debug("Final response being returned: %s", response)
                 logger.info(f"✅ Azure AI Agent Service found EOL data for {software_name} {version or ''}")
                 return response
             else:
@@ -318,16 +316,16 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
             # Build search query
             search_query = self._build_grounding_query(software_name, version, technology_context)
             
-            logger.info(f"🔍 [DEBUG] Calling search_with_grounding for {software_name} {version or ''}")
-            logger.info(f"🔍 Performing REAL Azure AI grounded search: {search_query}")
-            
+            logger.debug("Calling search_with_grounding for %s %s", software_name, version or "")
+            logger.info("Performing REAL Azure AI grounded search: %s", search_query)
+
             if not self.is_available():
                 logger.warning("⚠️ Azure AI Agent Service not available, falling back to demo data")
-                logger.info(f"🔍 [DEBUG] Using fallback demo data for: {software_name} {version}")
-                
+                logger.debug("Using fallback demo data for: %s %s", software_name, version)
+
                 # Use the existing demo data directly
                 eol_data = self.get_fallback_eol_info(software_name, version, technology_context)
-                logger.info(f"🔍 [DEBUG] Generated fallback EOL data: {eol_data}")
+                logger.debug("Generated fallback EOL data: %s", eol_data)
                 
                 return {
                     "success": True,
@@ -348,7 +346,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
             
             # Perform REAL Azure AI grounded search
             try:
-                logger.info("🔍 Azure AI Agent Service performing REAL internet search")
+                logger.info("Azure AI Agent Service performing REAL internet search")
                 
                 # Create Bing Grounding Tool for real web search
                 # Note: connection_id may be required by the installed SDK. Be defensive.
@@ -397,7 +395,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                     bing_tool = None
                 
                 # Execute the grounded search
-                logger.info(f"🔍 [DEBUG] Executing Bing grounded search with query: '{search_query}'")
+                logger.debug("Executing Bing grounded search with query: '%s'", search_query)
                 
                 # Use Azure AI Agents to perform the search
                 search_params = self._build_bing_search_params(search_query)
@@ -406,17 +404,17 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                 grounding_result = await self._execute_grounded_search(bing_tool, search_params)
                 
                 if grounding_result and grounding_result.get("success"):
-                    logger.info("🔍 [DEBUG] Real Azure AI search returned results")
+                    logger.debug("Real Azure AI search returned results")
                     return await self._process_real_search_results(
                         grounding_result, software_name, version, search_query
                     )
                 else:
                     logger.warning("🔍 Real Azure AI search failed, using fallback")
-                    logger.info(f"🔍 [DEBUG] Using fallback demo data for: {software_name} {version}")
-                    
+                    logger.debug("Using fallback demo data for: %s %s", software_name, version)
+
                     # Use the existing demo data directly
                     eol_data = self.get_fallback_eol_info(software_name, version, technology_context)
-                    logger.info(f"🔍 [DEBUG] Generated fallback EOL data: {eol_data}")
+                    logger.debug("Generated fallback EOL data: %s", eol_data)
                     
                     return {
                         "success": True,
@@ -437,12 +435,12 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
                     
             except Exception as search_error:
                 logger.error(f"❌ Real Azure AI search error: {search_error}")
-                logger.info("🔄 Falling back to demo data for reliability")
-                logger.info(f"🔍 [DEBUG] Using fallback demo data for: {software_name} {version}")
-                
+                logger.warning("Falling back to demo data after search error")
+                logger.debug("Using fallback demo data for: %s %s", software_name, version)
+
                 # Use the existing demo data directly
                 eol_data = self.get_fallback_eol_info(software_name, version, technology_context)
-                logger.info(f"🔍 [DEBUG] Generated fallback EOL data: {eol_data}")
+                logger.debug("Generated fallback EOL data: %s", eol_data)
                 
                 return {
                     "success": True,
@@ -473,7 +471,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         Execute the actual grounded search using Azure AI Agent Service
         """
         try:
-            logger.info("🔍 [DEBUG] Executing real Azure AI grounded search...")
+            logger.debug("Executing real Azure AI grounded search...")
             
             # This would be the actual Azure AI Agent Service call
             # For now, we'll simulate since full Azure AI Agent setup requires:
@@ -499,7 +497,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
         Process real Azure AI search results and extract EOL information
         """
         try:
-            logger.info("🔍 [DEBUG] Processing real Azure AI search results...")
+            logger.debug("Processing real Azure AI search results...")
             
             # Extract search results from grounding response
             search_results = grounding_result.get("results", [])
@@ -536,7 +534,7 @@ class AzureAIAgentEOLAgent(BaseEOLAgent):
             # This would use Azure OpenAI to analyze search results
             # and extract structured EOL information
             
-            logger.info(f"🔍 [DEBUG] Analyzing {len(search_results)} search results for EOL data")
+            logger.debug("Analyzing %d search results for EOL data", len(search_results))
             
             # TODO: Implement Azure OpenAI extraction when fully configured
             # prompt = f"Extract EOL information for {software_name} {version} from these search results: {search_results}"

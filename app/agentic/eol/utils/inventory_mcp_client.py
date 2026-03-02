@@ -27,6 +27,11 @@ except ModuleNotFoundError:  # pragma: no cover - support execution without top-
     from agents.os_inventory_agent import OSInventoryAgent  # type: ignore[import-not-found]
     from agents.software_inventory_agent import SoftwareInventoryAgent  # type: ignore[import-not-found]
 
+try:
+    from .tool_registry import get_tool_registry
+except ImportError:  # pragma: no cover - optional dependency
+    get_tool_registry = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 
@@ -423,14 +428,44 @@ class InventoryMCPClient:
                 len(self.available_tools),
                 ", ".join(tool.get("function", {}).get("name", "<unknown>") for tool in self.available_tools),
             )
+
+            # Register with centralized tool registry
+            await self._register_with_registry()
+
             return True
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Failed to start inventory MCP server: %s", exc)
             await self.cleanup()
             return await self._enable_fallback(reason=str(exc))
 
+    async def _register_with_registry(self) -> None:
+        """Register this MCP client with the centralized tool registry."""
+        if get_tool_registry is None:
+            return  # Tool registry not available
+        try:
+            registry = get_tool_registry()
+            await registry.register_server(
+                label="inventory",
+                client=self,
+                domain="inventory",
+                priority=10,
+                auto_discover=True
+            )
+            logger.debug("Registered Inventory MCP client with tool registry")
+        except ValueError as exc:
+            if "already registered" in str(exc):
+                logger.debug("Inventory MCP client already registered with tool registry")
+            else:
+                raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to register Inventory MCP client with tool registry: %s",
+                exc,
+                exc_info=True
+            )
+
     async def _enable_fallback(self, reason: str) -> bool:
-        logger.info("Enabling in-process inventory tools fallback (%s)", reason)
+        logger.warning("Enabling in-process inventory tools fallback (%s)", reason)
         self._fallback_executor = InventoryFallbackExecutor()
         try:
             await self._fallback_executor.initialize()

@@ -89,7 +89,7 @@ async def with_error_boundary(
         # Execute fallback if provided
         if fallback:
             try:
-                logger.info(f"Executing fallback handler", extra=error_context)
+                logger.warning("Executing fallback handler", extra=error_context)
                 return await fallback()
             except Exception as fallback_error:
                 logger.error(

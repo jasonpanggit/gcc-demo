@@ -15,8 +15,10 @@ from typing import Any, Dict, Optional
 
 try:
     from app.agentic.eol.utils.logger import get_logger
+    from app.agentic.eol.utils.cache_config import TTL_PROFILE_MAP
 except ModuleNotFoundError:
     from utils.logger import get_logger  # type: ignore[import-not-found]
+    from utils.cache_config import TTL_PROFILE_MAP  # type: ignore[import-not-found]
 
 logger = get_logger(__name__)
 
@@ -24,13 +26,10 @@ logger = get_logger(__name__)
 class SRECacheManager:
     """TTL-based in-memory cache for SRE tool results."""
 
-    TTL_PROFILES: Dict[str, int] = {
-        "real_time": 60,       # 1 min  - performance metrics
-        "short": 300,          # 5 min  - health checks, alerts
-        "medium": 1800,        # 30 min - config analysis, costs
-        "long": 3600,          # 1 hr   - dependencies, SLOs
-        "daily": 86400,        # 24 hr  - security score, compliance
-    }
+    # TTL profiles sourced from the central cache_config module.
+    # Legacy keys (real_time, short, medium, long, daily) are mapped to
+    # the standard CacheTTLProfile tiers for one-line tuning across the app.
+    TTL_PROFILES: Dict[str, int] = TTL_PROFILE_MAP
 
     # Map tool names to their default TTL profile
     TOOL_TTL_MAP: Dict[str, str] = {

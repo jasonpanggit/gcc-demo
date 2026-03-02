@@ -93,7 +93,8 @@ class SoftwareInventoryAgent:
             self.credential = None
             logger.warning("Azure SDK not available – Software inventory agent will operate in mock mode")
         else:
-            self.credential = DefaultAzureCredential()
+            from utils.azure_client_manager import get_azure_sdk_manager
+            self.credential = get_azure_sdk_manager().get_credential()
         self._logs_client: Optional[LogsQueryClient] = None
         self._full_cache_scopes: Dict[str, bool] = {}
         
@@ -120,7 +121,7 @@ class SoftwareInventoryAgent:
         except Exception as exc:
             logger.debug("EOL cache lookup failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
 
-        logger.info(f"🔍 Software EOL cache miss for {normalized_name} {normalized_version}, querying orchestrator...")
+        logger.debug("Software EOL cache miss for %s %s, querying orchestrator...", normalized_name, normalized_version)
 
         try:
             # Lazy import to avoid circular dependencies during app startup

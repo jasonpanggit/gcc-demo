@@ -883,160 +883,30 @@ async def list_categories():
 
 
 # ============================================================================
-# Thread Management Endpoints
+# Thread Management Endpoints (removed — SRESubAgent is stateless)
 # ============================================================================
 
 @router.get("/threads/{workflow_id}", response_model=StandardResponse)
 async def get_thread_history(workflow_id: str):
-    """Retrieve conversation thread history for a workflow.
+    """Thread history endpoint — removed.
 
-    Returns the message history and context for a specific workflow's
-    conversation thread with the Azure AI SRE Agent. This enables
-    inspecting past interactions and maintaining conversation continuity.
-
-    Args:
-        workflow_id: Unique workflow identifier
-
-    Returns:
-        StandardResponse with thread history including messages and metadata
+    The SRE agent now uses SRESubAgent (stateless ReAct loop) which does not
+    maintain persistent conversation threads.
     """
-    logger.info("Getting thread history for workflow=%s", workflow_id[:12])
-
-    orchestrator = None
-    try:
-        orchestrator = SREOrchestratorAgent()
-        await orchestrator.initialize()
-
-        # Check if agent is available
-        if not orchestrator.azure_sre_agent:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Azure AI SRE Agent is not available"
-            )
-
-        agent = orchestrator.azure_sre_agent
-
-        # Look up thread_id for this workflow
-        thread_id = None
-        async with agent._thread_map_lock:
-            thread_id = agent._thread_map.get(workflow_id)
-
-        # Also check context store if not in memory
-        if not thread_id and agent._context_store_initialized:
-            try:
-                ctx_store = await agent._get_context_store()
-                if ctx_store:
-                    thread_id = await ctx_store.get_context_value(
-                        workflow_id, "sre_agent_thread_id",
-                    )
-            except Exception:
-                pass
-
-        if not thread_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No thread found for workflow '{workflow_id}'"
-            )
-
-        # Retrieve messages from the thread
-        messages = []
-        try:
-            if agent.agents_client:
-                thread_messages = agent.agents_client.list_messages(
-                    thread_id=thread_id,
-                )
-                for msg in thread_messages.data:
-                    content_text = ""
-                    if hasattr(msg, "content") and msg.content:
-                        for block in msg.content:
-                            if hasattr(block, "text") and hasattr(block.text, "value"):
-                                content_text += block.text.value
-                    messages.append({
-                        "id": msg.id,
-                        "role": msg.role if hasattr(msg, "role") else "unknown",
-                        "content": content_text,
-                        "created_at": msg.created_at.isoformat() if hasattr(msg, "created_at") and msg.created_at else None,
-                    })
-        except Exception as e:
-            logger.warning("Failed to list thread messages: %s", e)
-
-        return StandardResponse(
-            success=True,
-            data={
-                "workflow_id": workflow_id,
-                "thread_id": thread_id,
-                "message_count": len(messages),
-                "messages": messages,
-            },
-            message=f"Thread history for workflow '{workflow_id}'"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Failed to get thread history: %s", exc, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve thread history: {str(exc)}"
-        )
-    finally:
-        if orchestrator:
-            await orchestrator.cleanup()
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Thread history is no longer available. The SRE agent uses a stateless ReAct loop."
+    )
 
 
 @router.delete("/threads/{workflow_id}", response_model=StandardResponse)
 async def delete_thread(workflow_id: str):
-    """Clear conversation thread context for a workflow.
+    """Thread deletion endpoint — removed.
 
-    Deletes the conversation thread and associated context for a specific
-    workflow. This is useful for resetting the conversation state or
-    cleaning up completed workflows.
-
-    Args:
-        workflow_id: Unique workflow identifier
-
-    Returns:
-        StandardResponse confirming deletion
+    The SRE agent now uses SRESubAgent (stateless ReAct loop) which does not
+    maintain persistent conversation threads.
     """
-    logger.info("Deleting thread for workflow=%s", workflow_id[:12])
-
-    orchestrator = None
-    try:
-        orchestrator = SREOrchestratorAgent()
-        await orchestrator.initialize()
-
-        if not orchestrator.azure_sre_agent:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Azure AI SRE Agent is not available"
-            )
-
-        # Delete thread via the agent
-        deleted = await orchestrator.azure_sre_agent.delete_thread(workflow_id)
-
-        if deleted:
-            return StandardResponse(
-                success=True,
-                data={
-                    "workflow_id": workflow_id,
-                    "deleted": True,
-                },
-                message=f"Thread context cleared for workflow '{workflow_id}'"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No thread found for workflow '{workflow_id}'"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Failed to delete thread: %s", exc, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete thread: {str(exc)}"
-        )
-    finally:
-        if orchestrator:
-            await orchestrator.cleanup()
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Thread management is no longer available. The SRE agent uses a stateless ReAct loop."
+    )

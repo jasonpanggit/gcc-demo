@@ -18,16 +18,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from azure.identity import DefaultAzureCredential
-from openai import AzureOpenAI
 
 # Import utilities and configuration
-from utils import get_logger, config, create_error_response
-from utils.cosmos_cache import base_cosmos
+from utils import get_logger, config
 from utils.cache_stats_manager import cache_stats_manager
-from utils.response_models import StandardResponse, ensure_standard_format
+from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
-    standard_endpoint,
     readonly_endpoint,
     write_endpoint
 )
@@ -57,7 +54,6 @@ from api.monitor_community import router as monitor_community_router
 from api.metrics import router as metrics_router
 from api.teams_bot import router as teams_bot_router
 from api.sre_audit import router as sre_audit_router
-from api.azure_ai_sre import router as azure_ai_sre_router
 from api.sre_orchestrator import router as sre_orchestrator_router
 from api.patch_management import router as patch_management_router
 
@@ -104,7 +100,6 @@ app.include_router(monitor_community_router)
 app.include_router(metrics_router)
 app.include_router(teams_bot_router)
 app.include_router(sre_audit_router)
-app.include_router(azure_ai_sre_router)
 app.include_router(sre_orchestrator_router)
 app.include_router(patch_management_router)  # Arc VM patch assessment
 
@@ -469,7 +464,16 @@ async def _run_startup_tasks():
     """Initialize services on startup"""
     try:
         logger.info(f"🚀 Starting {config.app.title} v{config.app.version}")
-        
+
+        # Initialize Azure SDK singleton manager (credential + connection pool warm-up)
+        try:
+            from utils.azure_client_manager import get_azure_sdk_manager
+            azure_manager = get_azure_sdk_manager()
+            await azure_manager.initialize()
+            logger.info("✅ Azure SDK manager initialized (credential + connection pool ready)")
+        except Exception as e:
+            logger.warning("⚠️ Azure SDK manager initialization failed (will retry on first use): %s", e)
+
         # ===== CRITICAL: Set global environment variables for all MCP clients =====
         # These must be set BEFORE any MCP client initialization to ensure proper authentication
         # and prevent mock data from being used
@@ -643,7 +647,29 @@ async def _run_shutdown_tasks():
             logger.debug("Inventory scheduler cleanup cancelled")
         except Exception as e:
             logger.debug(f"Inventory scheduler cleanup: {e}")
-            
+
+        # Graceful shutdown for SRE orchestrator background tasks (CQ-07)
+        try:
+            from utils.sre_startup import get_sre_orchestrator_instance
+            sre_orch = get_sre_orchestrator_instance()
+            if sre_orch is not None and hasattr(sre_orch, "shutdown"):
+                await sre_orch.shutdown()
+                logger.info("✅ SRE orchestrator background tasks cancelled")
+        except asyncio.CancelledError:
+            logger.debug("SRE orchestrator shutdown cancelled")
+        except Exception as e:
+            logger.debug(f"SRE orchestrator shutdown: {e}")
+
+        # Graceful shutdown for Inventory orchestrator background tasks (CQ-07)
+        try:
+            if inventory_asst_orchestrator is not None and hasattr(inventory_asst_orchestrator, "shutdown"):
+                await inventory_asst_orchestrator.shutdown()
+                logger.info("✅ Inventory orchestrator background tasks cancelled")
+        except asyncio.CancelledError:
+            logger.debug("Inventory orchestrator shutdown cancelled")
+        except Exception as e:
+            logger.debug(f"Inventory orchestrator shutdown: {e}")
+
         # Cleanup Playwright pool
         try:
             from utils.playwright_pool import playwright_pool
@@ -653,6 +679,15 @@ async def _run_shutdown_tasks():
             logger.debug("Playwright pool cleanup cancelled")
         except Exception as e:
             logger.debug(f"Playwright pool cleanup: {e}")
+
+        # Close Azure SDK manager (releases async connection pools and credential)
+        try:
+            from utils.azure_client_manager import get_azure_sdk_manager
+            azure_manager = get_azure_sdk_manager()
+            await azure_manager.aclose()
+            logger.info("✅ Azure SDK manager closed gracefully")
+        except Exception as e:
+            logger.warning("⚠️ Azure SDK manager close failed: %s", e)
 
         logger.info("✅ Shutdown completed")
     except Exception as e:
@@ -1773,10 +1808,10 @@ async def get_eol_agent_responses_OLD():
         for response in inventory_responses:
             response['orchestrator_type'] = 'inventory_asst_orchestrator'
         all_responses.extend(inventory_responses)
-        logger.info(f"🔍 [API] Inventory assistant orchestrator returned {len(inventory_responses)} EOL responses")
+        logger.debug("Inventory assistant orchestrator returned %d EOL responses", len(inventory_responses))
     else:
-        logger.warning("🔍 [API] Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
-    
+        logger.warning("Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
+
     # Get responses from EOL orchestrator
     eol_orchestrator = get_eol_orchestrator()
     if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
@@ -1785,14 +1820,14 @@ async def get_eol_agent_responses_OLD():
         for response in eol_responses:
             response['orchestrator_type'] = 'eol_orchestrator'
         all_responses.extend(eol_responses)
-        logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
+        logger.debug("EOL orchestrator returned %d EOL responses", len(eol_responses))
     else:
-        logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
-    
+        logger.warning("EOL orchestrator not available or missing get_eol_agent_responses method")
+
     # Sort by timestamp (newest first)
     all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-    
-    logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
+
+    logger.debug("Total EOL responses returned: %d", len(all_responses))
     
     return {
         "success": True,
@@ -2586,7 +2621,6 @@ async def clear_inventory_cache_OLD():
 )
 async def index(request: Request):
     """OLD - Duplicate endpoint moved to api/ui.py"""
-    pass
 
 
 # ============================================================================

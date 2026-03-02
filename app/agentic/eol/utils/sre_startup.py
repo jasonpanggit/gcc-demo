@@ -188,6 +188,7 @@ async def initialize_sre_orchestrator():
 
 # Global initialization flag
 _sre_initialized = False
+_sre_orchestrator_instance = None
 
 
 async def ensure_sre_initialized():
@@ -205,3 +206,13 @@ async def ensure_sre_initialized():
         _sre_initialized = True
 
     return success
+
+
+def get_sre_orchestrator_instance():
+    """Return the module-level SRE orchestrator instance, or None if not set.
+
+    SREOrchestratorAgent is currently created per-request; this returns None
+    unless a long-lived instance is stored here in the future.  Used by
+    main.py _run_shutdown_tasks() for CQ-07 graceful shutdown.
+    """
+    return _sre_orchestrator_instance

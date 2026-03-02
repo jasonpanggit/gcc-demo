@@ -382,27 +382,27 @@ async def azure_mcp_ui(request: Request):
     return templates.TemplateResponse(request, "azure-mcp.html")
 
 
-@router.get("/azure-ai-sre", response_class=HTMLResponse)
+@router.get("/sre", response_class=HTMLResponse)
 @with_timeout_and_stats(
-    agent_name="azure_ai_sre_page",
+    agent_name="sre_page",
     timeout_seconds=10,
     track_cache=False,
     auto_wrap_response=False
 )
-async def azure_ai_sre_ui(request: Request):
+async def sre_ui(request: Request):
     """
-    Azure AI SRE Agent page.
+    SRE Agent page.
 
-    Serves the Azure AI SRE Agent interface for intelligent Site Reliability
-    Engineering operations powered by Azure AI Agent Service (gccsreagent).
+    Serves the SRE Agent interface for intelligent Site Reliability
+    Engineering operations powered by SRESubAgent over SRE MCP tools.
 
     Args:
         request: FastAPI Request object
 
     Returns:
-        HTMLResponse with rendered azure-ai-sre.html template.
+        HTMLResponse with rendered sre.html template.
     """
-    return templates.TemplateResponse(request, "azure-ai-sre.html")
+    return templates.TemplateResponse(request, "sre.html")
 
 
 @router.get("/patch-management", response_class=HTMLResponse)

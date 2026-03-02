@@ -45,6 +45,14 @@ class PlaywrightPool:
         if self._initialized:
             return
 
+        _MAX_POOL_SIZE = 5  # CQ-05: prevent resource exhaustion
+        if max_concurrency > _MAX_POOL_SIZE:
+            logger.warning(
+                "MAX_PLAYWRIGHT_CONCURRENCY=%d exceeds hard cap %d; clamping to %d",
+                max_concurrency, _MAX_POOL_SIZE, _MAX_POOL_SIZE,
+            )
+            max_concurrency = _MAX_POOL_SIZE
+
         self._max_concurrency = max_concurrency
         self._sem = asyncio.Semaphore(max_concurrency)
         self._playwright = await async_playwright().start()

@@ -261,7 +261,7 @@ class AlertManager:
         # Fallback to file-based configuration
         try:
             if self.config_file.exists():
-                logger.info("Loading alert configuration from file (fallback)...")
+                logger.warning("Loading alert configuration from file (fallback)...")
                 async with aiofiles.open(self.config_file, 'r') as f:
                     data = json.loads(await f.read())
                     self._config = AlertConfiguration(**data)
