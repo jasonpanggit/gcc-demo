@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""AsyncAzureOpenAI-powered orchestrator for Azure MCP Server tools."""
+"""AsyncAzureOpenAI-powered orchestrator for Azure MCP Server tools.
+
+This orchestrator extends BaseOrchestrator and implements the ReAct loop
+pattern with optional pipeline routing modes.
+"""
 
 from __future__ import annotations
 
@@ -14,10 +18,24 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 try:
+    from app.agentic.eol.agents.base_orchestrator import BaseOrchestrator
+    from app.agentic.eol.agents.orchestrator_models import (
+        ExecutionPlan,
+        OrchestratorResult,
+        PlanStep,
+        ToolEntry,
+    )
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.cache_stats_manager import cache_stats_manager
     from app.agentic.eol.utils.response_formatter import ResponseFormatter
 except ModuleNotFoundError:  # pragma: no cover - packaged runtime fallback
+    from agents.base_orchestrator import BaseOrchestrator
+    from agents.orchestrator_models import (
+        ExecutionPlan,
+        OrchestratorResult,
+        PlanStep,
+        ToolEntry,
+    )
     from utils.logger import get_logger  # type: ignore[import-not-found]
     from utils.cache_stats_manager import cache_stats_manager  # type: ignore[import-not-found]
     from utils.response_formatter import ResponseFormatter  # type: ignore[import-not-found]
@@ -372,8 +390,12 @@ logger.info(
 )
 
 
-class MCPOrchestratorAgent:
-    """High-level Azure MCP orchestrator using AsyncAzureOpenAI with ReAct loop."""
+class MCPOrchestratorAgent(BaseOrchestrator):
+    """High-level Azure MCP orchestrator using AsyncAzureOpenAI with ReAct loop.
+
+    Extends BaseOrchestrator to leverage shared infrastructure while maintaining
+    the sophisticated ReAct loop and pipeline routing capabilities.
+    """
 
     _SYSTEM_PROMPT = """You are the Azure modernization co-pilot for enterprise operations teams.
 You have access to Azure MCP tools that provide REAL-TIME data from Azure services.
@@ -899,6 +921,15 @@ FORMATTING:
         max_reasoning_iterations: Optional[int] = None,
         default_temperature: Optional[float] = None,
     ) -> None:
+        # Initialize BaseOrchestrator
+        super().__init__(
+            orchestrator_id=f"mcp_orch_{uuid.uuid4().hex[:8]}",
+            enable_streaming=True,
+            max_retries=3,
+            timeout_seconds=120.0,
+        )
+
+        # MCPOrchestratorAgent-specific initialization
         self.session_id = self._new_session_id()
         self._chat_client: Optional[Any] = chat_client
         self._default_credential: Optional[DefaultAzureCredentialType] = None
@@ -1941,6 +1972,104 @@ FORMATTING:
 
         task.add_done_callback(_on_done)
         return task
+
+    # ========================================================================
+    # BaseOrchestrator Abstract Method Implementations
+    # ========================================================================
+
+    async def route_query(
+        self,
+        query: str,
+        context: Dict[str, Any],
+    ) -> ExecutionPlan:
+        """Route a user query and determine execution strategy.
+
+        This is a minimal implementation that wraps the existing process_message
+        logic. The actual routing happens inside process_message based on
+        pipeline mode settings.
+
+        Args:
+            query: User's natural language query
+            context: Additional context parameters
+
+        Returns:
+            ExecutionPlan describing the routing strategy
+        """
+        # Determine strategy based on pipeline mode
+        if self._pipeline_full:
+            strategy = "pipeline"
+        elif self._pipeline_routing:
+            strategy = "routing"
+        else:
+            strategy = "react"
+
+        # Create minimal execution plan
+        # Note: The actual execution happens in process_message, so this
+        # is primarily for compatibility with BaseOrchestrator interface
+        return ExecutionPlan(
+            strategy=strategy,
+            domains=["azure", "mcp"],  # This orchestrator handles Azure MCP tools
+            tools=[],  # Tools determined dynamically during execution
+            steps=[
+                PlanStep(
+                    step_number=1,
+                    action="process_message",
+                    target="mcp_orchestrator",
+                    parameters={"query": query},
+                    description=f"Execute {strategy} loop for query"
+                )
+            ],
+            context=context,
+        )
+
+    async def execute_plan(
+        self,
+        plan: ExecutionPlan,
+    ) -> OrchestratorResult:
+        """Execute an execution plan and return results.
+
+        This is a minimal implementation that delegates to the existing
+        process_message method which handles the full ReAct loop and
+        pipeline execution.
+
+        Args:
+            plan: Execution plan from route_query()
+
+        Returns:
+            OrchestratorResult with execution outcome
+        """
+        import time
+        start_time = time.time()
+
+        # Extract query from plan
+        query = plan.steps[0].parameters.get("query", "") if plan.steps else ""
+
+        # Execute via existing process_message method
+        result_dict = await self.process_message(query)
+
+        # Map to OrchestratorResult format
+        duration_ms = (time.time() - start_time) * 1000
+
+        # Extract formatted response
+        formatted_response = result_dict.get("formatted_response", "")
+        if not formatted_response:
+            # Fallback to generating response from result
+            formatted_response = self.format_response(result_dict, format="formatted_html")
+
+        return OrchestratorResult(
+            success=result_dict.get("success", True),
+            content=str(result_dict.get("result", "")),
+            formatted_response=formatted_response,
+            metadata=result_dict.get("metadata", {}),
+            tools_called=result_dict.get("tools_called", []),
+            duration_ms=duration_ms,
+            interaction_required=result_dict.get("interaction_required", False),
+            interaction_data=result_dict.get("interaction_data"),
+        )
+
+    # ========================================================================
+    # Lifecycle Management
+    # ========================================================================
 
     async def shutdown(self) -> None:
         """Cancel all pending background tasks and wait for cancellation."""
