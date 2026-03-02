@@ -183,6 +183,22 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
         if request.workflow_id:
             request_payload["workflow_id"] = request.workflow_id
 
+        # Collect routing metadata (best-effort, non-blocking)
+        routing_meta: dict = {}
+        try:
+            plan = await orchestrator.process_with_routing(
+                request.query, strategy="fast"
+            )
+            routing_meta = {
+                "routing_domain": plan.domain.value,
+                "routing_orchestrator": plan.orchestrator,
+                "routing_strategy": plan.strategy_used,
+                "routing_confidence": round(plan.confidence, 3),
+                "routing_time_ms": round(plan.classification_time_ms, 1),
+            }
+        except Exception as routing_exc:
+            logger.debug("SRE routing metadata collection skipped: %s", routing_exc)
+
         # Execute request
         result = await orchestrator.handle_request(request_payload)
 
@@ -221,6 +237,7 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
                     "options": interaction_data.get("options", []),
                     "workflow_id": result.get("workflow_id"),
                     "agent_metadata": agent_metadata,
+                    "routing": routing_meta if routing_meta else None,
                 },
                 message="User interaction required to complete operation"
             )
@@ -238,6 +255,7 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
                     "results": results_data,
                     "workflow_id": result.get("workflow_id") or results_data.get("workflow_id"),
                     "agent_metadata": agent_metadata,
+                    "routing": routing_meta if routing_meta else None,
                 },
                 message="Successfully processed query"
             )
@@ -260,6 +278,7 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
                     ),
                     "workflow_id": result.get("workflow_id") or results_data.get("workflow_id"),
                     "agent_metadata": agent_metadata,
+                    "routing": routing_meta if routing_meta else None,
                 },
                 message=f"Successfully processed query: {request.query[:50]}..."
             )
@@ -270,6 +289,7 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
             data={
                 **results_data,
                 "agent_metadata": agent_metadata,
+                "routing": routing_meta if routing_meta else None,
             },
             message="Successfully processed query"
         )

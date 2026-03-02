@@ -477,32 +477,56 @@ async def inspect_plan(request: PlanInspectRequest):
 async def mcp_chat(request: MCPChatRequest):
     """
     Send a message to the MCP orchestrator and get a response.
-    
+
     Args:
         request: MCPChatRequest with user message
-    
+
     Returns:
-        StandardResponse with assistant response and conversation history
+        StandardResponse with assistant response, conversation history,
+        and routing metadata (domain, orchestrator, strategy) from the
+        unified routing pipeline.
     """
     try:
         from agents.mcp_orchestrator import get_mcp_orchestrator
-        
+
         orchestrator = await get_mcp_orchestrator()
+
+        # Collect routing metadata before executing (non-blocking, best-effort)
+        routing_meta: dict = {}
+        try:
+            if await orchestrator.ensure_mcp_ready():
+                plan = await orchestrator.process_with_routing(
+                    request.message, strategy="fast"
+                )
+                routing_meta = {
+                    "routing_domain": plan.domain.value,
+                    "routing_orchestrator": plan.orchestrator,
+                    "routing_strategy": plan.strategy_used,
+                    "routing_confidence": round(plan.confidence, 3),
+                    "routing_time_ms": round(plan.classification_time_ms, 1),
+                }
+        except Exception as routing_exc:
+            logger.debug("Routing metadata collection skipped: %s", routing_exc)
+
         result = await orchestrator.process_message(request.message)
-        
+
         if not result.get("success"):
             raise HTTPException(
                 status_code=500,
                 detail=result.get("error", "Unknown error occurred")
             )
-        
+
+        metadata = result.get("metadata", {})
+        metadata.update(routing_meta)
+
         return StandardResponse.success_response(
             data=[{
                 "response": result.get("response"),
                 "conversation_history": result.get("conversation_history", []),
-                "session_id": result.get("metadata", {}).get("session_id")
+                "session_id": result.get("metadata", {}).get("session_id"),
+                "routing": routing_meta if routing_meta else None,
             }],
-            metadata=result.get("metadata", {})
+            metadata=metadata
         )
     except HTTPException:
         raise
