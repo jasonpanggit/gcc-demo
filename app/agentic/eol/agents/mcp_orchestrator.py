@@ -173,12 +173,12 @@ except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         get_resource_inventory_client = None  # type: ignore[assignment]
 
 try:
-    from app.agentic.eol.utils.mcp_composite_client import CompositeMCPClient  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.mcp_host import MCPHost  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     try:
-        from utils.mcp_composite_client import CompositeMCPClient  # type: ignore[import-not-found]
+        from utils.mcp_host import MCPHost  # type: ignore[import-not-found]
     except ModuleNotFoundError:
-        CompositeMCPClient = None  # type: ignore[assignment]
+        MCPHost = None  # type: ignore[assignment]
 
 try:
     from app.agentic.eol.agents.monitor_agent import MonitorAgent  # type: ignore[import-not-found]
@@ -1684,14 +1684,14 @@ FORMATTING:
                 _storage_mcp_import_error,
             )
 
-        if not client_entries or CompositeMCPClient is None:
+        if not client_entries or MCPHost is None:
             logger.error("No MCP clients available; tool execution disabled")
             self._mcp_client = None
             self._registered_client_labels = []
             self._tool_source_map = {}
             return False
 
-        self._mcp_client = CompositeMCPClient(client_entries)
+        self._mcp_client = MCPHost(client_entries)
         self._registered_client_labels = [label for label, _ in client_entries]
         logger.info(
             "MCP clients registered: %s",
