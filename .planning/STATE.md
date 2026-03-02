@@ -4,23 +4,23 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 status: in_progress
-last_updated: "2026-03-02T00:00:00.000Z"
+last_updated: "2026-03-02T12:00:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 8
-  completed_plans: 6
-  percent: 80
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State: GCC Demo Production Readiness
 
 ## Current Status
 
-**Phase:** Phase 4 IN PROGRESS — Plan 04-01 complete
-**Status:** In progress (1/3 Phase 4 plans complete)
+**Phase:** Phase 4 IN PROGRESS — Plans 04-01 and 04-02 complete
+**Status:** In progress (2/3 Phase 4 plans complete)
 **Last Updated:** 2026-03-02
-**Progress:** [████████░░] 80%
+**Progress:** [█████████░] 88%
 
 ---
 
@@ -30,7 +30,7 @@ progress:
 **Timeline:** 2 weeks (Days 1-14)
 **Start Date:** 2026-02-27
 **Target End Date:** 2026-03-13
-**Current Phase:** 03
+**Current Phase:** 04
 
 ---
 
@@ -58,13 +58,25 @@ progress:
 - **Human Approved:** ✅ 2026-03-01
 
 ### Phase 4: Code Quality & Polish (Days 11-14) - IN PROGRESS 🔵
-- **Status:** 🔵 In Progress (Plan 04-01 complete)
-- **Requirements:** 8/18 completed (CQ-01, CQ-02, TECH-RET-01 through TECH-RET-05, NFR-MNT-05)
-- **Key Deliverables:** ✅ Retry standardization (04-01), ⬜ Browser pool + shutdown + cleanup (04-02), ⬜ Arch docs + integration tests (04-03)
+- **Status:** 🔵 In Progress (Plans 04-01 and 04-02 complete)
+- **Requirements:** 15/18 completed (CQ-01 through CQ-07, TECH-RET-01 through TECH-RET-05, NFR-MNT-01 through NFR-MNT-05)
+- **Key Deliverables:** ✅ Retry standardization (04-01), ✅ Browser pool + shutdown + cleanup (04-02), ⬜ Arch docs + integration tests (04-03)
 
 ---
 
 ## Recent Activity
+
+### 2026-03-02 - Phase 4 Plan 02 Complete ✅
+- ✅ `playwright_pool.py`: `_MAX_POOL_SIZE = 5` hard cap with `logger.warning` when clamped (CQ-05/CQ-06)
+- ✅ `sre_orchestrator.py`: `SREOrchestratorAgent.shutdown()` stub (CQ-07)
+- ✅ `inventory_orchestrator.py`: `InventoryAssistantOrchestrator.shutdown()` with task cancellation (CQ-07)
+- ✅ `sre_startup.py`: `_sre_orchestrator_instance` + `get_sre_orchestrator_instance()` added
+- ✅ `main.py`: Both shutdown hooks wired in `_run_shutdown_tasks()` via guarded try/except
+- ✅ Unused imports removed from `main.py`, `sre_orchestrator.py`, `mcp_orchestrator.py`, `api/cache.py` — all pass autoflake (CQ-03)
+- ✅ 40 logging level corrections: 17× `azure_ai_agent.py` diagnostic → DEBUG; fallback paths → WARNING (CQ-04)
+- ✅ Requirements satisfied: CQ-03, CQ-04, CQ-05, CQ-06, CQ-07, NFR-MNT-01, NFR-MNT-02, NFR-MNT-03
+- ✅ Tests: 213 passed (above 204 baseline), 0 regressions
+- ✅ Commits: `0251fa1`, `5d54055` on `feature/prod-ready-phase-4`
 
 ### 2026-03-02 - Phase 4 Plan 01 Complete ✅
 - ✅ `utils/retry.py` enhanced: `RetryStats` dataclass, `TryAgain` sentinel, `on_retry` callback, `retry_on_result` predicate
@@ -121,6 +133,8 @@ progress:
 
 ## Key Decisions
 
+- **2026-03-02 (04-02):** SRE per-request pattern — `SREOrchestratorAgent` is created per-request; added `get_sre_orchestrator_instance()` returning None for future compatibility; main.py wires with defensive `if sre_orch is not None` guard.
+- **2026-03-02 (04-02):** Inventory global — `inventory_asst_orchestrator` is already module-level in main.py, used directly in shutdown hook without additional accessor.
 - **2026-03-01 (03-05):** `SreCache` → `SRECacheManager` — plan template had wrong class name; integration test auto-fixed to correct import.
 - **2026-03-01 (03-05):** P95 measured at 0.2–1ms (code-path only) — full 2s budget available for Azure I/O and network in production.
 - **2026-03-01 (03-04):** TTL_PROFILE_MAP includes `daily` key (86400s = LONG_LIVED) — existing sre_cache had 5 profiles, plan template had 4; adding `daily` prevents silent cache skip for security/compliance tools.
@@ -135,10 +149,9 @@ progress:
 ## Next Steps
 
 ### Immediate Actions
-1. Continue **Phase 4** — Plan 04-02
-   - PlaywrightPool hard cap (bounded concurrency with asyncio.Semaphore)
-   - SRE/Inventory graceful shutdown registration in FastAPI lifespan
-   - Unused import cleanup in targeted files
-   - Logging level standardization
+1. Continue **Phase 4** — Plan 04-03
+   - Architecture documentation updates
+   - Final integration tests
+   - Phase 4 completion
 
 ---
