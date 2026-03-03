@@ -27,6 +27,25 @@ MANIFESTS: list[ToolManifest] = [
         ),
         preferred_over=frozenset(),
         requires_confirmation=False,
+        # Phase 3: Intelligent Routing Metadata
+        primary_phrasings=(
+            "generate azure CLI command",
+            "create az command from natural language",
+            "convert request to azure CLI command",
+            "build CLI command for me",
+            "generate correct az command",
+            "what's the CLI command for this",
+            "translate to azure CLI",
+            "CLI copilot generate command",
+        ),
+        avoid_phrasings=(
+            "execute CLI command",  # → azure_cli_execute_command
+            "run az command",  # → azure_cli_execute_command
+            "deploy using CLI",  # → azure_cli_execute_command
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
+        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="azure_cli_execute_command",
@@ -49,5 +68,23 @@ MANIFESTS: list[ToolManifest] = [
         ),
         preferred_over=frozenset(),
         requires_confirmation=True,
+        # Phase 3: Intelligent Routing Metadata
+        primary_phrasings=(
+            "execute azure CLI command",
+            "run az command directly",
+            "execute raw CLI command",
+            "run this az command",
+            "execute CLI escape hatch",
+            "run azure CLI for container app",
+            "execute generated CLI command",
+        ),
+        avoid_phrasings=(
+            "generate CLI command",  # → azmcp_extension_cli_generate
+            "create az command",  # → azmcp_extension_cli_generate
+            "what's the CLI command",  # → azmcp_extension_cli_generate
+        ),
+        confidence_boost=1.15,
+        requires_sequence=None,
+        preferred_over_list=(),
     ),
 ]
