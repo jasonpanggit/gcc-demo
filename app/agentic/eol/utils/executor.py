@@ -347,6 +347,137 @@ class Executor:
                 error=error_message,
             )
 
+        # Fan-out execution: if one parameter resolves to a list (for example
+        # $step_1.virtual_machines[*].resource_id), execute once per value and
+        # aggregate results.
+        fanout_keys = [
+            k
+            for k, v in params.items()
+            if (
+                isinstance(v, list)
+                and isinstance(step.params.get(k), str)
+                and str(step.params.get(k)).startswith("$step_")
+            )
+        ]
+        if fanout_keys:
+            if len(fanout_keys) > 1:
+                return StepResult(
+                    step_id=step.step_id,
+                    tool_name=step.tool_name,
+                    success=False,
+                    error=f"Fan-out supports a single list parameter per step; got keys={fanout_keys}",
+                )
+
+            fanout_key = fanout_keys[0]
+            fanout_values = params.get(fanout_key)
+            if not isinstance(fanout_values, list) or not fanout_values:
+                return StepResult(
+                    step_id=step.step_id,
+                    tool_name=step.tool_name,
+                    success=False,
+                    error=f"Fan-out parameter '{fanout_key}' has no values",
+                )
+
+            fanout_t0 = time.monotonic()
+            successful_results: List[Dict[str, Any]] = []
+            failed_results: List[Dict[str, Any]] = []
+
+            for value in fanout_values:
+                call_params = dict(params)
+                call_params[fanout_key] = value
+
+                call_error = ""
+                call_result: Optional[Dict[str, Any]] = None
+                for attempt in range(1, _MAX_STEP_RETRIES + 2):
+                    try:
+                        tool_result = await self._dispatch_tool(step.tool_name, call_params)
+
+                        tool_success = tool_result.get("success", True)
+                        exit_code = tool_result.get("exit_code")
+                        if exit_code is not None:
+                            tool_success = tool_success and (exit_code == 0)
+
+                        if not tool_success:
+                            tool_error = _extract_tool_error_message(tool_result, exit_code)
+                            raise RuntimeError(f"Tool reported failure: {tool_error}")
+
+                        if step.tool_name == _CLI_GENERATE_TOOL:
+                            generated = _extract_generated_cli_command(tool_result)
+                            if generated:
+                                tool_result["_generated_command"] = generated
+
+                        call_result = tool_result
+                        break
+                    except Exception as exc:
+                        call_error = str(exc)
+                        if isinstance(exc, PermissionError):
+                            break
+                        if attempt <= _MAX_STEP_RETRIES:
+                            await asyncio.sleep(_RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+
+                if call_result is not None:
+                    successful_results.append({
+                        "params": call_params,
+                        "result": call_result,
+                    })
+                else:
+                    failed_results.append({
+                        "params": call_params,
+                        "error": call_error or "Unknown fan-out failure",
+                    })
+
+            elapsed_ms = (time.monotonic() - fanout_t0) * 1000
+            ok_count = len(successful_results)
+            fail_count = len(failed_results)
+            total_count = len(fanout_values)
+
+            if ok_count == 0:
+                await self._emit(
+                    "step_error",
+                    f"Step {step.tool_name} fan-out failed for all targets",
+                    step_id=step.step_id,
+                )
+                return StepResult(
+                    step_id=step.step_id,
+                    tool_name=step.tool_name,
+                    success=False,
+                    error="Fan-out execution failed for all targets",
+                    result={
+                        "fanout": True,
+                        "fanout_key": fanout_key,
+                        "total_targets": total_count,
+                        "successful_targets": ok_count,
+                        "failed_targets": fail_count,
+                        "results": successful_results,
+                        "errors": failed_results,
+                    },
+                    elapsed_ms=elapsed_ms,
+                )
+
+            await self._emit(
+                "step_complete",
+                f"Completed {step.tool_name} fan-out ({ok_count}/{total_count})",
+                step_id=step.step_id,
+                elapsed_ms=elapsed_ms,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                tool_name=step.tool_name,
+                success=True,
+                result={
+                    "success": fail_count == 0,
+                    "partial_failure": fail_count > 0,
+                    "fanout": True,
+                    "fanout_key": fanout_key,
+                    "total_targets": total_count,
+                    "successful_targets": ok_count,
+                    "failed_targets": fail_count,
+                    "results": successful_results,
+                    "errors": failed_results,
+                },
+                elapsed_ms=elapsed_ms,
+            )
+
         # Execute with retries
         last_error = ""
         for attempt in range(1, _MAX_STEP_RETRIES + 2):
@@ -504,41 +635,50 @@ class Executor:
                     return text
                 return parts[0] + "".join(p.capitalize() for p in parts[1:])
 
-            for part in _re.split(r'[.\[\]]+', path):
-                if not part:
-                    continue
-                if isinstance(obj, dict):
-                    if part in obj:
-                        obj = obj.get(part)
-                        continue
+            parts = [part for part in _re.split(r'[.\[\]]+', path) if part]
 
-                    # Alias common ARM-ID field names
-                    if part == "id" and "resource_id" in obj:
-                        obj = obj.get("resource_id")
-                        continue
-                    if part == "resource_id" and "id" in obj:
-                        obj = obj.get("id")
-                        continue
+            def _walk(current: Any, index: int) -> Any:
+                if index >= len(parts):
+                    return current
+
+                part = parts[index]
+
+                if isinstance(current, dict):
+                    if part in current:
+                        return _walk(current.get(part), index + 1)
+
+                    if part == "id" and "resource_id" in current:
+                        return _walk(current.get("resource_id"), index + 1)
+                    if part == "resource_id" and "id" in current:
+                        return _walk(current.get("id"), index + 1)
 
                     snake_part = _camel_to_snake(part)
-                    if snake_part in obj:
-                        obj = obj.get(snake_part)
-                        continue
+                    if snake_part in current:
+                        return _walk(current.get(snake_part), index + 1)
 
                     camel_part = _snake_to_camel(part)
-                    if camel_part in obj:
-                        obj = obj.get(camel_part)
-                        continue
+                    if camel_part in current:
+                        return _walk(current.get(camel_part), index + 1)
 
                     return None
-                elif isinstance(obj, list):
+
+                if isinstance(current, list):
+                    if part == "*":
+                        values = []
+                        for item in current:
+                            resolved = _walk(item, index + 1)
+                            if resolved is not None:
+                                values.append(resolved)
+                        return values if values else None
+
                     try:
-                        obj = obj[int(part)]
+                        return _walk(current[int(part)], index + 1)
                     except (ValueError, IndexError):
                         return None
-                else:
-                    return None
-            return obj
+
+                return None
+
+            return _walk(obj, 0)
 
         def _iter_step_payload_roots(step_result: Optional["StepResult"]) -> List[Any]:
             """Yield candidate payload roots for step-ref resolution.

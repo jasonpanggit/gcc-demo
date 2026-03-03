@@ -24,6 +24,25 @@ MANIFESTS: list[ToolManifest] = [
             "ONLY for Arc-enabled servers. For Azure VMs use Azure MCP compute tools."
         ),
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list Arc servers",
+            "show OS inventory for Arc-enabled servers",
+            "what operating systems are running on my Arc servers",
+            "Arc server OS inventory",
+            "get OS details from Arc-connected machines",
+            "list Arc-managed servers",
+            "show server OS versions via Arc",
+            "what OS versions are running on my servers",
+        ),
+        avoid_phrasings=(
+            "list Azure VMs",                    # → virtual_machine_list (native Azure VMs)
+            "check EOL status",                  # → os_eol_bulk_lookup (EOL analysis)
+            "list software packages",            # → law_get_software_inventory
+            "list containers",                   # → container_app_list
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="law_get_software_inventory",

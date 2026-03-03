@@ -59,6 +59,9 @@ complete, accurate HTML response for display in a web dashboard.
    - Use a unique canvas id (e.g. "chart-<tool_name>").
    - Colors: CPU=#2196F3, Memory=#4CAF50, Disk=#FF9800, Network=#9C27B0,
      Requests=#E91E63, Latency=#00BCD4.
+     - For VM utilization queries, if metrics include both "Percentage CPU" and
+         "Available Memory Bytes", render BOTH. Show memory as available GiB
+         (convert bytes to GiB where useful) and do not omit memory.
 5. For single-value metrics use a colored <div> progress bar.
 6. Each section should start with an <h3> heading.
 7. If a step failed, include a styled error <div> with the error text.
@@ -270,6 +273,105 @@ def _summarise_result(result: Optional[Dict[str, Any]], tool_name: str = "") -> 
     if result.get("_legacy"):
         return "  (handled by legacy ReAct loop)"
 
+    if tool_name == "get_performance_metrics":
+        try:
+            def _extract_metric_values(metric_item: Dict[str, Any]) -> tuple[Optional[float], Optional[float], Optional[float]]:
+                summary = metric_item.get("summary") if isinstance(metric_item.get("summary"), dict) else {}
+                current = summary.get("current") if isinstance(summary.get("current"), (int, float)) else None
+                average = summary.get("average") if isinstance(summary.get("average"), (int, float)) else None
+                maximum = summary.get("maximum") if isinstance(summary.get("maximum"), (int, float)) else None
+                return (
+                    float(current) if current is not None else None,
+                    float(average) if average is not None else None,
+                    float(maximum) if maximum is not None else None,
+                )
+
+            def _extract_metric_summary(metrics_payload: Any) -> Dict[str, Any]:
+                cpu_percent: Optional[float] = None
+                memory_available_bytes: Optional[float] = None
+
+                if isinstance(metrics_payload, list):
+                    for metric_item in metrics_payload:
+                        if not isinstance(metric_item, dict):
+                            continue
+                        metric_name = str(metric_item.get("metric_name") or metric_item.get("name") or "").lower()
+                        current, average, _maximum = _extract_metric_values(metric_item)
+                        representative = current if current is not None else average
+
+                        if representative is None:
+                            continue
+                        if "cpu" in metric_name and "percent" in metric_name:
+                            cpu_percent = representative
+                        if "available" in metric_name and "memory" in metric_name and "byte" in metric_name:
+                            memory_available_bytes = representative
+
+                memory_available_gib = (
+                    (memory_available_bytes / (1024 ** 3))
+                    if isinstance(memory_available_bytes, (int, float))
+                    else None
+                )
+
+                return {
+                    "cpu_percent": round(cpu_percent, 2) if isinstance(cpu_percent, (int, float)) else None,
+                    "memory_available_bytes": round(memory_available_bytes, 2) if isinstance(memory_available_bytes, (int, float)) else None,
+                    "memory_available_gib": round(memory_available_gib, 2) if isinstance(memory_available_gib, (int, float)) else None,
+                }
+
+            if result.get("fanout") is True and isinstance(result.get("results"), list):
+                normalized_items: List[Dict[str, Any]] = []
+                for item in result.get("results", []):
+                    if not isinstance(item, dict):
+                        continue
+                    params = item.get("params") if isinstance(item.get("params"), dict) else {}
+                    payload = item.get("result") if isinstance(item.get("result"), dict) else {}
+                    parsed = payload.get("parsed") if isinstance(payload.get("parsed"), dict) else None
+                    metric_payload = (
+                        parsed.get("metrics") if isinstance(parsed, dict)
+                        else payload.get("metrics")
+                    )
+                    metric_summary = _extract_metric_summary(metric_payload)
+
+                    normalized_items.append(
+                        {
+                            "resource_id": params.get("resource_id") or payload.get("resource_id"),
+                            "resource_name": (
+                                parsed.get("resource_name") if isinstance(parsed, dict)
+                                else payload.get("resource_name")
+                            ),
+                            "resource_type": (
+                                parsed.get("resource_type") if isinstance(parsed, dict)
+                                else payload.get("resource_type")
+                            ),
+                            "metrics": (
+                                parsed.get("metrics") if isinstance(parsed, dict)
+                                else payload.get("metrics")
+                            ),
+                            "metric_summary": metric_summary,
+                            "time_range": (
+                                parsed.get("time_range") if isinstance(parsed, dict)
+                                else payload.get("time_range")
+                            ),
+                        }
+                    )
+
+                compact = {
+                    "success": result.get("success"),
+                    "partial_failure": result.get("partial_failure"),
+                    "fanout": True,
+                    "total_targets": result.get("total_targets"),
+                    "successful_targets": result.get("successful_targets"),
+                    "failed_targets": result.get("failed_targets"),
+                    "performance_metrics": normalized_items,
+                }
+
+                text = json.dumps(compact, indent=2, default=str)
+                if len(text) > 12000:
+                    text = text[:12000] + "\n  ... (truncated)"
+                return text
+        except Exception:
+            # Fall through to generic summarization
+            pass
+
     # Preserve complete effective-route data for rendering (avoid truncating to sample rows).
     if tool_name == "get_effective_routes":
         try:
@@ -334,7 +436,7 @@ def _summarise_result(result: Optional[Dict[str, Any]], tool_name: str = "") -> 
 
     try:
         text = json.dumps(result, indent=2, default=str)
-        limit = 12000 if tool_name == "get_effective_routes" else 2000
+        limit = 12000 if tool_name in {"get_effective_routes", "get_performance_metrics"} else 2000
         if len(text) > limit:
             text = text[:limit] + "\n  ... (truncated)"
         return text
