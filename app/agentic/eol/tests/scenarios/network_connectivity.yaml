@@ -1,0 +1,137 @@
+# Golden Scenario: Network Connectivity Troubleshooting
+# Tests the sequencing: virtual_network_list -> test_network_connectivity
+#
+# Critical because:
+# 1. Network troubleshooting requires VNet discovery BEFORE connectivity testing
+# 2. test_network_connectivity (Network MCP) is the dedicated tool
+# 3. Should NOT use check_resource_health (SRE) for network troubleshooting
+# 4. Should NOT use get_effective_routes_and_rules unless explicitly about routes
+# 5. Multi-step network flows have been the most error-prone in production
+
+scenario:
+  name: network_connectivity
+  description: >
+    User asks to test network connectivity between resources.
+    The system should chain virtual_network_list -> test_network_connectivity
+    to first discover network topology, then perform connectivity tests.
+  domain: network
+  priority: critical
+
+queries:
+  - text: "test network connectivity between my resources"
+    canonical: true
+  - text: "can my container app reach the database"
+  - text: "check if my VM can connect to the storage account"
+  - text: "test network connectivity from my subnet"
+  - text: "is there a network connectivity issue between my services"
+
+expected_contract:
+  intent:
+    domain: network
+    action: connectivity_test
+    resource_type: network
+
+  tools_required:
+    - virtual_network_list
+    - test_network_connectivity
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: virtual_network_list
+        purpose: "Discover VNets and subnets to understand network topology"
+      - tool: test_network_connectivity
+        purpose: "Test connectivity between source and destination resources"
+        depends_on: virtual_network_list
+
+  tools_excluded:
+    - speech
+    - documentation
+    - container_registries
+    - resourcehealth
+
+  response_contract:
+    must_contain_concepts:
+      - "network"
+      - "connectivity"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  virtual_network_list:
+    input: {}
+    output:
+      success: true
+      data:
+        virtual_networks:
+          - name: "vnet-gcc-demo-prod"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            address_space:
+              - "10.1.0.0/16"
+            subnets:
+              - name: "snet-app"
+                address_prefix: "10.1.1.0/24"
+                nsg: "nsg-app-prod"
+              - name: "snet-db"
+                address_prefix: "10.1.2.0/24"
+                nsg: "nsg-db-prod"
+              - name: "snet-pe"
+                address_prefix: "10.1.3.0/24"
+                nsg: null
+            peerings:
+              - name: "peer-to-hub"
+                remote_vnet: "vnet-hub"
+                state: "Connected"
+                allow_forwarded_traffic: true
+          - name: "vnet-hub"
+            resource_group: "rg-gcc-hub"
+            location: "southeastasia"
+            address_space:
+              - "10.0.0.0/16"
+            subnets:
+              - name: "AzureFirewallSubnet"
+                address_prefix: "10.0.1.0/24"
+              - name: "GatewaySubnet"
+                address_prefix: "10.0.2.0/24"
+            peerings:
+              - name: "peer-to-prod"
+                remote_vnet: "vnet-gcc-demo-prod"
+                state: "Connected"
+        total_count: 2
+
+  test_network_connectivity:
+    input:
+      source_resource_id: "/subscriptions/sub-1/resourceGroups/rg-gcc-demo-prod/providers/Microsoft.App/containerApps/ca-prod-api"
+      destination_ip: "10.1.2.4"
+      destination_port: 5432
+    output:
+      success: true
+      data:
+        connection_status: "Reachable"
+        source:
+          resource: "ca-prod-api"
+          subnet: "snet-app"
+          ip: "10.1.1.5"
+        destination:
+          ip: "10.1.2.4"
+          port: 5432
+          protocol: "TCP"
+        hops:
+          - order: 1
+            type: "Source"
+            address: "10.1.1.5"
+            issues: []
+          - order: 2
+            type: "VirtualNetwork"
+            address: "10.1.2.4"
+            issues: []
+        avg_latency_ms: 0.8
+        nsg_evaluation:
+          source_nsg: "nsg-app-prod"
+          source_nsg_action: "Allow"
+          destination_nsg: "nsg-db-prod"
+          destination_nsg_action: "Allow"
+        diagnostics:
+          route_type: "VnetLocal"
+          effective_route: "10.1.0.0/16 -> VnetLocal"

@@ -1,0 +1,26 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 95 items
+
+test_analytics.py::TestAnalytics::test_analytics_page_loads ERROR        [  1%]
+
+==================================== ERRORS ====================================
+__________ ERROR at setup of TestAnalytics.test_analytics_page_loads ___________
+E   playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for get_by_role("link", name="Analytics", exact=True) to be visible
+=========================== short test summary info ============================
+ERROR test_analytics.py::TestAnalytics::test_analytics_page_loads - playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 10000ms exceeded.
+Call log:
+  - waiting for get_by_role("link", name="Analytics", exact=True) to be visible
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+============================== 1 error in 13.17s ===============================

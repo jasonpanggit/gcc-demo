@@ -1,0 +1,117 @@
+# Golden Scenario: Alert Retrieval
+# Tests the sequencing: correlate_alerts for alert discovery
+#
+# Critical because:
+# 1. Alert queries should route to correlate_alerts (SRE incident domain)
+# 2. Should NOT route to "monitor" (Azure MCP - that configures Azure Monitor)
+# 3. Should NOT route to "applicationinsights" (that manages App Insights resources)
+# 4. Correlate_alerts groups related alerts for a unified view
+# 5. For broad "show me alerts" queries, should prefer SRE tools over Azure MCP namespace
+
+scenario:
+  name: get_alerts
+  description: >
+    User asks to see their active alerts or alert status.
+    The system should use correlate_alerts (SRE) which provides
+    grouped, correlated alerts with severity and impact analysis.
+    Should NOT use monitor (Azure MCP) which is for configuring monitoring.
+  domain: sre_incident
+  priority: high
+
+queries:
+  - text: "show me my active alerts"
+    canonical: true
+  - text: "what alerts are firing right now"
+  - text: "are there any critical alerts"
+  - text: "list all active alerts in my subscription"
+  - text: "show alert status for my resources"
+
+expected_contract:
+  intent:
+    domain: sre_incident
+    action: retrieve
+    resource_type: alert
+
+  tools_required:
+    - correlate_alerts
+
+  tools_preferred:
+    - tool: correlate_alerts
+      over: monitor
+      reason: "SRE correlate_alerts retrieves and groups active alerts; monitor configures Azure Monitor"
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: correlate_alerts
+        purpose: "Retrieve and correlate active alerts across resources"
+
+  tools_excluded:
+    - speech
+    - documentation
+    - search
+    - monitor
+    - applicationinsights
+
+  response_contract:
+    must_contain_concepts:
+      - "alert"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  correlate_alerts:
+    input:
+      scope: "subscription"
+      severity_filter: null
+    output:
+      success: true
+      data:
+        summary:
+          total_alerts: 5
+          critical: 1
+          warning: 2
+          informational: 2
+          correlated_groups: 2
+        alert_groups:
+          - group_id: "grp-001"
+            correlation_reason: "Same resource group, overlapping timeframe"
+            severity: "critical"
+            alerts:
+              - alert_name: "High CPU Usage"
+                resource: "vm-prod-db-01"
+                resource_type: "Microsoft.Compute/virtualMachines"
+                severity: "Sev1"
+                fired_time: "2026-03-03T08:15:00Z"
+                description: "CPU utilization exceeded 95% for 5 minutes"
+              - alert_name: "High Memory Usage"
+                resource: "vm-prod-db-01"
+                resource_type: "Microsoft.Compute/virtualMachines"
+                severity: "Sev2"
+                fired_time: "2026-03-03T08:17:00Z"
+                description: "Memory utilization exceeded 90% for 10 minutes"
+            impact_assessment: "Database server under resource pressure - potential query slowdown"
+            recommended_action: "Investigate database workload and consider scaling"
+          - group_id: "grp-002"
+            correlation_reason: "Related container app health"
+            severity: "warning"
+            alerts:
+              - alert_name: "Container App Restart"
+                resource: "ca-staging-api"
+                resource_type: "Microsoft.App/containerApps"
+                severity: "Sev3"
+                fired_time: "2026-03-03T07:30:00Z"
+                description: "Container app restarted 3 times in the last hour"
+            impact_assessment: "Staging API experiencing instability"
+            recommended_action: "Check container logs for crash reasons"
+        uncorrelated_alerts:
+          - alert_name: "SSL Certificate Expiring"
+            resource: "ca-prod-web"
+            severity: "Sev4"
+            fired_time: "2026-03-03T06:00:00Z"
+            description: "SSL certificate expires in 14 days"
+          - alert_name: "Low Disk Space Warning"
+            resource: "vm-dev-01"
+            severity: "Sev4"
+            fired_time: "2026-03-03T05:00:00Z"
+            description: "Disk usage above 80%"

@@ -1,0 +1,84 @@
+# Golden Scenario: List Container Apps
+# Tests that list queries route to container_app_list (SRE), NOT azure MCP namespace tools
+#
+# Critical because:
+# 1. "container_app_list" is the deterministic override for list intents
+# 2. Should NOT route to "container_registries" (ACR != Container Apps)
+# 3. Should NOT route to "app_service" (Web Apps != Container Apps)
+# 4. CLI fallback should only be used if container_app_list is unavailable
+
+scenario:
+  name: list_container_apps
+  description: >
+    User asks to list or show their container apps.
+    The system should use container_app_list (SRE) which is the
+    designated primary tool for container app discovery.
+  domain: sre_health
+  priority: high
+
+queries:
+  - text: "list my container apps"
+    canonical: true
+  - text: "show my container apps"
+  - text: "what container apps are running"
+  - text: "show me all container apps in my subscription"
+  - text: "list all container apps"
+
+expected_contract:
+  intent:
+    domain: sre_health
+    action: list
+    resource_type: container_app
+
+  tools_required:
+    - container_app_list
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: container_app_list
+        purpose: "List all container apps in the subscription"
+
+  tools_excluded:
+    # These are common misrouting targets
+    - container_registries  # ACR, not Container Apps
+    - app_service           # Web Apps, not Container Apps
+    - function_app          # Function Apps, not Container Apps
+    - app_configuration     # App Config, not Container Apps
+    - speech                # AI Speech service, completely unrelated
+
+  response_contract:
+    must_contain_concepts:
+      - "container app"
+    format: list_or_table
+    min_length: 20
+
+fixture_responses:
+  container_app_list:
+    input: {}
+    output:
+      success: true
+      data:
+        container_apps:
+          - name: "ca-prod-api"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Running"
+            fqdn: "ca-prod-api.kindocean-123abc.southeastasia.azurecontainerapps.io"
+            managed_environment: "cae-gcc-demo-prod"
+          - name: "ca-prod-web"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Running"
+            fqdn: "ca-prod-web.kindocean-123abc.southeastasia.azurecontainerapps.io"
+            managed_environment: "cae-gcc-demo-prod"
+          - name: "ca-staging-api"
+            resource_group: "rg-gcc-demo-staging"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Stopped"
+            fqdn: "ca-staging-api.kindocean-456def.southeastasia.azurecontainerapps.io"
+            managed_environment: "cae-gcc-demo-staging"
+        total_count: 3

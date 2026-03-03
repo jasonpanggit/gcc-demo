@@ -1,0 +1,99 @@
+# Golden Scenario: List Virtual Machines
+# Tests that VM listing queries route to virtual_machine_list (Compute MCP),
+# NOT to virtual_machines (Azure MCP namespace group wrapper)
+#
+# Critical because:
+# 1. virtual_machine_list returns structured per-VM data
+# 2. virtual_machines (Azure MCP) is a namespace group, not a specific list tool
+# 3. Per manifest: virtual_machine_list is PREFERRED OVER virtual_machines
+
+scenario:
+  name: list_vms
+  description: >
+    User asks to list or show their virtual machines.
+    The system should use virtual_machine_list (Compute MCP) which is
+    the primary tool for VM listing with structured data.
+    Should NOT use virtual_machines (Azure MCP namespace group).
+  domain: azure_management
+  priority: high
+
+queries:
+  - text: "show me my VMs"
+    canonical: true
+  - text: "list my virtual machines"
+  - text: "what virtual machines do I have"
+  - text: "show all VMs in my subscription"
+  - text: "list VMs in resource group"
+
+expected_contract:
+  intent:
+    domain: azure_management
+    action: list
+    resource_type: virtual_machine
+
+  tools_required:
+    - virtual_machine_list
+
+  tools_preferred:
+    - tool: virtual_machine_list
+      over: virtual_machines
+      reason: "virtual_machine_list returns structured per-VM data (size, OS, power state)"
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: virtual_machine_list
+        purpose: "List all VMs with detailed properties"
+
+  tools_excluded:
+    - speech
+    - container_registries
+    - app_service
+
+  response_contract:
+    must_contain_concepts:
+      - "virtual machine"
+    format: list_or_table
+    min_length: 20
+
+fixture_responses:
+  virtual_machine_list:
+    input: {}
+    output:
+      success: true
+      data:
+        virtual_machines:
+          - name: "vm-prod-web-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_D4s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 22.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "production"
+              owner: "platform-team"
+          - name: "vm-prod-db-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_E8s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 20.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "production"
+              owner: "data-team"
+          - name: "vm-dev-01"
+            resource_group: "rg-gcc-demo-dev"
+            location: "southeastasia"
+            vm_size: "Standard_B2s"
+            os_type: "Windows"
+            os_name: "Windows Server 2022"
+            power_state: "VM deallocated"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "development"
+              owner: "dev-team"
+        total_count: 3

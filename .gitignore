@@ -66,9 +66,9 @@ backup/
 # docs
 docs/
 
-# tests - ignore all tests directories and subdirectories
-tests/
-**/tests/
+# tests - ignore root-level tests directory only
+# (app/agentic/eol/tests/ is tracked - contains critical test infrastructure)
+/tests/
 
 # Zip files
 *.zip
@@ -101,6 +101,13 @@ litellm/
 # claude code related files - ignore all .claude directories
 .claude/
 **/.claude/
+
+# EXCEPT: Track MCP tool selection project documentation
+!.claude/docs/TESTING-GUIDE.md
+!.claude/docs/PHASE-0-COMPLETION-REPORT.md
+!.claude/docs/PHASE-1-BASELINE-REPORT.md
+!.claude/docs/MANIFEST-AUTHORING-GUIDE.md
+
 .planning/
 **/.planning/
 CLAUDE.md
@@ -108,6 +115,9 @@ CLAUDE.md
 # github - ignore all .github directories
 .github/
 **/.github/
+
+# EXCEPT: Track CI workflow for MCP tool selection tests
+!.github/workflows/test-tool-selection.yml
 
 # playwright
 .playwright-mcp/

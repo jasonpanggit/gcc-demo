@@ -1,0 +1,99 @@
+# Golden Scenario: VM Health Check
+# Tests that VM health queries route to SRE health tools, not Azure MCP namespace tools
+#
+# Critical because:
+# 1. "virtual_machines" (Azure MCP namespace) should NOT be selected for health queries
+# 2. "check_resource_health" (SRE) is the preferred tool for VM health
+# 3. "virtual_machine_list" (Compute) should be used for discovery if needed
+
+scenario:
+  name: vm_health
+  description: >
+    User asks about the health status of virtual machines.
+    The system should use SRE check_resource_health (preferred over
+    Azure MCP resourcehealth) for deep diagnostics with remediation.
+  domain: sre_health
+  priority: high
+
+queries:
+  - text: "check health of my VMs"
+    canonical: true
+  - text: "are my virtual machines healthy"
+  - text: "what is the health status of my VMs"
+  - text: "VM health check"
+
+expected_contract:
+  intent:
+    domain: sre_health
+    action: health_check
+    resource_type: virtual_machine
+
+  tools_required:
+    - check_resource_health
+
+  tools_preferred:
+    # check_resource_health is preferred over resourcehealth per manifest
+    - tool: check_resource_health
+      over: resourcehealth
+      reason: "SRE tool provides deep diagnostics with remediation planning"
+
+  tools_excluded:
+    - speech
+    - app_service
+    - container_registries
+
+  response_contract:
+    must_contain_concepts:
+      - "virtual machine"
+      - "health"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  virtual_machine_list:
+    input: {}
+    output:
+      success: true
+      data:
+        virtual_machines:
+          - name: "vm-prod-web-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_D4s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 22.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+          - name: "vm-prod-db-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_E8s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 20.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+        total_count: 2
+
+  check_resource_health:
+    input:
+      resource_type: "Microsoft.Compute/virtualMachines"
+      resource_name: "vm-prod-web-01"
+    output:
+      success: true
+      data:
+        resource_name: "vm-prod-web-01"
+        resource_type: "Microsoft.Compute/virtualMachines"
+        health_status: "Available"
+        availability_state: "Available"
+        reason_type: "Unplanned"
+        reported_time: "2026-03-03T10:00:00Z"
+        summary: "VM is running and responding to health probes"
+        diagnostics:
+          cpu_utilization: 42.5
+          memory_utilization: 67.8
+          disk_iops: 1250
+          network_in_bytes: 15234567
+          network_out_bytes: 8765432
+        recommendations:
+          - severity: "low"
+            message: "Consider enabling Azure Backup for disaster recovery"

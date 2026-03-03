@@ -1,0 +1,209 @@
+{
+    "server_label": "sre",
+    "description": "Example SRE MCP fixture for health check scenarios",
+    "tools": [
+        {
+            "name": "check_resource_health",
+            "description": "Check the health status of an Azure resource",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "description": "Azure resource ID"
+                    },
+                    "include_metrics": {
+                        "type": "boolean",
+                        "description": "Include performance metrics"
+                    }
+                },
+                "required": ["resource_id"]
+            }
+        },
+        {
+            "name": "list_resource_alerts",
+            "description": "List active alerts for a resource",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "description": "Azure resource ID"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "high", "medium", "low"]
+                    }
+                },
+                "required": ["resource_id"]
+            }
+        },
+        {
+            "name": "container_app_list",
+            "description": "List all container apps in the subscription",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Azure resource group name"
+                    }
+                }
+            }
+        },
+        {
+            "name": "check_container_app_health",
+            "description": "Check health of a specific container app",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "container_app_name": {
+                        "type": "string",
+                        "description": "Container app name"
+                    },
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Azure resource group name"
+                    }
+                },
+                "required": ["container_app_name"]
+            }
+        }
+    ],
+    "responses": {
+        "check_resource_health": [
+            {
+                "match": {"resource_id": "vm-healthy-001"},
+                "response": {
+                    "status": "healthy",
+                    "resource_id": "vm-healthy-001",
+                    "resource_type": "Microsoft.Compute/virtualMachines",
+                    "health_state": "Available",
+                    "metrics": {
+                        "cpu_percent": 45.2,
+                        "memory_percent": 62.1,
+                        "disk_percent": 38.5
+                    },
+                    "last_checked": "2026-03-03T10:00:00Z"
+                }
+            },
+            {
+                "match": {"resource_id": "vm-unhealthy-002"},
+                "response": {
+                    "status": "unhealthy",
+                    "resource_id": "vm-unhealthy-002",
+                    "resource_type": "Microsoft.Compute/virtualMachines",
+                    "health_state": "Degraded",
+                    "issues": [
+                        "High CPU utilization (95%)",
+                        "Disk IOPS throttled"
+                    ],
+                    "metrics": {
+                        "cpu_percent": 95.0,
+                        "memory_percent": 88.3,
+                        "disk_percent": 92.1
+                    },
+                    "last_checked": "2026-03-03T10:00:00Z"
+                }
+            },
+            {
+                "match": "*",
+                "response": {
+                    "status": "unknown",
+                    "resource_id": "unknown",
+                    "health_state": "Unknown",
+                    "message": "Resource not found or not monitored"
+                }
+            }
+        ],
+        "list_resource_alerts": [
+            {
+                "match": {"resource_id": "vm-unhealthy-002"},
+                "response": {
+                    "alerts": [
+                        {
+                            "id": "alert-001",
+                            "severity": "critical",
+                            "title": "High CPU Alert",
+                            "description": "CPU utilization exceeded 90% for 15 minutes",
+                            "fired_at": "2026-03-03T09:45:00Z"
+                        },
+                        {
+                            "id": "alert-002",
+                            "severity": "high",
+                            "title": "Disk IOPS Throttling",
+                            "description": "Disk IOPS exceeded limit",
+                            "fired_at": "2026-03-03T09:50:00Z"
+                        }
+                    ],
+                    "total_count": 2
+                }
+            },
+            {
+                "match": "*",
+                "response": {
+                    "alerts": [],
+                    "total_count": 0
+                }
+            }
+        ],
+        "container_app_list": [
+            {
+                "match": "*",
+                "response": {
+                    "container_apps": [
+                        {
+                            "name": "app-eol-frontend",
+                            "resource_group": "rg-gcc-demo",
+                            "status": "Running",
+                            "replicas": 2
+                        },
+                        {
+                            "name": "app-eol-api",
+                            "resource_group": "rg-gcc-demo",
+                            "status": "Running",
+                            "replicas": 3
+                        },
+                        {
+                            "name": "app-eol-worker",
+                            "resource_group": "rg-gcc-demo",
+                            "status": "Degraded",
+                            "replicas": 1
+                        }
+                    ],
+                    "total_count": 3
+                }
+            }
+        ],
+        "check_container_app_health": [
+            {
+                "match": {"container_app_name": "app-eol-frontend"},
+                "response": {
+                    "name": "app-eol-frontend",
+                    "status": "Running",
+                    "health": "Healthy",
+                    "replicas": {"ready": 2, "total": 2},
+                    "ingress": {"fqdn": "app-eol-frontend.azurecontainerapps.io", "external": true}
+                }
+            },
+            {
+                "match": {"container_app_name": "app-eol-worker"},
+                "response": {
+                    "name": "app-eol-worker",
+                    "status": "Degraded",
+                    "health": "Unhealthy",
+                    "replicas": {"ready": 1, "total": 3},
+                    "issues": ["2 replicas in CrashLoopBackOff"]
+                }
+            },
+            {
+                "match": "*",
+                "response": {
+                    "name": "unknown",
+                    "status": "NotFound",
+                    "health": "Unknown"
+                }
+            }
+        ]
+    }
+}

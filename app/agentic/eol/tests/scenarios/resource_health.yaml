@@ -1,0 +1,90 @@
+# Golden Scenario: Unhealthy Resources Discovery
+# Tests that broad health queries route through SRE health tools for deep diagnostics
+#
+# Critical because:
+# 1. Broad "any unhealthy" queries should use check_resource_health (SRE)
+# 2. Should NOT use resourcehealth (Azure MCP) which only gives basic platform status
+# 3. May chain with resource discovery tools to find resources first
+# 4. Response should summarize health across resource types
+
+scenario:
+  name: resource_health
+  description: >
+    User asks about unhealthy resources across their environment.
+    The system should use SRE health tools for comprehensive diagnostics,
+    not the basic Azure MCP resourcehealth tool.
+  domain: sre_health
+  priority: high
+
+queries:
+  - text: "are there any unhealthy resources"
+    canonical: true
+  - text: "show me unhealthy resources in my subscription"
+  - text: "which resources have health issues"
+  - text: "are all my resources healthy"
+
+expected_contract:
+  intent:
+    domain: sre_health
+    action: health_check
+    resource_type: mixed
+
+  tools_required:
+    - check_resource_health
+
+  tools_preferred:
+    - tool: check_resource_health
+      over: resourcehealth
+      reason: "SRE check_resource_health provides deep diagnostics with remediation"
+
+  tools_excluded:
+    - speech
+    - documentation
+    - search
+
+  response_contract:
+    must_contain_concepts:
+      - "health"
+      - "resource"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  check_resource_health:
+    input:
+      resource_type: null
+      scope: "subscription"
+    output:
+      success: true
+      data:
+        summary:
+          total_resources: 12
+          healthy: 10
+          unhealthy: 1
+          degraded: 1
+          unknown: 0
+        unhealthy_resources:
+          - resource_name: "ca-staging-api"
+            resource_type: "Microsoft.App/containerApps"
+            resource_group: "rg-gcc-demo-staging"
+            health_status: "Unhealthy"
+            issue: "Container app has 0 ready replicas"
+            severity: "high"
+            recommendation: "Check container image pull status and resource limits"
+        degraded_resources:
+          - resource_name: "vm-prod-db-01"
+            resource_type: "Microsoft.Compute/virtualMachines"
+            resource_group: "rg-gcc-demo-prod"
+            health_status: "Degraded"
+            issue: "High memory utilization (92%)"
+            severity: "medium"
+            recommendation: "Consider scaling up VM size or investigating memory leaks"
+        healthy_resources_summary:
+          - resource_type: "Microsoft.App/containerApps"
+            count: 2
+          - resource_type: "Microsoft.Compute/virtualMachines"
+            count: 1
+          - resource_type: "Microsoft.Network/virtualNetworks"
+            count: 3
+          - resource_type: "Microsoft.Storage/storageAccounts"
+            count: 4

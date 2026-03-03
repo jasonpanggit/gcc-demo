@@ -1,0 +1,337 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 16 items
+
+test_inventory_ai.py::TestInventoryAIBasics::test_page_loads FAILED      [  6%]
+test_inventory_ai.py::TestInventoryAIBasics::test_main_heading_present FAILED [ 12%]
+test_inventory_ai.py::TestInventoryAIBasics::test_sidebar_visible FAILED [ 18%]
+test_inventory_ai.py::TestInventoryAIInterface::test_ai_input_present FAILED [ 25%]
+test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present FAILED [ 31%]
+test_inventory_ai.py::TestInventoryAIInterface::test_ai_assistant_badge_present FAILED [ 37%]
+test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_sidebar FAILED [ 43%]
+test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_dashboard FAILED [ 50%]
+test_inventory_ai.py::TestInventoryAIConsole::test_no_critical_console_errors FAILED [ 56%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_skip_link_present FAILED [ 62%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_page_has_main_landmark FAILED [ 68%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_form_labels_present FAILED [ 75%]
+test_inventory_ai.py::TestInventoryAIInteraction::test_input_field_accepts_text FAILED [ 81%]
+test_inventory_ai.py::TestInventoryAIInteraction::test_clear_or_reset_button FAILED [ 87%]
+test_inventory_ai.py::TestInventoryAIContent::test_page_description_present FAILED [ 93%]
+test_inventory_ai.py::TestInventoryAIContent::test_conversation_area_present FAILED [100%]
+
+=================================== FAILURES ===================================
+____________________ TestInventoryAIBasics.test_page_loads _____________________
+test_inventory_ai.py:21: in test_page_loads
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+_______________ TestInventoryAIBasics.test_main_heading_present ________________
+test_inventory_ai.py:26: in test_main_heading_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+__________________ TestInventoryAIBasics.test_sidebar_visible __________________
+test_inventory_ai.py:33: in test_sidebar_visible
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+________________ TestInventoryAIInterface.test_ai_input_present ________________
+test_inventory_ai.py:43: in test_ai_input_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+_____________ TestInventoryAIInterface.test_submit_button_present ______________
+test_inventory_ai.py:52: in test_submit_button_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+___________ TestInventoryAIInterface.test_ai_assistant_badge_present ___________
+test_inventory_ai.py:61: in test_ai_assistant_badge_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+_____________ TestInventoryAINavigation.test_navigate_from_sidebar _____________
+test_inventory_ai.py:73: in test_navigate_from_sidebar
+    page.goto("/")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/", waiting until "load"
+____________ TestInventoryAINavigation.test_navigate_from_dashboard ____________
+test_inventory_ai.py:85: in test_navigate_from_dashboard
+    page.goto("/")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/", waiting until "load"
+____________ TestInventoryAIConsole.test_no_critical_console_errors ____________
+test_inventory_ai.py:108: in test_no_critical_console_errors
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+_____________ TestInventoryAIAccessibility.test_skip_link_present ______________
+test_inventory_ai.py:134: in test_skip_link_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+___________ TestInventoryAIAccessibility.test_page_has_main_landmark ___________
+test_inventory_ai.py:140: in test_page_has_main_landmark
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+____________ TestInventoryAIAccessibility.test_form_labels_present _____________
+test_inventory_ai.py:146: in test_form_labels_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+___________ TestInventoryAIInteraction.test_input_field_accepts_text ___________
+test_inventory_ai.py:169: in test_input_field_accepts_text
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+____________ TestInventoryAIInteraction.test_clear_or_reset_button _____________
+test_inventory_ai.py:184: in test_clear_or_reset_button
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+_____________ TestInventoryAIContent.test_page_description_present _____________
+test_inventory_ai.py:200: in test_page_description_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+____________ TestInventoryAIContent.test_conversation_area_present _____________
+test_inventory_ai.py:210: in test_conversation_area_present
+    page.goto("/inventory-assistant")
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/sync_api/_generated.py:9019: in goto
+    self._sync(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_page.py:556: in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_frame.py:153: in goto
+    await self._channel.send(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+../../../../../../../../../Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E   playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+E   Call log:
+E     - navigating to "/inventory-assistant", waiting until "load"
+=========================== short test summary info ============================
+FAILED test_inventory_ai.py::TestInventoryAIBasics::test_page_loads - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIBasics::test_main_heading_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIBasics::test_sidebar_visible - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIInterface::test_ai_input_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIInterface::test_ai_assistant_badge_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_sidebar - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_dashboard - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIConsole::test_no_critical_console_errors - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIAccessibility::test_skip_link_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIAccessibility::test_page_has_main_landmark - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIAccessibility::test_form_labels_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIInteraction::test_input_field_accepts_text - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIInteraction::test_clear_or_reset_button - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIContent::test_page_description_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+FAILED test_inventory_ai.py::TestInventoryAIContent::test_conversation_area_present - playwright._impl._errors.Error: Page.goto: Protocol error (Page.navigate): Cannot navigate to invalid URL
+Call log:
+  - navigating to "/inventory-assistant", waiting until "load"
+============================== 16 failed in 2.77s ==============================

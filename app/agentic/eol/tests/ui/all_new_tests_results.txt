@@ -1,0 +1,339 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 204 items
+
+test_inventory_ai.py::TestInventoryAIBasics::test_page_loads PASSED      [  0%]
+test_inventory_ai.py::TestInventoryAIBasics::test_main_heading_present PASSED [  0%]
+test_inventory_ai.py::TestInventoryAIBasics::test_sidebar_visible PASSED [  1%]
+test_inventory_ai.py::TestInventoryAIInterface::test_ai_input_present PASSED [  1%]
+test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present FAILED [  2%]
+test_inventory_ai.py::TestInventoryAIInterface::test_ai_assistant_badge_present PASSED [  2%]
+test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_sidebar PASSED [  3%]
+test_inventory_ai.py::TestInventoryAINavigation::test_navigate_from_dashboard PASSED [  3%]
+test_inventory_ai.py::TestInventoryAIConsole::test_no_critical_console_errors PASSED [  4%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_skip_link_present PASSED [  4%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_page_has_main_landmark PASSED [  5%]
+test_inventory_ai.py::TestInventoryAIAccessibility::test_form_labels_present PASSED [  5%]
+test_inventory_ai.py::TestInventoryAIInteraction::test_input_field_accepts_text PASSED [  6%]
+test_inventory_ai.py::TestInventoryAIInteraction::test_clear_or_reset_button PASSED [  6%]
+test_inventory_ai.py::TestInventoryAIContent::test_page_description_present PASSED [  7%]
+test_inventory_ai.py::TestInventoryAIContent::test_conversation_area_present FAILED [  7%]
+test_eol_search_ai.py::TestEOLSearchAIBasics::test_page_loads PASSED     [  8%]
+test_eol_search_ai.py::TestEOLSearchAIBasics::test_main_heading_present PASSED [  8%]
+test_eol_search_ai.py::TestEOLSearchAIBasics::test_sidebar_navigation_present PASSED [  9%]
+test_eol_search_ai.py::TestEOLSearchAIInterface::test_search_input_present PASSED [  9%]
+test_eol_search_ai.py::TestEOLSearchAIInterface::test_search_button_present PASSED [ 10%]
+test_eol_search_ai.py::TestEOLSearchAIInterface::test_ai_badge_visible PASSED [ 10%]
+test_eol_search_ai.py::TestEOLSearchAINavigation::test_navigate_from_sidebar PASSED [ 11%]
+test_eol_search_ai.py::TestEOLSearchAINavigation::test_navigate_from_dashboard_quick_action PASSED [ 11%]
+test_eol_search_ai.py::TestEOLSearchAIInteraction::test_search_input_accepts_text PASSED [ 12%]
+test_eol_search_ai.py::TestEOLSearchAIInteraction::test_example_queries_or_suggestions PASSED [ 12%]
+test_eol_search_ai.py::TestEOLSearchAIContent::test_page_description_present PASSED [ 13%]
+test_eol_search_ai.py::TestEOLSearchAIContent::test_results_area_present FAILED [ 13%]
+test_eol_search_ai.py::TestEOLSearchAIAccessibility::test_skip_link_present PASSED [ 14%]
+test_eol_search_ai.py::TestEOLSearchAIAccessibility::test_main_landmark_present PASSED [ 14%]
+test_eol_search_ai.py::TestEOLSearchAIAccessibility::test_form_has_labels PASSED [ 15%]
+test_eol_search_ai.py::TestEOLSearchAIConsole::test_no_critical_console_errors PASSED [ 15%]
+test_eol_search_ai.py::TestEOLSearchAILinks::test_link_to_eol_database PASSED [ 16%]
+test_eol_search_ai.py::TestEOLSearchAILinks::test_link_to_search_history PASSED [ 16%]
+test_azure_resources.py::TestAzureResourcesBasics::test_page_loads PASSED [ 17%]
+test_azure_resources.py::TestAzureResourcesBasics::test_main_heading_present PASSED [ 17%]
+test_azure_resources.py::TestAzureResourcesBasics::test_sidebar_visible PASSED [ 18%]
+test_azure_resources.py::TestAzureResourcesTable::test_table_present PASSED [ 18%]
+test_azure_resources.py::TestAzureResourcesTable::test_table_headers_present PASSED [ 19%]
+test_azure_resources.py::TestAzureResourcesTable::test_table_has_data_or_empty_message PASSED [ 19%]
+test_azure_resources.py::TestAzureResourcesFilters::test_search_input_present PASSED [ 20%]
+test_azure_resources.py::TestAzureResourcesFilters::test_filter_controls_present PASSED [ 20%]
+test_azure_resources.py::TestAzureResourcesFilters::test_refresh_button_present PASSED [ 21%]
+test_azure_resources.py::TestAzureResourcesNavigation::test_navigate_from_sidebar PASSED [ 21%]
+test_azure_resources.py::TestAzureResourcesNavigation::test_navigate_from_dashboard_quick_action PASSED [ 22%]
+test_azure_resources.py::TestAzureResourcesContent::test_page_description_present PASSED [ 22%]
+test_azure_resources.py::TestAzureResourcesContent::test_loading_indicator FAILED [ 23%]
+test_azure_resources.py::TestAzureResourcesAccessibility::test_skip_link_present PASSED [ 23%]
+test_azure_resources.py::TestAzureResourcesAccessibility::test_main_landmark_present PASSED [ 24%]
+test_azure_resources.py::TestAzureResourcesAccessibility::test_table_has_caption_or_aria_label PASSED [ 24%]
+test_azure_resources.py::TestAzureResourcesConsole::test_no_critical_console_errors PASSED [ 25%]
+test_azure_resources.py::TestAzureResourcesInteraction::test_table_row_clickable PASSED [ 25%]
+test_azure_resources.py::TestAzureResourcesInteraction::test_pagination_controls PASSED [ 25%]
+test_azure_resources.py::TestAzureResourcesExport::test_export_button_present PASSED [ 26%]
+test_os_software_law.py::TestOSSoftwareLAWBasics::test_page_loads PASSED [ 26%]
+test_os_software_law.py::TestOSSoftwareLAWBasics::test_main_heading_present PASSED [ 27%]
+test_os_software_law.py::TestOSSoftwareLAWBasics::test_sidebar_visible PASSED [ 27%]
+test_os_software_law.py::TestOSSoftwareLAWTable::test_table_present PASSED [ 28%]
+test_os_software_law.py::TestOSSoftwareLAWTable::test_table_headers_present PASSED [ 28%]
+test_os_software_law.py::TestOSSoftwareLAWTable::test_table_has_data_or_empty_message PASSED [ 29%]
+test_os_software_law.py::TestOSSoftwareLAWFilters::test_search_input_present PASSED [ 29%]
+test_os_software_law.py::TestOSSoftwareLAWFilters::test_filter_controls_present PASSED [ 30%]
+test_os_software_law.py::TestOSSoftwareLAWFilters::test_refresh_button_present PASSED [ 30%]
+test_os_software_law.py::TestOSSoftwareLAWNavigation::test_navigate_from_sidebar PASSED [ 31%]
+test_os_software_law.py::TestOSSoftwareLAWContent::test_page_description_present PASSED [ 31%]
+test_os_software_law.py::TestOSSoftwareLAWContent::test_law_reference_present PASSED [ 32%]
+test_os_software_law.py::TestOSSoftwareLAWAccessibility::test_skip_link_present PASSED [ 32%]
+test_os_software_law.py::TestOSSoftwareLAWAccessibility::test_main_landmark_present PASSED [ 33%]
+test_os_software_law.py::TestOSSoftwareLAWConsole::test_no_critical_console_errors PASSED [ 33%]
+test_os_software_law.py::TestOSSoftwareLAWInteraction::test_pagination_controls PASSED [ 34%]
+test_os_software_law.py::TestOSSoftwareLAWInteraction::test_sort_functionality PASSED [ 34%]
+test_patch_management.py::TestPatchManagementBasics::test_page_loads PASSED [ 35%]
+test_patch_management.py::TestPatchManagementBasics::test_main_heading_present PASSED [ 35%]
+test_patch_management.py::TestPatchManagementBasics::test_sidebar_visible PASSED [ 36%]
+test_patch_management.py::TestPatchManagementInterface::test_patch_list_or_table_present FAILED [ 36%]
+test_patch_management.py::TestPatchManagementInterface::test_table_headers_present PASSED [ 37%]
+test_patch_management.py::TestPatchManagementInterface::test_status_indicators_present PASSED [ 37%]
+test_patch_management.py::TestPatchManagementFilters::test_filter_controls_present PASSED [ 38%]
+test_patch_management.py::TestPatchManagementFilters::test_search_input_present PASSED [ 38%]
+test_patch_management.py::TestPatchManagementFilters::test_refresh_button_present PASSED [ 39%]
+test_patch_management.py::TestPatchManagementNavigation::test_navigate_from_sidebar PASSED [ 39%]
+test_patch_management.py::TestPatchManagementContent::test_page_description_present PASSED [ 40%]
+test_patch_management.py::TestPatchManagementContent::test_stats_or_summary_present PASSED [ 40%]
+test_patch_management.py::TestPatchManagementActions::test_action_buttons_present PASSED [ 41%]
+test_patch_management.py::TestPatchManagementActions::test_details_or_view_button PASSED [ 41%]
+test_patch_management.py::TestPatchManagementAccessibility::test_skip_link_present PASSED [ 42%]
+test_patch_management.py::TestPatchManagementAccessibility::test_main_landmark_present PASSED [ 42%]
+test_patch_management.py::TestPatchManagementConsole::test_no_critical_console_errors PASSED [ 43%]
+test_patch_management.py::TestPatchManagementInteraction::test_table_row_expandable PASSED [ 43%]
+test_patch_management.py::TestPatchManagementInteraction::test_pagination_controls PASSED [ 44%]
+test_alerts.py::TestAlertsBasics::test_page_loads PASSED                 [ 44%]
+test_alerts.py::TestAlertsBasics::test_main_heading_present PASSED       [ 45%]
+test_alerts.py::TestAlertsBasics::test_sidebar_visible PASSED            [ 45%]
+test_alerts.py::TestAlertsDisplay::test_alerts_list_or_table_present PASSED [ 46%]
+test_alerts.py::TestAlertsDisplay::test_alert_items_visible_or_empty_message PASSED [ 46%]
+test_alerts.py::TestAlertsDisplay::test_alert_severity_indicators PASSED [ 47%]
+test_alerts.py::TestAlertsFilters::test_severity_filter_present PASSED   [ 47%]
+test_alerts.py::TestAlertsFilters::test_status_filter_present PASSED     [ 48%]
+test_alerts.py::TestAlertsFilters::test_refresh_button_present PASSED    [ 48%]
+test_alerts.py::TestAlertsNavigation::test_navigate_from_sidebar PASSED  [ 49%]
+test_alerts.py::TestAlertsActions::test_acknowledge_or_dismiss_button PASSED [ 49%]
+test_alerts.py::TestAlertsActions::test_view_details_button PASSED       [ 50%]
+test_alerts.py::TestAlertsAccessibility::test_skip_link_present PASSED   [ 50%]
+test_alerts.py::TestAlertsAccessibility::test_main_landmark_present PASSED [ 50%]
+test_alerts.py::TestAlertsConsole::test_no_critical_console_errors PASSED [ 51%]
+test_alerts.py::TestAlertsContent::test_page_description_present PASSED  [ 51%]
+test_alerts.py::TestAlertsContent::test_alert_count_or_stats PASSED      [ 52%]
+test_cache.py::TestCacheBasics::test_page_loads PASSED                   [ 52%]
+test_cache.py::TestCacheBasics::test_main_heading_present PASSED         [ 53%]
+test_cache.py::TestCacheBasics::test_sidebar_visible PASSED              [ 53%]
+test_cache.py::TestCacheStatistics::test_cache_stats_present PASSED      [ 54%]
+test_cache.py::TestCacheStatistics::test_hit_rate_displayed PASSED       [ 54%]
+test_cache.py::TestCacheStatistics::test_cache_size_displayed PASSED     [ 55%]
+test_cache.py::TestCacheEntries::test_cache_entries_table_or_list FAILED [ 55%]
+test_cache.py::TestCacheEntries::test_table_headers_present PASSED       [ 56%]
+test_cache.py::TestCacheEntries::test_cache_keys_displayed FAILED        [ 56%]
+test_cache.py::TestCacheActions::test_clear_cache_button_present PASSED  [ 57%]
+test_cache.py::TestCacheActions::test_refresh_button_present PASSED      [ 57%]
+test_cache.py::TestCacheActions::test_delete_entry_buttons PASSED        [ 58%]
+test_cache.py::TestCacheNavigation::test_navigate_from_sidebar PASSED    [ 58%]
+test_cache.py::TestCacheFilters::test_search_filter_present PASSED       [ 59%]
+test_cache.py::TestCacheFilters::test_cache_type_filter PASSED           [ 59%]
+test_cache.py::TestCacheAccessibility::test_skip_link_present PASSED     [ 60%]
+test_cache.py::TestCacheAccessibility::test_main_landmark_present PASSED [ 60%]
+test_cache.py::TestCacheConsole::test_no_critical_console_errors PASSED  [ 61%]
+test_cache.py::TestCacheContent::test_page_description_present PASSED    [ 61%]
+test_cache.py::TestCacheContent::test_cache_performance_info PASSED      [ 62%]
+test_cache.py::TestCacheInteraction::test_pagination_controls PASSED     [ 62%]
+test_cache.py::TestCacheInteraction::test_entry_details_expandable PASSED [ 63%]
+test_agents.py::TestAgentsBasics::test_page_loads PASSED                 [ 63%]
+test_agents.py::TestAgentsBasics::test_main_heading_present PASSED       [ 64%]
+test_agents.py::TestAgentsBasics::test_sidebar_visible PASSED            [ 64%]
+test_agents.py::TestAgentsDisplay::test_agents_list_or_table_present FAILED [ 65%]
+test_agents.py::TestAgentsDisplay::test_agent_items_visible PASSED       [ 65%]
+test_agents.py::TestAgentsDisplay::test_agent_status_indicators FAILED   [ 66%]
+test_agents.py::TestAgentsDisplay::test_agent_types_displayed PASSED     [ 66%]
+test_agents.py::TestAgentsStatistics::test_agent_stats_present PASSED    [ 67%]
+test_agents.py::TestAgentsStatistics::test_active_agents_count PASSED    [ 67%]
+test_agents.py::TestAgentsActions::test_start_or_stop_button PASSED      [ 68%]
+test_agents.py::TestAgentsActions::test_configure_button PASSED          [ 68%]
+test_agents.py::TestAgentsActions::test_view_details_button PASSED       [ 69%]
+test_agents.py::TestAgentsActions::test_refresh_button_present PASSED    [ 69%]
+test_agents.py::TestAgentsNavigation::test_navigate_from_sidebar PASSED  [ 70%]
+test_agents.py::TestAgentsFilters::test_status_filter_present PASSED     [ 70%]
+test_agents.py::TestAgentsFilters::test_agent_type_filter PASSED         [ 71%]
+test_agents.py::TestAgentsFilters::test_search_input_present PASSED      [ 71%]
+test_agents.py::TestAgentsAccessibility::test_skip_link_present PASSED   [ 72%]
+test_agents.py::TestAgentsAccessibility::test_main_landmark_present PASSED [ 72%]
+test_agents.py::TestAgentsConsole::test_no_critical_console_errors PASSED [ 73%]
+test_agents.py::TestAgentsContent::test_page_description_present PASSED  [ 73%]
+test_agents.py::TestAgentsContent::test_agent_configuration_info PASSED  [ 74%]
+test_agents.py::TestAgentsInteraction::test_agent_row_selectable PASSED  [ 74%]
+test_agents.py::TestAgentsInteraction::test_agent_details_expandable PASSED [ 75%]
+test_eol_search_history.py::TestEOLSearchHistoryBasics::test_page_loads PASSED [ 75%]
+test_eol_search_history.py::TestEOLSearchHistoryBasics::test_main_heading_present PASSED [ 75%]
+test_eol_search_history.py::TestEOLSearchHistoryBasics::test_sidebar_visible PASSED [ 76%]
+test_eol_search_history.py::TestEOLSearchHistoryDisplay::test_history_table_or_list_present FAILED [ 76%]
+test_eol_search_history.py::TestEOLSearchHistoryDisplay::test_history_entries_visible_or_empty FAILED [ 77%]
+test_eol_search_history.py::TestEOLSearchHistoryDisplay::test_table_headers_present PASSED [ 77%]
+test_eol_search_history.py::TestEOLSearchHistoryContent::test_search_query_displayed PASSED [ 78%]
+test_eol_search_history.py::TestEOLSearchHistoryContent::test_timestamp_displayed PASSED [ 78%]
+test_eol_search_history.py::TestEOLSearchHistoryContent::test_results_count_displayed FAILED [ 79%]
+test_eol_search_history.py::TestEOLSearchHistoryActions::test_view_results_button PASSED [ 79%]
+test_eol_search_history.py::TestEOLSearchHistoryActions::test_repeat_search_button PASSED [ 80%]
+test_eol_search_history.py::TestEOLSearchHistoryActions::test_delete_history_button PASSED [ 80%]
+test_eol_search_history.py::TestEOLSearchHistoryActions::test_clear_all_history_button PASSED [ 81%]
+test_eol_search_history.py::TestEOLSearchHistoryNavigation::test_navigate_from_sidebar PASSED [ 81%]
+test_eol_search_history.py::TestEOLSearchHistoryNavigation::test_link_to_eol_search_page PASSED [ 82%]
+test_eol_search_history.py::TestEOLSearchHistoryFilters::test_search_filter_present PASSED [ 82%]
+test_eol_search_history.py::TestEOLSearchHistoryFilters::test_date_filter_present PASSED [ 83%]
+test_eol_search_history.py::TestEOLSearchHistoryAccessibility::test_skip_link_present PASSED [ 83%]
+test_eol_search_history.py::TestEOLSearchHistoryAccessibility::test_main_landmark_present PASSED [ 84%]
+test_eol_search_history.py::TestEOLSearchHistoryConsole::test_no_critical_console_errors PASSED [ 84%]
+test_eol_search_history.py::TestEOLSearchHistoryInteraction::test_pagination_controls PASSED [ 85%]
+test_eol_search_history.py::TestEOLSearchHistoryInteraction::test_sort_controls PASSED [ 85%]
+test_os_eol_tracker.py::TestOSEOLTrackerBasics::test_page_loads PASSED   [ 86%]
+test_os_eol_tracker.py::TestOSEOLTrackerBasics::test_main_heading_present PASSED [ 86%]
+test_os_eol_tracker.py::TestOSEOLTrackerBasics::test_sidebar_visible PASSED [ 87%]
+test_os_eol_tracker.py::TestOSEOLTrackerDisplay::test_eol_table_or_list_present PASSED [ 87%]
+test_os_eol_tracker.py::TestOSEOLTrackerDisplay::test_table_headers_present PASSED [ 88%]
+test_os_eol_tracker.py::TestOSEOLTrackerDisplay::test_os_entries_visible_or_empty PASSED [ 88%]
+test_os_eol_tracker.py::TestOSEOLTrackerContent::test_os_names_displayed PASSED [ 89%]
+test_os_eol_tracker.py::TestOSEOLTrackerContent::test_eol_dates_displayed FAILED [ 89%]
+test_os_eol_tracker.py::TestOSEOLTrackerContent::test_eol_status_indicators FAILED [ 90%]
+test_os_eol_tracker.py::TestOSEOLTrackerContent::test_version_information PASSED [ 90%]
+test_os_eol_tracker.py::TestOSEOLTrackerStatistics::test_eol_stats_present PASSED [ 91%]
+test_os_eol_tracker.py::TestOSEOLTrackerStatistics::test_critical_eol_count PASSED [ 91%]
+test_os_eol_tracker.py::TestOSEOLTrackerFilters::test_os_type_filter PASSED [ 92%]
+test_os_eol_tracker.py::TestOSEOLTrackerFilters::test_status_filter_present PASSED [ 92%]
+test_os_eol_tracker.py::TestOSEOLTrackerFilters::test_search_input_present PASSED [ 93%]
+test_os_eol_tracker.py::TestOSEOLTrackerFilters::test_refresh_button_present PASSED [ 93%]
+test_os_eol_tracker.py::TestOSEOLTrackerActions::test_view_details_button PASSED [ 94%]
+test_os_eol_tracker.py::TestOSEOLTrackerActions::test_export_button PASSED [ 94%]
+test_os_eol_tracker.py::TestOSEOLTrackerActions::test_update_button PASSED [ 95%]
+test_os_eol_tracker.py::TestOSEOLTrackerNavigation::test_navigate_from_sidebar PASSED [ 95%]
+test_os_eol_tracker.py::TestOSEOLTrackerNavigation::test_link_to_eol_database PASSED [ 96%]
+test_os_eol_tracker.py::TestOSEOLTrackerAccessibility::test_skip_link_present PASSED [ 96%]
+test_os_eol_tracker.py::TestOSEOLTrackerAccessibility::test_main_landmark_present PASSED [ 97%]
+test_os_eol_tracker.py::TestOSEOLTrackerConsole::test_no_critical_console_errors PASSED [ 97%]
+test_os_eol_tracker.py::TestOSEOLTrackerInteraction::test_pagination_controls PASSED [ 98%]
+test_os_eol_tracker.py::TestOSEOLTrackerInteraction::test_sort_functionality PASSED [ 98%]
+test_os_eol_tracker.py::TestOSEOLTrackerInteraction::test_row_details_expandable PASSED [ 99%]
+test_os_eol_tracker.py::TestOSEOLTrackerAlerts::test_alert_indicators_present FAILED [ 99%]
+test_os_eol_tracker.py::TestOSEOLTrackerAlerts::test_upcoming_eol_section FAILED [100%]
+
+=================================== FAILURES ===================================
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_inventory_ai.py:57: AssertionError: Locator expected to be visible
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_inventory_ai.py:221: AssertionError: Locator expected to be attached
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_eol_search_ai.py:147: AssertionError: Locator expected to be attached
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .spinner, .loading'
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_patch_management.py:48: AssertionError: Locator expected to be visible
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_cache.py:82: AssertionError: Locator expected to be visible
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_cache.py:104: AssertionError: No cache entries and no empty message
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_agents.py:47: AssertionError: Locator expected to be visible
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".status, .badge, [class*='status'], text=/Active|Idle|Offline/i". Did you mean to CSS.escape it?
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_eol_search_history.py:47: AssertionError: Locator expected to be visible
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui/test_eol_search_history.py:58: AssertionError: No history entries and no empty message
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .results-count'
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, td:has-text('202')'
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".status, .badge, [class*='status'], text=/Active|EOL|Warning|Critical|Expired/i". Did you mean to CSS.escape it?
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".alert, .warning, [role='alert'], text=/Warning|Alert|Attention/i". Did you mean to CSS.escape it?
+/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/playwright/_impl/_connection.py:558: playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .upcoming, .soon'
+=========================== short test summary info ============================
+FAILED test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present - AssertionError: Locator expected to be visible
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_visible" with timeout 10000ms
+  - waiting for locator("button:has-text('Send'), button:has-text('Submit'), button:has-text('Ask'), button[type='submit']").first
+FAILED test_inventory_ai.py::TestInventoryAIContent::test_conversation_area_present - AssertionError: Locator expected to be attached
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_attached" with timeout 5000ms
+  - waiting for locator(".messages, .conversation, .chat-history, [role='log']").first
+FAILED test_eol_search_ai.py::TestEOLSearchAIContent::test_results_area_present - AssertionError: Locator expected to be attached
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_attached" with timeout 5000ms
+  - waiting for locator(".results, .response, .conversation, .messages, [role='log']").first
+FAILED test_azure_resources.py::TestAzureResourcesContent::test_loading_indicator - playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .spinner, .loading'
+    at new RegExp (<anonymous>)
+    at createTextMatcher (<anonymous>:7696:16)
+    at Object.queryAll (<anonymous>:6613:33)
+    at InjectedScript._queryEngineAll (<anonymous>:6586:49)
+    at InjectedScript.querySelectorAll (<anonymous>:6573:30)
+    at InjectedScript.querySelector (<anonymous>:6498:25)
+    at eval (eval at evaluate (:291:30), <anonymous>:2:34)
+    at UtilityScript.evaluate (<anonymous>:293:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)
+Call log:
+    - checking visibility of locator("text=/Loading|Fetching/i, .spinner, .loading").first
+FAILED test_patch_management.py::TestPatchManagementInterface::test_patch_list_or_table_present - AssertionError: Locator expected to be visible
+Actual value: hidden 
+Call log:
+  - Expect "to_be_visible" with timeout 15000ms
+  - waiting for locator("table, .patch-list, .patches").first
+    19 × locator resolved to <table id="modal-patch-table" class="table table-hover table-sm align-middle mb-0">…</table>
+       - unexpected value "hidden"
+FAILED test_cache.py::TestCacheEntries::test_cache_entries_table_or_list - AssertionError: Locator expected to be visible
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_visible" with timeout 15000ms
+  - waiting for locator("table, .cache-entries, .entries-list").first
+FAILED test_cache.py::TestCacheEntries::test_cache_keys_displayed - AssertionError: No cache entries and no empty message
+assert (0 > 0 or False)
+ +  where False = is_visible()
+ +    where is_visible = <Locator frame=<Frame name= url='https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io/cache'> selector='text=/No.*cache|Empty|No data/i >> nth=0'>.is_visible
+FAILED test_agents.py::TestAgentsDisplay::test_agents_list_or_table_present - AssertionError: Locator expected to be visible
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_visible" with timeout 15000ms
+  - waiting for locator("table, .agents-list, .agent-items, .agents-grid").first
+FAILED test_agents.py::TestAgentsDisplay::test_agent_status_indicators - playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".status, .badge, [class*='status'], text=/Active|Idle|Offline/i". Did you mean to CSS.escape it?
+Call log:
+    - checking visibility of .status, .badge, [class*='status'], text=/Active|Idle|Offline/i >> nth=0
+FAILED test_eol_search_history.py::TestEOLSearchHistoryDisplay::test_history_table_or_list_present - AssertionError: Locator expected to be visible
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_visible" with timeout 15000ms
+  - waiting for locator("table, .history-list, .search-history").first
+FAILED test_eol_search_history.py::TestEOLSearchHistoryDisplay::test_history_entries_visible_or_empty - AssertionError: No history entries and no empty message
+assert (0 > 0 or False)
+ +  where False = is_visible()
+ +    where is_visible = <Locator frame=<Frame name= url='https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io/eol-searches'> selector='text=/No.*history|No.*search|Empty/i >> nth=0'>.is_visible
+FAILED test_eol_search_history.py::TestEOLSearchHistoryContent::test_results_count_displayed - playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .results-count'
+    at new RegExp (<anonymous>)
+    at createTextMatcher (<anonymous>:7696:16)
+    at Object.queryAll (<anonymous>:6613:33)
+    at InjectedScript._queryEngineAll (<anonymous>:6586:49)
+    at InjectedScript.querySelectorAll (<anonymous>:6573:30)
+    at InjectedScript.querySelector (<anonymous>:6498:25)
+    at eval (eval at evaluate (:291:30), <anonymous>:2:34)
+    at UtilityScript.evaluate (<anonymous>:293:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)
+Call log:
+    - checking visibility of locator("text=/\\d+.*result/i, .results-count").first
+FAILED test_os_eol_tracker.py::TestOSEOLTrackerContent::test_eol_dates_displayed - playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, td:has-text('202')'
+    at new RegExp (<anonymous>)
+    at createTextMatcher (<anonymous>:7696:16)
+    at Object.queryAll (<anonymous>:6613:33)
+    at InjectedScript._queryEngineAll (<anonymous>:6586:49)
+    at InjectedScript.querySelectorAll (<anonymous>:6573:30)
+    at InjectedScript.querySelector (<anonymous>:6498:25)
+    at eval (eval at evaluate (:291:30), <anonymous>:2:34)
+    at UtilityScript.evaluate (<anonymous>:293:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)
+Call log:
+    - checking visibility of locator("text=/\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\/\\d{1,2}\\/\\d{4}/i, td:has-text('202')").first
+FAILED test_os_eol_tracker.py::TestOSEOLTrackerContent::test_eol_status_indicators - playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".status, .badge, [class*='status'], text=/Active|EOL|Warning|Critical|Expired/i". Did you mean to CSS.escape it?
+Call log:
+    - checking visibility of .status, .badge, [class*='status'], text=/Active|EOL|Warning|Critical|Expired/i >> nth=0
+FAILED test_os_eol_tracker.py::TestOSEOLTrackerAlerts::test_alert_indicators_present - playwright._impl._errors.Error: Locator.is_visible: Unexpected token "=" while parsing css selector ".alert, .warning, [role='alert'], text=/Warning|Alert|Attention/i". Did you mean to CSS.escape it?
+Call log:
+    - checking visibility of .alert, .warning, [role='alert'], text=/Warning|Alert|Attention/i >> nth=0
+FAILED test_os_eol_tracker.py::TestOSEOLTrackerAlerts::test_upcoming_eol_section - playwright._impl._errors.Error: Locator.is_visible: SyntaxError: Invalid flags supplied to RegExp constructor 'i, .upcoming, .soon'
+    at new RegExp (<anonymous>)
+    at createTextMatcher (<anonymous>:7696:16)
+    at Object.queryAll (<anonymous>:6613:33)
+    at InjectedScript._queryEngineAll (<anonymous>:6586:49)
+    at InjectedScript.querySelectorAll (<anonymous>:6573:30)
+    at InjectedScript.querySelector (<anonymous>:6498:25)
+    at eval (eval at evaluate (:291:30), <anonymous>:2:34)
+    at UtilityScript.evaluate (<anonymous>:293:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)
+Call log:
+    - checking visibility of locator("text=/Upcoming|Soon|Next.*month/i, .upcoming, .soon").first
+================== 16 failed, 188 passed in 561.08s (0:09:21) ==================

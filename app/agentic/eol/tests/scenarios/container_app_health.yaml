@@ -1,0 +1,105 @@
+# Golden Scenario: Container App Health Check
+# Tests the deterministic chaining: container_app_list -> check_container_app_health
+#
+# This is the most critical scenario because it validates:
+# 1. The retriever preserves both tools for health-intent queries
+# 2. The planner produces a deterministic multi-step plan
+# 3. Tool sequence follows the required chaining order
+
+scenario:
+  name: container_app_health
+  description: >
+    User asks about the health status of container apps.
+    The system should chain container_app_list -> check_container_app_health
+    to first discover apps, then check each one's health.
+  domain: sre_health
+  priority: critical
+
+queries:
+  - text: "what is the health of my container apps"
+    canonical: true
+  - text: "check health of my container apps"
+  - text: "are my container apps healthy"
+  - text: "container app health status"
+  - text: "show me the health of all container apps"
+
+expected_contract:
+  intent:
+    domain: sre_health
+    action: health_check
+    resource_type: container_app
+
+  tools_required:
+    - container_app_list
+    - check_container_app_health
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: container_app_list
+        purpose: "Discover all container apps in the subscription"
+      - tool: check_container_app_health
+        purpose: "Check health of each discovered container app"
+        depends_on: container_app_list
+
+  tools_excluded:
+    - speech
+    - resourcehealth
+    - app_service
+
+  response_contract:
+    must_contain_concepts:
+      - "container app"
+      - "health"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  container_app_list:
+    input: {}
+    output:
+      success: true
+      data:
+        container_apps:
+          - name: "ca-prod-api"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Running"
+            fqdn: "ca-prod-api.kindocean-123abc.southeastasia.azurecontainerapps.io"
+          - name: "ca-prod-web"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Running"
+            fqdn: "ca-prod-web.kindocean-123abc.southeastasia.azurecontainerapps.io"
+          - name: "ca-staging-api"
+            resource_group: "rg-gcc-demo-staging"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            running_status: "Stopped"
+            fqdn: "ca-staging-api.kindocean-456def.southeastasia.azurecontainerapps.io"
+        total_count: 3
+
+  check_container_app_health:
+    input:
+      resource_name: "ca-prod-api"
+    output:
+      success: true
+      data:
+        resource_name: "ca-prod-api"
+        health_status: "Healthy"
+        provisioning_state: "Succeeded"
+        running_status: "Running"
+        replicas:
+          ready: 3
+          total: 3
+        ingress:
+          external: true
+          target_port: 8000
+          transport: "auto"
+        last_restart: null
+        diagnostics:
+          cpu_percent: 35.2
+          memory_percent: 48.7
+          http_response_time_ms: 120

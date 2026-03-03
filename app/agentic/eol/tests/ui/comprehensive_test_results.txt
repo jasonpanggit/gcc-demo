@@ -1,0 +1,36 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 204 items
+
+test_inventory_ai.py::TestInventoryAIBasics::test_page_loads PASSED      [  0%]
+test_inventory_ai.py::TestInventoryAIBasics::test_main_heading_present PASSED [  0%]
+test_inventory_ai.py::TestInventoryAIBasics::test_sidebar_visible PASSED [  1%]
+test_inventory_ai.py::TestInventoryAIInterface::test_ai_input_present PASSED [  1%]
+test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present FAILED [  2%]
+
+=================================== FAILURES ===================================
+_____________ TestInventoryAIInterface.test_submit_button_present ______________
+test_inventory_ai.py:57: in test_submit_button_present
+    expect(submit_btn).to_be_visible(timeout=10000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: <element(s) not found> 
+E   Call log:
+E     - Expect "to_be_visible" with timeout 10000ms
+E     - waiting for locator("button:has-text('Send'), button:has-text('Submit'), button:has-text('Ask'), button[type='submit']").first
+=========================== short test summary info ============================
+FAILED test_inventory_ai.py::TestInventoryAIInterface::test_submit_button_present - AssertionError: Locator expected to be visible
+Actual value: <element(s) not found> 
+Call log:
+  - Expect "to_be_visible" with timeout 10000ms
+  - waiting for locator("button:has-text('Send'), button:has-text('Submit'), button:has-text('Ask'), button[type='submit']").first
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+========================= 1 failed, 4 passed in 15.74s =========================

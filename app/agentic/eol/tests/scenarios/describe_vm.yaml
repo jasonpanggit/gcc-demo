@@ -1,0 +1,125 @@
+# Golden Scenario: VM Detail Retrieval
+# Tests the sequencing: virtual_machine_list -> check_resource_health
+#
+# Critical because:
+# 1. "describe" / "details" queries require discovery (list) BEFORE detail retrieval
+# 2. virtual_machine_list must be used, NOT virtual_machines (Azure MCP namespace)
+# 3. check_resource_health provides deep diagnostics (preferred over resourcehealth)
+# 4. This is a two-step dependency chain that has failed in production
+
+scenario:
+  name: describe_vm
+  description: >
+    User asks for detailed information about a specific virtual machine.
+    The system should chain virtual_machine_list -> check_resource_health
+    to first discover VMs, then retrieve detailed health/config for the target VM.
+  domain: azure_management
+  priority: high
+
+queries:
+  - text: "describe my VM vm-prod-web-01"
+    canonical: true
+  - text: "show details for virtual machine vm-prod-web-01"
+  - text: "get information about my VM"
+  - text: "tell me about vm-prod-web-01"
+  - text: "VM details for vm-prod-web-01"
+
+expected_contract:
+  intent:
+    domain: azure_management
+    action: describe
+    resource_type: virtual_machine
+
+  tools_required:
+    - virtual_machine_list
+    - check_resource_health
+
+  tools_preferred:
+    - tool: virtual_machine_list
+      over: virtual_machines
+      reason: "virtual_machine_list returns structured per-VM data (size, OS, power state)"
+    - tool: check_resource_health
+      over: resourcehealth
+      reason: "SRE tool provides deep diagnostics with remediation planning"
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: virtual_machine_list
+        purpose: "Discover VMs to find the target VM's resource details"
+      - tool: check_resource_health
+        purpose: "Get deep health diagnostics for the specific VM"
+        depends_on: virtual_machine_list
+
+  tools_excluded:
+    - speech
+    - container_registries
+    - app_service
+    - virtual_machines
+
+  response_contract:
+    must_contain_concepts:
+      - "virtual machine"
+      - "vm-prod-web-01"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  virtual_machine_list:
+    input: {}
+    output:
+      success: true
+      data:
+        virtual_machines:
+          - name: "vm-prod-web-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_D4s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 22.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "production"
+              owner: "platform-team"
+          - name: "vm-prod-db-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_E8s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 20.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+        total_count: 2
+
+  check_resource_health:
+    input:
+      resource_type: "Microsoft.Compute/virtualMachines"
+      resource_name: "vm-prod-web-01"
+    output:
+      success: true
+      data:
+        resource_name: "vm-prod-web-01"
+        resource_type: "Microsoft.Compute/virtualMachines"
+        health_status: "Available"
+        availability_state: "Available"
+        reason_type: "Unplanned"
+        reported_time: "2026-03-03T10:00:00Z"
+        summary: "VM is running and responding to health probes"
+        configuration:
+          vm_size: "Standard_D4s_v3"
+          os_type: "Linux"
+          os_version: "Ubuntu 22.04"
+          boot_diagnostics: true
+          managed_disks: true
+        diagnostics:
+          cpu_utilization: 42.5
+          memory_utilization: 67.8
+          disk_iops: 1250
+          network_in_bytes: 15234567
+          network_out_bytes: 8765432
+        recommendations:
+          - severity: "low"
+            message: "Consider enabling Azure Backup for disaster recovery"
+          - severity: "info"
+            message: "VM has been running for 45 days without restart"

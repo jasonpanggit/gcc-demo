@@ -1,0 +1,48 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 24 items
+
+test_theme_visibility.py::TestThemeToggle::test_dark_mode_toggle_exists FAILED [  4%]
+test_theme_visibility.py::TestThemeToggle::test_dark_mode_toggle_works FAILED [  8%]
+test_theme_visibility.py::TestDashboardThemeVisibility::test_dashboard_light_mode_buttons_visible FAILED [ 12%]
+test_theme_visibility.py::TestDashboardThemeVisibility::test_dashboard_dark_mode_buttons_visible FAILED [ 16%]
+test_theme_visibility.py::TestDashboardThemeVisibility::test_dashboard_light_mode_text_readable FAILED [ 20%]
+test_theme_visibility.py::TestDashboardThemeVisibility::test_dashboard_dark_mode_text_readable FAILED [ 25%]
+test_theme_visibility.py::TestDashboardThemeVisibility::test_dashboard_table_visibility_both_modes FAILED [ 29%]
+test_theme_visibility.py::TestNavigationThemeVisibility::test_sidebar_light_mode_visible FAILED [ 33%]
+test_theme_visibility.py::TestNavigationThemeVisibility::test_sidebar_dark_mode_visible FAILED [ 37%]
+test_theme_visibility.py::TestFormElementsThemeVisibility::test_inventory_ai_form_light_mode FAILED [ 41%]
+test_theme_visibility.py::TestFormElementsThemeVisibility::test_inventory_ai_form_dark_mode FAILED [ 45%]
+test_theme_visibility.py::TestTableThemeVisibility::test_eol_inventory_table_light_mode FAILED [ 50%]
+test_theme_visibility.py::TestTableThemeVisibility::test_eol_inventory_table_dark_mode +++++++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of waitpid-0 (6129119232) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 930, in _bootstrap
+    self._bootstrap_inner()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 973, in _bootstrap_inner
+    self.run()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 910, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/unix_events.py", line 1396, in _do_waitpid
+    pid, status = os.waitpid(expected_pid, 0)
+~~~~~~~~~~~~~~~~~~~~~~~~ Stack of Thread-1 (6112292864) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 930, in _bootstrap
+    self._bootstrap_inner()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 973, in _bootstrap_inner
+    self.run()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/threading.py", line 910, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Volumes/Jason Mac Mini EX/jasonpangext/Library/Python/3.9/lib/python/site-packages/pytest_rerunfailures.py", line 438, in run_server
+    conn, _ = self.sock.accept()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/socket.py", line 293, in accept
+    fd, addr = self._accept()
++++++++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++++++
+FAILED                                                                   [ 54%]

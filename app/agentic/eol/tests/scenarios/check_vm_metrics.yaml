@@ -1,0 +1,134 @@
+# Golden Scenario: VM Performance Monitoring
+# Tests the sequencing: virtual_machine_list -> get_performance_metrics
+#
+# Critical because:
+# 1. Performance/metrics queries require discovery BEFORE metric retrieval
+# 2. get_performance_metrics (SRE) is the preferred tool for VM metrics
+# 3. Should NOT use monitor (Azure MCP) which is for configuring Azure Monitor
+# 4. Should NOT use detect_metric_anomalies (that's for anomaly detection, not viewing)
+# 5. This dependency chain has failed when metrics tool was selected without list
+
+scenario:
+  name: check_vm_metrics
+  description: >
+    User asks about performance metrics for their virtual machines.
+    The system should chain virtual_machine_list -> get_performance_metrics
+    to first discover VMs, then retrieve CPU/memory/disk metrics.
+  domain: sre_performance
+  priority: high
+
+queries:
+  - text: "show me CPU and memory metrics for my VMs"
+    canonical: true
+  - text: "check VM performance metrics"
+  - text: "what is the CPU utilization of my virtual machines"
+  - text: "show performance stats for my VMs"
+  - text: "VM resource utilization trends"
+
+expected_contract:
+  intent:
+    domain: sre_performance
+    action: metrics
+    resource_type: virtual_machine
+
+  tools_required:
+    - virtual_machine_list
+    - get_performance_metrics
+
+  tools_preferred:
+    - tool: get_performance_metrics
+      over: monitor
+      reason: "SRE get_performance_metrics retrieves actual metric data; monitor configures Azure Monitor"
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: virtual_machine_list
+        purpose: "Discover VMs to target for metric retrieval"
+      - tool: get_performance_metrics
+        purpose: "Retrieve CPU, memory, disk metrics for discovered VMs"
+        depends_on: virtual_machine_list
+
+  tools_excluded:
+    - speech
+    - monitor
+    - applicationinsights
+    - documentation
+
+  response_contract:
+    must_contain_concepts:
+      - "virtual machine"
+      - "cpu"
+    format: structured_report
+    min_length: 50
+
+fixture_responses:
+  virtual_machine_list:
+    input: {}
+    output:
+      success: true
+      data:
+        virtual_machines:
+          - name: "vm-prod-web-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_D4s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 22.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+          - name: "vm-prod-db-01"
+            resource_group: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            vm_size: "Standard_E8s_v3"
+            os_type: "Linux"
+            os_name: "Ubuntu 20.04"
+            power_state: "VM running"
+            provisioning_state: "Succeeded"
+        total_count: 2
+
+  get_performance_metrics:
+    input:
+      resource_type: "Microsoft.Compute/virtualMachines"
+      resource_name: "vm-prod-web-01"
+    output:
+      success: true
+      data:
+        resource_name: "vm-prod-web-01"
+        resource_type: "Microsoft.Compute/virtualMachines"
+        time_range: "last_1h"
+        metrics:
+          cpu_percentage:
+            avg: 42.5
+            max: 78.2
+            min: 12.1
+            p95: 65.3
+            unit: "percent"
+          memory_percentage:
+            avg: 67.8
+            max: 82.4
+            min: 55.2
+            p95: 79.1
+            unit: "percent"
+          disk_read_bytes:
+            avg: 1048576
+            max: 5242880
+            unit: "bytes/sec"
+          disk_write_bytes:
+            avg: 524288
+            max: 2097152
+            unit: "bytes/sec"
+          network_in_total:
+            avg: 15234567
+            unit: "bytes"
+          network_out_total:
+            avg: 8765432
+            unit: "bytes"
+        trends:
+          cpu_trend: "stable"
+          memory_trend: "increasing"
+          disk_trend: "stable"
+        alerts:
+          - severity: "warning"
+            metric: "memory_percentage"
+            message: "Memory utilization trending upward - 67.8% avg, approaching 80% threshold"

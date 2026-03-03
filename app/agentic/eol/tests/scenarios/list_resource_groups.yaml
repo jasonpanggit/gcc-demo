@@ -1,0 +1,95 @@
+# Golden Scenario: Resource Group Listing
+# Tests that resource group queries route to the correct Azure MCP tool
+#
+# Critical because:
+# 1. "groups" (Azure MCP) is the PRIMARY tool for listing resource groups
+# 2. Should NOT route to "subscriptions" (subscription-level, not RG-level)
+# 3. Should NOT route to "role" (RBAC, not resource management)
+# 4. Should NOT route to "azd" (developer CLI, not resource management)
+# 5. Simple single-tool scenario but a common misrouting target
+
+scenario:
+  name: list_resource_groups
+  description: >
+    User asks to list or show resource groups in their Azure subscription.
+    The system should use the "groups" tool (Azure MCP) which is the
+    primary tool for resource group enumeration.
+  domain: azure_management
+  priority: high
+
+queries:
+  - text: "list my resource groups"
+    canonical: true
+  - text: "show all resource groups in my subscription"
+  - text: "what resource groups do I have"
+  - text: "show me my Azure resource groups"
+
+expected_contract:
+  intent:
+    domain: azure_management
+    action: list
+    resource_type: resource_group
+
+  tools_required:
+    - groups
+
+  tools_preferred:
+    - tool: groups
+      over: subscriptions
+      reason: "groups lists resource groups; subscriptions lists subscriptions"
+
+  tool_sequence:
+    ordered: true
+    steps:
+      - tool: groups
+        purpose: "List all resource groups in the active subscription"
+
+  tools_excluded:
+    - speech
+    - role
+    - azd
+    - container_registries
+    - documentation
+
+  response_contract:
+    must_contain_concepts:
+      - "resource group"
+    format: list_or_table
+    min_length: 20
+
+fixture_responses:
+  groups:
+    input: {}
+    output:
+      success: true
+      data:
+        resource_groups:
+          - name: "rg-gcc-demo-prod"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "production"
+              project: "gcc-demo"
+              owner: "platform-team"
+          - name: "rg-gcc-demo-staging"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "staging"
+              project: "gcc-demo"
+              owner: "platform-team"
+          - name: "rg-gcc-demo-dev"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "development"
+              project: "gcc-demo"
+              owner: "dev-team"
+          - name: "rg-gcc-hub"
+            location: "southeastasia"
+            provisioning_state: "Succeeded"
+            tags:
+              environment: "hub"
+              project: "gcc-networking"
+              owner: "network-team"
+        total_count: 4

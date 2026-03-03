@@ -1,0 +1,16 @@
+# UI Testing Requirements
+# Install with: pip install -r ui-requirements.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-playwright>=0.4.3
+playwright>=1.40.0
+
+# Additional pytest plugins
+pytest-html>=4.1.0          # HTML test reports
+pytest-xdist>=3.5.0         # Parallel test execution
+pytest-timeout>=2.2.0       # Timeout control
+pytest-rerunfailures>=13.0  # Retry failed tests
+
+# Utilities
+python-dotenv>=1.0.0        # Environment variable management

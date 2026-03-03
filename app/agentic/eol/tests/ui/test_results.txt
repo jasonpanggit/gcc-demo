@@ -1,0 +1,57 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+metadata: {'Python': '3.9.6', 'Platform': 'macOS-26.3-arm64-arm-64bit', 'Packages': {'pytest': '8.4.2', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.2.0', 'xdist': '3.8.0', 'timeout': '2.4.0', 'metadata': '3.1.1', 'html': '4.2.0', 'anyio': '4.10.0', 'rerunfailures': '16.0.1', 'base-url': '2.1.0', 'playwright': '0.7.1', 'cov': '7.0.0'}, 'Base URL': ''}
+rootdir: /Volumes/Jason Mac Mini EX/jasonpangext/Library/CloudStorage/OneDrive-Microsoft/workspace/gcc-demo/app/agentic/eol/tests/ui
+configfile: pytest.ini
+plugins: asyncio-1.2.0, xdist-3.8.0, timeout-2.4.0, metadata-3.1.1, html-4.2.0, anyio-4.10.0, rerunfailures-16.0.1, base-url-2.1.0, playwright-0.7.1, cov-7.0.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 19 items
+
+test_dashboard.py::TestDashboard::test_dashboard_loads PASSED            [  5%]
+test_dashboard.py::TestDashboard::test_dashboard_sidebar_navigation PASSED [ 10%]
+test_dashboard.py::TestDashboard::test_dashboard_stats_cards PASSED      [ 15%]
+test_dashboard.py::TestDashboard::test_dashboard_quick_actions PASSED    [ 21%]
+test_dashboard.py::TestDashboard::test_dashboard_recent_activity_table PASSED [ 26%]
+test_dashboard.py::TestDashboard::test_dashboard_system_health PASSED    [ 31%]
+test_dashboard.py::TestDashboard::test_dashboard_refresh_button PASSED   [ 36%]
+test_dashboard.py::TestDashboard::test_dashboard_dark_mode_toggle PASSED [ 42%]
+test_dashboard.py::TestDashboard::test_dashboard_user_menu PASSED        [ 47%]
+test_dashboard.py::TestDashboard::test_dashboard_notifications PASSED    [ 52%]
+test_dashboard.py::TestDashboard::test_dashboard_sidebar_toggle PASSED   [ 57%]
+test_navigation.py::TestNavigation::test_navigation_to_dashboard FAILED  [ 63%]
+test_navigation.py::TestNavigation::test_navigation_to_analytics FAILED  [ 68%]
+test_navigation.py::TestNavigation::test_navigation_to_azure_mcp FAILED  [ 73%]
+test_navigation.py::TestNavigation::test_navigation_to_sre_assistant PASSED [ 78%]
+test_navigation.py::TestNavigation::test_navigation_to_eol_inventory PASSED [ 84%]
+test_navigation.py::TestNavigation::test_breadcrumb_navigation FAILED    [ 89%]
+test_navigation.py::TestNavigation::test_quick_action_navigation FAILED  [ 94%]
+test_navigation.py::TestNavigation::test_sidebar_remains_visible_after_navigation FAILED [100%]
+
+=========================== short test summary info ============================
+FAILED test_navigation.py::TestNavigation::test_navigation_to_dashboard - playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for get_by_role("link", name="Dashboard", exact=True)
+FAILED test_navigation.py::TestNavigation::test_navigation_to_analytics - playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for get_by_role("link", name="Analytics", exact=True)
+FAILED test_navigation.py::TestNavigation::test_navigation_to_azure_mcp - playwright._impl._errors.TimeoutError: Timeout 30000ms exceeded.
+=========================== logs ===========================
+"domcontentloaded" event fired
+"load" event fired
+============================================================
+FAILED test_navigation.py::TestNavigation::test_breadcrumb_navigation - playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for get_by_role("link", name="Dashboard", exact=True)
+FAILED test_navigation.py::TestNavigation::test_quick_action_navigation - playwright._impl._errors.TimeoutError: Timeout 30000ms exceeded.
+=========================== logs ===========================
+"domcontentloaded" event fired
+"load" event fired
+============================================================
+FAILED test_navigation.py::TestNavigation::test_sidebar_remains_visible_after_navigation - playwright._impl._errors.TimeoutError: Locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for get_by_role("link", name="Analytics", exact=True)
+=================== 6 failed, 13 passed in 209.23s (0:03:29) ===================
