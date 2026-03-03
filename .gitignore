@@ -66,8 +66,9 @@ backup/
 # docs
 docs/
 
-# tests
+# tests - ignore all tests directories and subdirectories
 tests/
+**/tests/
 
 # Zip files
 *.zip
@@ -81,8 +82,8 @@ tests/
 # test
 .pytest_cache/
 __pycache__/
-tests/
 .coverage
+htmlcov/
 
 # Project TODO file
 # Ignore TODO.md in any directory
@@ -97,13 +98,16 @@ appsettings*.json
 # litellm
 litellm/
 
-# claude code related files
+# claude code related files - ignore all .claude directories
 .claude/
+**/.claude/
 .planning/
+**/.planning/
 CLAUDE.md
 
-# github
+# github - ignore all .github directories
 .github/
+**/.github/
 
 # playwright
 .playwright-mcp/
