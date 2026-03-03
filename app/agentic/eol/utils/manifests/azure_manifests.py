@@ -72,9 +72,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"azd", "developer", "deploy"}),
         affordance=ToolAffordance.DEPLOY,
         example_queries=(
-            "deploy with Azure Developer CLI",
-            "azd provision my environment",
-            "manage azd pipelines",
+            "deploy my application with Azure Developer CLI",
+            "provision Azure resources using azd",
+            "manage my azd deployment pipelines",
         ),
         conflicts_with=frozenset({"subscriptions", "groups"}),
         conflict_note=(
@@ -82,6 +82,7 @@ MANIFESTS: list[ToolManifest] = [
             "NOT for listing subscriptions (use 'subscriptions') or resource groups (use 'groups')."
         ),
         preferred_over=frozenset(),
+        requires_confirmation=True,  # DEPLOY affordance requires explicit user confirmation
     ),
     # ---- Documentation ----
     ToolManifest(
@@ -110,8 +111,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"acr", "container", "registry"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list container registries",
-            "show ACR repositories",
+            "list all container registries in my subscription",
+            "show ACR repositories and container images",
+            "what container registries do I have in Azure",
         ),
         conflicts_with=frozenset(),
         conflict_note=(
@@ -127,8 +129,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"webapp", "appservice"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list app services",
-            "show web apps",
+            "list all app services in my subscription",
+            "show web apps running on app service plans",
+            "what Azure web apps do I have deployed",
         ),
         conflicts_with=frozenset({"container_app_list", "function_app"}),
         conflict_note=(
@@ -163,8 +166,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"functions", "serverless"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list function apps",
-            "show Azure Functions",
+            "list all function apps in my subscription",
+            "show Azure Functions serverless resources",
+            "what function apps do I have deployed currently",
         ),
         conflicts_with=frozenset({"container_app_list", "app_service"}),
         conflict_note=(
@@ -198,8 +202,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"configuration", "feature_flags"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list app configuration stores",
-            "show feature flags",
+            "list all app configuration stores in subscription",
+            "show feature flags and configuration settings",
+            "what Azure App Configuration stores do I have",
         ),
         conflicts_with=frozenset(),
         conflict_note=(
@@ -235,8 +240,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"monitor", "alerts", "diagnostics"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "configure Azure Monitor",
-            "set up diagnostic settings",
+            "configure Azure Monitor for my resources",
+            "set up diagnostic settings and alerts",
+            "manage Azure Monitor configuration settings",
         ),
         conflicts_with=frozenset({"get_service_monitor_resources", "get_performance_metrics"}),
         conflict_note=(
@@ -271,8 +277,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"vm", "compute", "iaas"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list virtual machines",
-            "show VMs in resource group",
+            "list all virtual machines in subscription",
+            "show VMs running in my resource groups",
+            "what virtual machines do I have deployed",
         ),
         conflicts_with=frozenset(),
         conflict_note="",
@@ -286,8 +293,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"storage", "blobs", "accounts"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list storage accounts",
-            "show Azure Storage resources",
+            "list all storage accounts in my subscription",
+            "show Azure Storage resources and blob containers",
+            "what storage accounts do I have deployed",
         ),
         conflicts_with=frozenset({"fileshares", "storagesync"}),
         conflict_note=(
@@ -304,8 +312,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"storage", "fileshare", "smb", "nfs"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "list Azure File Shares",
-            "show SMB file shares",
+            "list all Azure File Shares in subscription",
+            "show SMB and NFS file shares available",
+            "what Azure Files resources do I have",
         ),
         conflicts_with=frozenset({"storage"}),
         conflict_note=(
@@ -322,8 +331,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"cognitive_search", "search_service"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "manage Azure Cognitive Search",
-            "list search services",
+            "manage my Azure Cognitive Search services",
+            "list all search services in subscription",
+            "show Azure AI Search resources available",
         ),
         conflicts_with=frozenset({"search_logs_by_error", "search_categories"}),
         conflict_note=(
@@ -358,8 +368,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"ai_foundry", "ai_services"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "manage Azure AI Foundry",
-            "list AI Foundry projects",
+            "manage my Azure AI Foundry projects",
+            "list all AI Foundry projects in subscription",
+            "show Azure AI Foundry resources available",
         ),
         conflicts_with=frozenset({"speech"}),
         conflict_note=(
@@ -407,8 +418,9 @@ MANIFESTS: list[ToolManifest] = [
         tags=frozenset({"bicep", "schema", "validation"}),
         affordance=ToolAffordance.READ,
         example_queries=(
-            "validate Bicep template",
-            "get Bicep schema",
+            "validate my Bicep template syntax",
+            "get the Bicep schema definition",
+            "check Bicep template for errors",
         ),
         conflicts_with=frozenset(),
         conflict_note="",
