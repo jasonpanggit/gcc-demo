@@ -158,12 +158,14 @@ class TestRouterVmHealthRouting:
         assert sre_match is not None, f"Expected SRE_HEALTH; got {_domains(matches)}"
 
     @pytest.mark.asyncio
-    async def test_vm_health_query_has_intent_boost_signal(self):
+    async def test_vm_health_query_has_sre_domain(self):
+        """VM health queries must route to SRE_HEALTH (via QueryPatterns, not hard-coded guardrail)."""
         router = _make_router()
         matches = await router.route("show vm status and health in my subscription")
         sre_match = _get_match(matches, UnifiedDomain.SRE_HEALTH)
         assert sre_match is not None, f"Expected SRE_HEALTH; got {_domains(matches)}"
-        assert "intent:vm_health" in sre_match.matched_signals
+        # SRE_HEALTH is now driven by QueryPatterns vm_health_intent classification
+        assert "sre" in sre_match.matched_signals
 
 
 class TestQueryPatternsVmHealth:
