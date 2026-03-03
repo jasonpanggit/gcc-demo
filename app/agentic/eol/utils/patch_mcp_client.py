@@ -141,13 +141,20 @@ class PatchMCPClient:
             if "already registered" in str(exc):
                 logger.debug("Patch MCP client already registered with tool registry")
             else:
-                raise
+                logger.warning(
+                    "Patch MCP client registry registration skipped: %s",
+                    exc,
+                )
         except Exception as exc:
             logger.warning(
                 "Failed to register Patch MCP client with tool registry: %s",
                 exc,
                 exc_info=True
             )
+
+    def get_available_tools(self) -> List[Dict[str, Any]]:
+        """Return available Patch MCP tools in OpenAI function-calling format."""
+        return list(self.available_tools)
 
     async def cleanup(self) -> None:
         """Shut down the Patch MCP server."""

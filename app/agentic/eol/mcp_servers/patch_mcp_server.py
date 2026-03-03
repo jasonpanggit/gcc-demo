@@ -20,12 +20,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 try:
-    from azure.identity import DefaultAzureCredential, ClientSecretCredential
+    from azure.identity import ClientSecretCredential
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
     import aiohttp
 except ImportError:
-    DefaultAzureCredential = None
     ClientSecretCredential = None
     ResourceGraphClient = None
     QueryRequest = None
@@ -56,7 +55,7 @@ _AVM_ASSESS_API_VERSION = "2023-03-01"  # Compute (Azure VM)
 _POLL_INTERVAL_SECONDS = 4
 _POLL_MAX_SECONDS = 180  # 3 minutes max wait
 
-_credential: Optional[DefaultAzureCredential] = None
+_credential: Optional[Any] = None
 _subscription_id: Optional[str] = None
 
 
@@ -65,7 +64,7 @@ _subscription_id: Optional[str] = None
 # ---------------------------------------------------------------------------
 
 async def _get_arm_token() -> str:
-    """Get an access token for management.azure.com using SP env vars or DefaultAzureCredential."""
+    """Get an access token for management.azure.com using injected SPN credentials."""
     global _credential
 
     try:
@@ -73,18 +72,19 @@ async def _get_arm_token() -> str:
         sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
         tenant_id = os.getenv("AZURE_TENANT_ID")
 
-        if sp_client_id and sp_client_secret and tenant_id:
-            if not isinstance(_credential, ClientSecretCredential):
-                _credential = ClientSecretCredential(
-                    tenant_id=tenant_id,
-                    client_id=sp_client_id,
-                    client_secret=sp_client_secret
-                )
-            logger.debug("ARM token: using SP %s", sp_client_id)
-        else:
-            if not isinstance(_credential, DefaultAzureCredential):
-                _credential = DefaultAzureCredential()
-            logger.debug("ARM token: using DefaultAzureCredential")
+        if not (sp_client_id and sp_client_secret and tenant_id):
+            raise RuntimeError(
+                "Injected SPN credentials are required. "
+                "Set AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID."
+            )
+
+        if not isinstance(_credential, ClientSecretCredential):
+            _credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=sp_client_id,
+                client_secret=sp_client_secret
+            )
+        logger.info("Patch MCP auth: using injected SPN credential (%s...)", sp_client_id[:8])
 
         token = await _credential.get_token("https://management.azure.com/.default")
         return token.token
@@ -124,12 +124,14 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
     sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
     tenant_id = os.getenv("AZURE_TENANT_ID")
 
-    if sp_client_id and sp_client_secret and tenant_id:
-        from azure.identity import ClientSecretCredential as SyncSPCred
-        cred = SyncSPCred(tenant_id=tenant_id, client_id=sp_client_id, client_secret=sp_client_secret)
-    else:
-        from azure.identity import DefaultAzureCredential as SyncDefaultCred
-        cred = SyncDefaultCred()
+    if not (sp_client_id and sp_client_secret and tenant_id):
+        raise RuntimeError(
+            "Injected SPN credentials are required for ARG queries. "
+            "Set AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID."
+        )
+
+    from azure.identity import ClientSecretCredential as SyncSPCred
+    cred = SyncSPCred(tenant_id=tenant_id, client_id=sp_client_id, client_secret=sp_client_secret)
 
     graph_client = ResourceGraphClient(cred)
     all_rows: List[Dict[str, Any]] = []

@@ -259,6 +259,14 @@ class MCPHost:
         client with the global tool registry for centralized tool management.
         """
         for label, client in self._clients:
+            get_tools = getattr(client, "get_available_tools", None)
+            if not callable(get_tools):
+                logger.debug(
+                    "Skipping registry registration for client '%s': get_available_tools() not implemented",
+                    label,
+                )
+                continue
+
             try:
                 await self._registry.register_server(
                     label=label,

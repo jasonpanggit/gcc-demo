@@ -37,11 +37,13 @@ try:
     from azure.identity import DefaultAzureCredential, ClientSecretCredential
     from azure.mgmt.network import NetworkManagementClient
     from azure.mgmt.resource import ResourceManagementClient
+    from azure.core.exceptions import HttpResponseError
 except ImportError:
     DefaultAzureCredential = None
     ClientSecretCredential = None
     NetworkManagementClient = None
     ResourceManagementClient = None
+    HttpResponseError = None
 
 try:
     from app.agentic.eol.utils.azure_cli_executor import get_azure_cli_executor
@@ -122,17 +124,31 @@ def _get_credential() -> Any:
         raise RuntimeError("azure-identity package not installed")
 
     tenant_id = os.getenv("AZURE_TENANT_ID")
+    sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
+    sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
     client_id = os.getenv("AZURE_CLIENT_ID")
     client_secret = os.getenv("AZURE_CLIENT_SECRET")
 
-    if tenant_id and client_id and client_secret and ClientSecretCredential:
+    # 1) Prefer injected SPN credentials used by container/runtime deployments.
+    if tenant_id and sp_client_id and sp_client_secret and ClientSecretCredential:
+        _credential = ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=sp_client_id,
+            client_secret=sp_client_secret,
+        )
+        logger.info("Network MCP auth: using injected SPN credential (%s...)", sp_client_id[:8])
+    # 2) Back-compat fallback to AZURE_CLIENT_* if explicitly provided.
+    elif tenant_id and client_id and client_secret and ClientSecretCredential:
         _credential = ClientSecretCredential(
             tenant_id=tenant_id,
             client_id=client_id,
             client_secret=client_secret,
         )
+        logger.info("Network MCP auth: using AZURE_CLIENT_* credential (%s...)", client_id[:8])
+    # 3) Last resort: DefaultAzureCredential chain.
     else:
         _credential = DefaultAzureCredential()
+        logger.warning("Network MCP auth: falling back to DefaultAzureCredential")
     return _credential
 
 
@@ -375,10 +391,22 @@ async def private_endpoint_list(
 async def inspect_vnet(
     context: Context,
     resource_id: Annotated[
-        str,
+        Optional[str],
         "ARM resource ID of the VNet (e.g. /subscriptions/.../virtualNetworks/my-vnet) "
         "or short form 'resource_group/vnet_name'.",
-    ],
+    ] = None,
+    name: Annotated[
+        Optional[str],
+        "Optional VNet name. Use with resource_group when resource_id is not provided.",
+    ] = None,
+    resource_group: Annotated[
+        Optional[str],
+        "Optional resource group name. Use with name when resource_id is not provided.",
+    ] = None,
+    subscription_id: Annotated[
+        Optional[str],
+        "Optional subscription override. Defaults to SUBSCRIPTION_ID env var.",
+    ] = None,
 ) -> List[TextContent]:
     """Inspect a VNet: address space, subnets, peerings, DNS servers, DDoS status.
 
@@ -389,14 +417,83 @@ async def inspect_vnet(
         return _text_result({"error": "azure-mgmt-network not installed", "success": False})
 
     try:
-        # Support short form 'rg/vnet_name'
-        if not resource_id.startswith("/"):
-            parts = resource_id.split("/", 1)
-            rg = parts[0]
-            vnet_name = parts[1] if len(parts) > 1 else parts[0]
-            sub_id = _get_subscription_id()
+        # Support multiple input forms:
+        # 1) resource_id ARM ID
+        # 2) resource_id short-form 'rg/vnet_name'
+        # 3) name + resource_group
+        resolved_resource_id = (resource_id or "").strip()
+
+        if resolved_resource_id:
+            if not resolved_resource_id.startswith("/"):
+                parts = resolved_resource_id.split("/", 1)
+                rg = parts[0]
+                vnet_name = parts[1] if len(parts) > 1 else parts[0]
+                sub_id = subscription_id or _get_subscription_id()
+            else:
+                parsed_sub_id, rg, vnet_name = _parse_resource_id(resolved_resource_id)
+                sub_id = subscription_id or parsed_sub_id or _get_subscription_id()
         else:
-            sub_id, rg, vnet_name = _parse_resource_id(resource_id)
+            rg = (resource_group or "").strip()
+            vnet_name = (name or "").strip()
+            sub_id = subscription_id or _get_subscription_id()
+
+        if not rg or not vnet_name:
+            return _text_result(
+                {
+                    "success": False,
+                    "error": (
+                        "inspect_vnet requires either resource_id, or both name and resource_group."
+                    ),
+                }
+            )
+
+        def _serialize_vnet(vnet_obj: Any) -> Dict[str, Any]:
+            address_prefixes: List[str] = []
+            if vnet_obj.address_space and vnet_obj.address_space.address_prefixes:
+                address_prefixes = list(vnet_obj.address_space.address_prefixes)
+
+            subnets: List[Dict[str, Any]] = []
+            if vnet_obj.subnets:
+                for sn in vnet_obj.subnets:
+                    subnets.append({
+                        "name": sn.name,
+                        "address_prefix": sn.address_prefix,
+                        "nsg_id": sn.network_security_group.id if sn.network_security_group else None,
+                        "route_table_id": sn.route_table.id if sn.route_table else None,
+                        "delegations": [d.service_name for d in (sn.delegations or [])],
+                        "private_endpoint_count": len(sn.private_endpoints) if sn.private_endpoints else 0,
+                    })
+
+            peerings: List[Dict[str, Any]] = []
+            if vnet_obj.virtual_network_peerings:
+                for p in vnet_obj.virtual_network_peerings:
+                    peerings.append({
+                        "name": p.name,
+                        "peering_state": str(p.peering_state) if p.peering_state else None,
+                        "remote_vnet_id": p.remote_virtual_network.id if p.remote_virtual_network else None,
+                        "allow_forwarded_traffic": p.allow_forwarded_traffic,
+                        "allow_gateway_transit": p.allow_gateway_transit,
+                        "use_remote_gateways": p.use_remote_gateways,
+                    })
+
+            dns_servers: List[str] = []
+            if vnet_obj.dhcp_options and vnet_obj.dhcp_options.dns_servers:
+                dns_servers = list(vnet_obj.dhcp_options.dns_servers)
+
+            return {
+                "success": True,
+                "vnet_name": vnet_name,
+                "resource_group": rg,
+                "location": vnet_obj.location,
+                "address_prefixes": address_prefixes,
+                "subnet_count": len(subnets),
+                "subnets": subnets,
+                "peering_count": len(peerings),
+                "peerings": peerings,
+                "dns_servers": dns_servers,
+                "enable_ddos_protection": vnet_obj.enable_ddos_protection,
+                "provisioning_state": vnet_obj.provisioning_state,
+            }
 
         credential = _get_credential()
         loop = asyncio.get_event_loop()
@@ -405,54 +502,96 @@ async def inspect_vnet(
             client = NetworkManagementClient(credential, sub_id)
             return client.virtual_networks.get(rg, vnet_name)
 
-        vnet = await loop.run_in_executor(None, _get)
+        try:
+            vnet = await loop.run_in_executor(None, _get)
+            return _text_result(_serialize_vnet(vnet))
+        except Exception as sdk_exc:
+            # Auth-aware fallback to CLI/SPN path
+            text = str(sdk_exc).lower()
+            is_auth_error = "authorizationfailed" in text or "does not have authorization" in text
+            if not is_auth_error:
+                raise
 
-        address_prefixes: List[str] = []
-        if vnet.address_space and vnet.address_space.address_prefixes:
-            address_prefixes = list(vnet.address_space.address_prefixes)
+            logger.warning(
+                "inspect_vnet: SDK auth failed for %s/%s; falling back to Azure CLI executor: %s",
+                rg,
+                vnet_name,
+                sdk_exc,
+            )
 
-        subnets: List[Dict[str, Any]] = []
-        if vnet.subnets:
-            for sn in vnet.subnets:
-                subnets.append({
-                    "name": sn.name,
-                    "address_prefix": sn.address_prefix,
-                    "nsg_id": sn.network_security_group.id if sn.network_security_group else None,
-                    "route_table_id": sn.route_table.id if sn.route_table else None,
-                    "delegations": [d.service_name for d in (sn.delegations or [])],
-                    "private_endpoint_count": len(sn.private_endpoints) if sn.private_endpoints else 0,
-                })
+            executor = await get_azure_cli_executor()
+            cli_result = await executor.execute(
+                (
+                    f"az network vnet show --subscription {sub_id} "
+                    f"--resource-group {rg} --name {vnet_name} --output json"
+                ),
+                timeout=60,
+                add_subscription=False,
+            )
+            if cli_result.get("status") != "success":
+                cli_error = cli_result.get("error", "CLI call failed")
+                return _text_result(
+                    {
+                        "success": False,
+                        "error": (
+                            "inspect_vnet failed via SDK (AuthorizationFailed) and CLI fallback: "
+                            f"{cli_error}"
+                        ),
+                    }
+                )
 
-        peerings: List[Dict[str, Any]] = []
-        if vnet.virtual_network_peerings:
-            for p in vnet.virtual_network_peerings:
-                peerings.append({
-                    "name": p.name,
-                    "peering_state": str(p.peering_state) if p.peering_state else None,
-                    "remote_vnet_id": p.remote_virtual_network.id if p.remote_virtual_network else None,
-                    "allow_forwarded_traffic": p.allow_forwarded_traffic,
-                    "allow_gateway_transit": p.allow_gateway_transit,
-                    "use_remote_gateways": p.use_remote_gateways,
-                })
+            vnet_raw = cli_result.get("output") or {}
+            address_space = vnet_raw.get("addressSpace") or {}
+            subnets_raw = vnet_raw.get("subnets") or []
+            peerings_raw = vnet_raw.get("virtualNetworkPeerings") or []
+            dhcp_opts = vnet_raw.get("dhcpOptions") or {}
 
-        dns_servers: List[str] = []
-        if vnet.dhcp_options and vnet.dhcp_options.dns_servers:
-            dns_servers = list(vnet.dhcp_options.dns_servers)
+            subnets = []
+            for sn in subnets_raw:
+                subnets.append(
+                    {
+                        "name": sn.get("name"),
+                        "address_prefix": sn.get("addressPrefix"),
+                        "nsg_id": (sn.get("networkSecurityGroup") or {}).get("id"),
+                        "route_table_id": (sn.get("routeTable") or {}).get("id"),
+                        "delegations": [
+                            (d.get("serviceName") or "")
+                            for d in (sn.get("delegations") or [])
+                            if isinstance(d, dict)
+                        ],
+                        "private_endpoint_count": len(sn.get("privateEndpoints") or []),
+                    }
+                )
 
-        return _text_result({
-            "success": True,
-            "vnet_name": vnet_name,
-            "resource_group": rg,
-            "location": vnet.location,
-            "address_prefixes": address_prefixes,
-            "subnet_count": len(subnets),
-            "subnets": subnets,
-            "peering_count": len(peerings),
-            "peerings": peerings,
-            "dns_servers": dns_servers,
-            "enable_ddos_protection": vnet.enable_ddos_protection,
-            "provisioning_state": vnet.provisioning_state,
-        })
+            peerings = []
+            for p in peerings_raw:
+                peerings.append(
+                    {
+                        "name": p.get("name"),
+                        "peering_state": p.get("peeringState"),
+                        "remote_vnet_id": (p.get("remoteVirtualNetwork") or {}).get("id"),
+                        "allow_forwarded_traffic": p.get("allowForwardedTraffic"),
+                        "allow_gateway_transit": p.get("allowGatewayTransit"),
+                        "use_remote_gateways": p.get("useRemoteGateways"),
+                    }
+                )
+
+            return _text_result(
+                {
+                    "success": True,
+                    "vnet_name": vnet_name,
+                    "resource_group": rg,
+                    "location": vnet_raw.get("location"),
+                    "address_prefixes": address_space.get("addressPrefixes") or [],
+                    "subnet_count": len(subnets),
+                    "subnets": subnets,
+                    "peering_count": len(peerings),
+                    "peerings": peerings,
+                    "dns_servers": dhcp_opts.get("dnsServers") or [],
+                    "enable_ddos_protection": vnet_raw.get("enableDdosProtection"),
+                    "provisioning_state": vnet_raw.get("provisioningState"),
+                }
+            )
 
     except Exception as exc:
         logger.exception("inspect_vnet failed: %s", exc)
@@ -554,15 +693,6 @@ async def inspect_nsg_rules(
         else:
             sub_id, rg, nsg_name = _parse_resource_id(resource_id)
 
-        credential = _get_credential()
-        loop = asyncio.get_event_loop()
-
-        def _get():
-            client = NetworkManagementClient(credential, sub_id)
-            return client.network_security_groups.get(rg, nsg_name)
-
-        nsg = await loop.run_in_executor(None, _get)
-
         def _serialize_rule(r: Any) -> Dict[str, Any]:
             return {
                 "name": r.name,
@@ -577,6 +707,99 @@ async def inspect_nsg_rules(
                 "description": r.description,
                 "provisioning_state": r.provisioning_state,
             }
+
+        def _serialize_rule_dict(rule: Dict[str, Any]) -> Dict[str, Any]:
+            return {
+                "name": rule.get("name"),
+                "priority": rule.get("priority"),
+                "direction": rule.get("direction"),
+                "access": rule.get("access"),
+                "protocol": rule.get("protocol"),
+                "source_address_prefix": rule.get("sourceAddressPrefix") or rule.get("sourceAddressPrefixes"),
+                "source_port_range": rule.get("sourcePortRange") or rule.get("sourcePortRanges"),
+                "destination_address_prefix": rule.get("destinationAddressPrefix") or rule.get("destinationAddressPrefixes"),
+                "destination_port_range": rule.get("destinationPortRange") or rule.get("destinationPortRanges"),
+                "description": rule.get("description"),
+                "provisioning_state": rule.get("provisioningState"),
+            }
+
+        def _is_authorization_failed(exc: Exception) -> bool:
+            text = str(exc).lower()
+            if "authorizationfailed" in text or "does not have authorization" in text:
+                return True
+            if HttpResponseError is not None and isinstance(exc, HttpResponseError):
+                code = str(getattr(exc, "error", None) and getattr(exc.error, "code", "") or "").lower()
+                return code == "authorizationfailed"
+            return False
+
+        credential = _get_credential()
+        loop = asyncio.get_event_loop()
+
+        def _get():
+            client = NetworkManagementClient(credential, sub_id)
+            return client.network_security_groups.get(rg, nsg_name)
+
+        try:
+            nsg = await loop.run_in_executor(None, _get)
+        except Exception as sdk_exc:
+            if not _is_authorization_failed(sdk_exc):
+                raise
+
+            logger.warning(
+                "inspect_nsg_rules: SDK auth failed for %s/%s; falling back to Azure CLI executor: %s",
+                rg,
+                nsg_name,
+                sdk_exc,
+            )
+
+            executor = await get_azure_cli_executor()
+            cli_result = await executor.execute(
+                (
+                    f"az network nsg show --subscription {sub_id} "
+                    f"--resource-group {rg} --name {nsg_name} --output json"
+                ),
+                timeout=60,
+                add_subscription=False,
+            )
+
+            if cli_result.get("status") != "success":
+                cli_error = cli_result.get("error", "CLI call failed")
+                return _text_result(
+                    {
+                        "success": False,
+                        "error": (
+                            "inspect_nsg_rules failed via SDK (AuthorizationFailed) and CLI fallback: "
+                            f"{cli_error}"
+                        ),
+                    }
+                )
+
+            nsg_payload = cli_result.get("output") or {}
+            all_rules: List[Dict[str, Any]] = []
+            for rule in (nsg_payload.get("securityRules") or []):
+                all_rules.append(_serialize_rule_dict(rule))
+            for rule in (nsg_payload.get("defaultSecurityRules") or []):
+                d = _serialize_rule_dict(rule)
+                d["is_default"] = True
+                all_rules.append(d)
+
+            if direction.lower() != "both":
+                all_rules = [r for r in all_rules if (r.get("direction") or "").lower() == direction.lower()]
+
+            all_rules.sort(key=lambda r: (r.get("direction") or "", r.get("priority") or 9999))
+
+            return _text_result(
+                {
+                    "success": True,
+                    "nsg_name": nsg_name,
+                    "resource_group": rg,
+                    "location": nsg_payload.get("location"),
+                    "rule_count": len(all_rules),
+                    "rules": all_rules,
+                    "subnet_associations": [sn.get("id") for sn in (nsg_payload.get("subnets") or []) if isinstance(sn, dict) and sn.get("id")],
+                    "nic_associations": [nic.get("id") for nic in (nsg_payload.get("networkInterfaces") or []) if isinstance(nic, dict) and nic.get("id")],
+                }
+            )
 
         all_rules: List[Dict[str, Any]] = []
         for rule in (nsg.security_rules or []):
@@ -618,10 +841,30 @@ async def inspect_nsg_rules(
 @_server.tool()
 async def get_effective_routes(
     context: Context,
+    vm_name: Annotated[
+        Optional[str],
+        "Optional VM name. If provided, effective routes are collected from NICs attached to this VM.",
+    ] = None,
+    vm_resource_id: Annotated[
+        Optional[str],
+        "Optional VM ARM resource ID. If provided, effective routes are collected from NICs attached to this VM.",
+    ] = None,
     nic_resource_id: Annotated[
-        str,
-        "ARM resource ID of the network interface card (NIC) to inspect effective routes for.",
-    ],
+        Optional[str],
+        "Optional ARM resource ID of the network interface card (NIC) to inspect effective routes for.",
+    ] = None,
+    subscription_id: Annotated[
+        Optional[str],
+        "Optional Azure subscription ID. Used when nic_resource_id is not supplied.",
+    ] = None,
+    resource_group: Annotated[
+        Optional[str],
+        "Optional resource group filter when nic_resource_id is not supplied.",
+    ] = None,
+    nic_name: Annotated[
+        Optional[str],
+        "Optional NIC name filter when nic_resource_id is not supplied.",
+    ] = None,
 ) -> List[TextContent]:
     """Get effective routes for a network interface card (NIC).
 
@@ -632,35 +875,265 @@ async def get_effective_routes(
         return _text_result({"error": "azure-mgmt-network not installed", "success": False})
 
     try:
-        sub_id, rg, nic_name = _parse_resource_id(nic_resource_id)
-        credential = _get_credential()
-        loop = asyncio.get_event_loop()
+        def _to_list(value: Any) -> List[Any]:
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return value
+            return [value]
 
-        def _get():
-            client = NetworkManagementClient(credential, sub_id)
-            poller = client.network_interfaces.begin_get_effective_route_table(rg, nic_name)
-            return poller.result()
+        def _serialize_routes(route_table: Any) -> List[Dict[str, Any]]:
+            serialized: List[Dict[str, Any]] = []
+            for route in (getattr(route_table, "value", None) or []):
+                serialized.append({
+                    "name": route.name,
+                    "source": str(route.source) if route.source else None,
+                    "state": str(route.state) if route.state else None,
+                    "address_prefix": _to_list(route.address_prefix),
+                    "next_hop_type": str(route.next_hop_type) if route.next_hop_type else None,
+                    "next_hop_ip_address": _to_list(route.next_hop_ip_address),
+                    "disabled_bgp_route_propagation": getattr(route, "disabled_bgp_route_propagation", None),
+                })
+            return serialized
 
-        result = await loop.run_in_executor(None, _get)
+        if nic_resource_id:
+            sub_id, rg, parsed_nic_name = _parse_resource_id(nic_resource_id)
+            nic_name = nic_name or parsed_nic_name
+        else:
+            sub_id = subscription_id or _get_subscription_id()
+            rg = resource_group or ""
 
-        routes: List[Dict[str, Any]] = []
-        for route in (result.value or []):
-            routes.append({
-                "name": route.name,
-                "source": str(route.source) if route.source else None,
-                "state": str(route.state) if route.state else None,
-                "address_prefix": list(route.address_prefix or []),
-                "next_hop_type": str(route.next_hop_type) if route.next_hop_type else None,
-                "next_hop_ip_address": list(route.next_hop_ip_address or []),
-                "disabled_bgp_route_propagation": route.disabled_bgp_route_propagation,
+        if not sub_id:
+            return _text_result({
+                "success": False,
+                "error": "Missing subscription ID. Provide subscription_id or set SUBSCRIPTION_ID/AZURE_SUBSCRIPTION_ID.",
             })
 
+        credential = _get_credential()
+        loop = asyncio.get_event_loop()
+        executor = await get_azure_cli_executor()
+
+        def _get_single(nic_rg: str, nic_nm: str):
+            client = NetworkManagementClient(credential, sub_id)
+            poller = client.network_interfaces.begin_get_effective_route_table(nic_rg, nic_nm)
+            return poller.result()
+
+        # Single-NIC mode (original behavior)
+        if nic_resource_id:
+            if not rg or not nic_name:
+                return _text_result({
+                    "success": False,
+                    "error": "Unable to resolve NIC resource group/name from nic_resource_id.",
+                    "nic_resource_id": nic_resource_id,
+                })
+
+            result = await loop.run_in_executor(None, _get_single, rg, nic_name)
+            routes = _serialize_routes(result)
+
+            return _text_result({
+                "success": True,
+                "nic_name": nic_name,
+                "resource_group": rg,
+                "nic_resource_id": nic_resource_id,
+                "route_count": len(routes),
+                "routes": routes,
+            })
+
+        # VM-targeted mode: resolve VM then inspect attached NICs
+        vm_nic_ids: List[str] = []
+        vm_match_name = ""
+        vm_match_rg = resource_group or ""
+
+        if vm_resource_id:
+            vm_sub, vm_rg, vm_nm = _parse_resource_id(vm_resource_id)
+            sub_id = vm_sub or sub_id
+            vm_match_rg = vm_rg or vm_match_rg
+            vm_match_name = vm_nm
+        elif vm_name:
+            vm_match_name = vm_name.strip()
+
+        if vm_match_name:
+            vm_list_cmd = f"az vm list --subscription {sub_id} --output json"
+            if vm_match_rg:
+                vm_list_cmd += f" --resource-group {vm_match_rg}"
+
+            vm_list_result = await executor.execute(vm_list_cmd, timeout=90, add_subscription=False)
+            if vm_list_result.get("status") != "success":
+                return _text_result({
+                    "success": False,
+                    "error": vm_list_result.get("error", "Failed to list VMs for effective route lookup"),
+                    "subscription_id": sub_id,
+                    "vm_name": vm_match_name,
+                    "resource_group_filter": vm_match_rg,
+                })
+
+            vm_candidates = vm_list_result.get("output") or []
+            if not isinstance(vm_candidates, list):
+                vm_candidates = []
+
+            vm_exact = [
+                vm for vm in vm_candidates
+                if str(vm.get("name") or "").strip().lower() == vm_match_name.lower()
+            ]
+            vm_matches = vm_exact if vm_exact else [
+                vm for vm in vm_candidates
+                if vm_match_name.lower() in str(vm.get("name") or "").lower()
+            ]
+
+            if not vm_matches:
+                return _text_result({
+                    "success": False,
+                    "error": f"No VM found matching '{vm_match_name}' in scope.",
+                    "subscription_id": sub_id,
+                    "resource_group_filter": vm_match_rg,
+                })
+
+            if len(vm_matches) > 1 and not vm_exact:
+                return _text_result({
+                    "success": False,
+                    "error": (
+                        f"Multiple VMs matched '{vm_match_name}'. Please provide exact vm_name or vm_resource_id."
+                    ),
+                    "subscription_id": sub_id,
+                    "resource_group_filter": vm_match_rg,
+                    "matches": [
+                        {
+                            "name": vm.get("name"),
+                            "resource_group": vm.get("resourceGroup"),
+                            "resource_id": vm.get("id"),
+                        }
+                        for vm in vm_matches[:10]
+                    ],
+                })
+
+            chosen_vm = vm_matches[0]
+            vm_match_name = str(chosen_vm.get("name") or vm_match_name)
+            vm_match_rg = str(chosen_vm.get("resourceGroup") or vm_match_rg)
+            vm_nic_ids = [
+                str(n.get("id") or "").strip()
+                for n in (chosen_vm.get("networkProfile", {}).get("networkInterfaces") or [])
+                if isinstance(n, dict) and n.get("id")
+            ]
+
+            if not vm_nic_ids:
+                return _text_result({
+                    "success": False,
+                    "error": f"VM '{vm_match_name}' has no attached NICs to inspect.",
+                    "subscription_id": sub_id,
+                    "resource_group": vm_match_rg,
+                    "vm_name": vm_match_name,
+                })
+
+        # Subscription-scope mode (auto-discover NICs)
+        cmd = f"az network nic list --subscription {sub_id}"
+        if resource_group:
+            cmd += f" --resource-group {resource_group}"
+        cmd += " --output json"
+
+        cli_result = await executor.execute(cmd, timeout=90, add_subscription=False)
+        if cli_result.get("status") != "success":
+            return _text_result({
+                "success": False,
+                "error": cli_result.get("error", "Failed to list NICs for effective route analysis"),
+                "subscription_id": sub_id,
+                "resource_group_filter": resource_group,
+            })
+
+        nics = cli_result.get("output") or []
+        if not isinstance(nics, list):
+            nics = []
+
+        # Keep only NICs attached to VMs to avoid NicMustBeAttachedToRunningVm failures.
+        nics = [
+            nic for nic in nics
+            if isinstance(nic, dict)
+            and isinstance(nic.get("virtualMachine"), dict)
+            and nic.get("virtualMachine", {}).get("id")
+        ]
+
+        if vm_nic_ids:
+            vm_nic_id_set = set(vm_nic_ids)
+            nics = [
+                nic for nic in nics
+                if str(nic.get("id") or "").strip() in vm_nic_id_set
+            ]
+
+        if nic_name:
+            nic_name_lower = nic_name.lower()
+            nics = [
+                nic for nic in nics
+                if nic_name_lower in str(nic.get("name") or "").lower()
+            ]
+
+        if not nics:
+            return _text_result({
+                "success": False,
+                "subscription_id": sub_id,
+                "resource_group_filter": resource_group,
+                "vm_name": vm_match_name or None,
+                "vm_resource_id": vm_resource_id,
+                "nic_name_filter": nic_name,
+                "nic_count": 0,
+                "message": "No VM-attached NICs found for effective route analysis in the selected scope.",
+                "nic_routes": [],
+            })
+
+        nic_results: List[Dict[str, Any]] = []
+        max_nics = 20
+        for nic in nics[:max_nics]:
+            nic_nm = str(nic.get("name") or "").strip()
+            nic_rg = str(nic.get("resourceGroup") or nic.get("resource_group") or "").strip()
+            nic_id = str(nic.get("id") or "").strip()
+            if not nic_nm or not nic_rg:
+                continue
+
+            try:
+                effective = await loop.run_in_executor(None, _get_single, nic_rg, nic_nm)
+                routes = _serialize_routes(effective)
+                nic_results.append({
+                    "nic_name": nic_nm,
+                    "resource_group": nic_rg,
+                    "nic_resource_id": nic_id,
+                    "success": True,
+                    "route_count": len(routes),
+                    "routes": routes,
+                })
+            except Exception as nic_exc:
+                nic_results.append({
+                    "nic_name": nic_nm,
+                    "resource_group": nic_rg,
+                    "nic_resource_id": nic_id,
+                    "success": False,
+                    "error": str(nic_exc),
+                    "route_count": 0,
+                    "routes": [],
+                })
+
+        successful = [item for item in nic_results if item.get("success")]
+        failed = [item for item in nic_results if not item.get("success")]
+        total_routes = sum(int(item.get("route_count", 0) or 0) for item in successful)
+
+        overall_success = len(successful) > 0
+        overall_error = None
+        if not overall_success:
+            overall_error = "Effective routes could not be retrieved from any selected NIC."
+
         return _text_result({
-            "success": True,
-            "nic_name": nic_name,
-            "resource_group": rg,
-            "route_count": len(routes),
-            "routes": routes,
+            "success": overall_success,
+            "error": overall_error,
+            "subscription_id": sub_id,
+            "resource_group_filter": resource_group,
+            "vm_name": vm_match_name or None,
+            "vm_resource_id": vm_resource_id,
+            "nic_name_filter": nic_name,
+            "nic_count": len(nic_results),
+            "processed_nics": len(nic_results),
+            "truncated": len(nics) > max_nics,
+            "max_nics": max_nics,
+            "successful_nics": len(successful),
+            "failed_nics": len(failed),
+            "total_routes": total_routes,
+            "nic_routes": nic_results,
         })
 
     except Exception as exc:
@@ -3623,6 +4096,123 @@ async def assess_network_security_posture(
             scope=scope,
             severity_filter=parsed_severity_filter,
         )
+
+        # ------------------------------------------------------------------
+        # NSG internet exposure audit (explicit list + inbound/outbound rule scan)
+        # ------------------------------------------------------------------
+        executor = await get_azure_cli_executor()
+        nsg_cmd = f"az network nsg list --subscription {sub_id} --output json"
+        if scope and scope.strip().lower() != "all":
+            nsg_cmd += f" --resource-group {scope.strip()}"
+
+        nsg_cli_result = await executor.execute(nsg_cmd, timeout=90, add_subscription=False)
+        if nsg_cli_result.get("status") != "success":
+            return _text_result({
+                "success": False,
+                "error": f"Failed to enumerate NSGs for exposure audit: {nsg_cli_result.get('error', 'CLI call failed')}",
+            })
+
+        nsgs_raw: List[Dict[str, Any]] = nsg_cli_result.get("output") or []
+
+        def _has_public_match(value: Any) -> bool:
+            if value is None:
+                return False
+            if isinstance(value, list):
+                return any(_has_public_match(v) for v in value)
+            token = str(value).strip().lower()
+            return token in {
+                "*",
+                "any",
+                "internet",
+                "0.0.0.0/0",
+                "::/0",
+            }
+
+        def _collect_prefixes(rule: Dict[str, Any], singular_key: str, plural_key: str) -> List[str]:
+            prefixes: List[str] = []
+            singular = rule.get(singular_key)
+            plural = rule.get(plural_key)
+            if singular is not None:
+                prefixes.append(str(singular))
+            if isinstance(plural, list):
+                prefixes.extend(str(v) for v in plural)
+            return [p for p in prefixes if p]
+
+        def _collect_ports(rule: Dict[str, Any]) -> List[str]:
+            ports: List[str] = []
+            single = rule.get("destinationPortRange")
+            many = rule.get("destinationPortRanges")
+            if single is not None:
+                ports.append(str(single))
+            if isinstance(many, list):
+                ports.extend(str(v) for v in many)
+            return [p for p in ports if p]
+
+        inbound_public_rules: List[Dict[str, Any]] = []
+        outbound_public_rules: List[Dict[str, Any]] = []
+        audited_nsgs: List[Dict[str, Any]] = []
+
+        for nsg in nsgs_raw:
+            nsg_name = str(nsg.get("name") or "")
+            nsg_rg = str(nsg.get("resourceGroup") or "")
+            nsg_id = str(nsg.get("id") or "")
+            rules = nsg.get("securityRules") or []
+
+            audited_nsgs.append(
+                {
+                    "name": nsg_name,
+                    "resource_group": nsg_rg,
+                    "resource_id": nsg_id,
+                    "rule_count": len(rules),
+                }
+            )
+
+            for rule in rules:
+                access = str(rule.get("access") or "").lower()
+                direction_val = str(rule.get("direction") or "")
+                direction = direction_val.lower()
+                if access != "allow" or direction not in {"inbound", "outbound"}:
+                    continue
+
+                src_prefixes = _collect_prefixes(rule, "sourceAddressPrefix", "sourceAddressPrefixes")
+                dst_prefixes = _collect_prefixes(rule, "destinationAddressPrefix", "destinationAddressPrefixes")
+
+                inbound_exposed = direction == "inbound" and _has_public_match(src_prefixes)
+                outbound_exposed = direction == "outbound" and _has_public_match(dst_prefixes)
+
+                if not (inbound_exposed or outbound_exposed):
+                    continue
+
+                finding = {
+                    "nsg_name": nsg_name,
+                    "resource_group": nsg_rg,
+                    "nsg_resource_id": nsg_id,
+                    "rule_name": str(rule.get("name") or ""),
+                    "priority": rule.get("priority"),
+                    "direction": direction_val,
+                    "access": rule.get("access"),
+                    "protocol": rule.get("protocol"),
+                    "source_prefixes": src_prefixes,
+                    "destination_prefixes": dst_prefixes,
+                    "destination_ports": _collect_ports(rule),
+                    "description": rule.get("description"),
+                }
+
+                if inbound_exposed:
+                    inbound_public_rules.append(finding)
+                if outbound_exposed:
+                    outbound_public_rules.append(finding)
+
+        exposed_nsg_keys = {
+            (f.get("nsg_resource_id") or "").lower()
+            for f in inbound_public_rules + outbound_public_rules
+            if f.get("nsg_resource_id")
+        }
+        exposed_nsgs = [
+            n for n in audited_nsgs
+            if (n.get("resource_id") or "").lower() in exposed_nsg_keys
+        ]
+
     except ValueError as exc:
         return _text_result({"success": False, "error": str(exc)})
     except Exception as exc:
@@ -3657,6 +4247,28 @@ async def assess_network_security_posture(
     failed_findings = [f for f in findings_out if f["status"] == "failed"]
     passed_findings = [f for f in findings_out if f["status"] == "passed"]
 
+    compact_exposure_items: List[Dict[str, Any]] = []
+    for finding in inbound_public_rules + outbound_public_rules:
+        compact_exposure_items.append(
+            {
+                "nsg_name": finding.get("nsg_name"),
+                "resource_group": finding.get("resource_group"),
+                "rule_name": finding.get("rule_name"),
+                "direction": finding.get("direction"),
+                "access": finding.get("access"),
+                "protocol": finding.get("protocol"),
+                "destination_ports": finding.get("destination_ports") or [],
+            }
+        )
+
+    compact_exposure_items.sort(
+        key=lambda x: (
+            str(x.get("nsg_name") or "").lower(),
+            str(x.get("direction") or "").lower(),
+            str(x.get("rule_name") or "").lower(),
+        )
+    )
+
     return _text_result({
         "success": True,
         "subscription_id": sub_id,
@@ -3672,6 +4284,21 @@ async def assess_network_security_posture(
         },
         "summary_by_severity": report.summary_by_severity,
         "summary_by_category": report.summary_by_category,
+        "nsg_audit": {
+            "total_nsgs_audited": len(audited_nsgs),
+            "nsgs_with_public_exposure": len(exposed_nsgs),
+            "inbound_public_allow_rule_count": len(inbound_public_rules),
+            "outbound_public_allow_rule_count": len(outbound_public_rules),
+            "audited_nsgs": audited_nsgs,
+            "exposed_nsgs": exposed_nsgs,
+            "inbound_public_allow_rules": inbound_public_rules,
+            "outbound_public_allow_rules": outbound_public_rules,
+        },
+        "internet_exposure_summary": {
+            "total_exposed_nsgs": len(exposed_nsgs),
+            "total_exposing_rules": len(compact_exposure_items),
+            "items": compact_exposure_items,
+        },
         "failed_findings": failed_findings,
         "passed_findings": passed_findings,
     })

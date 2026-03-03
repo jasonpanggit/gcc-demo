@@ -22,7 +22,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
 try:
-    from azure.identity import DefaultAzureCredential, ClientSecretCredential
+    from azure.identity import ClientSecretCredential
     from azure.monitor.query import LogsQueryClient, MetricsQueryClient
     from azure.mgmt.resourcehealth import MicrosoftResourceHealth as ResourceHealthMgmtClient
     from azure.mgmt.monitor import MonitorManagementClient
@@ -34,7 +34,6 @@ try:
     from azure.mgmt.redis import RedisManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
 except ImportError:
-    DefaultAzureCredential = None
     ClientSecretCredential = None
     LogsQueryClient = None
     MetricsQueryClient = None
@@ -54,6 +53,14 @@ try:
     from app.agentic.eol.utils.teams_notification_client import TeamsNotificationClient
 except ImportError:
     TeamsNotificationClient = None
+
+try:
+    from app.agentic.eol.utils.azure_cli_executor import get_azure_cli_executor
+except ImportError:
+    try:
+        from utils.azure_cli_executor import get_azure_cli_executor  # type: ignore[import-not-found]
+    except ImportError:
+        get_azure_cli_executor = None  # type: ignore[assignment]
 
 _LOG_LEVEL_NAME = os.getenv("SRE_MCP_LOG_LEVEL", "INFO")
 _resolved_log_level = logging.INFO
@@ -333,25 +340,25 @@ def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[s
 
 
 def _get_credential():
-    """Get or create Azure credential using Service Principal if configured, otherwise Managed Identity"""
+    """Get or create Azure credential using injected Service Principal credentials only."""
     global _credential
     if _credential is None:
-        # Check if Service Principal credentials are available
-        use_sp = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
         sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
         sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
         tenant_id = os.getenv("AZURE_TENANT_ID")
 
-        if use_sp and sp_client_id and sp_client_secret and tenant_id:
-            logger.info("Using Service Principal authentication for SRE MCP server")
-            _credential = ClientSecretCredential(
-                tenant_id=tenant_id,
-                client_id=sp_client_id,
-                client_secret=sp_client_secret
+        if not (sp_client_id and sp_client_secret and tenant_id):
+            raise RuntimeError(
+                "Service Principal credentials are required for SRE MCP server. "
+                "Set AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID."
             )
-        else:
-            logger.info("Using Managed Identity authentication for SRE MCP server")
-            _credential = DefaultAzureCredential()
+
+        logger.info("Using injected Service Principal authentication for SRE MCP server")
+        _credential = ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=sp_client_id,
+            client_secret=sp_client_secret
+        )
     return _credential
 
 
@@ -610,26 +617,35 @@ async def check_container_app_health(
             logger.info(f"Log Analytics tables not available, falling back to Azure CLI for {container_app_name}")
             
             try:
-                # Use Azure CLI to get logs directly
-                cli_command = [
-                    "az", "containerapp", "logs", "show",
-                    "--name", container_app_name,
-                    "--resource-group", resource_group,
-                    "--tail", "100",
-                    "--format", "text",
-                    "--output", "json"
-                ]
-                
-                cli_result = subprocess.run(
-                    cli_command,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
+                # Use Azure CLI executor so SP auth/subscription context is guaranteed
+                if get_azure_cli_executor is None:
+                    raise RuntimeError("Azure CLI executor unavailable")
+
+                cli_executor = await get_azure_cli_executor()
+                logger.debug(
+                    "Container App CLI fallback auth state: executor_login_completed=%s subscription=%s",
+                    bool(getattr(cli_executor, "_login_completed", False)),
+                    str(getattr(cli_executor, "_subscription_id", "") or "<none>"),
                 )
-                
-                if cli_result.returncode == 0:
+                cli_response = await cli_executor.execute(
+                    (
+                        "az containerapp logs show "
+                        f"--name {container_app_name} "
+                        f"--resource-group {resource_group} "
+                        "--tail 100 --format text --output json"
+                    ),
+                    timeout=30,
+                    add_subscription=True,
+                )
+
+                if cli_response.get("status") == "success":
                     # Parse logs from CLI output
-                    logs_output = cli_result.stdout
+                    raw_output = cli_response.get("output", "")
+                    if isinstance(raw_output, (dict, list)):
+                        logs_output = json.dumps(raw_output)
+                    else:
+                        logs_output = str(raw_output or "")
+
                     error_count = logs_output.lower().count("error") + logs_output.lower().count("failed")
                     warning_count = logs_output.lower().count("warn")
                     total_logs = logs_output.count("\n")
@@ -664,8 +680,12 @@ async def check_container_app_health(
                     # CLI command failed
                     health_data["health_status"] = "Unknown - CLI access failed"
                     health_data["table_used"] = "None (CLI error)"
-                    health_data["cli_error"] = cli_result.stderr
-                    logger.warning(f"Azure CLI failed for {container_app_name}: {cli_result.stderr}")
+                    health_data["cli_error"] = cli_response.get("error", "Unknown Azure CLI error")
+                    logger.warning(
+                        "Azure CLI failed for %s: %s",
+                        container_app_name,
+                        health_data["cli_error"],
+                    )
                     
             except subprocess.TimeoutExpired:
                 health_data["health_status"] = "Unknown - Timeout"
@@ -4127,14 +4147,14 @@ async def query_container_app_configuration(
 
 
 @_server.tool(
-    name="list_container_apps",
+    name="container_app_list",
     description=(
         "List Azure Container Apps in a subscription or resource group. "
         "✅ USE THIS TOOL for pure discovery/list requests like 'list all my container apps'. "
         "Returns app identifiers and basic metadata without applying configuration filters."
     ),
 )
-async def list_container_apps(
+async def container_app_list(
     context: Context,
     subscription_id: Annotated[Optional[str], "Azure subscription ID (uses default if not provided)"] = None,
     resource_group: Annotated[Optional[str], "Optional resource group filter"] = None,
@@ -7902,7 +7922,7 @@ async def describe_capabilities(
                 "description": "Bulk configuration queries across multiple resources with filtering",
                 "tools": [
                     "query_app_service_configuration - App Service bulk queries (runtime, OS, ARR affinity)",
-                    "list_container_apps - List Container Apps with basic metadata",
+                    "container_app_list - List Container Apps with basic metadata",
                     "query_container_app_configuration - Container Apps queries (Dapr, ingress, autoscale)",
                     "query_aks_configuration - AKS queries (K8s version, autoscale, RBAC)",
                     "query_apim_configuration - APIM queries (SKU, VNet, managed identity)"

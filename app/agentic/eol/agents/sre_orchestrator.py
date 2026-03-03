@@ -148,6 +148,7 @@ class SREOrchestratorAgent(BaseSREAgent):
 
         # SRESubAgent — ReAct loop over SRE MCP tools (primary routing brain)
         self._sre_sub_agent: Optional[Any] = None
+        self._sre_tool_invoker: Optional[Any] = None
 
         # SRE routing / memory utilities
         self._gateway = SREGateway()
@@ -165,6 +166,10 @@ class SREOrchestratorAgent(BaseSREAgent):
         # Resource inventory client + grounding context (populated async in _initialize_impl)
         self.resource_inventory_client: Optional[Any] = None
         self._inventory_grounding_context: str = ""  # tenant/sub/resource-group summary for agent context
+        self._inventory_grounding_last_refreshed: float = 0.0
+        self._inventory_grounding_ttl_seconds: int = int(
+            os.getenv("SRE_INVENTORY_GROUNDING_TTL_SECONDS", "300"),
+        )
 
         # Hybrid formatting (deterministic stats + optional LLM narrative)
         self.hybrid_formatting_enabled = os.getenv(
@@ -216,8 +221,7 @@ class SREOrchestratorAgent(BaseSREAgent):
             self.resource_inventory_client = None
 
         # Build tenant/subscription/resource-inventory grounding for agent context
-        # TODO: Implement _refresh_inventory_grounding method
-        # await self._refresh_inventory_grounding()
+        await self._refresh_inventory_grounding()
 
         if self.hybrid_formatting_enabled:
             if not _HYBRID_CHAT_TYPES_AVAILABLE or create_chat_client is None or build_chat_options is None:
@@ -318,7 +322,7 @@ class SREOrchestratorAgent(BaseSREAgent):
             )
         return await self.router.route(query, context=context, strategy=strategy)
 
-
+    async def _refresh_inventory_grounding(self) -> None:
         """Build a compact resource-inventory summary for agent context grounding.
 
         Populates self._inventory_grounding_context with tenant ID, subscription ID,
@@ -371,6 +375,36 @@ class SREOrchestratorAgent(BaseSREAgent):
                 except Exception as exc:
                     logger.debug("SRE grounding: RG lookup failed: %s", exc)
 
+                # Container App name/resource_id hints for resource_id inference
+                try:
+                    container_apps = await self.resource_inventory_client.get_resources(
+                        "Microsoft.App/containerApps", subscription_id=sub
+                    )
+                    if container_apps:
+                        app_hints: List[str] = []
+                        app_id_hints: List[str] = []
+                        for app in container_apps[:8]:
+                            app_name = app.get("resource_name") or app.get("name") or ""
+                            rg = app.get("resource_group") or app.get("resourceGroup") or ""
+                            rid = app.get("resource_id") or app.get("id") or ""
+                            if app_name:
+                                app_hints.append(f"{app_name} (rg={rg or 'unknown'})")
+                            if app_name and rid:
+                                app_id_hints.append(f"{app_name}={rid}")
+                        if app_hints:
+                            lines.append(
+                                f"container_apps ({len(container_apps)}): {', '.join(app_hints[:6])}"
+                                + (" …" if len(container_apps) > 6 else "")
+                            )
+                        if app_id_hints:
+                            lines.append(
+                                "container_app_resource_ids: "
+                                + "; ".join(app_id_hints[:4])
+                                + (" …" if len(app_id_hints) > 4 else "")
+                            )
+                except Exception as exc:
+                    logger.debug("SRE grounding: container app lookup failed: %s", exc)
+
                 # Resource type counts from L1 cache (no network call)
                 try:
                     cache = self.resource_inventory_client._cache
@@ -396,7 +430,15 @@ class SREOrchestratorAgent(BaseSREAgent):
 
         if lines:
             self._inventory_grounding_context = "\n".join(lines)
+            self._inventory_grounding_last_refreshed = asyncio.get_running_loop().time()
             logger.info("🗺️  SRE inventory grounding context refreshed (%d fields)", len(lines))
+
+    async def _ensure_inventory_grounding_context(self) -> None:
+        """Refresh inventory grounding when context is empty or stale."""
+        now = asyncio.get_running_loop().time()
+        is_stale = (now - self._inventory_grounding_last_refreshed) >= self._inventory_grounding_ttl_seconds
+        if not self._inventory_grounding_context or is_stale:
+            await self._refresh_inventory_grounding()
 
     async def _cleanup_impl(self) -> None:
         """Clean up orchestrator resources."""
@@ -475,6 +517,7 @@ class SREOrchestratorAgent(BaseSREAgent):
             tool_invoker=sre_client.call_tool,
             event_callback=None,
         )
+        self._sre_tool_invoker = sre_client.call_tool
         logger.info("✅ SRESubAgent initialised with %d SRE tools", len(sre_tools))
 
     async def _run_via_sre_sub_agent(
@@ -484,16 +527,42 @@ class SREOrchestratorAgent(BaseSREAgent):
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Execute the query through SRESubAgent’s ReAct loop."""
+        await self._ensure_inventory_grounding_context()
+
         # Prepend grounding context so the agent can resolve params without extra tool calls
         enriched = query
+        if self._is_vm_health_query(query):
+            enriched = (
+                "[SRE execution rule]\n"
+                "VM health requests are IN SCOPE for SRE. "
+                "Do NOT respond out-of-scope. "
+                "Use check_resource_health for VM resource IDs; if IDs are missing, "
+                "ask for VM name/resource_id and continue in-scope.\n\n"
+                f"{enriched}"
+            )
+
         if self._inventory_grounding_context:
             enriched = (
-                f"[Azure grounding context]\n{self._inventory_grounding_context}\n\n{query}"
+                f"[Azure grounding context]\n{self._inventory_grounding_context}\n\n{enriched}"
             )
 
         logger.info("🏃 SRESubAgent running: %s...", query[:80])
         result = await self._sre_sub_agent.run(enriched)
         response_text = result.get("response", "")
+        tools_executed = int(result.get("tool_calls_made", 0) or 0)
+
+        if (
+            self._is_vm_health_query(query)
+            and tools_executed == 0
+            and self._is_out_of_scope_redirect(response_text)
+        ):
+            logger.warning(
+                "SRESubAgent returned out-of-scope for VM health; running deterministic VM health workflow"
+            )
+            forced = await self._run_vm_health_deterministic_workflow()
+            if forced:
+                response_text = forced.get("response", response_text)
+                tools_executed = int(forced.get("tool_calls", 0) or 0)
 
         if not response_text:
             return await self._execute_mcp_fallback({"query": query}, workflow_id)
@@ -505,7 +574,7 @@ class SREOrchestratorAgent(BaseSREAgent):
                     "metadata": {
                         "status": "completed",
                         "intent": "sre_sub_agent",
-                        "tools_executed": result.get("tool_calls_made", 0),
+                        "tools_executed": tools_executed,
                         "execution_source": "sre_sub_agent",
                     }
                 },
@@ -514,11 +583,11 @@ class SREOrchestratorAgent(BaseSREAgent):
         return {
             "workflow_id": workflow_id,
             "intent": "sre_sub_agent",
-            "tools_executed": result.get("tool_calls_made", 0),
+            "tools_executed": tools_executed,
             "results": {
                 "summary": {
-                    "total_tools": result.get("tool_calls_made", 0),
-                    "successful": result.get("tool_calls_made", 0) if result.get("success") else 0,
+                    "total_tools": tools_executed,
+                    "successful": tools_executed if result.get("success") else 0,
                     "failed": 0 if result.get("success") else 1,
                     "skipped": 0,
                     "needs_input": 0,
@@ -537,6 +606,143 @@ class SREOrchestratorAgent(BaseSREAgent):
                 "token_usage": {},
             },
         }
+
+    async def _run_vm_health_deterministic_workflow(self) -> Optional[Dict[str, Any]]:
+        """Run VM health checks directly when LLM scope handling drifts.
+
+        This path prevents false out-of-scope responses for VM health intents.
+        """
+        if not self._sre_tool_invoker:
+            return {
+                "response": (
+                    "<p>VM health is in scope for SRE, but the SRE tool invoker is unavailable right now.</p>"
+                    "<p>Please retry in a few seconds.</p>"
+                ),
+                "tool_calls": 0,
+            }
+
+        vms = await self._discover_resources_by_type("vm", {})
+        if not vms:
+            return {
+                "response": (
+                    "<p>VM health is in scope for SRE, but no VMs were discovered in the current scope.</p>"
+                    "<p>Please provide a VM name or resource group and I will run health checks.</p>"
+                ),
+                "tool_calls": 0,
+            }
+
+        rows: List[str] = []
+        healthy = 0
+        unhealthy = 0
+        unknown = 0
+        tool_calls = 0
+
+        for vm in vms[:30]:
+            vm_name = str(vm.get("name") or "unknown")
+            vm_rg = str(vm.get("resource_group") or "unknown")
+            resource_id = str(vm.get("id") or vm.get("resource_id") or "").strip()
+            if not resource_id:
+                continue
+
+            tool_calls += 1
+            try:
+                tool_result = await self._sre_tool_invoker("check_resource_health", {"resource_id": resource_id})
+            except Exception as exc:
+                state = "Unknown"
+                detail = f"Tool error: {exc}"
+            else:
+                state, detail = self._parse_vm_health_tool_result(tool_result)
+
+            state_lower = state.lower()
+            if state_lower in {"available", "healthy"}:
+                healthy += 1
+            elif state_lower in {"unavailable", "degraded", "unhealthy"}:
+                unhealthy += 1
+            else:
+                unknown += 1
+
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(vm_name)}</td>"
+                f"<td>{html.escape(vm_rg)}</td>"
+                f"<td>{html.escape(state)}</td>"
+                f"<td>{html.escape(detail)}</td>"
+                "</tr>"
+            )
+
+        if not rows:
+            return {
+                "response": (
+                    "<p>VM health is in scope for SRE, but discovered VMs were missing resource IDs required for health checks.</p>"
+                    "<p>Please provide a VM resource ID or VM name + resource group.</p>"
+                ),
+                "tool_calls": tool_calls,
+            }
+
+        response_html = (
+            "<h3>VM Health Status</h3>"
+            f"<p>Checked {len(rows)} VM(s): Healthy/Available={healthy}, Unhealthy/Degraded={unhealthy}, Unknown={unknown}.</p>"
+            "<table>"
+            "<thead><tr><th>VM</th><th>Resource Group</th><th>Health</th><th>Details</th></tr></thead>"
+            "<tbody>"
+            + "".join(rows)
+            + "</tbody></table>"
+        )
+        return {"response": response_html, "tool_calls": tool_calls}
+
+    @staticmethod
+    def _parse_vm_health_tool_result(tool_result: Dict[str, Any]) -> tuple[str, str]:
+        """Extract health state + detail from check_resource_health tool response."""
+        if not isinstance(tool_result, dict):
+            return "Unknown", "Unexpected tool response"
+
+        parsed = tool_result.get("parsed")
+        payload: Optional[Dict[str, Any]] = parsed if isinstance(parsed, dict) else None
+
+        if payload is None:
+            content = tool_result.get("content")
+            entries = content if isinstance(content, list) else [content]
+            for entry in entries:
+                if not isinstance(entry, str):
+                    continue
+                try:
+                    decoded = json.loads(entry)
+                except Exception:
+                    continue
+                if isinstance(decoded, dict):
+                    payload = decoded
+                    break
+
+        if not payload:
+            err = str(tool_result.get("error") or "No parsed payload")
+            return "Unknown", err
+
+        if payload.get("success") is False:
+            return "Unknown", str(payload.get("error") or "Health check failed")
+
+        health_status = payload.get("health_status") if isinstance(payload.get("health_status"), dict) else {}
+        availability = str(
+            health_status.get("availability_state")
+            or payload.get("availability_state")
+            or payload.get("health_status")
+            or "Unknown"
+        )
+        detail = str(
+            health_status.get("summary")
+            or health_status.get("detailed_status")
+            or payload.get("error")
+            or ""
+        )
+        return availability, detail
+
+    @staticmethod
+    def _is_out_of_scope_redirect(response_text: str) -> bool:
+        """Detect common out-of-scope redirect wording from sub-agent responses."""
+        text = str(response_text or "").lower()
+        return (
+            "main conversation" in text
+            and ("out-of-scope" in text or "out of scope" in text or "please ask there" in text)
+        )
 
 
     # ------------------------------------------------------------------
@@ -611,6 +817,14 @@ class SREOrchestratorAgent(BaseSREAgent):
         )
         return any(re.search(pattern, q) for pattern in patterns)
 
+    @staticmethod
+    def _is_vm_health_query(query: str) -> bool:
+        """Return True when a query asks for VM health/status."""
+        q = query.lower()
+        has_vm = bool(re.search(r"\b(vms?|virtual\s+machines?)\b", q))
+        has_health = bool(re.search(r"\b(health|healthy|status|unhealthy|degraded|availability)\b", q))
+        return has_vm and has_health
+
     # ------------------------------------------------------------------
     # Legacy execute() — delegates to handle_request()
     # ------------------------------------------------------------------
@@ -666,7 +880,7 @@ class SREOrchestratorAgent(BaseSREAgent):
                 "analyze_resource_configuration": "Review resource configuration for misconfigurations",
                 "get_diagnostic_logs": "Retrieve diagnostic logs for a resource",
                 "get_resource_dependencies": "Map resource dependency relationships",
-                "list_container_apps": "List Container Apps in a resource group",
+                "container_app_list": "List Container Apps in a resource group",
                 "triage_incident": "Analyze and triage an active incident",
                 "search_logs_by_error": "Search Log Analytics for error patterns",
                 "correlate_alerts": "Correlate active alerts to identify root signals",

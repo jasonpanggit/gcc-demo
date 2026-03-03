@@ -243,6 +243,13 @@ class SREInventoryIntegration:
 
         enriched = dict(parameters)
 
+        # Pre-step: if caller provided a non-ARM resource_id (often a resource name),
+        # resolve it to a full ARM ID from inventory before other enrichment steps.
+        try:
+            enriched = await self._resolve_resource_id_hints(tool_name, enriched)
+        except Exception as exc:
+            logger.debug("resource_id hint resolution failed for %s (non-fatal): %s", tool_name, exc)
+
         # Step 1: Use ResourceInventoryClient.resolve_tool_parameters() for
         #         name→resource_group resolution and subscription defaults
         try:
@@ -292,6 +299,91 @@ class SREInventoryIntegration:
                     enriched[param.name] = param.default
 
         return enriched
+
+    async def _resolve_resource_id_hints(
+        self,
+        tool_name: str,
+        parameters: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Resolve non-ARM resource_id hints (e.g. VM names) into full ARM IDs.
+
+        The planner may occasionally emit resource names in the resource_id field.
+        This helper converts those names to ARM IDs using inventory lookups so
+        downstream tools receive valid resource_id values.
+        """
+        if not self.enabled:
+            return parameters
+
+        resolved = dict(parameters)
+        resource_id = str(resolved.get("resource_id") or "").strip()
+        if not resource_id:
+            return resolved
+
+        # Already an ARM ID
+        if resource_id.lower().startswith("/subscriptions/"):
+            return resolved
+
+        # Treat as resource name hint
+        name_hint = resource_id
+        rg_hint = str(resolved.get("resource_group") or "").strip().lower()
+        candidate_types = get_resource_types_for_tool(tool_name)
+        if not candidate_types:
+            return resolved
+
+        matches: List[Dict[str, Any]] = []
+        for resource_type in candidate_types:
+            try:
+                typed = await self._client.get_resource_by_name(
+                    name_hint,
+                    resource_type=resource_type,
+                )
+                matches.extend(typed)
+            except Exception as exc:
+                logger.debug("resource_id hint lookup failed for type %s: %s", resource_type, exc)
+
+        if not matches:
+            return resolved
+
+        # Prefer RG-scoped match when available
+        if rg_hint:
+            scoped = [
+                m for m in matches
+                if str(m.get("resource_group") or m.get("resourceGroup") or "").strip().lower() == rg_hint
+            ]
+            if len(scoped) == 1:
+                matches = scoped
+
+        # Prefer exact-name match among candidates
+        exact = [
+            m for m in matches
+            if str(m.get("resource_name") or m.get("name") or "").strip().lower() == name_hint.lower()
+        ]
+        if exact:
+            matches = exact
+
+        if len(matches) == 1:
+            chosen = matches[0]
+            arm_id = str(chosen.get("resource_id") or chosen.get("id") or "").strip()
+            if arm_id:
+                resolved["resource_id"] = arm_id
+                if not resolved.get("resource_group"):
+                    rg = chosen.get("resource_group") or chosen.get("resourceGroup")
+                    if rg:
+                        resolved["resource_group"] = rg
+                logger.debug(
+                    "Resolved non-ARM resource_id hint '%s' to ARM ID for tool %s",
+                    name_hint,
+                    tool_name,
+                )
+        else:
+            logger.debug(
+                "resource_id hint '%s' unresolved for tool %s (candidates=%d)",
+                name_hint,
+                tool_name,
+                len(matches),
+            )
+
+        return resolved
 
     # ------------------------------------------------------------------
     # Resource discovery for tool context

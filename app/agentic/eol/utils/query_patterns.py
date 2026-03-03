@@ -107,6 +107,10 @@ class QueryPatterns:
         'plan remediation', 'remediation plan',
         'resource dependency', 'dependency chain',
         'capacity recommend', 'baseline metric',
+        # VM health/status intents (must remain in SRE scope)
+        'vm health', 'vms health', 'virtual machine health',
+        'vm status', 'vms status', 'virtual machine status',
+        'health of my vm', 'health of my vms', 'health of my virtual machines',
         # High-signal incident/health terms
         '503', '500', '504', 'timeout', 'latency', 'unavailable',
         'outage', 'degraded', 'failure rate', 'error rate',
@@ -223,9 +227,12 @@ class QueryPatterns:
         Multiple domains can be True simultaneously (e.g., a cost + SRE query).
         """
         q = query.lower()
+        vm_health_intent = bool(re.search(r"\b(vms?|virtual\s+machines?)\b", q)) and bool(
+            re.search(r"\b(health|healthy|status|unhealthy|degraded|availability)\b", q),
+        )
 
         return {
-            'sre': any(p in q for p in cls.SRE_PATTERNS),
+            'sre': vm_health_intent or any(p in q for p in cls.SRE_PATTERNS),
             'cost': any(p in q for p in cls.COST_PATTERNS),
             'security': any(p in q for p in cls.SECURITY_PATTERNS),
             'slo': any(p in q for p in cls.SLO_PATTERNS),

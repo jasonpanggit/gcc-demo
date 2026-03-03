@@ -629,7 +629,7 @@ _register(
 
 _register(
     ToolMapping(
-        tool_name="list_container_apps",
+        tool_name="container_app_list",
         category="config",
         description="List Container Apps with basic metadata",
         parameters=[_SUBSCRIPTION_ID, _RESOURCE_GROUP],

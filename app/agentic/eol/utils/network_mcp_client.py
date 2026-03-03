@@ -224,15 +224,30 @@ class NetworkMCPClient:
             else:
                 success = not result_is_error
 
+            error_message = ""
+            if not success:
+                if isinstance(parsed_payload, dict):
+                    error_message = str(parsed_payload.get("error") or parsed_payload.get("message") or "").strip()
+                if not error_message:
+                    for entry in raw_content:
+                        if isinstance(entry, str) and entry.strip():
+                            error_message = entry.strip()
+                            break
+
             logger.info("Network tool '%s' completed with success=%s", tool_name, success)
 
-            return {
+            response = {
                 "success": success,
                 "tool_name": tool_name,
                 "content": raw_content,
                 "parsed": parsed_payload,
                 "is_error": result_is_error or not success,
             }
+
+            if error_message:
+                response["error"] = error_message
+
+            return response
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Error executing Network tool '%s': %s", tool_name, exc)

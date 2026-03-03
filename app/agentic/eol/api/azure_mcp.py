@@ -490,6 +490,11 @@ async def mcp_chat(request: MCPChatRequest):
         from agents.mcp_orchestrator import get_mcp_orchestrator
 
         orchestrator = await get_mcp_orchestrator()
+        logger.info(
+            "MCP chat request received (session=%s, chars=%d)",
+            getattr(orchestrator, "session_id", "unknown"),
+            len(request.message or ""),
+        )
 
         # Collect routing metadata before executing (non-blocking, best-effort)
         routing_meta: dict = {}
@@ -511,9 +516,20 @@ async def mcp_chat(request: MCPChatRequest):
         result = await orchestrator.process_message(request.message)
 
         if not result.get("success"):
+            metadata = result.get("metadata", {}) if isinstance(result, dict) else {}
+            error_detail = (
+                result.get("error")
+                or metadata.get("error")
+                or "Unknown error occurred"
+            )
+            logger.error(
+                "MCP chat orchestration failed (session=%s): %s",
+                getattr(orchestrator, "session_id", "unknown"),
+                error_detail,
+            )
             raise HTTPException(
                 status_code=500,
-                detail=result.get("error", "Unknown error occurred")
+                detail=error_detail,
             )
 
         metadata = result.get("metadata", {})
@@ -531,7 +547,7 @@ async def mcp_chat(request: MCPChatRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in MCP chat: {e}")
+        logger.exception("Error in MCP chat: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

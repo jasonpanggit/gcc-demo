@@ -41,6 +41,41 @@ _RETRY_BASE_DELAY = 0.5  # seconds
 _CLI_GENERATE_TOOL = "azmcp_extension_cli_generate"
 
 
+def _extract_tool_error_message(tool_result: Dict[str, Any], exit_code: Optional[int]) -> str:
+    """Extract a useful error message from wrapped MCP tool results."""
+    import json as _json
+
+    direct_error = str(tool_result.get("error") or "").strip()
+    if direct_error:
+        return direct_error
+
+    stderr = str(tool_result.get("stderr") or "").strip()
+    if stderr:
+        return stderr
+
+    parsed = tool_result.get("parsed")
+    if isinstance(parsed, dict):
+        parsed_error = str(parsed.get("error") or parsed.get("message") or "").strip()
+        if parsed_error:
+            return parsed_error
+
+    content = tool_result.get("content")
+    if isinstance(content, list):
+        for entry in content:
+            if not isinstance(entry, str):
+                continue
+            try:
+                decoded = _json.loads(entry)
+            except Exception:
+                continue
+            if isinstance(decoded, dict):
+                embedded_error = str(decoded.get("error") or decoded.get("message") or "").strip()
+                if embedded_error:
+                    return embedded_error
+
+    return f"Tool returned exit_code={exit_code}"
+
+
 def _extract_generated_cli_command(tool_result: Dict[str, Any]) -> str:
     """Parse azmcp_extension_cli_generate output and return the az command string.
 
@@ -294,6 +329,24 @@ class Executor:
             except Exception as exc:
                 logger.debug("resolve_parameters error for %s (non-fatal): %s", step.tool_name, exc)
 
+        unresolved_step_refs = [
+            f"{k}={v}" for k, v in params.items()
+            if isinstance(v, str) and v.startswith("$step_")
+        ]
+        if unresolved_step_refs:
+            error_message = "Unresolved step reference(s): " + "; ".join(unresolved_step_refs)
+            await self._emit(
+                "step_error",
+                f"Step {step.tool_name} failed: {error_message[:120]}",
+                step_id=step.step_id,
+            )
+            return StepResult(
+                step_id=step.step_id,
+                tool_name=step.tool_name,
+                success=False,
+                error=error_message,
+            )
+
         # Execute with retries
         last_error = ""
         for attempt in range(1, _MAX_STEP_RETRIES + 2):
@@ -310,11 +363,14 @@ class Executor:
 
                 if not tool_success:
                     # Treat as a retryable failure so retry logic applies.
-                    tool_error = (
-                        tool_result.get("error")
-                        or tool_result.get("stderr", "")
-                        or f"Tool returned exit_code={exit_code}"
-                    )
+                    tool_error = _extract_tool_error_message(tool_result, exit_code)
+                    tool_error_lower = str(tool_error).lower()
+                    if (
+                        "authorizationfailed" in tool_error_lower
+                        or "does not have authorization" in tool_error_lower
+                        or "forbidden" in tool_error_lower
+                    ):
+                        raise PermissionError(f"Tool authorization failure: {tool_error}")
                     raise RuntimeError(f"Tool reported failure: {tool_error}")
 
                 # Post-process CLI generation results: extract the generated command
@@ -352,6 +408,8 @@ class Executor:
                     _MAX_STEP_RETRIES + 1,
                     exc,
                 )
+                if isinstance(exc, PermissionError):
+                    break
                 if attempt <= _MAX_STEP_RETRIES:
                     await asyncio.sleep(_RETRY_BASE_DELAY * (2 ** (attempt - 1)))
 
@@ -436,11 +494,43 @@ class Executor:
 
         def _get_nested(obj: Any, path: str) -> Any:
             """Walk a.b[0].c style paths into dicts/lists."""
+            def _camel_to_snake(text: str) -> str:
+                text = _re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", text)
+                return text.lower()
+
+            def _snake_to_camel(text: str) -> str:
+                parts = text.split("_")
+                if not parts:
+                    return text
+                return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
             for part in _re.split(r'[.\[\]]+', path):
                 if not part:
                     continue
                 if isinstance(obj, dict):
-                    obj = obj.get(part)
+                    if part in obj:
+                        obj = obj.get(part)
+                        continue
+
+                    # Alias common ARM-ID field names
+                    if part == "id" and "resource_id" in obj:
+                        obj = obj.get("resource_id")
+                        continue
+                    if part == "resource_id" and "id" in obj:
+                        obj = obj.get("id")
+                        continue
+
+                    snake_part = _camel_to_snake(part)
+                    if snake_part in obj:
+                        obj = obj.get(snake_part)
+                        continue
+
+                    camel_part = _snake_to_camel(part)
+                    if camel_part in obj:
+                        obj = obj.get(camel_part)
+                        continue
+
+                    return None
                 elif isinstance(obj, list):
                     try:
                         obj = obj[int(part)]
@@ -450,14 +540,50 @@ class Executor:
                     return None
             return obj
 
+        def _iter_step_payload_roots(step_result: Optional["StepResult"]) -> List[Any]:
+            """Yield candidate payload roots for step-ref resolution.
+
+            MCP clients often wrap the actual tool payload under ``parsed`` and
+            keep raw JSON strings under ``content``. Include those roots so
+            planner-authored refs like ``$step_1.network_security_groups[0]``
+            resolve consistently across client wrappers.
+            """
+            import json as _json
+
+            roots: List[Any] = []
+            if not step_result or not step_result.success or not step_result.result:
+                return roots
+
+            root = step_result.result
+            roots.append(root)
+
+            if isinstance(root, dict):
+                parsed = root.get("parsed")
+                if isinstance(parsed, (dict, list)):
+                    roots.append(parsed)
+
+                content = root.get("content")
+                if isinstance(content, list):
+                    for entry in content:
+                        if not isinstance(entry, str):
+                            continue
+                        try:
+                            decoded = _json.loads(entry)
+                        except Exception:
+                            continue
+                        if isinstance(decoded, (dict, list)):
+                            roots.append(decoded)
+
+            return roots
+
         result: Dict[str, Any] = {}
         for k, v in params.items():
             if isinstance(v, str):
                 m = _REF.match(v)
                 if m:
                     dep_step = completed.get(m.group('step_id'))
-                    if dep_step and dep_step.success and dep_step.result:
-                        resolved = _get_nested(dep_step.result, m.group('path'))
+                    for payload_root in _iter_step_payload_roots(dep_step):
+                        resolved = _get_nested(payload_root, m.group('path'))
                         if resolved is not None:
                             logger.debug(
                                 "Executor: resolved param %s=%r from %s",
@@ -465,6 +591,8 @@ class Executor:
                             )
                             result[k] = resolved
                             continue
+                    if k in result:
+                        continue
                     logger.debug(
                         "Executor: could not resolve step-ref %r for param %s — keeping placeholder",
                         v, k,

@@ -773,10 +773,11 @@
         compute: 'Azure Compute MCP Server',
         storage: 'Azure Storage MCP Server',
         network: 'Azure Network MCP Server',
-        azure_cli: 'Azure CLI Executor',
+        azure_cli_executor: 'Azure CLI Executor',
         monitor: 'Azure Monitor Community Resources',
         inventory: 'Azure Arc OS & Software Inventory',
         os_eol: 'Operating System EOL',
+        patch: 'Patch MCP Server',
         sre: 'SRE MCP Server',
         microsoft_learn: 'Microsoft Learn',
     };
@@ -1570,6 +1571,7 @@
     let metadataTools = [];
     let metadataBySlug = {};
     let toolsByServer = {}; // Track tools by server source
+    let quickExampleToolsByKey = {}; // Current tool-selector value -> tool metadata/runtime object
 
     async function loadToolMetadata() {
         const serverSelector = document.getElementById('server-selector');
@@ -1650,7 +1652,7 @@
     function getToolSource(tool) {
         // Determine server source from tool namespace or category
         if (tool.namespace) {
-            if (tool.namespace.startsWith('azure_cli')) return 'azure_cli';
+            if (tool.namespace.startsWith('azure_cli_executor')) return 'azure_cli_executor'; 
             if (tool.namespace.startsWith('microsoft_learn')) return 'microsoft_learn';
             if (tool.namespace.startsWith('inventory')) return 'inventory';
             if (tool.namespace.startsWith('os_eol')) return 'os_eol';
@@ -1666,7 +1668,7 @@
         // Check category
         if (tool.category) {
             if (tool.category.includes('Microsoft Learn')) return 'microsoft_learn';
-            if (tool.category.includes('Agentic Utilities')) return 'azure_cli';
+            if (tool.category.includes('Azure CLI Executor')) return 'azure_cli_executor';
             if (tool.category.includes('Inventory')) return 'inventory';
             if (tool.category.includes('Monitor')) return 'monitor';
             if (tool.category.includes('SRE')) return 'sre';
@@ -1788,6 +1790,7 @@
             return;
         }
 
+        quickExampleToolsByKey = {};
         selector.innerHTML = '<option value="">Select a tool...</option>';
 
         if (!tools || tools.length === 0) {
@@ -1810,12 +1813,19 @@
             const optgroup = document.createElement('optgroup');
             optgroup.label = category;
             grouped.get(category)
-                .sort((a, b) => a.display_name.localeCompare(b.display_name))
+                .sort((a, b) => (a.display_name || a.namespace || '').localeCompare(b.display_name || b.namespace || ''))
                 .forEach(tool => {
+                    const optionKey = tool.slug || tool.namespace || tool.display_name;
+                    if (!optionKey) {
+                        return;
+                    }
                     const option = document.createElement('option');
-                    option.value = tool.slug;
-                    option.textContent = tool.display_name;
+                    option.value = optionKey;
+                    option.textContent = tool.display_name || tool.namespace || optionKey;
                     optgroup.appendChild(option);
+
+                    // Keep a lookup so runtime-only tools can still drive examples dropdown.
+                    quickExampleToolsByKey[optionKey] = tool;
                 });
             selector.appendChild(optgroup);
         });
@@ -1829,6 +1839,22 @@
         }
 
         const examples = [];
+        const resolveExamplePrompt = (example) => {
+            if (!example) {
+                return '';
+            }
+
+            const candidate = [
+                example.prompt,
+                example.original_prompt,
+                example.message,
+                example.query,
+                example.command,
+                example.text,
+            ].find(value => typeof value === 'string' && value.trim());
+
+            return candidate ? candidate.trim() : '';
+        };
 
         if (Array.isArray(tool.operations) && tool.operations.length) {
             tool.operations.forEach(operation => {
@@ -1836,12 +1862,13 @@
                     return;
                 }
                 operation.examples.forEach(example => {
-                    if (!example || !example.prompt) {
+                    const prompt = resolveExamplePrompt(example);
+                    if (!prompt) {
                         return;
                     }
                     examples.push({
-                        label: example.label || example.prompt,
-                        prompt: example.prompt,
+                        label: example.label || prompt,
+                        prompt,
                         operationTitle: operation.title || null,
                         parameters: Array.isArray(operation.parameters) ? operation.parameters : []
                     });
@@ -1852,15 +1879,27 @@
         if (!examples.length && Array.isArray(tool.examples)) {
             const fallbackParams = Array.isArray(tool.parameters) ? tool.parameters : [];
             tool.examples.forEach(example => {
-                if (!example || !example.prompt) {
+                const prompt = resolveExamplePrompt(example);
+                if (!prompt) {
                     return;
                 }
                 examples.push({
-                    label: example.label || example.prompt,
-                    prompt: example.prompt,
+                    label: example.label || prompt,
+                    prompt,
                     operationTitle: null,
                     parameters: fallbackParams
                 });
+            });
+        }
+
+        // Final fallback for runtime-only tools without documented examples.
+        if (!examples.length && tool.namespace) {
+            const fallbackPrompt = `Use ${tool.namespace} to ${tool.description || 'help with this request'}`;
+            examples.push({
+                label: `Use ${tool.namespace}`,
+                prompt: fallbackPrompt,
+                operationTitle: null,
+                parameters: Array.isArray(tool.parameters) ? tool.parameters : []
             });
         }
 
@@ -1938,7 +1977,12 @@
         }
 
         const selectedSlug = toolSelector.value;
-        const metadata = selectedSlug ? metadataBySlug[selectedSlug] : null;
+        const metadata = selectedSlug
+            ? (metadataBySlug[selectedSlug]
+                || quickExampleToolsByKey[selectedSlug]
+                || metadataTools.find(tool => tool && tool.namespace === selectedSlug)
+                || null)
+            : null;
 
         if (docLink) {
             docLink.innerHTML = '';
@@ -2065,7 +2109,17 @@
                 body: JSON.stringify({ message: message })
             });
 
-            const data = await response.json();
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                data = {};
+            }
+
+            if (!response.ok) {
+                const backendError = data.detail || data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
+                throw new Error(backendError);
+            }
 
             if (data.success && data.data && data.data.length > 0) {
                 const result = data.data[0];
@@ -2074,7 +2128,8 @@
                     strategy: 'direct-response'
                 });
             } else {
-                appendMessage('error', data.error || 'Failed to get response');
+                const backendError = data.error || data.detail || data?.metadata?.error || 'Failed to get response';
+                appendMessage('error', backendError);
             }
         } catch (error) {
             console.error('Error sending message:', error);

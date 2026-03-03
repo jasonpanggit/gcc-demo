@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 import time
 import uuid
 from copy import deepcopy
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 try:
@@ -783,15 +785,13 @@ FORMATTING:
             Response dict with ``success``, ``response``, ``elapsed_seconds`` keys,
             or None on pipeline failure.
         """
-        if (
-            self._pipeline_router is None
-            or self._pipeline_retriever is None
-            or self._pipeline_planner is None
-            or self._pipeline_executor is None
-            or self._pipeline_verifier is None
-            or self._pipeline_composer is None
-        ):
-            logger.debug("_run_full_pipeline_async: pipeline not fully initialised; skipping")
+        missing_components = self._get_missing_pipeline_components()
+        if missing_components:
+            self._last_pipeline_error = (
+                "Pipeline not fully initialised. Missing components: "
+                + ", ".join(missing_components)
+            )
+            logger.error("%s", self._last_pipeline_error)
             return None
 
         try:
@@ -851,9 +851,30 @@ FORMATTING:
             )
 
             # Stage 4.5: CLI fallback — retry any failed steps via azure_cli_execute_command
-            if execution_result.failed_results:
+            semantic_fallback_candidates = self._detect_semantic_cli_fallback_candidates(
+                user_message,
+                plan,
+                execution_result,
+            )
+            if semantic_fallback_candidates:
+                logger.warning(
+                    "🚀 [PIPELINE] Stage 4.5 trigger: semantic mismatch candidates=%d",
+                    len(semantic_fallback_candidates),
+                )
+
+            fallback_failed_results = list(execution_result.failed_results)
+            fallback_failed_results.extend(semantic_fallback_candidates)
+
+            if fallback_failed_results:
+                fallback_execution_result = (
+                    execution_result
+                    if fallback_failed_results == list(execution_result.failed_results)
+                    else SimpleNamespace(failed_results=fallback_failed_results)
+                )
                 cli_replacements = await self._cli_fallback_retry(
-                    user_message, plan, execution_result
+                    user_message,
+                    plan,
+                    fallback_execution_result,
                 )
                 if cli_replacements:
                     replaced = {r.step_id for r in cli_replacements}
@@ -867,6 +888,8 @@ FORMATTING:
                         "🚀 [PIPELINE] Stage 4.5: CLI fallback replaced %d failed step(s)",
                         len(cli_replacements),
                     )
+                else:
+                    logger.info("🚀 [PIPELINE] Stage 4.5: no CLI replacements generated")
 
             # Stage 5: Verify
             verification_result = await self._pipeline_verifier.verify(plan, execution_result)
@@ -904,11 +927,93 @@ FORMATTING:
             }
 
         except Exception as exc:
-            logger.warning(
-                "🚀 [PIPELINE] full pipeline error (%s); falling back to legacy ReAct loop",
+            self._last_pipeline_error = str(exc)
+            logger.exception(
+                "🚀 [PIPELINE] full pipeline error (%s); no legacy fallback available",
                 exc,
             )
             return None
+
+    @staticmethod
+    def _expected_tools_for_query_intent(query: str) -> Set[str]:
+        """Return a narrow expected tool set for strong network query intents."""
+        q = (query or "").lower()
+
+        if "effective route" in q or "effective routes" in q:
+            return {"get_effective_routes", "analyze_route_path"}
+
+        if "vnet peering" in q or ("peering" in q and "vnet" in q):
+            return {"inspect_vnet", "virtual_network_list"}
+
+        if "nsg" in q or "network security group" in q:
+            return {"inspect_nsg_rules", "nsg_list", "assess_network_security_posture"}
+
+        return set()
+
+    def _detect_semantic_cli_fallback_candidates(
+        self,
+        user_message: str,
+        plan: Any,
+        execution_result: Any,
+    ) -> List[Any]:
+        """Create pseudo-failed steps when plan tool is a strong intent mismatch.
+
+        This prevents "wrong but successful" one-step plans from skipping CLI fallback.
+        """
+        expected_tools = self._expected_tools_for_query_intent(user_message)
+        if not expected_tools:
+            return []
+
+        plan_steps = list(getattr(plan, "steps", []) or [])
+        if len(plan_steps) != 1:
+            return []
+
+        step = plan_steps[0]
+        step_id = str(getattr(step, "step_id", "") or "")
+        planned_tool = str(getattr(step, "tool_name", "") or "")
+
+        if not step_id or not planned_tool:
+            return []
+
+        if planned_tool in expected_tools:
+            return []
+
+        succeeded_step_ids = {
+            str(getattr(r, "step_id", "") or "")
+            for r in (getattr(execution_result, "successful_results", []) or [])
+        }
+        if step_id not in succeeded_step_ids:
+            return []
+
+        message = (
+            f"Semantic fallback trigger: intent suggests {sorted(expected_tools)} "
+            f"but plan selected {planned_tool}"
+        )
+        logger.warning("🔀 CLI semantic fallback: %s (step=%s)", message, step_id)
+        return [
+            SimpleNamespace(
+                step_id=step_id,
+                tool_name=planned_tool,
+                error=message,
+            )
+        ]
+
+    def _get_missing_pipeline_components(self) -> List[str]:
+        """Return missing full-pipeline component names."""
+        missing: List[str] = []
+        if self._pipeline_router is None:
+            missing.append("router")
+        if self._pipeline_retriever is None:
+            missing.append("retriever")
+        if self._pipeline_planner is None:
+            missing.append("planner")
+        if self._pipeline_executor is None:
+            missing.append("executor")
+        if self._pipeline_verifier is None:
+            missing.append("verifier")
+        if self._pipeline_composer is None:
+            missing.append("composer")
+        return missing
 
     def __init__(
         self,
@@ -937,6 +1042,7 @@ FORMATTING:
         self._last_tool_failure: Optional[Dict[str, str]] = None
         self._last_tool_request: Optional[List[str]] = None
         self._last_tool_output: Optional[Dict[str, Any]] = None
+        self._last_pipeline_error: Optional[str] = None
         self._registered_client_labels: List[str] = []
         self._tool_source_map: Dict[str, str] = {}
         self._dynamic_system_prompt: str = self._SYSTEM_PROMPT  # Will be updated when tools are loaded
@@ -1098,6 +1204,7 @@ FORMATTING:
         self._last_tool_failure = None
         self._last_tool_request = None
         self._last_tool_output = None
+        self._last_pipeline_error = None
 
         await self._push_event("reasoning", f"Analyzing request: {user_message}", iteration=iteration, user_message=user_message)
 
@@ -1133,6 +1240,24 @@ FORMATTING:
         logger.info(f"🛠️  Processing message with {tool_count} tools available (mcp_ready={mcp_ready})")
         logger.info(f"💬 Session {self.session_id}: Processing message #{len(self._message_log)} (history: {len(self._message_log)-1} messages)")
 
+        # Legacy ReAct mode was removed; if full pipeline is disabled, fail fast
+        # with a clear operator-facing diagnostic.
+        if not self._pipeline_full:
+            pipeline_disabled_error = (
+                "MCP_AGENT_PIPELINE is disabled, but the legacy ReAct path is no longer available. "
+                "Set MCP_AGENT_PIPELINE=true|1|yes|full to enable query handling."
+            )
+            logger.error(
+                "MCP orchestrator cannot process request (session=%s): %s",
+                self.session_id,
+                pipeline_disabled_error,
+            )
+            return self._build_failure_response(
+                user_message=user_message,
+                elapsed=time.time() - start_time,
+                error=pipeline_disabled_error,
+            )
+
         # Phase 6: full pipeline delegation (MCP_AGENT_PIPELINE=true|full|1|yes)
         # Runs Router→Retrieve→Plan→Execute→Verify→Compose in place of the ReAct loop.
         # Falls back to legacy ReAct loop on any pipeline error.
@@ -1152,8 +1277,35 @@ FORMATTING:
                     elapsed_seconds=full_pipeline_result.get("elapsed_seconds", 0),
                 )
                 return full_pipeline_result
-            # Pipeline returned None → fall through to legacy ReAct loop
-            logger.info("🚀 [PIPELINE] falling back to legacy ReAct loop")
+            # Pipeline returned None and legacy loop is removed in Phase 7.
+            # Return deterministic failure with diagnostics instead of generic timeout.
+            missing_components = self._get_missing_pipeline_components()
+            if missing_components:
+                pipeline_error = (
+                    "MCP full pipeline is unavailable. Missing components: "
+                    f"{', '.join(missing_components)}"
+                )
+                import_errors = [
+                    err for err in (_pipeline_router_import_error, _pipeline_full_import_error)
+                    if err
+                ]
+                if import_errors:
+                    pipeline_error += f". Import error(s): {' | '.join(import_errors)}"
+            else:
+                pipeline_error = self._last_pipeline_error or "MCP full pipeline returned no result"
+
+            logger.error(
+                "MCP full pipeline failed (session=%s, mcp_ready=%s, tools=%d): %s",
+                self.session_id,
+                mcp_ready,
+                tool_count,
+                pipeline_error,
+            )
+            return self._build_failure_response(
+                user_message=user_message,
+                elapsed=time.time() - start_time,
+                error=pipeline_error,
+            )
 
         # Phase 4/5 shadow mode: run new Router+ToolRetriever and log comparison.
         # MCP_PIPELINE_SHADOW=true → log only (result NOT used).
@@ -1749,6 +1901,16 @@ FORMATTING:
                 len(recent),
             )
 
+        if self._is_vm_health_query(user_request):
+            enriched_request = (
+                "[SRE execution rule]\n"
+                "VM health requests are IN SCOPE for SRE. "
+                "Do NOT respond out-of-scope. "
+                "Use check_resource_health for VM resource IDs; if IDs are missing, "
+                "ask for VM name/resource_id and continue in-scope.\n\n"
+                f"{enriched_request}"
+            )
+
         logger.info("🔀 Delegating to SRESubAgent: %s", user_request[:200])
         try:
             result = await self._sre_agent.run(enriched_request)
@@ -1802,6 +1964,14 @@ FORMATTING:
             "✅ SRESubAgent initialised with %d tools (SRE + CLI)",
             len(sre_tools),
         )
+
+    @staticmethod
+    def _is_vm_health_query(query: str) -> bool:
+        """Return True when a query asks for VM operational health/status."""
+        q = (query or "").lower()
+        has_vm = bool(re.search(r"\b(vms?|virtual\s+machines?)\b", q))
+        has_health = bool(re.search(r"\b(health|healthy|status|unhealthy|degraded|availability)\b", q))
+        return has_vm and has_health
 
     def _spawn_background(self, coro, *, name: Optional[str] = None) -> asyncio.Task:
         """Schedule coro as a background task, tracking it to prevent GC.
@@ -2149,13 +2319,14 @@ FORMATTING:
         plan: Any,
         execution_result: Any,
     ) -> List[Any]:
-        """Stage 4.5: for failed steps, synthesize equivalent az CLI commands and re-run.
+        """Stage 4.5: for failed steps, derive equivalent az CLI commands and re-run.
 
-        Uses a lightweight LLM call to derive the Azure CLI commands, then executes
-        them via azure_cli_execute_command.  Read-only az commands (az * list/show)
-        are classified as safe by the server and run without requiring confirmation.
+        Priority order:
+        1) azmcp_extension_cli_generate (Azure MCP CLI Copilot)
+        2) lightweight OpenAI synthesis fallback when step 1 is unavailable/fails
 
-        Returns a list of replacement StepResult objects (one per recovered step).
+        All recovered commands are executed through azure_cli_execute_command.
+        Returns replacement StepResult objects (one per recovered step).
         """
         failed = execution_result.failed_results
         if not failed:
@@ -2164,80 +2335,343 @@ FORMATTING:
         if PipelineStepResult is None:  # type: ignore[truthy-function]
             return []
 
-        # Build a concise prompt asking for az CLI equivalents
-        failed_lines = "\n".join(
-            f"  step_id={r.step_id} tool={r.tool_name} error={r.error[:150]}"
-            for r in failed
-        )
-        synthesis_prompt = (
-            f"User query: {user_message}\n\n"
-            "The following MCP tool calls failed. For each, provide an equivalent Azure CLI "
-            "command that accomplishes the same goal.\n"
-            f"{failed_lines}\n\n"
-            "Output ONLY a JSON array, no prose.  Example format:\n"
-            '[{"step_id": "step_1", "command": "az network vnet list --output json"}]\n'
-            "Use --output json on every command. If no CLI equivalent exists, omit that step."
+        logger.info(
+            "🔀 CLI fallback stage starting: failed_steps=%d",
+            len(failed),
         )
 
-        try:
-            from openai import AsyncAzureOpenAI  # type: ignore[import-not-found]
+        # Build lookup for resolving placeholder commands from plan-step params.
+        step_map: Dict[str, Any] = {
+            str(getattr(step, "step_id", "")): step
+            for step in (getattr(plan, "steps", []) or [])
+            if getattr(step, "step_id", None)
+        }
 
-            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-            api_key = os.getenv("AZURE_OPENAI_API_KEY")
-            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
-            deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+        def _extract_generated_cli_command_from_azmcp(tool_result: Dict[str, Any]) -> str:
+            """Parse azmcp_extension_cli_generate output and return an az command string."""
+            try:
+                parsed = tool_result.get("parsed")
+                if isinstance(parsed, dict):
+                    results = parsed.get("results")
+                    if isinstance(results, dict):
+                        command_blob = results.get("command")
+                        if isinstance(command_blob, str):
+                            try:
+                                decoded = json.loads(command_blob)
+                            except Exception:
+                                decoded = None
+                            if isinstance(decoded, dict):
+                                data = decoded.get("data")
+                                if isinstance(data, list) and data:
+                                    command_set = data[0].get("commandSet") if isinstance(data[0], dict) else None
+                                    if isinstance(command_set, list) and command_set:
+                                        example = command_set[0].get("example") if isinstance(command_set[0], dict) else None
+                                        if isinstance(example, str) and example.strip():
+                                            return example.strip()
 
-            if not endpoint:
-                return []
+                content = tool_result.get("content")
+                raw = content[0] if isinstance(content, list) and content else content
+                if isinstance(raw, str):
+                    outer = json.loads(raw)
+                    if isinstance(outer, dict):
+                        command_blob = outer.get("results", {}).get("command")
+                        if isinstance(command_blob, str):
+                            inner = json.loads(command_blob)
+                            if isinstance(inner, dict):
+                                data = inner.get("data")
+                                if isinstance(data, list) and data:
+                                    command_set = data[0].get("commandSet") if isinstance(data[0], dict) else None
+                                    if isinstance(command_set, list) and command_set:
+                                        example = command_set[0].get("example") if isinstance(command_set[0], dict) else None
+                                        if isinstance(example, str) and example.strip():
+                                            return example.strip()
+            except Exception:
+                pass
+            return ""
 
-            if api_key:
-                oai_client = AsyncAzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
-                token_provider = None
-            else:
-                try:
-                    from azure.identity.aio import DefaultAzureCredential as _DAC  # type: ignore[import-not-found]
-                    _cred = _DAC(exclude_interactive_browser_credential=True)
-                    _token = await _cred.get_token("https://cognitiveservices.azure.com/.default")
-                    oai_client = AsyncAzureOpenAI(api_key=_token.token, azure_endpoint=endpoint, api_version=api_version)
-                    token_provider = _cred
-                except Exception:
-                    return []
+        def _build_cli_generate_intent(failed_step: Any) -> str:
+            step_id = str(getattr(failed_step, "step_id", "") or "")
+            tool_name = str(getattr(failed_step, "tool_name", "") or "")
+            step = step_map.get(step_id)
+            params = getattr(step, "params", {}) or {}
+            params_json = json.dumps(params, default=str, ensure_ascii=False)
+            error_msg = str(getattr(failed_step, "error", "") or "")
+            if len(error_msg) > 400:
+                error_msg = error_msg[:400]
+
+            return (
+                f"User query: {user_message}\n"
+                f"Failed step id: {step_id}\n"
+                f"Original tool: {tool_name}\n"
+                f"Original params JSON: {params_json}\n"
+                f"Failure: {error_msg}\n\n"
+                "Generate one equivalent Azure CLI command that retrieves the same information. "
+                "Return a command that starts with 'az ' and includes '--output json'. "
+                "Do not include placeholders like <resource-group-name>; use concrete values from params when present."
+            )
+
+        commands: List[Dict[str, Any]] = []
+        unresolved_steps: List[Any] = []
+
+        # Preferred path: Azure MCP CLI Copilot tool
+        for failed_step in failed:
+            step_id = str(getattr(failed_step, "step_id", "") or "")
+            tool_name = str(getattr(failed_step, "tool_name", "") or "")
+            if not step_id:
+                continue
+            logger.info(
+                "🔀 CLI fallback: attempting azmcp_extension_cli_generate for step=%s tool=%s",
+                step_id,
+                tool_name,
+            )
+            try:
+                generated_result = await self._invoke_mcp_tool(
+                    "azmcp_extension_cli_generate",
+                    {
+                        "intent": _build_cli_generate_intent(failed_step),
+                        "cliType": "az",
+                    },
+                )
+                generated_command = _extract_generated_cli_command_from_azmcp(generated_result)
+                if generated_command:
+                    logger.info(
+                        "🔀 CLI fallback: azmcp generated command for step=%s: %s",
+                        step_id,
+                        generated_command,
+                    )
+                    commands.append({
+                        "step_id": step_id,
+                        "command": generated_command,
+                        "source": "azmcp_extension_cli_generate",
+                    })
+                else:
+                    logger.warning(
+                        "🔀 CLI fallback: azmcp returned no parseable command for step=%s",
+                        step_id,
+                    )
+                    unresolved_steps.append(failed_step)
+            except Exception as exc:
+                logger.warning(
+                    "🔀 CLI fallback: azmcp generation unavailable for step=%s (%s)",
+                    step_id,
+                    exc,
+                )
+                unresolved_steps.append(failed_step)
+
+        # Secondary path: direct OpenAI synthesis for still-unresolved steps
+        if unresolved_steps:
+            logger.info(
+                "🔀 CLI fallback: unresolved after azmcp=%d, trying direct LLM synthesis",
+                len(unresolved_steps),
+            )
+            failed_lines = "\n".join(
+                f"  step_id={r.step_id} tool={r.tool_name} error={r.error[:150]}"
+                for r in unresolved_steps
+            )
+            synthesis_prompt = (
+                f"User query: {user_message}\n\n"
+                "The following MCP tool calls failed. For each, provide an equivalent Azure CLI "
+                "command that accomplishes the same goal.\n"
+                f"{failed_lines}\n\n"
+                "Output ONLY a JSON array, no prose. Example format:\n"
+                '[{"step_id": "step_1", "command": "az network vnet list --output json"}]\n'
+                "Use --output json on every command. If no CLI equivalent exists, omit that step."
+            )
 
             try:
-                resp = await oai_client.chat.completions.create(
-                    model=deployment,
-                    messages=[
-                        {"role": "system", "content": "You are an Azure CLI expert. Output only valid JSON."},
-                        {"role": "user", "content": synthesis_prompt},
-                    ],
-                    temperature=0,
-                    max_tokens=400,
-                )
-                raw = (resp.choices[0].message.content or "").strip()
-                # Strip markdown fences if present
-                if raw.startswith("```"):
-                    raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-                commands: List[Dict[str, Any]] = json.loads(raw)
-            finally:
-                await oai_client.close()
-                if token_provider is not None:
-                    try:
-                        await token_provider.close()
-                    except Exception:
-                        pass
+                from openai import AsyncAzureOpenAI  # type: ignore[import-not-found]
 
-        except Exception as exc:
-            logger.warning("_cli_fallback_retry: LLM synthesis failed (%s)", exc)
-            return []
+                endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+                api_key = os.getenv("AZURE_OPENAI_API_KEY")
+                api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+                deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
+                if endpoint:
+                    if api_key:
+                        oai_client = AsyncAzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
+                        token_provider = None
+                    else:
+                        try:
+                            from azure.identity.aio import DefaultAzureCredential as _DAC  # type: ignore[import-not-found]
+                            _cred = _DAC(exclude_interactive_browser_credential=True)
+                            _token = await _cred.get_token("https://cognitiveservices.azure.com/.default")
+                            oai_client = AsyncAzureOpenAI(api_key=_token.token, azure_endpoint=endpoint, api_version=api_version)
+                            token_provider = _cred
+                        except Exception:
+                            oai_client = None
+                            token_provider = None
+
+                    if oai_client is not None:
+                        try:
+                            resp = await oai_client.chat.completions.create(
+                                model=deployment,
+                                messages=[
+                                    {"role": "system", "content": "You are an Azure CLI expert. Output only valid JSON."},
+                                    {"role": "user", "content": synthesis_prompt},
+                                ],
+                                temperature=0,
+                                max_tokens=400,
+                            )
+                            raw = (resp.choices[0].message.content or "").strip()
+                            if raw.startswith("```"):
+                                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                            llm_commands = json.loads(raw)
+                            if isinstance(llm_commands, list):
+                                for entry in llm_commands:
+                                    if not isinstance(entry, dict):
+                                        continue
+                                    step_id = str(entry.get("step_id", "") or "")
+                                    command = str(entry.get("command", "") or "").strip()
+                                    if step_id and command:
+                                        logger.info(
+                                            "🔀 CLI fallback: direct LLM generated command for step=%s: %s",
+                                            step_id,
+                                            command,
+                                        )
+                                    commands.append({
+                                        **entry,
+                                        "source": "direct_llm_synthesis",
+                                    })
+                        finally:
+                            await oai_client.close()
+                            if token_provider is not None:
+                                try:
+                                    await token_provider.close()
+                                except Exception:
+                                    pass
+                    else:
+                        logger.warning(
+                            "🔀 CLI fallback: direct LLM synthesis unavailable (could not initialize OpenAI client)",
+                        )
+                else:
+                    logger.warning(
+                        "🔀 CLI fallback: direct LLM synthesis skipped (AZURE_OPENAI_ENDPOINT not configured)",
+                    )
+            except Exception as exc:
+                logger.warning("_cli_fallback_retry: direct LLM synthesis failed (%s)", exc)
+        else:
+            logger.info("🔀 CLI fallback: azmcp resolved all failed steps; direct LLM synthesis not needed")
+
+        # Keep one command per step_id (prefer first hit, usually azmcp output)
+        deduped_commands: List[Dict[str, Any]] = []
+        seen_step_ids: Set[str] = set()
+        for entry in commands:
+            step_id = str(entry.get("step_id", "") or "")
+            if not step_id or step_id in seen_step_ids:
+                continue
+            seen_step_ids.add(step_id)
+            deduped_commands.append(entry)
+
+        logger.info(
+            "🔀 CLI fallback: generated_commands=%d deduped=%d",
+            len(commands),
+            len(deduped_commands),
+        )
+
+        def _parse_rg_name_from_resource_id(resource_id: str) -> Tuple[str, str]:
+            rid = str(resource_id or "").strip("/")
+            if not rid:
+                return "", ""
+            parts = rid.split("/")
+            rg = ""
+            name = parts[-1] if parts else ""
+            for i, token in enumerate(parts):
+                if token.lower() == "resourcegroups" and i + 1 < len(parts):
+                    rg = parts[i + 1]
+            return rg, name
+
+        def _materialize_placeholder_command(step_id: str, command: str) -> str:
+            """Resolve common <...> placeholders using plan step params.
+
+            Primarily handles vnet peering fallback templates by filling
+            resource-group and vnet-name from inspect_vnet params.
+            """
+            if not re.search(r"<[^>]+>", command):
+                return command
+
+            step = step_map.get(step_id)
+            params = getattr(step, "params", {}) or {}
+            tool_name = str(getattr(step, "tool_name", "") or "").strip()
+
+            rg = str(params.get("resource_group") or "").strip()
+            vnet_name = str(params.get("name") or "").strip()
+            subscription_id = str(params.get("subscription_id") or "").strip()
+            nic_resource_id = str(params.get("nic_resource_id") or "").strip()
+            nic_name = str(params.get("nic_name") or "").strip()
+
+            if not rg or not vnet_name:
+                rid = str(params.get("resource_id") or "").strip()
+                if rid:
+                    parsed_rg, parsed_name = _parse_rg_name_from_resource_id(rid)
+                    rg = rg or parsed_rg
+                    vnet_name = vnet_name or parsed_name
+
+            if nic_resource_id and (not rg or not nic_name):
+                parsed_rg, parsed_name = _parse_rg_name_from_resource_id(nic_resource_id)
+                rg = rg or parsed_rg
+                nic_name = nic_name or parsed_name
+
+            # Deterministic synthesis for inspect_vnet failures when LLM emits templates
+            if tool_name == "inspect_vnet" and rg and vnet_name:
+                rebuilt = f"az network vnet peering list --resource-group {rg} --vnet-name {vnet_name}"
+                if subscription_id:
+                    rebuilt += f" --subscription {subscription_id}"
+                rebuilt += " --output json"
+                return rebuilt
+
+            if tool_name == "get_effective_routes":
+                if rg and nic_name:
+                    rebuilt = f"az network nic show-effective-route-table --resource-group {rg} --name {nic_name}"
+                    if subscription_id:
+                        rebuilt += f" --subscription {subscription_id}"
+                    rebuilt += " --output json"
+                    return rebuilt
+                if subscription_id:
+                    return (
+                        "az network nic list "
+                        f"--subscription {subscription_id} "
+                        "--query \"[].{name:name,resourceGroup:resourceGroup,id:id}\" "
+                        "--output json"
+                    )
+
+            replacement_patterns = [
+                (r"<[^>]*resource[-_ ]group[^>]*>", rg),
+                (r"<[^>]*vnet[-_ ]name[^>]*>", vnet_name),
+                (r"<[^>]*nic[^>]*name[^>]*>", nic_name),
+                (r"<[^>]*network[^>]*interface[^>]*>", nic_name),
+                (r"<[^>]*subscription[^>]*>", subscription_id),
+            ]
+
+            materialized = command
+            for pattern, value in replacement_patterns:
+                if value:
+                    materialized = re.sub(pattern, value, materialized, flags=re.IGNORECASE)
+            return materialized
 
         results: List[Any] = []
-        for entry in commands:
+        for entry in deduped_commands:
             step_id = str(entry.get("step_id", ""))
             command = str(entry.get("command", "")).strip()
+            source = str(entry.get("source", "unknown"))
             if not step_id or not command:
                 continue
+            command = _materialize_placeholder_command(step_id, command)
+            # Guard against unresolved placeholder commands from synthesis,
+            # e.g. --resource <vm_resource_id>.
+            if re.search(r"<[^>]+>", command):
+                msg = f"CLI fallback skipped unresolved placeholder command: {command}"
+                logger.warning("🔀 CLI fallback skipped: step=%s reason=%s", step_id, msg)
+                results.append(
+                    PipelineStepResult(
+                        step_id=step_id,
+                        tool_name="azure_cli_execute_command",
+                        success=False,
+                        error=msg,
+                    )
+                )
+                continue
             try:
-                logger.warning("🔀 CLI fallback: step=%s → %s", step_id, command)
+                logger.warning("🔀 CLI fallback: step=%s source=%s → %s", step_id, source, command)
                 tool_result = await self._invoke_mcp_tool(
                     "azure_cli_execute_command", {"command": command}
                 )

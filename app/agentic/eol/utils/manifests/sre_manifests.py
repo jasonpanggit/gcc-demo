@@ -5,7 +5,7 @@ Seeded from utils/sre_tool_registry.py domain lists and sre_mcp_server.py docstr
 Tool name verification against sre_tool_registry.py _DOMAIN_TOOLS:
   HEALTH:       check_resource_health, check_container_app_health, check_aks_cluster_health,
                 diagnose_app_service, diagnose_apim, analyze_resource_configuration,
-                get_diagnostic_logs, get_resource_dependencies, list_container_apps,
+                                get_diagnostic_logs, get_resource_dependencies, container_app_list,
                 describe_capabilities
   INCIDENT:     triage_incident, search_logs_by_error, correlate_alerts, analyze_activity_log,
                 generate_incident_summary, query_app_insights_traces, get_request_telemetry,
@@ -160,7 +160,7 @@ MANIFESTS: list[ToolManifest] = [
         preferred_over=frozenset(),
     ),
     ToolManifest(
-        tool_name="list_container_apps",
+        tool_name="container_app_list",
         source="sre",
         domains=frozenset({"sre_health"}),
         tags=frozenset({"containerapp", "list", "inventory"}),

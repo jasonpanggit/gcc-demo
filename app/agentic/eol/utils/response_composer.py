@@ -64,6 +64,7 @@ complete, accurate HTML response for display in a web dashboard.
 7. If a step failed, include a styled error <div> with the error text.
 8. If no data was returned, say so clearly — NEVER invent data.
 9. End with a concise <p> summary.
+10. For effective-route outputs, render ALL route rows returned by tools (do not sample or collapse).
 
 ## Confirmation prompts (destructive steps)
 
@@ -221,7 +222,7 @@ def _build_composer_user_prompt(
                 f"  [{sr.step_id}] {sr.tool_name}: SKIPPED — {sr.skip_reason}"
             )
         elif sr.success:
-            result_summary = _summarise_result(sr.result)
+            result_summary = _summarise_result(sr.result, sr.tool_name)
             parts.append(
                 f"  [{sr.step_id}] {sr.tool_name}: SUCCESS\n{result_summary}"
             )
@@ -262,16 +263,80 @@ def _build_composer_user_prompt(
     return "\n".join(parts)
 
 
-def _summarise_result(result: Optional[Dict[str, Any]]) -> str:
+def _summarise_result(result: Optional[Dict[str, Any]], tool_name: str = "") -> str:
     """Produce a concise JSON summary of a tool result for the LLM prompt."""
     if result is None:
         return "  (no result)"
     if result.get("_legacy"):
         return "  (handled by legacy ReAct loop)"
+
+    # Preserve complete effective-route data for rendering (avoid truncating to sample rows).
+    if tool_name == "get_effective_routes":
+        try:
+            parsed = result.get("parsed") if isinstance(result, dict) else None
+            payload: Optional[Dict[str, Any]] = parsed if isinstance(parsed, dict) else None
+
+            if payload is None and isinstance(result, dict):
+                content = result.get("content")
+                if isinstance(content, list):
+                    for entry in content:
+                        if not isinstance(entry, str):
+                            continue
+                        try:
+                            candidate = json.loads(entry)
+                        except Exception:
+                            continue
+                        if isinstance(candidate, dict):
+                            payload = candidate
+                            break
+
+            if isinstance(payload, dict):
+                normalized_rows: List[Dict[str, Any]] = []
+                for nic in payload.get("nic_routes") or []:
+                    if not isinstance(nic, dict):
+                        continue
+                    nic_label = nic.get("nic_name") or "unknown"
+                    rg_label = nic.get("resource_group") or "unknown"
+                    for route in nic.get("routes") or []:
+                        if not isinstance(route, dict):
+                            continue
+                        prefixes = route.get("address_prefix")
+                        if isinstance(prefixes, list) and prefixes:
+                            prefix_value = ", ".join(str(p) for p in prefixes)
+                        elif prefixes is None:
+                            prefix_value = ""
+                        else:
+                            prefix_value = str(prefixes)
+                        normalized_rows.append(
+                            {
+                                "nic_name": nic_label,
+                                "resource_group": rg_label,
+                                "address_prefix": prefix_value,
+                                "next_hop_type": route.get("next_hop_type"),
+                                "state": route.get("state"),
+                                "source": route.get("source"),
+                                "name": route.get("name"),
+                            }
+                        )
+
+                effective_payload = {
+                    "success": payload.get("success"),
+                    "vm_name": payload.get("vm_name"),
+                    "total_routes": payload.get("total_routes"),
+                    "successful_nics": payload.get("successful_nics"),
+                    "failed_nics": payload.get("failed_nics"),
+                    "effective_routes": normalized_rows,
+                }
+                return json.dumps(effective_payload, indent=2, default=str)
+        except Exception:
+            # Fall through to generic summarization
+            pass
+
     try:
         text = json.dumps(result, indent=2, default=str)
-        if len(text) > 2000:
-            text = text[:2000] + "\n  ... (truncated)"
+        limit = 12000 if tool_name == "get_effective_routes" else 2000
+        if len(text) > limit:
+            text = text[:limit] + "\n  ... (truncated)"
         return text
     except Exception:
         return str(result)[:500]

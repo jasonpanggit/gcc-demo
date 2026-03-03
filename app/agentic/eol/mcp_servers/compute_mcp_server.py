@@ -33,6 +33,19 @@ logger = logging.getLogger(__name__)
 _server = FastMCP(name="azure-compute")
 
 
+def _require_injected_spn() -> str:
+    """Validate injected SPN env vars and return client_id for logging."""
+    client_id = os.getenv("AZURE_SP_CLIENT_ID")
+    client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
+    tenant_id = os.getenv("AZURE_TENANT_ID")
+    if not (client_id and client_secret and tenant_id):
+        raise RuntimeError(
+            "Injected SPN credentials are required. "
+            "Set AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID."
+        )
+    return client_id
+
+
 def _default_subscription_id() -> str:
     return os.getenv("SUBSCRIPTION_ID") or os.getenv("AZURE_SUBSCRIPTION_ID") or ""
 
@@ -63,6 +76,9 @@ async def virtual_machine_list(
     each VM. Use this to discover which VMs exist before inspecting one in detail.
     """
     try:
+        sp_client_id = _require_injected_spn()
+        logger.info("Compute MCP auth: using injected SPN credential (%s...)", sp_client_id[:8])
+
         sub_id = subscription_id or _default_subscription_id()
         executor = await get_azure_cli_executor()
 

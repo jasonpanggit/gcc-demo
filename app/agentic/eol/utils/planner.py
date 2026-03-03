@@ -135,6 +135,8 @@ _FAST_PATH_BLOCKED_TOOLS: frozenset = frozenset({
     "virtualdesktop",   # group: AVD
     "appconfig",        # group: App Configuration
     "aks",              # group: Kubernetes
+    "containerapp",     # group: Container Apps namespace
+    "containerapps",    # group: Container Apps namespace
     "applens",          # group: App Lens diagnostics
     "appservice",       # group: App Service
     "datadog",          # group: Datadog integration
@@ -270,6 +272,9 @@ def _pick_fast_path_tool(query: str, tool_names: List[str]) -> Optional[str]:
     if "nsg" in query_tokens or "nsgs" in query_tokens:
         query_tokens.add("network")
         query_tokens.add("security")
+    if "container" in query_tokens and ("app" in query_tokens or "apps" in query_tokens):
+        query_tokens.add("containerapp")
+        query_tokens.add("containerapps")
 
     if not query_tokens:
         # No meaningful tokens — use first non-blocked candidate (keeps old
@@ -354,6 +359,133 @@ def _pick_action_tool(query: str, tool_names: List[str]) -> Optional[str]:
         if pattern.search(query) and tool_name in tool_set:
             return tool_name
     return None
+
+
+def _pick_list_intent_override(query: str, tool_names: List[str]) -> Optional[Tuple[str, Dict[str, Any], str]]:
+    """Return deterministic fast-path override for high-confidence list intents."""
+    q = query.lower()
+    is_list_intent = bool(re.search(r"\b(show|list|get|display|enumerate|what\s+are)\b", q))
+
+    if not is_list_intent:
+        return None
+
+    available = set(tool_names)
+
+    # Manifest-aligned list/discovery intents (prefer explicit list tools)
+    list_rules: List[Tuple[re.Pattern, List[str], str]] = [
+        (
+            re.compile(r"\bcontainer\s*apps?\b|\bcontainerapps?\b", re.I),
+            ["container_app_list", "azure_cli_execute_command"],
+            "Container Apps list",
+        ),
+        (
+            re.compile(r"\bvirtual\s*machines?\b|\bvms?\b", re.I),
+            ["virtual_machine_list"],
+            "Virtual Machines list",
+        ),
+        (
+            re.compile(r"\bstorage\s*accounts?\b", re.I),
+            ["storage_account_list"],
+            "Storage Accounts list",
+        ),
+        (
+            re.compile(r"\bvirtual\s*networks?\b|\bvnets?\b", re.I),
+            ["virtual_network_list"],
+            "Virtual Networks list",
+        ),
+        (
+            re.compile(r"\bprivate\s*endpoints?\b", re.I),
+            ["private_endpoint_list"],
+            "Private Endpoints list",
+        ),
+        (
+            re.compile(r"\bnetwork\s*security\s*groups?\b|\bnsgs?\b", re.I),
+            ["nsg_list"],
+            "Network Security Groups list",
+        ),
+        (
+            re.compile(r"\bresource\s*groups?\b", re.I),
+            ["groups"],
+            "Resource Groups list",
+        ),
+        (
+            re.compile(r"\bsubscriptions?\b", re.I),
+            ["subscriptions"],
+            "Subscriptions list",
+        ),
+        (
+            re.compile(r"\bsecurity\s*recommendations?\b", re.I),
+            ["list_security_recommendations"],
+            "Security recommendations list",
+        ),
+    ]
+
+    for pattern, preferred_tools, label in list_rules:
+        if not pattern.search(q):
+            continue
+        for preferred in preferred_tools:
+            if preferred in available:
+                if preferred == "azure_cli_execute_command":
+                    return (
+                        preferred,
+                        {"command": "az containerapp list --output json"},
+                        f"List-intent override: {label} via Azure CLI fallback.",
+                    )
+                return (
+                    preferred,
+                    {},
+                    f"List-intent override: {label}.",
+                )
+
+    return None
+
+
+def _pick_container_app_health_sequence(
+    query: str,
+    tool_names: List[str],
+) -> Optional[List[PlanStep]]:
+    """Return deterministic two-step plan for container app health intents.
+
+    Sequence:
+    1) container_app_list
+    2) check_container_app_health (resource_id from step_1 apps[0].id)
+
+    This handles prompts like "show health of my container apps" where a
+    single-tool list response is insufficient.
+    """
+    q = query.lower()
+    has_container_app_intent = bool(re.search(r"\bcontainer\s*apps?\b|\bcontainerapps?\b", q, re.I))
+    has_health_intent = bool(re.search(r"\b(health|healthy|status|degraded|unhealthy|availability)\b", q, re.I))
+    if not (has_container_app_intent and has_health_intent):
+        return None
+
+    available = set(tool_names)
+    if "container_app_list" not in available or "check_container_app_health" not in available:
+        return None
+
+    return [
+        PlanStep(
+            step_id="step_1",
+            tool_name="container_app_list",
+            params={},
+            affordance=ToolAffordance.READ,
+            rationale="Container App health sequence: discover apps first.",
+            is_parallel=False,
+        ),
+        PlanStep(
+            step_id="step_2",
+            tool_name="check_container_app_health",
+            params={
+                "resource_id": "$step_1.apps[0].id",
+            },
+            depends_on=["step_1"],
+            affordance=ToolAffordance.READ,
+            rationale=(
+                "Container App health sequence: run SRE health check using the discovered app resource_id."
+            ),
+            is_parallel=False,
+        ),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +573,7 @@ Step output references:
   Examples:
     "subscription_id": "$step_1.subscriptions[0].subscription_id"
     "resource_id": "$step_1.virtual_networks[0].resource_id"
+        "resource_id": "$step_1.network_security_groups[0].resource_id"
     "resource_group": "$step_1.network_security_groups[0].resource_group"
 - Only use step-refs for params that genuinely require a value from a prior step.
   For params that have sensible defaults (e.g. subscription_id reads from env),
@@ -599,6 +732,16 @@ class Planner:
         # Uses all_tool_names so action tools excluded from the read fast-path
         # (test_network_connectivity, check_dns_resolution, etc.) are still reachable.
         if all_tool_names:
+            health_sequence = _pick_container_app_health_sequence(query, all_tool_names)
+            if health_sequence:
+                logger.debug("⚡ Planner container-app-health sequence fast-path")
+                return ExecutionPlan(
+                    query=query,
+                    steps=health_sequence,
+                    is_fast_path=True,
+                    conflict_notes=conflict_notes,
+                )
+
             action_tool = _pick_action_tool(query, all_tool_names)
             if action_tool:
                 step = PlanStep(
@@ -610,6 +753,25 @@ class Planner:
                     is_parallel=False,
                 )
                 logger.debug("⚡ Planner action fast-path: tool=%s", action_tool)
+                return ExecutionPlan(
+                    query=query,
+                    steps=[step],
+                    is_fast_path=True,
+                    conflict_notes=conflict_notes,
+                )
+
+            list_override = _pick_list_intent_override(query, all_tool_names)
+            if list_override:
+                override_tool, override_params, override_rationale = list_override
+                step = PlanStep(
+                    step_id="step_1",
+                    tool_name=override_tool,
+                    params=override_params,
+                    affordance=self._get_affordance(override_tool),
+                    rationale=override_rationale,
+                    is_parallel=False,
+                )
+                logger.debug("⚡ Planner list-intent override: tool=%s", override_tool)
                 return ExecutionPlan(
                     query=query,
                     steps=[step],

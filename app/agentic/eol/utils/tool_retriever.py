@@ -82,6 +82,28 @@ _CLI_FALLBACK_DOMAINS = frozenset({
     UnifiedDomain.SRE_REMEDIATION,
 })
 _CLI_FALLBACK_TOOL = "azure_cli_execute_command"
+_CONTAINER_APP_LIST_TOOL = "container_app_list"
+_CONTAINER_APP_HEALTH_TOOL = "check_container_app_health"
+
+
+def _is_container_app_list_intent(query: str) -> bool:
+    """Return True for explicit container-app list/discovery queries."""
+    if not query:
+        return False
+    return bool(
+        re.search(r"\b(show|list|get|display|enumerate|what\s+are)\b", query, re.I)
+        and re.search(r"\bcontainer\s*apps?\b|\bcontainerapps?\b", query, re.I)
+    )
+
+
+def _is_container_app_health_intent(query: str) -> bool:
+    """Return True when query asks for container app health/status."""
+    if not query:
+        return False
+    return bool(
+        re.search(r"\bcontainer\s*apps?\b|\bcontainerapps?\b", query, re.I)
+        and re.search(r"\b(health|healthy|status|degraded|unhealthy|availability)\b", query, re.I)
+    )
 
 
 def _is_action_tool(name: str) -> bool:
@@ -214,8 +236,19 @@ class ToolRetriever:
         # Intent filter: for read queries, remove action-verb tools so they
         # never reach the planner (neither fast-path nor LLM path).
         if _READ_INTENT_RE.match(query.strip()):
-            filtered = [t for t in ranked if not _is_action_tool(self._tool_name(t))]
-            if len(filtered) >= 2:  # keep at least 2 non-action tools
+            preserve_action_tools: Set[str] = set()
+            if _is_container_app_health_intent(query):
+                preserve_action_tools.add(_CONTAINER_APP_HEALTH_TOOL)
+
+            filtered = [
+                t for t in ranked
+                if (not _is_action_tool(self._tool_name(t)))
+                or (self._tool_name(t) in preserve_action_tools)
+            ]
+
+            # Keep prior safety behavior for generic read intents, but allow
+            # explicit preserved action tools for health-intent chaining.
+            if len(filtered) >= 2 or preserve_action_tools:
                 removed = [self._tool_name(t) for t in ranked if t not in filtered]
                 if removed:
                     logger.debug(
@@ -234,6 +267,42 @@ class ToolRetriever:
                 if cli_tool:
                     ranked.append(cli_tool)
                     logger.debug("ToolRetriever: injected %s as CLI escape-hatch", _CLI_FALLBACK_TOOL)
+
+        # Deterministic guardrail: keep explicit container-app list tool in final set
+        # so Planner list-intent override can always select it when available.
+        if _is_container_app_list_intent(query):
+            ranked_names = {self._tool_name(t) for t in ranked}
+            if _CONTAINER_APP_LIST_TOOL not in ranked_names:
+                container_list_tool = next(
+                    (t for t in pool if self._tool_name(t) == _CONTAINER_APP_LIST_TOOL),
+                    None,
+                )
+                if container_list_tool:
+                    if len(ranked) >= self._top_k:
+                        ranked = ranked[:-1]
+                    ranked.append(container_list_tool)
+                    logger.debug(
+                        "ToolRetriever: injected %s for container-app list intent",
+                        _CONTAINER_APP_LIST_TOOL,
+                    )
+
+        # Deterministic guardrail: preserve container-app health tool for
+        # list+health chaining plans (planner stage 3 deterministic sequence).
+        if _is_container_app_health_intent(query):
+            ranked_names = {self._tool_name(t) for t in ranked}
+            if _CONTAINER_APP_HEALTH_TOOL not in ranked_names:
+                health_tool = next(
+                    (t for t in pool if self._tool_name(t) == _CONTAINER_APP_HEALTH_TOOL),
+                    None,
+                )
+                if health_tool:
+                    if len(ranked) >= self._top_k:
+                        ranked = ranked[:-1]
+                    ranked.append(health_tool)
+                    logger.debug(
+                        "ToolRetriever: injected %s for container-app health intent",
+                        _CONTAINER_APP_HEALTH_TOOL,
+                    )
 
         # Build conflict notes for active tool set
         tool_names = [self._tool_name(t) for t in ranked]

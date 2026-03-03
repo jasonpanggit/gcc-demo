@@ -54,7 +54,7 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "analyze_resource_configuration",
         "get_diagnostic_logs",
         "get_resource_dependencies",
-        "list_container_apps",
+        "container_app_list",
         "describe_capabilities",
     ],
     SREDomain.INCIDENT: [
@@ -121,7 +121,7 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "get_performance_metrics",
         "get_diagnostic_logs",
         "analyze_resource_configuration",
-        "list_container_apps",
+        "container_app_list",
         "describe_capabilities",
     ],
 }
