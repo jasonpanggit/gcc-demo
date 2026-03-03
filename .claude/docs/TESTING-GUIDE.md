@@ -820,6 +820,61 @@ For the full authoring guide with templates, see: `.claude/docs/MANIFEST-AUTHORI
 
 ---
 
+## Debugging Tool Selection (Phase 2)
+
+Phase 2 adds observability tools that make debugging tool selection issues faster
+and more systematic. For the full guide, see:
+- **[Phase 2 Observability Guide](PHASE-2-OBSERVABILITY-GUIDE.md)** — Architecture, telemetry reference
+- **[Debugging Tool Selection](DEBUGGING-TOOL-SELECTION.md)** — Step-by-step scenarios with example traces
+
+### Quick Debugging Commands
+
+```bash
+cd app/agentic/eol
+
+# Trace a query through the routing pipeline
+python scripts/selection_reporter.py --query "your query here"
+
+# Trace all golden scenarios and check for misroutes
+python scripts/selection_reporter.py --golden-dir tests/fixtures/golden/
+
+# Check what golden scenarios your manifest changes might break
+python scripts/manifest_impact_analyzer.py --golden-dir tests/fixtures/golden/
+
+# Get routing explanation without running full pipeline
+python -c "
+from utils.tool_router import ToolRouter
+import json
+r = ToolRouter()
+print(json.dumps(r.explain('your query'), indent=2))
+"
+```
+
+### CI Diagnostic Artifacts
+
+When golden scenarios fail in CI, the **Stage 2.5: Diagnostics** job generates:
+
+| Artifact | Description |
+|----------|-------------|
+| `selection-report.json` | Full routing traces for every golden query |
+| `selection-report.txt` | Human-readable diagnostic output |
+| `impact-report.json` | Risk assessment for manifest changes |
+| `impact-report.txt` | Human-readable impact summary |
+
+Download from **Actions tab → failed run → Artifacts → `tool-selection-diagnostics`**.
+
+### Common Debugging Patterns
+
+| Symptom | First Check | Likely Fix |
+|---------|-------------|------------|
+| Tool not selected | Trace the query | Improve manifest `example_queries` and `tags` |
+| Wrong domain | Check `active_domains` in trace | Update domain patterns or manifest `domains` |
+| Low confidence (<0.7) | Check query ambiguity | Add more diverse `example_queries` |
+| Too many tools (>10) | Check `relevant_sources` | Add `conflicts_with` and `preferred_over` |
+| Manifest change broke tests | Run impact analyzer | Fix manifest or update golden scenario YAML |
+
+---
+
 ## File Reference
 
 | File | Purpose |
@@ -834,12 +889,16 @@ For the full authoring guide with templates, see: `.claude/docs/MANIFEST-AUTHORI
 | `tests/fixtures/golden/*.yaml` | Golden scenario fixture files |
 | `scripts/manifest_linter.py` | Manifest quality linter (CI Stage 1.5) |
 | `scripts/manifest_quality_scorecard.py` | Quality scorecard analyzer (CI Stage 1.5) |
-| `.github/workflows/test-tool-selection.yml` | CI pipeline with 5 stages |
+| `scripts/selection_reporter.py` | Tool selection diagnostic reporter (CI Stage 2.5) |
+| `scripts/manifest_impact_analyzer.py` | Manifest change impact analyzer (CI Stage 2.5) |
+| `.github/workflows/test-tool-selection.yml` | CI pipeline with 7 stages |
 | `.claude/docs/MANIFEST-AUTHORING-GUIDE.md` | Guide for writing quality manifests |
 | `.claude/docs/PHASE-1-BASELINE-REPORT.md` | Phase 1 quality baseline measurements |
+| `.claude/docs/PHASE-2-OBSERVABILITY-GUIDE.md` | Phase 2 observability features |
+| `.claude/docs/DEBUGGING-TOOL-SELECTION.md` | Practical debugging scenarios |
 | `pytest.ini` | Pytest configuration (markers, paths, etc.) |
 
 ---
 
-**Version:** 1.1 (Updated 2026-03-03)
-**Covers:** Testing pyramid, golden scenarios, DeterministicMCPClient, CI pipeline (5 stages), manifest quality, cost management
+**Version:** 1.2 (Updated 2026-03-03)
+**Covers:** Testing pyramid, golden scenarios, DeterministicMCPClient, CI pipeline (7 stages), manifest quality, cost management, Phase 2 observability and debugging

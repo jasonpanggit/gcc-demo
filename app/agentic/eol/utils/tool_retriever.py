@@ -21,10 +21,12 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+import time
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 try:
@@ -112,6 +114,75 @@ def _is_action_tool(name: str) -> bool:
     return any(lname.startswith(p) for p in _ACTION_TOOL_PREFIXES)
 
 
+# ---------------------------------------------------------------------------
+# Telemetry: ToolSelectionTrace — Phase 2 observability
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolScoreEntry:
+    """Per-tool scoring breakdown for telemetry."""
+
+    tool_name: str
+    keyword_score: float = 0.0
+    semantic_score: float = 0.0
+    final_score: float = 0.0
+    boost_reasons: List[str] = field(default_factory=list)
+    """Why this tool scored higher (e.g. 'always_include', 'guardrail:container_app_list')."""
+    excluded: bool = False
+    exclusion_reason: str = ""
+
+
+@dataclass
+class ToolSelectionTrace:
+    """Full telemetry for a single retrieve() call.
+
+    Captures why each tool ranked where it did during selection — query text,
+    domain classification, pool sizes, per-tool scores, boosts, filters, and
+    guardrails.  Serializable via ``to_dict()`` for JSON logging and API responses.
+    """
+
+    query: str = ""
+    timestamp_ms: float = 0.0
+    duration_ms: float = 0.0
+
+    # Domain classification from Router
+    domain_classification: List[Dict[str, Any]] = field(default_factory=list)
+    """[{domain, confidence, signals}, ...] from Router."""
+
+    # Pool
+    sources_queried: List[str] = field(default_factory=list)
+    pool_size: int = 0
+    pool_tool_names: List[str] = field(default_factory=list)
+
+    # Ranking
+    ranking_method: str = ""
+    """'semantic', 'keyword', or 'pool_passthrough' (pool ≤ top_k)."""
+    top_k: int = 0
+
+    # Per-tool scores (only top tools + notable exclusions)
+    tool_scores: List[ToolScoreEntry] = field(default_factory=list)
+
+    # Filters applied
+    filters_applied: List[str] = field(default_factory=list)
+    """e.g. ['read_intent_filter', 'action_tool_removal']."""
+    tools_removed_by_filter: List[str] = field(default_factory=list)
+
+    # Guardrails triggered
+    guardrails_triggered: List[str] = field(default_factory=list)
+    """e.g. ['cli_fallback_inject', 'container_app_list_inject', 'container_app_health_inject']."""
+    tools_injected_by_guardrail: List[str] = field(default_factory=list)
+
+    # Final ranking
+    final_tool_names: List[str] = field(default_factory=list)
+    final_tool_count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a JSON-safe dict for logging and API responses."""
+        d = asdict(self)
+        # Convert ToolScoreEntry list to plain dicts (asdict handles this)
+        return d
+
+
 @dataclass
 class ToolRetrievalResult:
     """Output of a ToolRetriever.retrieve() call."""
@@ -130,6 +201,9 @@ class ToolRetrievalResult:
 
     pool_size: int = 0
     """Number of tools in the Stage 1 domain pool before Stage 2 ranking."""
+
+    trace: Optional[ToolSelectionTrace] = None
+    """Telemetry trace for this retrieval (always populated)."""
 
 
 class ToolRetriever:
@@ -178,8 +252,23 @@ class ToolRetriever:
                             (e.g. meta-tools like "describe_capabilities").
 
         Returns:
-            ToolRetrievalResult with the scoped tool list and conflict notes.
+            ToolRetrievalResult with the scoped tool list, conflict notes, and trace.
         """
+        trace_start = time.monotonic()
+        trace = ToolSelectionTrace(
+            query=query,
+            timestamp_ms=time.time() * 1000,
+            top_k=self._top_k,
+            domain_classification=[
+                {
+                    "domain": m.domain.value,
+                    "confidence": round(m.confidence, 3),
+                    "signals": m.matched_signals,
+                }
+                for m in domain_matches[:5]
+            ],
+        )
+
         # Collect all sources across matched domains (skip GENERAL unless it's the only match)
         non_general = [m for m in domain_matches if m.domain != UnifiedDomain.GENERAL]
         candidates = non_general if non_general else domain_matches
@@ -189,6 +278,7 @@ class ToolRetriever:
             all_sources.update(UnifiedDomainRegistry.get_sources(match.domain))
 
         sources_list = sorted(all_sources)
+        trace.sources_queried = sources_list
 
         # Stage 1: source-level filter — get the domain pool
         pool = self._get_pool(sources_list)
@@ -204,20 +294,29 @@ class ToolRetriever:
 
         if not pool:
             logger.warning("ToolRetriever: empty pool for sources=%s", sources_list)
+            trace.pool_size = 0
+            trace.duration_ms = (time.monotonic() - trace_start) * 1000
+            self._emit_trace(trace)
             return ToolRetrievalResult(
                 domain_matches=domain_matches,
                 sources_used=sources_list,
+                trace=trace,
             )
 
         pool_size = len(pool)
+        trace.pool_size = pool_size
+        trace.pool_tool_names = [self._tool_name(t) for t in pool]
 
         # Stage 2: semantic ranking within the pool
+        keyword_scores: Dict[str, float] = {}
         if self._embedder.is_ready and len(pool) > self._top_k:
+            trace.ranking_method = "semantic"
             try:
                 ranked = await self._embedder.retrieve_from_pool(query, pool, top_k=self._top_k)
             except Exception as exc:
                 logger.warning("ToolRetriever: Stage 2 ranking failed (%s); falling back to pool[:top_k]", exc)
                 ranked = pool[:self._top_k]
+                trace.ranking_method = "semantic_fallback"
             # Ensure always_include tools survive ranking
             if always_include:
                 ranked_names = {self._tool_name(t) for t in ranked}
@@ -231,7 +330,14 @@ class ToolRetriever:
         else:
             # Embedding disabled — use keyword scoring so relevant tools surface
             # instead of relying on registration order.
-            ranked = self._keyword_rank(query, pool, self._top_k)
+            ranked, keyword_scores = self._keyword_rank_with_scores(query, pool, self._top_k)
+            if not self._embedder.is_ready:
+                trace.ranking_method = "keyword"
+            else:
+                trace.ranking_method = "pool_passthrough"
+
+        # Build per-tool score entries from keyword ranking
+        self._populate_tool_scores(trace, pool, keyword_scores, always_include or [])
 
         # Intent filter: for read queries, remove action-verb tools so they
         # never reach the planner (neither fast-path nor LLM path).
@@ -251,6 +357,8 @@ class ToolRetriever:
             if len(filtered) >= 2 or preserve_action_tools:
                 removed = [self._tool_name(t) for t in ranked if t not in filtered]
                 if removed:
+                    trace.filters_applied.append("read_intent_action_removal")
+                    trace.tools_removed_by_filter.extend(removed)
                     logger.debug(
                         "ToolRetriever: intent-filter removed action tools for read query: %s",
                         removed,
@@ -266,6 +374,8 @@ class ToolRetriever:
                 cli_tool = self._get_tool_by_name(_CLI_FALLBACK_TOOL)
                 if cli_tool:
                     ranked.append(cli_tool)
+                    trace.guardrails_triggered.append("cli_fallback_inject")
+                    trace.tools_injected_by_guardrail.append(_CLI_FALLBACK_TOOL)
                     logger.debug("ToolRetriever: injected %s as CLI escape-hatch", _CLI_FALLBACK_TOOL)
 
         # Deterministic guardrail: keep explicit container-app list tool in final set
@@ -281,6 +391,8 @@ class ToolRetriever:
                     if len(ranked) >= self._top_k:
                         ranked = ranked[:-1]
                     ranked.append(container_list_tool)
+                    trace.guardrails_triggered.append("container_app_list_inject")
+                    trace.tools_injected_by_guardrail.append(_CONTAINER_APP_LIST_TOOL)
                     logger.debug(
                         "ToolRetriever: injected %s for container-app list intent",
                         _CONTAINER_APP_LIST_TOOL,
@@ -299,6 +411,8 @@ class ToolRetriever:
                     if len(ranked) >= self._top_k:
                         ranked = ranked[:-1]
                     ranked.append(health_tool)
+                    trace.guardrails_triggered.append("container_app_health_inject")
+                    trace.tools_injected_by_guardrail.append(_CONTAINER_APP_HEALTH_TOOL)
                     logger.debug(
                         "ToolRetriever: injected %s for container-app health intent",
                         _CONTAINER_APP_HEALTH_TOOL,
@@ -307,6 +421,14 @@ class ToolRetriever:
         # Build conflict notes for active tool set
         tool_names = [self._tool_name(t) for t in ranked]
         conflict_notes = self._manifests.build_conflict_note_for_context(tool_names)
+
+        # Finalize trace
+        trace.final_tool_names = tool_names
+        trace.final_tool_count = len(ranked)
+        trace.duration_ms = (time.monotonic() - trace_start) * 1000
+
+        # Emit structured telemetry log
+        self._emit_trace(trace)
 
         logger.info(
             "ToolRetriever: %d tools (pool=%d, sources=%s, top_k=%d)%s",
@@ -323,6 +445,7 @@ class ToolRetriever:
             sources_used=sources_list,
             conflict_notes=conflict_notes,
             pool_size=pool_size,
+            trace=trace,
         )
 
     # ------------------------------------------------------------------
@@ -344,6 +467,20 @@ class ToolRetriever:
         Ties broken by original pool position so frequently-used tools
         with no overlap still appear in a stable order.
         """
+        ranked, _ = ToolRetriever._keyword_rank_with_scores(query, pool, top_k)
+        return ranked
+
+    @staticmethod
+    def _keyword_rank_with_scores(
+        query: str,
+        pool: List[Dict[str, Any]],
+        top_k: int,
+    ) -> tuple:
+        """Rank *pool* by keyword overlap and return (ranked_tools, scores_dict).
+
+        Returns:
+            (ranked_tools, keyword_scores) where keyword_scores maps tool_name → float score.
+        """
         _STOP = frozenset({
             "a", "an", "the", "my", "your", "our", "its", "their",
             "i", "me", "we", "you", "he", "she", "it", "they",
@@ -360,7 +497,10 @@ class ToolRetriever:
             if len(tok) > 2 and tok not in _STOP
         }
         if not tokens:
-            return pool[:top_k]
+            scores = {
+                ToolRetriever._tool_name(t): 0.0 for t in pool
+            }
+            return pool[:top_k], scores
 
         # Expand common Azure abbreviations: 'virtual'+'network' → also 'vnet', etc.
         if "virtual" in tokens and ("network" in tokens or "networks" in tokens):
@@ -382,6 +522,7 @@ class ToolRetriever:
             tokens.add("security")
 
         scored: List[tuple] = []
+        keyword_scores: Dict[str, float] = {}
         for idx, tool in enumerate(pool):
             fn = tool.get("function", {})
             name = fn.get("name", "").lower()
@@ -403,11 +544,66 @@ class ToolRetriever:
                 elif any(v in desc for v in variants):
                     score += 1
             scored.append((-score, idx, tool))  # negative so sort is descending
+            keyword_scores[fn.get("name", "")] = float(score)
 
         scored.sort(key=lambda x: (x[0], x[1]))
         top5 = [(t[2].get("function", {}).get("name", "?"), -t[0]) for t in scored[:5]]
         logger.debug("_keyword_rank: tokens=%s top5(name,score)=%s pool=%d", tokens, top5, len(pool))
-        return [t for _, _, t in scored[:top_k]]
+        return [t for _, _, t in scored[:top_k]], keyword_scores
+
+    # ------------------------------------------------------------------
+    # Telemetry helpers
+    # ------------------------------------------------------------------
+
+    def _populate_tool_scores(
+        self,
+        trace: ToolSelectionTrace,
+        pool: List[Dict[str, Any]],
+        keyword_scores: Dict[str, float],
+        always_include: List[str],
+    ) -> None:
+        """Populate trace.tool_scores with per-tool scoring breakdown."""
+        entries: List[ToolScoreEntry] = []
+        for tool in pool:
+            name = self._tool_name(tool)
+            entry = ToolScoreEntry(
+                tool_name=name,
+                keyword_score=keyword_scores.get(name, 0.0),
+                final_score=keyword_scores.get(name, 0.0),
+            )
+            if name in always_include:
+                entry.boost_reasons.append("always_include")
+            entries.append(entry)
+
+        # Sort by score descending, keep top 20 + any with boosts
+        entries.sort(key=lambda e: e.final_score, reverse=True)
+        # Keep top 20 and all boosted entries for reasonable trace size
+        top_entries = entries[:20]
+        boosted = [e for e in entries[20:] if e.boost_reasons]
+        trace.tool_scores = top_entries + boosted
+
+    @staticmethod
+    def _emit_trace(trace: ToolSelectionTrace) -> None:
+        """Emit trace as structured JSON log at INFO level."""
+        try:
+            trace_dict = trace.to_dict()
+            # Compact: only include tool_scores for top 10 for log line brevity
+            log_dict = {
+                "event": "tool_selection_trace",
+                "query": trace.query[:100],
+                "ranking_method": trace.ranking_method,
+                "pool_size": trace.pool_size,
+                "final_tool_count": trace.final_tool_count,
+                "final_tools": trace.final_tool_names,
+                "filters_applied": trace.filters_applied,
+                "guardrails_triggered": trace.guardrails_triggered,
+                "tools_injected": trace.tools_injected_by_guardrail,
+                "tools_removed": trace.tools_removed_by_filter,
+                "duration_ms": round(trace.duration_ms, 2),
+            }
+            logger.info("📊 ToolSelectionTrace: %s", json.dumps(log_dict, ensure_ascii=False))
+        except Exception as exc:
+            logger.debug("ToolSelectionTrace emit failed: %s", exc)
 
     def _get_pool(self, sources: List[str]) -> List[Dict[str, Any]]:
         """Stage 1: fetch all tools from the matched source labels."""

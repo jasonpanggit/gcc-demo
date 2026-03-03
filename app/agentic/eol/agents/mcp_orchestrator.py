@@ -908,6 +908,23 @@ FORMATTING:
             )
 
             elapsed = time.time() - start_time
+            # Collect observability traces when available
+            _tool_selection_trace = None
+            if hasattr(retrieval_result, "trace") and retrieval_result.trace is not None:
+                try:
+                    _tool_selection_trace = retrieval_result.trace.to_dict()
+                except Exception:
+                    pass
+
+            _routing_decision_log = None
+            if hasattr(domain_matches, "__iter__") and domain_matches:
+                first_match = domain_matches[0] if domain_matches else None
+                if first_match and hasattr(first_match, "routing_log") and first_match.routing_log is not None:
+                    try:
+                        _routing_decision_log = first_match.routing_log.to_dict()
+                    except Exception:
+                        pass
+
             return {
                 "success": True,
                 "response": final_html,
@@ -923,6 +940,8 @@ FORMATTING:
                     "steps_failed": len(execution_result.failed_results),
                     "steps_skipped": len(execution_result.skipped_results),
                     "needs_confirmation": verification_result.needs_confirmation,
+                    "tool_selection_trace": _tool_selection_trace,
+                    "routing_decision_log": _routing_decision_log,
                 },
             }
 
@@ -1165,6 +1184,14 @@ FORMATTING:
                 inventory_context=self._inventory_grounding_context,
             )
 
+            # Include observability trace if available
+            _trace = None
+            if hasattr(retrieval_result, "trace") and retrieval_result.trace is not None:
+                try:
+                    _trace = retrieval_result.trace.to_dict()
+                except Exception:
+                    pass
+
             return {
                 "domains": [
                     {"domain": m.domain.value, "confidence": round(m.confidence, 3)}
@@ -1184,6 +1211,7 @@ FORMATTING:
                     for s in plan.steps
                 ],
                 "is_fast_path": plan.is_fast_path,
+                "tool_selection_trace": _trace,
             }
         except Exception as exc:
             logger.warning("plan_for_query failed: %s", exc)

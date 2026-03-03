@@ -1,7 +1,8 @@
 name: Test Tool Selection - Progressive Gates
 
-# Progressive 5-stage pipeline for MCP tool selection testing.
-# Stages: unit → manifest-quality → golden (integration) → smoke → e2e
+# Progressive 7-stage pipeline for MCP tool selection testing.
+# Stages: unit → manifest-quality → golden (integration) → diagnostics →
+#          manifest-impact → smoke → e2e
 # Each stage gates on the previous; smoke/e2e skip for draft PRs.
 
 on:
@@ -258,6 +259,129 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────────────────────────────
+  # Stage 2.5: Tool Selection Diagnostics (<1min)
+  # Runs after golden scenarios. Generates diagnostic reports showing
+  # how queries route through the pipeline. On failure, provides
+  # detailed traces explaining why tool selection diverged from expected.
+  # Always runs (even if golden scenarios fail) to provide debug info.
+  # ──────────────────────────────────────────────────────────────────────
+  tool-diagnostics:
+    name: "Stage 2.5: Tool Selection Diagnostics"
+    runs-on: ubuntu-latest
+    needs: [golden-scenarios]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for manifest diff
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-diag-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-diag-
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r ${{ env.APP_DIR }}/requirements.txt
+          pip install pyyaml
+
+      - name: Run selection reporter on golden scenarios
+        id: reporter
+        if: always()
+        run: |
+          cd ${{ env.APP_DIR }}
+          mkdir -p /tmp/diagnostics
+
+          # Generate full diagnostic report from golden fixtures
+          python scripts/selection_reporter.py \
+            --golden-dir tests/fixtures/golden/ \
+            --json > /tmp/diagnostics/selection-report.json 2>/dev/null || true
+
+          # Also generate human-readable report
+          python scripts/selection_reporter.py \
+            --golden-dir tests/fixtures/golden/ \
+            > /tmp/diagnostics/selection-report.txt 2>/dev/null || true
+
+          # Generate GitHub summary if golden scenarios failed
+          if [ "${{ needs.golden-scenarios.result }}" == "failure" ]; then
+            python scripts/selection_reporter.py \
+              --golden-dir tests/fixtures/golden/ \
+              --github-summary "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          fi
+
+          echo "reporter_done=true" >> "$GITHUB_OUTPUT"
+        env:
+          USE_MOCK_DATA: "true"
+          TESTING: "true"
+          MOCK_AGENT_DELAY_MS: "0"
+          AZURE_OPENAI_ENDPOINT: "https://test.openai.azure.com"
+          AZURE_OPENAI_DEPLOYMENT_NAME: "gpt-4"
+          ENVIRONMENT: "testing"
+          LOG_ANALYTICS_WORKSPACE_ID: "test-workspace-id"
+
+      - name: Run manifest impact analyzer
+        id: impact
+        if: always()
+        run: |
+          cd ${{ env.APP_DIR }}
+
+          # Detect base ref for comparison
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_REF="HEAD~1"
+          fi
+
+          python scripts/manifest_impact_analyzer.py \
+            --base "$BASE_REF" \
+            --head HEAD \
+            --golden-dir tests/fixtures/golden/ \
+            --json > /tmp/diagnostics/impact-report.json 2>/dev/null || true
+
+          python scripts/manifest_impact_analyzer.py \
+            --base "$BASE_REF" \
+            --head HEAD \
+            --golden-dir tests/fixtures/golden/ \
+            > /tmp/diagnostics/impact-report.txt 2>/dev/null || true
+
+          # Write impact summary to step summary
+          python scripts/manifest_impact_analyzer.py \
+            --base "$BASE_REF" \
+            --head HEAD \
+            --golden-dir tests/fixtures/golden/ \
+            --github-summary "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+          echo "impact_done=true" >> "$GITHUB_OUTPUT"
+        env:
+          USE_MOCK_DATA: "true"
+          TESTING: "true"
+          AZURE_OPENAI_ENDPOINT: "https://test.openai.azure.com"
+          AZURE_OPENAI_DEPLOYMENT_NAME: "gpt-4"
+          ENVIRONMENT: "testing"
+          LOG_ANALYTICS_WORKSPACE_ID: "test-workspace-id"
+
+      - name: Upload diagnostic artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tool-selection-diagnostics
+          path: /tmp/diagnostics/
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────
   # Stage 3: Smoke Tests (<5min)
   # Runs a small set of critical queries against the deployed app.
   # Skipped for draft PRs and when manually disabled.
@@ -430,7 +554,7 @@ jobs:
   test-summary:
     name: "Test Summary"
     runs-on: ubuntu-latest
-    needs: [unit-tests, manifest-quality, golden-scenarios, smoke-tests, e2e-tests]
+    needs: [unit-tests, manifest-quality, golden-scenarios, tool-diagnostics, smoke-tests, e2e-tests]
     if: always()
 
     steps:
@@ -440,6 +564,7 @@ jobs:
           echo "unit=${{ needs.unit-tests.result }}" >> "$GITHUB_OUTPUT"
           echo "manifest=${{ needs.manifest-quality.result }}" >> "$GITHUB_OUTPUT"
           echo "golden=${{ needs.golden-scenarios.result }}" >> "$GITHUB_OUTPUT"
+          echo "diagnostics=${{ needs.tool-diagnostics.result }}" >> "$GITHUB_OUTPUT"
           echo "smoke=${{ needs.smoke-tests.result }}" >> "$GITHUB_OUTPUT"
           echo "e2e=${{ needs.e2e-tests.result }}" >> "$GITHUB_OUTPUT"
 
@@ -452,6 +577,7 @@ jobs:
           echo "| Unit Tests | ${{ needs.unit-tests.result }} | Routing logic, classification |"
           echo "| Manifest Quality | ${{ needs.manifest-quality.result }} | Linter + quality scorecard |"
           echo "| Golden Scenarios | ${{ needs.golden-scenarios.result }} | Tool selection contracts |"
+          echo "| Diagnostics | ${{ needs.tool-diagnostics.result }} | Selection traces + impact analysis |"
           echo "| Smoke Tests | ${{ needs.smoke-tests.result }} | Deployed app validation |"
           echo "| E2E Tests | ${{ needs.e2e-tests.result }} | Full user journeys |"
           echo ""
@@ -467,6 +593,10 @@ jobs:
           if [ "${{ needs.golden-scenarios.result }}" != "success" ]; then
             echo "::error::Golden scenario tests failed — blocking merge"
             exit 1
+          fi
+          # Diagnostics are advisory (always runs for debug data)
+          if [ "${{ needs.tool-diagnostics.result }}" == "failure" ]; then
+            echo "::warning::Tool diagnostics detected issues — check selection report artifacts"
           fi
           # Smoke and E2E are non-blocking (may be skipped for drafts)
           if [ "${{ needs.smoke-tests.result }}" == "failure" ]; then
@@ -484,6 +614,7 @@ jobs:
             const unit = '${{ needs.unit-tests.result }}';
             const manifest = '${{ needs.manifest-quality.result }}';
             const golden = '${{ needs.golden-scenarios.result }}';
+            const diagnostics = '${{ needs.tool-diagnostics.result }}';
             const smoke = '${{ needs.smoke-tests.result }}';
             const e2e = '${{ needs.e2e-tests.result }}';
 
@@ -505,6 +636,7 @@ jobs:
             | Unit Tests | ${icon(unit)} ${unit} | Required |
             | Manifest Quality | ${icon(manifest)} ${manifest} | Advisory |
             | Golden Scenarios | ${icon(golden)} ${golden} | Required |
+            | Diagnostics | ${icon(diagnostics)} ${diagnostics} | Advisory |
             | Smoke Tests | ${icon(smoke)} ${smoke} | Optional |
             | E2E Tests | ${icon(e2e)} ${e2e} | Optional |
 
@@ -526,8 +658,14 @@ jobs:
             - **Manifest lint results** (JSON) — shows all quality issues
             - **Manifest quality scorecard** (JSON) — per-tool scores and gaps
             - Golden scenario test results
+            - **Tool selection diagnostic report** (JSON + text) — query routing traces
+            - **Manifest impact analysis** (JSON + text) — change risk assessment
 
             **Cost estimate:** ~$0.01-0.05 for this run (gpt-4o-mini)
+
+            **Debugging:** If golden scenarios failed, download the \`tool-selection-diagnostics\`
+            artifact for detailed routing traces showing why queries were misrouted.
+            See \`.claude/docs/DEBUGGING-TOOL-SELECTION.md\` for step-by-step guide.
             </details>
             `;
 
