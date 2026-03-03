@@ -12,14 +12,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 try:
-    from app.agentic.eol.utils.tool_embedder import (
+    from app.agentic.eol.utils.legacy.tool_embedder import (
         ToolEmbedder,
         count_prompt_tokens,
         get_tool_embedder,
     )
     from app.agentic.eol.agents.mcp_orchestrator import MCPOrchestratorAgent
 except ModuleNotFoundError:
-    from utils.tool_embedder import (  # type: ignore[import-not-found]
+    from utils.legacy.tool_embedder import (  # type: ignore[import-not-found]
         ToolEmbedder,
         count_prompt_tokens,
         get_tool_embedder,
@@ -294,7 +294,8 @@ class TestTokenAudit:
     @pytest.mark.unit
     def test_dynamic_prompt_without_tools_under_1500_tokens(self):
         """_build_dynamic_system_prompt with empty tools should stay ≤ 1,500 tokens."""
-        prompt = MCPOrchestratorAgent._build_dynamic_system_prompt([], {})
+        agent = MCPOrchestratorAgent.__new__(MCPOrchestratorAgent)
+        prompt = agent._build_dynamic_system_prompt([], {})
         token_count = count_prompt_tokens(prompt)
         assert token_count <= 1_500, (
             f"Dynamic prompt (no tools) is {token_count} tokens — must be ≤ 1,500"

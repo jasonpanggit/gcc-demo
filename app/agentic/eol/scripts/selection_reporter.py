@@ -79,7 +79,7 @@ async def trace_query(
 ) -> ToolSelectionTrace:
     """Trace a single query through the routing pipeline."""
     from utils.unified_router import get_unified_router
-    from utils.tool_router import ToolRouter
+    from utils.legacy.tool_router import ToolRouter
 
     router = get_unified_router()
     plan = await router.route(query, strategy=strategy)

@@ -33,12 +33,12 @@ try:
     from app.agentic.eol.utils.unified_domain_registry import UnifiedDomain, UnifiedDomainRegistry
     from app.agentic.eol.utils.tool_manifest_index import ToolManifestIndex, get_tool_manifest_index
     from app.agentic.eol.utils.router import DomainMatch
-    from app.agentic.eol.utils.tool_embedder import ToolEmbedder, get_tool_embedder
+    from app.agentic.eol.utils.legacy.tool_embedder import ToolEmbedder, get_tool_embedder
 except ModuleNotFoundError:
     from utils.unified_domain_registry import UnifiedDomain, UnifiedDomainRegistry  # type: ignore[import-not-found]
     from utils.tool_manifest_index import ToolManifestIndex, get_tool_manifest_index  # type: ignore[import-not-found]
     from utils.router import DomainMatch  # type: ignore[import-not-found]
-    from utils.tool_embedder import ToolEmbedder, get_tool_embedder  # type: ignore[import-not-found]
+    from utils.legacy.tool_embedder import ToolEmbedder, get_tool_embedder  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 

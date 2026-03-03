@@ -3,9 +3,10 @@
 Tests that:
 - _pipeline_routing flag set correctly from MCP_AGENT_PIPELINE env var
 - _get_active_tools_for_iteration_async uses new pipeline when _pipeline_routing=True
-- _get_active_tools_for_iteration_async falls back to legacy when pipeline returns empty
-- _get_active_tools_for_iteration_async falls back to legacy when pipeline raises
-- legacy path used when _pipeline_routing=False (default)
+- _get_active_tools_for_iteration_async returns [] when pipeline returns empty (Phase 3 Task 5: legacy fallback removed)
+- _get_active_tools_for_iteration_async returns [] when pipeline raises (Phase 3 Task 5: legacy fallback removed)
+- _get_active_tools_for_iteration_async returns [] when pipeline not initialized
+- returns [] when routing disabled (pipeline path not active)
 - shadow mode log tag changes between SHADOW and ROUTING
 
 All tests use MagicMock/AsyncMock — no Azure calls.
@@ -214,13 +215,13 @@ class TestGetActiveToolsRoutingPath:
 
 
 # ---------------------------------------------------------------------------
-# Test: fallback to legacy when pipeline returns empty
+# Test: pipeline returns empty → return [] (Phase 3 Task 5: legacy fallback removed)
 # ---------------------------------------------------------------------------
 
 class TestRoutingFallbackOnEmpty:
     @pytest.mark.asyncio
     async def test_fallback_to_legacy_when_pipeline_returns_empty(self):
-        """If pipeline returns 0 tools, fall back to legacy ToolRouter."""
+        """If pipeline returns 0 tools, return [] (legacy fallback removed in Phase 3 Task 5)."""
         agent = _make_agent(pipeline_routing=True)
         _attach_mock_pipeline(agent, pipeline_tools=[])  # Empty result
         legacy_tools = [_make_tool("legacy_fallback_tool")]
@@ -228,15 +229,14 @@ class TestRoutingFallbackOnEmpty:
 
         result = await agent._get_active_tools_for_iteration_async("check health", [])
 
-        # Legacy router should have been called
-        mock_legacy.filter_tools_for_query.assert_called_once()
-        # Result should contain legacy tools
-        tool_names = [t["function"]["name"] for t in result]
-        assert "legacy_fallback_tool" in tool_names
+        # Legacy router should NOT be called (fallback removed in Task 5)
+        mock_legacy.filter_tools_for_query.assert_not_called()
+        # Result should be empty — caller falls back to full catalog
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_fallback_to_legacy_when_pipeline_raises(self):
-        """If pipeline raises an exception, fall back to legacy ToolRouter."""
+        """If pipeline raises an exception, return [] (legacy fallback removed in Phase 3 Task 5)."""
         agent = _make_agent(pipeline_routing=True)
         _attach_mock_pipeline(agent, raise_exc=RuntimeError("embedding service down"))
         legacy_tools = [_make_tool("legacy_exception_fallback")]
@@ -245,13 +245,14 @@ class TestRoutingFallbackOnEmpty:
         # Should NOT raise
         result = await agent._get_active_tools_for_iteration_async("check health", [])
 
-        mock_legacy.filter_tools_for_query.assert_called_once()
-        tool_names = [t["function"]["name"] for t in result]
-        assert "legacy_exception_fallback" in tool_names
+        # Legacy router should NOT be called (fallback removed in Task 5)
+        mock_legacy.filter_tools_for_query.assert_not_called()
+        # Result is empty — caller falls back to full catalog
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_fallback_when_pipeline_not_initialized(self):
-        """If _pipeline_router is None, use legacy path even when _pipeline_routing=True."""
+        """If _pipeline_router is None, return [] even when _pipeline_routing=True."""
         agent = _make_agent(pipeline_routing=True)
         # Don't attach mock pipeline → router + retriever remain None
         legacy_tools = [_make_tool("legacy_uninit_tool")]
@@ -259,19 +260,19 @@ class TestRoutingFallbackOnEmpty:
 
         result = await agent._get_active_tools_for_iteration_async("check health", [])
 
-        mock_legacy.filter_tools_for_query.assert_called_once()
-        tool_names = [t["function"]["name"] for t in result]
-        assert "legacy_uninit_tool" in tool_names
+        # Legacy router should NOT be called (fallback removed in Task 5)
+        mock_legacy.filter_tools_for_query.assert_not_called()
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
-# Test: legacy path used when pipeline_routing=False
+# Test: routing disabled → return [] (pipeline path not active)
 # ---------------------------------------------------------------------------
 
 class TestLegacyPathWhenRoutingOff:
     @pytest.mark.asyncio
     async def test_legacy_path_when_routing_disabled(self):
-        """When _pipeline_routing=False, legacy ToolRouter is used."""
+        """When _pipeline_routing=False, _get_active_tools_for_iteration_async returns []."""
         agent = _make_agent(pipeline_routing=False)
         pipeline_tools = [_make_tool("should_not_appear")]
         _attach_mock_pipeline(agent, pipeline_tools=pipeline_tools)
@@ -282,21 +283,22 @@ class TestLegacyPathWhenRoutingOff:
 
         # Pipeline router should NOT be called
         agent._pipeline_router.route.assert_not_called()
-        # Legacy router should be called
-        mock_legacy.filter_tools_for_query.assert_called_once()
+        # Legacy router also NOT called (legacy fallback removed in Task 5)
+        mock_legacy.filter_tools_for_query.assert_not_called()
+        # Returns [] — caller falls back to full catalog
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_legacy_path_returns_legacy_tools(self):
-        """Legacy path should return tools from ToolRouter.filter_tools_for_query."""
+        """When routing disabled, _get_active_tools_for_iteration_async returns [] (Task 5)."""
         agent = _make_agent(pipeline_routing=False)
         legacy_tools = [_make_tool("legacy_a"), _make_tool("legacy_b")]
         _attach_mock_legacy_router(agent, legacy_tools=legacy_tools)
 
         result = await agent._get_active_tools_for_iteration_async("check health", [])
 
-        tool_names = [t["function"]["name"] for t in result]
-        assert "legacy_a" in tool_names
-        assert "legacy_b" in tool_names
+        # Returns [] — caller uses full catalog
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_legacy_path_empty_when_no_tools(self):

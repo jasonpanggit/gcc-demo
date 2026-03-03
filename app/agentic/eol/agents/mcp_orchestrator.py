@@ -225,18 +225,18 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
         build_patch_meta_tool = None  # type: ignore[assignment]
 
 try:
-    from app.agentic.eol.utils.tool_router import ToolRouter  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.legacy.tool_router import ToolRouter  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     try:
-        from utils.tool_router import ToolRouter  # type: ignore[import-not-found]
+        from utils.legacy.tool_router import ToolRouter  # type: ignore[import-not-found]
     except ModuleNotFoundError:
         ToolRouter = None  # type: ignore[assignment]
 
 try:
-    from app.agentic.eol.utils.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.legacy.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     try:
-        from utils.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
+        from utils.legacy.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
     except ModuleNotFoundError:
         ToolEmbedder = None  # type: ignore[assignment]
 
@@ -691,12 +691,9 @@ FORMATTING:
         Phase 5 routing path (MCP_AGENT_PIPELINE=routing):
             1. Router.route()            → List[DomainMatch]
             2. ToolRetriever.retrieve()  → ≤15 semantically ranked tools
-            Falls back to legacy path if pipeline not initialized.
 
-        Legacy path (default / MCP_AGENT_PIPELINE not set):
-            Runs the synchronous ToolRouter pass first, then enriches the result with
-            semantic retrieval from ToolEmbedder when available.  Falls back to the
-            synchronous method result when the embedder is not ready.
+        When the pipeline is not initialised (MCP_AGENT_PIPELINE not set),
+        returns [] so the caller falls back to the full tool catalog.
         """
         # Phase 5: new routing pipeline path
         if (
@@ -732,37 +729,12 @@ FORMATTING:
                     "🗺️ [ROUTING] pipeline error (%s); falling back to legacy router", _pipe_exc
                 )
 
-        # Legacy path: ToolRouter (sync) + ToolEmbedder merge
-        router_tools = self._get_active_tools_for_iteration(user_message, prior_tool_names)
-
-        # Semantic enrichment (only when embedder index is ready)
-        if self._tool_embedder and self._tool_embedder.is_ready and user_message:
-            try:
-                semantic_tools = await self._tool_embedder.retrieve(
-                    user_message, top_k=self._routed_tool_budget
-                )
-                if semantic_tools:
-                    # Union of router + semantic, keeping router order first
-                    router_names = {
-                        t.get("function", {}).get("name") for t in router_tools
-                    }
-                    for t in semantic_tools:
-                        name = (t.get("function") or {}).get("name")
-                        if name and name not in router_names:
-                            router_tools.append(t)
-                            router_names.add(name)
-                    router_tools = self._enforce_routed_tool_budget(
-                        router_tools, len(self._tool_definitions)
-                    )
-                    logger.debug(
-                        "ToolEmbedder merged %d semantic tools; final subset=%d",
-                        len(semantic_tools),
-                        len(router_tools),
-                    )
-            except Exception as emb_exc:
-                logger.debug("ToolEmbedder retrieval skipped: %s", emb_exc)
-
-        return router_tools
+        # Pipeline not active — return empty list; caller will use full catalog fallback.
+        logger.warning(
+            "🗺️ [ROUTING] Pipeline routing unavailable (MCP_AGENT_PIPELINE not set or "
+            "pipeline not initialised); returning [] so caller falls back to full catalog."
+        )
+        return []
 
     async def _run_full_pipeline_async(
         self,
@@ -2254,7 +2226,7 @@ FORMATTING:
                     # Initialize the SRESubAgent now
                     self._init_sre_agent()
 
-            # --- Initialize ToolRouter for intent-based pre-filtering ---
+            # --- Initialize legacy ToolRouter (used by sync fallback path) ---
             if ToolRouter is not None and self._tool_router is None:
                 self._tool_router = ToolRouter(composite_client=self._mcp_client)
                 logger.info("🎯 ToolRouter initialized for intent-based tool pre-filtering")
