@@ -245,13 +245,16 @@ _pipeline_router_import_error: Optional[str] = None
 try:
     from app.agentic.eol.utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
     from app.agentic.eol.utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
+    from app.agentic.eol.utils.tool_manifest_index import get_tool_manifest_index as _get_manifest_index  # type: ignore[import-not-found]
 except ModuleNotFoundError:
     try:
         from utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
         from utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
+        from utils.tool_manifest_index import get_tool_manifest_index as _get_manifest_index  # type: ignore[import-not-found]
     except ModuleNotFoundError as _e:
         PipelineRouter = None  # type: ignore[assignment,misc]
         PipelineToolRetriever = None  # type: ignore[assignment,misc]
+        _get_manifest_index = None  # type: ignore[assignment]
         _pipeline_router_import_error = str(_e)
 
 # Phase 6 — full pipeline: Planner + Executor + Verifier + ResponseComposer
@@ -927,18 +930,28 @@ FORMATTING:
 
     @staticmethod
     def _expected_tools_for_query_intent(query: str) -> Set[str]:
-        """Return a narrow expected tool set for strong network query intents."""
-        q = (query or "").lower()
+        """Return a narrow expected tool set for strong query intents.
 
-        if "effective route" in q or "effective routes" in q:
-            return {"get_effective_routes", "analyze_route_path"}
+        Migrated to manifest metadata: uses ToolManifestIndex.find_tools_matching_query()
+        to derive expected tools from primary_phrasings rather than hard-coded keyword
+        checks.  Falls back to an empty set if the manifest index is unavailable.
 
-        if "vnet peering" in q or ("peering" in q and "vnet" in q):
-            return {"inspect_vnet", "virtual_network_list"}
-
-        if "nsg" in q or "network security group" in q:
-            return {"inspect_nsg_rules", "nsg_list", "assess_network_security_posture"}
-
+        Previous hard-coded patterns (now expressed via manifest primary_phrasings):
+          - "effective route"  → get_effective_routes, analyze_route_path
+          - "vnet peering"     → inspect_vnet, virtual_network_list
+          - "nsg" / "network security group" → inspect_nsg_rules, nsg_list,
+                                               assess_network_security_posture
+        """
+        if not query:
+            return set()
+        try:
+            manifest_index = _get_manifest_index() if _get_manifest_index else None
+            if manifest_index is not None:
+                matched = manifest_index.find_tools_matching_query(query)
+                if matched:
+                    return set(matched)
+        except Exception:
+            pass  # Graceful degradation — manifest index unavailable
         return set()
 
     def _detect_semantic_cli_fallback_candidates(

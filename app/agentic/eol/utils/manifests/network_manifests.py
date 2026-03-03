@@ -26,6 +26,34 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset({"inspect_vnet"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list my virtual networks",
+            "show all VNets in my subscription",
+            "what virtual networks do I have",
+            "list VNets",
+            "show my VNets",
+            "enumerate virtual networks",
+            "display all VNets",
+            "which virtual networks exist",
+            "show virtual networks in resource group",
+            "get all VNets",
+            # Abbreviation variants — replaces hard-coded vnet expansion in tool_retriever.py
+            "list vnets",
+            "show vnets",
+            "all vnets",
+            "my vnets",
+            "list my vnets",
+        ),
+        avoid_phrasings=(
+            "show VNet address space and subnets",  # → inspect_vnet (detailed inspection)
+            "VNet peering status",                  # → inspect_vnet
+            "check network connectivity",           # → test_network_connectivity
+            "validate hub-spoke topology",          # → validate_hub_spoke_topology
+        ),
+        confidence_boost=1.3,
+        requires_sequence=None,
+        preferred_over_list=("inspect_vnet",),
     ),
     ToolManifest(
         tool_name="private_endpoint_list",
@@ -63,6 +91,25 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "inspect virtual network",
+            "show VNet address space and subnets",
+            "VNet peering status",
+            "show my VNet peering connections",
+            "what are the subnets in my VNet",
+            "VNet peering",
+            "vnet peering",
+            "show peering connections",
+            "inspect my VNet topology",
+            "VNet address prefix",
+        ),
+        avoid_phrasings=(
+            "list all VNets",              # → virtual_network_list
+            "test network connectivity",   # → test_network_connectivity
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="nsg_list",
@@ -83,6 +130,33 @@ MANIFESTS: list[ToolManifest] = [
             "Only use inspect_nsg_rules when the user wants to see the rules/ports of a SPECIFIC NSG."
         ),
         preferred_over=frozenset({"inspect_nsg_rules"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list my network security groups",
+            "show all NSGs",
+            "what network security groups do I have",
+            "enumerate NSGs in my subscription",
+            "show NSGs in resource group",
+            "list all NSGs",
+            "display network security groups",
+            "get all network security groups",
+            # Abbreviation variants — replaces hard-coded nsg expansion in tool_retriever.py
+            "list nsgs",
+            "show nsgs",
+            "all nsgs",
+            "my nsgs",
+            "list my nsgs",
+        ),
+        avoid_phrasings=(
+            "show rules for my NSG",             # → inspect_nsg_rules (specific rules)
+            "what ports are allowed",            # → inspect_nsg_rules
+            "simulate NSG traffic flow",         # → simulate_nsg_flow
+            "assess network security posture",   # → assess_network_security_posture
+            "get effective NSG rules for VM",    # → get_effective_routes_and_rules
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
+        preferred_over_list=("inspect_nsg_rules",),
     ),
     ToolManifest(
         tool_name="inspect_nsg_rules",
@@ -102,6 +176,25 @@ MANIFESTS: list[ToolManifest] = [
             "Do NOT use it to list or enumerate NSGs — use nsg_list for that."
         ),
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "show rules for my NSG",
+            "what ports are allowed in my network security group",
+            "inspect inbound rules for NSG",
+            "show outbound NSG rules",
+            "what traffic does my NSG allow",
+            "NSG inbound rules",
+            "show allow and deny rules for NSG",
+            "what is blocked by my NSG",
+            "inspect network security group rules",
+            "NSG rule details",
+        ),
+        avoid_phrasings=(
+            "list all NSGs",               # → nsg_list (enumeration, not rules)
+            "show all network security groups",  # → nsg_list
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="get_effective_routes_and_rules",
@@ -132,6 +225,28 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "test network connectivity",
+            "can my resource reach another resource",
+            "test IP flow between services",
+            "troubleshoot network connection",
+            "check if my VM can connect to",
+            "network connectivity check",
+            "is my container app able to reach the database",
+            "connection test between resources",
+            "verify network path",
+            "can my subnet reach the internet",
+        ),
+        avoid_phrasings=(
+            "list my VNets",                     # → virtual_network_list
+            "show NSG rules",                    # → inspect_nsg_rules
+            "simulate NSG flow",                 # → simulate_nsg_flow (specific simulation)
+            "analyze route path",                # → analyze_route_path (routing analysis)
+            "check DNS resolution",              # → check_dns_resolution
+        ),
+        confidence_boost=1.3,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="inspect_appgw_waf",
@@ -197,6 +312,25 @@ MANIFESTS: list[ToolManifest] = [
             "Use get_effective_routes_and_rules when the user wants all effective routes for a NIC."
         ),
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "analyze route path",
+            "trace routing path to destination",
+            "which route does traffic take",
+            "show route from my subnet",
+            "effective route analysis",
+            "effective routes",
+            "what is the effective route to",
+            "trace the routing path",
+            "route path from subnet",
+            "analyze effective routes",
+        ),
+        avoid_phrasings=(
+            "get effective routes for NIC",    # → get_effective_routes_and_rules
+            "show all effective routes",       # → get_effective_routes_and_rules
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="simulate_nsg_flow",
