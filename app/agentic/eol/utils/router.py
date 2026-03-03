@@ -116,7 +116,7 @@ class RoutingDecisionLog:
 
     # Deterministic guardrails triggered
     guardrails_triggered: List[str] = field(default_factory=list)
-    """e.g. ['container_app_list_boost', 'vm_health_boost']."""
+    """e.g. ['entity_type_boost']."""
 
     # Entity-type boosts applied
     entity_type_boosts: List[Dict[str, Any]] = field(default_factory=list)
@@ -241,46 +241,6 @@ class Router:
 
         if active_legacy:
             routing_path_parts.append("pattern_match")
-
-        # Step 3b: deterministic intent boost for Container Apps list/discovery.
-        # This ensures SRE list tools (e.g., container_app_list) are available
-        # even when QueryPatterns classifies the query as deployment/cli only.
-        if re.search(r"\b(show|list|get|display|enumerate|what\s+are)\b", query, re.I) and re.search(
-            r"\bcontainer\s*apps?\b|\bcontainerapps?\b", query, re.I
-        ):
-            rlog.guardrails_triggered.append("container_app_list_boost")
-            existing = matches.get(UnifiedDomain.SRE_HEALTH)
-            if existing is None:
-                matches[UnifiedDomain.SRE_HEALTH] = DomainMatch(
-                    domain=UnifiedDomain.SRE_HEALTH,
-                    confidence=0.9,
-                    matched_signals=["intent:container_app_list"],
-                    from_entity_hint=False,
-                )
-            else:
-                existing.confidence = min(1.0, max(existing.confidence, 0.9))
-                if "intent:container_app_list" not in existing.matched_signals:
-                    existing.matched_signals.append("intent:container_app_list")
-
-        # Step 3c: deterministic intent boost for VM health/status queries.
-        # Keep VM operational health in SRE scope while preserving general VM
-        # inventory and management routing in Azure Management.
-        if re.search(r"\b(vms?|virtual\s+machines?)\b", query, re.I) and re.search(
-            r"\b(health|healthy|status|unhealthy|degraded|availability)\b", query, re.I
-        ):
-            rlog.guardrails_triggered.append("vm_health_boost")
-            existing = matches.get(UnifiedDomain.SRE_HEALTH)
-            if existing is None:
-                matches[UnifiedDomain.SRE_HEALTH] = DomainMatch(
-                    domain=UnifiedDomain.SRE_HEALTH,
-                    confidence=0.95,
-                    matched_signals=["intent:vm_health"],
-                    from_entity_hint=False,
-                )
-            else:
-                existing.confidence = min(1.0, max(existing.confidence, 0.95))
-                if "intent:vm_health" not in existing.matched_signals:
-                    existing.matched_signals.append("intent:vm_health")
 
         # Step 4: boost confidence from entity type hints
         for resource_type in entity_hints.possible_types:

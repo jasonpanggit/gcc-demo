@@ -130,12 +130,31 @@ MANIFESTS: list[ToolManifest] = [
             "list app services",
             "show web apps",
         ),
-        conflicts_with=frozenset(),
+        conflicts_with=frozenset({"container_app_list", "function_app"}),
         conflict_note=(
-            "app_service is for Azure App SERVICE (Web Apps). "
-            "NOT for Azure Container Apps."
+            "app_service is for Azure App SERVICE (Web Apps on App Service Plans). "
+            "NOT for Azure Container Apps — use container_app_list for those. "
+            "NOT for Function Apps — use function_app for those."
         ),
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list app services",
+            "show web apps",
+            "list Azure web apps on app service plan",
+            "show App Service resources",
+            "what app services do I have",
+            "enumerate app service web apps",
+            "show all web applications",
+        ),
+        avoid_phrasings=(
+            "list container apps",               # → container_app_list (Container Apps, not App Service)
+            "list function apps",                # → function_app
+            "diagnose app service",              # → diagnose_app_service (SRE deep diagnostics)
+            "app service health check",          # → diagnose_app_service
+        ),
+        confidence_boost=1.1,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="function_app",
@@ -147,12 +166,30 @@ MANIFESTS: list[ToolManifest] = [
             "list function apps",
             "show Azure Functions",
         ),
-        conflicts_with=frozenset(),
+        conflicts_with=frozenset({"container_app_list", "app_service"}),
         conflict_note=(
-            "function_app is for Azure FUNCTION Apps. "
-            "NOT for Azure Container Apps."
+            "function_app is for Azure FUNCTION Apps (serverless/consumption). "
+            "NOT for Azure Container Apps — use container_app_list for those. "
+            "NOT for App Service web apps — use app_service for those."
         ),
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list function apps",
+            "show Azure Functions",
+            "what function apps do I have",
+            "list serverless functions",
+            "show Azure Functions resources",
+            "enumerate function apps in subscription",
+            "show all Azure Function Apps",
+        ),
+        avoid_phrasings=(
+            "list container apps",               # → container_app_list
+            "list app services",                 # → app_service
+            "function app health check",         # → check_resource_health
+        ),
+        confidence_boost=1.1,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="app_configuration",

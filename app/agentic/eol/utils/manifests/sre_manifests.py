@@ -53,6 +53,29 @@ MANIFESTS: list[ToolManifest] = [
             "Prefer check_resource_health for actionable SRE insights."
         ),
         preferred_over=frozenset({"resourcehealth"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "check health of my resource",
+            "is my resource healthy",
+            "health status of my service",
+            "resource health check",
+            "diagnose my Azure resource",
+            "health diagnostics for my app",
+            "what is wrong with my resource",
+            "SRE health check",
+            "is my service up",
+            "run health check on my resource",
+        ),
+        avoid_phrasings=(
+            "is there an Azure outage",          # → resourcehealth (platform status)
+            "check container app health",        # → check_container_app_health (more specific)
+            "check AKS cluster health",          # → check_aks_cluster_health (more specific)
+            "list my resources",                 # → inventory tools
+            "platform availability status",      # → resourcehealth
+        ),
+        confidence_boost=1.3,
+        requires_sequence=None,
+        preferred_over_list=("resourcehealth", "speech"),
     ),
     ToolManifest(
         tool_name="check_container_app_health",
@@ -68,6 +91,29 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "check health of my container app",
+            "container app health status",
+            "is my container app healthy",
+            "container app running status",
+            "health check for container app",
+            "container app diagnostics",
+            "is my container app up",
+            "why is my container app failing",
+            "what is the health of my container apps",
+            "diagnose container app failures",
+        ),
+        avoid_phrasings=(
+            "list my container apps",            # → container_app_list
+            "show all container apps",           # → container_app_list
+            "restart container app",             # → execute_safe_restart
+            "deploy container app",              # → azure_deploy
+            "list container app replicas",       # → container_app_list
+        ),
+        confidence_boost=1.4,
+        requires_sequence=("container_app_list",),
+        preferred_over_list=("check_resource_health", "resourcehealth"),
     ),
     ToolManifest(
         tool_name="check_aks_cluster_health",
@@ -83,6 +129,27 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "check AKS cluster health",
+            "is my kubernetes cluster healthy",
+            "AKS node pool status",
+            "Kubernetes cluster health check",
+            "AKS health diagnostics",
+            "check my K8s cluster",
+            "are my AKS nodes healthy",
+            "AKS cluster status",
+            "AKS cluster operational status",
+        ),
+        avoid_phrasings=(
+            "list AKS clusters",                 # → virtual_machine_list or azure MCP
+            "scale AKS node pool",               # → scale_resource
+            "upgrade AKS cluster",               # → write/deploy tool
+            "deploy to AKS",                     # → azure_deploy
+        ),
+        confidence_boost=1.3,
+        requires_sequence=None,
+        preferred_over_list=("check_resource_health",),
     ),
     ToolManifest(
         tool_name="diagnose_app_service",
@@ -98,6 +165,26 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "diagnose my app service",
+            "why is my web app slow",
+            "app service health check",
+            "troubleshoot my web app",
+            "why is my App Service failing",
+            "app service diagnostic report",
+            "check my web app health",
+            "App Service deep diagnostics",
+        ),
+        avoid_phrasings=(
+            "list app services",                 # → app_service (Azure MCP)
+            "show all web apps",                 # → app_service (Azure MCP)
+            "restart app service",               # → execute_safe_restart
+            "scale app service plan",            # → scale_resource
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
+        preferred_over_list=("app_service",),
     ),
     ToolManifest(
         tool_name="diagnose_apim",
@@ -143,6 +230,26 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "show diagnostic logs",
+            "get logs for my resource",
+            "recent diagnostic logs",
+            "show logs from my container app",
+            "download diagnostic logs",
+            "retrieve logs for troubleshooting",
+            "get system diagnostic output",
+            "fetch diagnostic logs from resource",
+        ),
+        avoid_phrasings=(
+            "search logs for errors",            # → search_logs_by_error (error-targeted)
+            "query Application Insights",        # → query_app_insights_traces
+            "show audit trail",                  # → get_audit_trail
+            "show activity log",                 # → analyze_activity_log
+            "analyze log patterns",              # → analyze_log_patterns (RCA)
+        ),
+        confidence_boost=1.1,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="get_resource_dependencies",
@@ -172,7 +279,31 @@ MANIFESTS: list[ToolManifest] = [
         ),
         conflicts_with=frozenset(),
         conflict_note="",
-        preferred_over=frozenset(),
+        preferred_over=frozenset({"app_service", "function_app", "container_registries"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "list my container apps",
+            "show all container apps",
+            "what container apps do I have",
+            "display container apps in subscription",
+            "get all container apps in resource group",
+            "show me my container apps",
+            "list container apps in my environment",
+            "enumerate container apps",
+            "what container apps are running",
+            "show container apps in my subscription",
+        ),
+        avoid_phrasings=(
+            "check health of container apps",    # → check_container_app_health
+            "restart container app",             # → execute_safe_restart
+            "deploy container app",              # → azure_deploy
+            "list container registries",         # → container_registries (ACR)
+            "list app services",                 # → app_service (Web Apps)
+            "what is the health of my container apps",  # → check_container_app_health
+        ),
+        confidence_boost=1.4,
+        requires_sequence=None,
+        preferred_over_list=("app_service", "function_app", "container_registries"),
     ),
     # ---- Incident ----
     ToolManifest(
@@ -189,6 +320,27 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "triage the incident",
+            "why is my service down",
+            "investigate this alert",
+            "what caused the outage",
+            "service is not responding",
+            "my app is throwing 500 errors",
+            "something is wrong with my service",
+            "incident triage for my resource",
+            "help me debug this production issue",
+            "my service is experiencing errors",
+        ),
+        avoid_phrasings=(
+            "perform root cause analysis",       # → perform_root_cause_analysis (deeper RCA)
+            "generate postmortem",               # → generate_postmortem
+            "correlate alerts",                  # → correlate_alerts
+            "predict capacity issues",           # → predict_capacity_issues
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="search_logs_by_error",
@@ -203,7 +355,30 @@ MANIFESTS: list[ToolManifest] = [
         ),
         conflicts_with=frozenset(),
         conflict_note="",
-        preferred_over=frozenset(),
+        preferred_over=frozenset({"search"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "search logs for errors",
+            "find error logs",
+            "show recent exceptions",
+            "search logs for 500 errors",
+            "find 4xx errors in logs",
+            "show error messages from my app",
+            "search application logs for failures",
+            "find exceptions in recent logs",
+            "what errors have occurred",
+            "show me recent error log entries",
+        ),
+        avoid_phrasings=(
+            "search Azure Cognitive Search",     # → search (Azure MCP)
+            "query Application Insights",        # → query_app_insights_traces
+            "analyze log patterns",              # → analyze_log_patterns (RCA)
+            "show audit trail",                  # → get_audit_trail
+            "show all diagnostic logs",          # → get_diagnostic_logs
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
+        preferred_over_list=("search",),
     ),
     ToolManifest(
         tool_name="correlate_alerts",
@@ -219,6 +394,26 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "correlate my alerts",
+            "which alerts are related to each other",
+            "group related alerts",
+            "find root alert causing cascade",
+            "alert correlation analysis",
+            "cluster my firing alerts",
+            "which alerts are connected",
+            "show me correlated alerts",
+            "identify alert storm root cause",
+        ),
+        avoid_phrasings=(
+            "list all alerts",                   # → Azure MCP monitor or get_service_monitor_resources
+            "configure alert rules",             # → monitor (Azure MCP) — configuration
+            "triage the incident",               # → triage_incident (broader incident scope)
+            "search for specific alert",         # → search_logs_by_error or Azure MCP
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="analyze_activity_log",
@@ -279,7 +474,30 @@ MANIFESTS: list[ToolManifest] = [
         ),
         conflicts_with=frozenset(),
         conflict_note="",
-        preferred_over=frozenset(),
+        preferred_over=frozenset({"monitor"}),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "show CPU and memory metrics",
+            "performance metrics for my resource",
+            "what is my CPU utilisation",
+            "memory usage trends for my app",
+            "show resource utilisation",
+            "performance graphs for my service",
+            "how is my container app performing",
+            "resource performance statistics",
+            "show me performance metrics",
+            "get CPU and memory usage for my resource",
+        ),
+        avoid_phrasings=(
+            "configure Azure Monitor",           # → monitor (Azure MCP)
+            "identify performance bottlenecks",  # → identify_bottlenecks (deeper analysis)
+            "detect anomalies",                  # → detect_metric_anomalies
+            "show SLO",                          # → get_slo_dashboard
+            "show alert rules",                  # → monitor (Azure MCP)
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
+        preferred_over_list=("monitor",),
     ),
     ToolManifest(
         tool_name="identify_bottlenecks",
@@ -295,6 +513,26 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "identify performance bottlenecks",
+            "what is causing high latency",
+            "find the slow component in my system",
+            "why is my service slow",
+            "bottleneck analysis",
+            "what is slowing down my app",
+            "performance degradation analysis",
+            "find the bottleneck",
+            "analyze slow response times",
+        ),
+        avoid_phrasings=(
+            "show CPU metrics",                  # → get_performance_metrics (raw metrics)
+            "detect metric anomalies",           # → detect_metric_anomalies
+            "perform root cause analysis",       # → perform_root_cause_analysis (broader RCA)
+            "SLO burn rate",                     # → monitor_slo_burn_rate
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="detect_metric_anomalies",
@@ -460,6 +698,25 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "what is my security score",
+            "show my Defender for Cloud score",
+            "security posture score",
+            "how secure is my Azure environment",
+            "check my security score",
+            "what is my Microsoft Defender score",
+            "security health score",
+            "show security posture rating",
+        ),
+        avoid_phrasings=(
+            "list security recommendations",     # → list_security_recommendations
+            "check compliance status",           # → check_compliance_status
+            "network security posture",          # → assess_network_security_posture
+            "check resource health",             # → check_resource_health (SRE)
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="list_security_recommendations",
@@ -638,6 +895,26 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "perform root cause analysis",
+            "what caused the outage",
+            "root cause analysis for my incident",
+            "find the root cause",
+            "why did the incident happen",
+            "RCA for my service failure",
+            "deep dive into the failure cause",
+            "root cause investigation",
+            "investigate the root cause of the failure",
+        ),
+        avoid_phrasings=(
+            "triage the incident",               # → triage_incident (initial investigation)
+            "generate postmortem",               # → generate_postmortem (report generation)
+            "trace dependency chain",            # → trace_dependency_chain (specific tool)
+            "detect log anomalies",              # → analyze_log_patterns
+        ),
+        confidence_boost=1.2,
+        requires_sequence=None,
     ),
     ToolManifest(
         tool_name="trace_dependency_chain",

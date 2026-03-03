@@ -33,14 +33,14 @@ try:
     )
     from app.agentic.eol.utils.executor import Executor, ExecutionResult, StepResult
     from app.agentic.eol.utils.verifier import Verifier, VerificationResult, ValidationIssue
-    from app.agentic.eol.utils.response_composer import ResponseComposer, _build_static_fallback
+    from app.agentic.eol.utils.response_composer import ResponseComposer, _build_static_fallback, _summarise_result
     from app.agentic.eol.utils.tool_manifest_index import ToolAffordance
     _PREFIX = "app.agentic.eol.utils"
 except ModuleNotFoundError:
     from utils.planner import ExecutionPlan, Planner, PlanStep, is_simple_read_query  # type: ignore
     from utils.executor import Executor, ExecutionResult, StepResult  # type: ignore
     from utils.verifier import Verifier, VerificationResult, ValidationIssue  # type: ignore
-    from utils.response_composer import ResponseComposer, _build_static_fallback  # type: ignore
+    from utils.response_composer import ResponseComposer, _build_static_fallback, _summarise_result  # type: ignore
     from utils.tool_manifest_index import ToolAffordance  # type: ignore
     _PREFIX = "utils"
 
@@ -502,6 +502,93 @@ class TestResponseComposerFallback:
         er = self._make_execution_result_for_composer(["a_tool"], [], [])
         html = await composer.compose("test query", er)
         assert html == "<h3>Result</h3><p>All good.</p>"
+
+
+def test_summarise_result_preserves_all_fanout_performance_metric_targets() -> None:
+    fanout_result = {
+        "success": True,
+        "partial_failure": False,
+        "fanout": True,
+        "total_targets": 2,
+        "successful_targets": 2,
+        "failed_targets": 0,
+        "results": [
+            {
+                "params": {
+                    "resource_id": "/subscriptions/sub-1/resourceGroups/rg-a/providers/Microsoft.Compute/virtualMachines/vm-a"
+                },
+                "result": {
+                    "parsed": {
+                        "resource_name": "vm-a",
+                        "resource_type": "VirtualMachine",
+                        "metrics": [{"name": "Percentage CPU", "timeseries": []}],
+                        "time_range": {"hours": 1},
+                    }
+                },
+            },
+            {
+                "params": {
+                    "resource_id": "/subscriptions/sub-1/resourceGroups/rg-b/providers/Microsoft.Compute/virtualMachines/vm-b"
+                },
+                "result": {
+                    "parsed": {
+                        "resource_name": "vm-b",
+                        "resource_type": "VirtualMachine",
+                        "metrics": [{"name": "Percentage CPU", "timeseries": []}],
+                        "time_range": {"hours": 1},
+                    }
+                },
+            },
+        ],
+        "errors": [],
+    }
+
+    summary = _summarise_result(fanout_result, tool_name="get_performance_metrics")
+
+    assert "vm-a" in summary
+    assert "vm-b" in summary
+    assert "performance_metrics" in summary
+
+
+def test_summarise_result_extracts_memory_available_gib_for_vm_metrics() -> None:
+    fanout_result = {
+        "success": True,
+        "fanout": True,
+        "total_targets": 1,
+        "successful_targets": 1,
+        "failed_targets": 0,
+        "results": [
+            {
+                "params": {
+                    "resource_id": "/subscriptions/sub-1/resourceGroups/rg-a/providers/Microsoft.Compute/virtualMachines/vm-a"
+                },
+                "result": {
+                    "parsed": {
+                        "resource_name": "vm-a",
+                        "resource_type": "VirtualMachine",
+                        "metrics": [
+                            {
+                                "metric_name": "Percentage CPU",
+                                "summary": {"average": 12.5},
+                            },
+                            {
+                                "metric_name": "Available Memory Bytes",
+                                "summary": {"average": 8589934592},
+                            },
+                        ],
+                        "time_range": {"hours": 1},
+                    }
+                },
+            }
+        ],
+        "errors": [],
+    }
+
+    summary = _summarise_result(fanout_result, tool_name="get_performance_metrics")
+
+    assert "memory_available_gib" in summary
+    assert "8.0" in summary
+    assert "cpu_percent" in summary
 
 
 # ---------------------------------------------------------------------------

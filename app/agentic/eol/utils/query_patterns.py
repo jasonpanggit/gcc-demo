@@ -111,6 +111,10 @@ class QueryPatterns:
         'vm health', 'vms health', 'virtual machine health',
         'vm status', 'vms status', 'virtual machine status',
         'health of my vm', 'health of my vms', 'health of my virtual machines',
+        # Container app list/discovery intents (SRE scope: container_app_list lives in sre source)
+        'list container app', 'list my container app', 'show container app',
+        'show my container app', 'what container app', 'display container app',
+        'enumerate container app', 'get container app', 'container apps running',
         # High-signal incident/health terms
         '503', '500', '504', 'timeout', 'latency', 'unavailable',
         'outage', 'degraded', 'failure rate', 'error rate',
