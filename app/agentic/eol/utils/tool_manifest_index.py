@@ -237,7 +237,7 @@ class ToolManifestIndex:
             return None
         return manifest.requires_sequence
 
-    def find_tools_matching_query(self, query: str) -> List[str]:
+    def find_tools_matching_query(self, query: str, enable_telemetry: bool = True) -> List[str]:
         """Return tool names whose primary_phrasings match the query.
 
         Matching strategy (descending priority):
@@ -251,6 +251,7 @@ class ToolManifestIndex:
 
         Args:
             query: User's natural-language message.
+            enable_telemetry: Whether to log routing decisions (default: True)
 
         Returns:
             List of tool names with at least one matching primary_phrasing,
@@ -272,15 +273,23 @@ class ToolManifestIndex:
         }
 
         hits: List[Tuple[int, str]] = []  # (score, tool_name)
+        candidates_for_telemetry = []  # Track all candidates with details
+
         for tool_name, manifest in self._manifests.items():
             if not manifest.primary_phrasings:
                 continue
             score = 0
+            matched_phrasing = None
+            match_type = None
+
             for phrasing in manifest.primary_phrasings:
                 p_lower = phrasing.lower()
                 # Tier 1: substring containment
                 if p_lower in q_lower or q_lower in p_lower:
                     score += 2
+                    if not matched_phrasing:  # Track first match
+                        matched_phrasing = phrasing
+                        match_type = "exact_substring"
                     continue
                 # Tier 2: significant token overlap (≥2 shared content words)
                 if q_tokens:
@@ -291,10 +300,60 @@ class ToolManifestIndex:
                     overlap = len(q_tokens & p_tokens)
                     if overlap >= 2:
                         score += 1
+                        if not matched_phrasing:  # Track first match
+                            matched_phrasing = phrasing
+                            match_type = "partial"
+
             if score > 0:
-                hits.append((score, tool_name))
+                final_score = score * manifest.confidence_boost
+                hits.append((final_score, tool_name))
+
+                # Track for telemetry
+                if enable_telemetry:
+                    try:
+                        from utils.routing_telemetry import ToolCandidate
+                        candidates_for_telemetry.append(ToolCandidate(
+                            tool_name=tool_name,
+                            base_score=float(score),
+                            confidence_boost=manifest.confidence_boost,
+                            final_score=float(final_score),
+                            matched_phrasing=matched_phrasing,
+                            match_type=match_type
+                        ))
+                    except ImportError:
+                        pass  # Telemetry not available
+
         hits.sort(key=lambda x: x[0], reverse=True)
-        return [tool_name for _, tool_name in hits]
+        selected_tools = [tool_name for _, tool_name in hits]
+
+        # Log routing decision
+        if enable_telemetry and candidates_for_telemetry:
+            try:
+                from utils.routing_telemetry import get_routing_telemetry, SelectionMethod
+                telemetry = get_routing_telemetry()
+
+                # Sort candidates by final score
+                candidates_for_telemetry.sort(key=lambda c: c.final_score, reverse=True)
+
+                # Get prerequisite chains
+                prereqs = self.get_prerequisite_tools(selected_tools)
+                prerequisite_chains = {}
+                for tool in selected_tools:
+                    seq = self.get_requires_sequence(tool)
+                    if seq:
+                        prerequisite_chains[tool] = list(seq)
+
+                telemetry.log_routing_decision(
+                    query=query,
+                    selected_tools=selected_tools,
+                    candidates=candidates_for_telemetry,
+                    selection_method=SelectionMethod.METADATA_MATCH,
+                    prerequisite_chains=prerequisite_chains if prerequisite_chains else None
+                )
+            except (ImportError, Exception) as e:
+                logger.debug(f"Telemetry logging skipped: {e}")
+
+        return selected_tools
 
     def get_prerequisite_tools(self, tool_names: List[str]) -> List[str]:
         """Return all prerequisite tool names for a list of tools, in order.
