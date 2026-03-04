@@ -529,6 +529,36 @@ class SREOrchestratorAgent(BaseSREAgent):
         """Execute the query through SRESubAgent’s ReAct loop."""
         await self._ensure_inventory_grounding_context()
 
+        # ---- Pre-flight resource validation (Phase 4) ----
+        # When the user asks about a specific named resource, verify it exists in
+        # inventory before spinning up the LLM ReAct loop. This saves tokens and
+        # gives a fast, friendly error with suggestions when the resource is missing.
+        resource_name, resource_type = self._extract_resource_name_and_type(query)
+        if resource_name and self._inventory_grounding_context:
+            exists, friendly_msg = self._check_specific_resource_exists(resource_name, resource_type)
+            if not exists:
+                if self._context_store:
+                    await self._context_store.update_workflow_context(
+                        workflow_id,
+                        {"metadata": {"status": "completed", "intent": "resource_not_found", "tools_executed": 0}},
+                    )
+                return self._build_resource_not_found_response(query, workflow_id, friendly_msg)
+
+        # ---- Deterministic workflows for specific query patterns ----
+        # Cost analysis queries: route directly to cost workflow to avoid unhelpful errors
+        if self._is_cost_analysis_query(query):
+            logger.info("🔍 Detected cost analysis query, routing to deterministic workflow")
+            forced = await self._run_cost_analysis_deterministic_workflow(query, workflow_id, context)
+            if forced:
+                return forced
+
+        # Diagnostic logging queries: route directly to diagnostic workflow
+        if self._is_diagnostic_logging_query(query):
+            logger.info("🔍 Detected diagnostic logging query, routing to deterministic workflow")
+            forced = await self._run_diagnostic_logging_deterministic_workflow(query, workflow_id, context)
+            if forced:
+                return forced
+
         # Prepend grounding context so the agent can resolve params without extra tool calls
         enriched = query
         if self._is_vm_health_query(query):
@@ -543,8 +573,12 @@ class SREOrchestratorAgent(BaseSREAgent):
 
         if self._inventory_grounding_context:
             enriched = (
-                f"[Azure grounding context]\n{self._inventory_grounding_context}\n\n{enriched}"
-            )
+                f"[Azure grounding context]\n{self._inventory_grounding_context}\n"
+                "[IMPORTANT] Only the resources listed above exist in this Azure environment. "
+                "Do NOT call tools for resource names that are not in this list. "
+                "If the user asks about a resource not listed above, respond that it was not found "
+                "and suggest they list available resources.\n\n{enriched}"
+            ).replace("{enriched}", enriched)
 
         logger.info("🏃 SRESubAgent running: %s...", query[:80])
         result = await self._sre_sub_agent.run(enriched)
@@ -735,6 +769,307 @@ class SREOrchestratorAgent(BaseSREAgent):
         )
         return availability, detail
 
+    async def _run_cost_analysis_deterministic_workflow(
+        self,
+        query: str,
+        workflow_id: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Deterministic workflow for cost analysis queries.
+
+        Steps:
+        1. Validate subscription access via inventory
+        2. Extract subscription_id from resources
+        3. Route to specific cost tool based on query keywords
+        4. Return formatted results or friendly error
+        """
+        logger.info("[SREOrchestrator] Running cost analysis deterministic workflow")
+
+        # Step 1: Validate we have inventory access
+        try:
+            inventory_result = await self._discover_resources_by_type("all", {})
+
+            if not inventory_result or len(inventory_result) == 0:
+                response_html = self._format_no_resources_message(
+                    "cost analysis",
+                    "No Azure resources found in inventory. Cost analysis requires active subscription access."
+                )
+                return self._build_deterministic_response(
+                    query, workflow_id, response_html, 0, "cost_analysis_no_resources"
+                )
+
+            # Extract subscription_id from first resource
+            first_resource = inventory_result[0]
+            subscription_id = self._extract_subscription_id(first_resource.get("id", ""))
+
+            if not subscription_id:
+                response_html = self._format_error_message(
+                    "Cost Analysis",
+                    "Unable to determine subscription ID from inventory."
+                )
+                return self._build_deterministic_response(
+                    query, workflow_id, response_html, 0, "cost_analysis_error"
+                )
+
+        except Exception as e:
+            logger.error(f"Inventory validation failed: {e}")
+            response_html = self._format_error_message(
+                "Cost Analysis",
+                f"Failed to validate Azure subscription access: {str(e)}"
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 0, "cost_analysis_error"
+            )
+
+        # Step 2: Route to specific cost tool
+        query_lower = query.lower()
+        tool_calls = 0
+
+        try:
+            if "orphaned resource" in query_lower or "idle resource" in query_lower:
+                response_html, tool_calls = await self._execute_orphaned_resources_check(subscription_id)
+            elif "recommendation" in query_lower or "rightsizing" in query_lower:
+                response_html, tool_calls = await self._execute_cost_recommendations(subscription_id)
+            elif "anomal" in query_lower or "spending anomal" in query_lower:
+                response_html, tool_calls = await self._execute_cost_anomaly_analysis(subscription_id)
+            else:
+                # Default: cost by resource group or spend trend
+                response_html, tool_calls = await self._execute_cost_by_resource_group(subscription_id)
+
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, tool_calls, "cost_analysis"
+            )
+
+        except Exception as e:
+            logger.error(f"Cost analysis execution failed: {e}")
+            response_html = self._format_error_message(
+                "Cost Analysis",
+                f"Cost analysis failed: {str(e)}. Verify Azure Cost Management permissions."
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, tool_calls, "cost_analysis_error"
+            )
+
+    async def _execute_cost_by_resource_group(self, subscription_id: str) -> tuple[str, int]:
+        """Execute get_cost_analysis for resource group breakdown."""
+        params = {
+            "scope": f"/subscriptions/{subscription_id}",
+            "time_range": "last_30_days",
+            "group_by": "ResourceGroup"
+        }
+
+        result = await self._sre_tool_invoker("get_cost_analysis", params)
+
+        if not result or "error" in str(result).lower():
+            return self._format_no_data_message(
+                "Cost Analysis",
+                "No cost data available. This may be a new subscription or Cost Management may not be enabled."
+            ), 1
+
+        return self._format_cost_analysis_results(result), 1
+
+    async def _execute_orphaned_resources_check(self, subscription_id: str) -> tuple[str, int]:
+        """Execute identify_orphaned_resources tool."""
+        params = {"subscription_id": subscription_id}
+        result = await self._sre_tool_invoker("identify_orphaned_resources", params)
+
+        if not result or len(result) == 0:
+            return self._format_success_message(
+                "Orphaned Resources Check",
+                "✅ No orphaned resources found. Your subscription is clean!"
+            ), 1
+
+        return self._format_orphaned_resources_results(result), 1
+
+    async def _execute_cost_recommendations(self, subscription_id: str) -> tuple[str, int]:
+        """Execute get_cost_recommendations tool."""
+        params = {"subscription_id": subscription_id}
+        result = await self._sre_tool_invoker("get_cost_recommendations", params)
+
+        if not result or len(result) == 0:
+            return self._format_success_message(
+                "Cost Recommendations",
+                "✅ No cost optimization recommendations at this time."
+            ), 1
+
+        return self._format_cost_recommendations_results(result), 1
+
+    async def _execute_cost_anomaly_analysis(self, subscription_id: str) -> tuple[str, int]:
+        """Execute analyze_cost_anomalies tool."""
+        params = {
+            "scope": f"/subscriptions/{subscription_id}",
+            "time_range": "last_30_days"
+        }
+        result = await self._sre_tool_invoker("analyze_cost_anomalies", params)
+
+        if not result or len(result) == 0:
+            return self._format_success_message(
+                "Cost Anomaly Analysis",
+                "✅ No cost anomalies detected in the last 30 days."
+            ), 1
+
+        return self._format_cost_anomaly_results(result), 1
+
+    def _extract_subscription_id(self, resource_id: str) -> str:
+        """Extract subscription ID from Azure resource ID.
+
+        Format: /subscriptions/{subscription_id}/resourceGroups/...
+        """
+        parts = resource_id.split("/")
+        try:
+            sub_index = parts.index("subscriptions")
+            return parts[sub_index + 1]
+        except (ValueError, IndexError):
+            return ""
+
+    def _build_deterministic_response(
+        self,
+        query: str,
+        workflow_id: str,
+        response_html: str,
+        tool_calls: int,
+        intent: str,
+    ) -> Dict[str, Any]:
+        """Build standardized response for deterministic workflows."""
+        return {
+            "workflow_id": workflow_id,
+            "intent": intent,
+            "tools_executed": tool_calls,
+            "results": {
+                "summary": {
+                    "total_tools": tool_calls,
+                    "successful": tool_calls,
+                    "failed": 0,
+                    "skipped": 0,
+                    "needs_input": 0,
+                    "intent": intent,
+                },
+                "results": [],
+                "agent_content": response_html,
+                "formatted_response": response_html,
+            },
+            "agent_metadata": {
+                "thread_id": None,
+                "run_id": None,
+                "tools_called": [],
+                "execution_source": "deterministic_workflow",
+                "latency_ms": 0,
+                "token_usage": {},
+            },
+        }
+
+    async def _run_diagnostic_logging_deterministic_workflow(
+        self,
+        query: str,
+        workflow_id: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Deterministic workflow for diagnostic logging queries.
+
+        Provides examples of resources that support diagnostic logging
+        with CLI commands to enable it.
+        """
+        logger.info("[SREOrchestrator] Running diagnostic logging deterministic workflow")
+
+        # Discover all resources
+        try:
+            all_resources = await self._discover_resources_by_type("all", {})
+
+            if not all_resources or len(all_resources) == 0:
+                response_html = self._format_no_resources_message(
+                    "diagnostic logging examples",
+                    "No Azure resources found. Deploy resources first to enable diagnostic logging."
+                )
+                return self._build_deterministic_response(
+                    query, workflow_id, response_html, 0, "diagnostic_logging_no_resources"
+                )
+
+        except Exception as e:
+            logger.error(f"Resource discovery failed: {e}")
+            response_html = self._format_error_message(
+                "Diagnostic Logging",
+                f"Failed to discover resources: {str(e)}"
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 0, "diagnostic_logging_error"
+            )
+
+        # Filter resources that support diagnostic logging
+        supported_types = [
+            "microsoft.compute/virtualmachines",
+            "microsoft.web/sites",
+            "microsoft.apimanagement/service",
+            "microsoft.storage/storageaccounts",
+            "microsoft.sql/servers",
+            "microsoft.containerservice/managedclusters",
+            "microsoft.network/applicationgateways",
+            "microsoft.app/containerapps"
+        ]
+
+        diagnostic_resources = [
+            r for r in all_resources
+            if r.get("type", "").lower() in supported_types
+        ]
+
+        if not diagnostic_resources:
+            response_html = self._format_info_message(
+                "Diagnostic Logging",
+                f"Found {len(all_resources)} resources, but none support diagnostic logging. "
+                "Deploy resources like VMs, App Services, or Container Apps to enable diagnostics."
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 0, "diagnostic_logging_no_supported"
+            )
+
+        response_html = self._format_diagnostic_logging_examples(diagnostic_resources)
+        return self._build_deterministic_response(
+            query, workflow_id, response_html, 0, "diagnostic_logging"
+        )
+
+    def _format_diagnostic_logging_examples(self, resources: list) -> str:
+        """Format diagnostic logging examples as HTML with CLI commands."""
+        html_parts = [
+            "<div class='diagnostic-examples'>",
+            "<h3>🔍 Resources Supporting Diagnostic Logging</h3>",
+            f"<p>Found {len(resources)} resources that can have diagnostic logging enabled:</p>",
+            "<table class='table table-sm'>",
+            "<thead><tr><th>Resource Name</th><th>Type</th><th>Resource Group</th><th>Example CLI Command</th></tr></thead>",
+            "<tbody>"
+        ]
+
+        for resource in resources[:10]:  # Limit to 10 examples
+            name = html.escape(resource.get("name", "Unknown"))
+            rg = html.escape(resource.get("resourceGroup", "Unknown"))
+            resource_id = html.escape(resource.get("id", ""))
+            resource_type = html.escape(resource.get("type", "Unknown"))
+
+            # Generate example CLI command
+            cli_example = f"az monitor diagnostic-settings create --resource {resource_id} --workspace {{workspace-id}} --logs '[{{\"category\":\"AuditEvent\",\"enabled\":true}}]'"
+
+            html_parts.append(
+                f"<tr>"
+                f"<td><code>{name}</code></td>"
+                f"<td>{resource_type}</td>"
+                f"<td>{rg}</td>"
+                f"<td><small><code>{html.escape(cli_example)}</code></small></td>"
+                f"</tr>"
+            )
+
+        html_parts.extend([
+            "</tbody></table>",
+            f"<p><em>Showing {min(len(resources), 10)} of {len(resources)} resources.</em></p>",
+            f"<p><strong>Next steps:</strong></p>",
+            "<ol>",
+            "<li>Create or identify a Log Analytics workspace</li>",
+            "<li>Replace <code>{{workspace-id}}</code> with your workspace resource ID</li>",
+            "<li>Adjust log categories based on resource type</li>",
+            "<li>Run the command via Azure CLI or Cloud Shell</li>",
+            "</ol>",
+            "</div>"
+        ])
+
+        return "".join(html_parts)
+
     @staticmethod
     def _is_out_of_scope_redirect(response_text: str) -> bool:
         """Detect common out-of-scope redirect wording from sub-agent responses."""
@@ -744,6 +1079,356 @@ class SREOrchestratorAgent(BaseSREAgent):
             and ("out-of-scope" in text or "out of scope" in text or "please ask there" in text)
         )
 
+    # ------------------------------------------------------------------
+    # HTML Formatting Helpers
+    # ------------------------------------------------------------------
+
+    def _format_no_resources_message(self, query_type: str, message: str) -> str:
+        """Format friendly message when no resources exist."""
+        return f"""
+        <div class='alert alert-info' role='alert'>
+            <h4 class='alert-heading'><i class='fas fa-info-circle me-2'></i>No Resources Available</h4>
+            <p><strong>Query:</strong> {html.escape(query_type)}</p>
+            <p>{html.escape(message)}</p>
+            <hr>
+            <p class='mb-0'><em>Tip: Deploy Azure resources first, then retry this query.</em></p>
+        </div>
+        """
+
+    def _format_no_data_message(self, title: str, message: str) -> str:
+        """Format friendly message when data is not available."""
+        return f"""
+        <div class='alert alert-warning' role='alert'>
+            <h4 class='alert-heading'><i class='fas fa-exclamation-triangle me-2'></i>No Data Available</h4>
+            <p><strong>Context:</strong> {html.escape(title)}</p>
+            <p>{html.escape(message)}</p>
+            <hr>
+            <p class='mb-0'><em>Tip: Check Azure Cost Management access and subscription permissions.</em></p>
+        </div>
+        """
+
+    def _format_success_message(self, title: str, message: str) -> str:
+        """Format success message."""
+        return f"""
+        <div class='alert alert-success' role='alert'>
+            <h4 class='alert-heading'><i class='fas fa-check-circle me-2'></i>{html.escape(title)}</h4>
+            <p>{html.escape(message)}</p>
+        </div>
+        """
+
+    def _format_error_message(self, title: str, message: str) -> str:
+        """Format error message."""
+        return f"""
+        <div class='alert alert-danger' role='alert'>
+            <h4 class='alert-heading'><i class='fas fa-times-circle me-2'></i>Error: {html.escape(title)}</h4>
+            <p>{html.escape(message)}</p>
+            <hr>
+            <p class='mb-0'><em>Tip: Verify Azure credentials and permissions in the MCP server configuration.</em></p>
+        </div>
+        """
+
+    def _format_info_message(self, title: str, message: str) -> str:
+        """Format informational message."""
+        return f"""
+        <div class='alert alert-info' role='alert'>
+            <h4 class='alert-heading'><i class='fas fa-info-circle me-2'></i>{html.escape(title)}</h4>
+            <p>{html.escape(message)}</p>
+        </div>
+        """
+
+    def _format_cost_analysis_results(self, result: dict) -> str:
+        """Format cost analysis results as HTML table."""
+        html_parts = [
+            "<div class='cost-analysis-results'>",
+            "<h3><i class='fas fa-chart-line me-2'></i>Cost Analysis by Resource Group</h3>"
+        ]
+
+        # Parse result (structure from get_cost_analysis tool)
+        cost_breakdown = result.get("cost_breakdown", [])
+        total = result.get("total_cost", 0)
+
+        if not cost_breakdown:
+            return self._format_no_data_message("Cost Analysis", "No cost data available for this subscription.")
+
+        html_parts.extend([
+            "<table class='table table-striped table-hover'>",
+            "<thead><tr><th>Resource Group</th><th>Cost (USD)</th><th>% of Total</th></tr></thead>",
+            "<tbody>"
+        ])
+
+        for item in cost_breakdown[:20]:  # Top 20 groups
+            name = html.escape(item.get("name", "Unknown"))
+            cost = item.get("cost", 0)
+            percentage = (cost / total * 100) if total > 0 else 0
+            html_parts.append(
+                f"<tr>"
+                f"<td><strong>{name}</strong></td>"
+                f"<td>${cost:.2f}</td>"
+                f"<td>{percentage:.1f}%</td>"
+                f"</tr>"
+            )
+
+        html_parts.extend([
+            "</tbody>",
+            f"<tfoot><tr><th>Total</th><th>${total:.2f}</th><th>100%</th></tr></tfoot>",
+            "</table>",
+            "</div>"
+        ])
+
+        return "".join(html_parts)
+
+    def _format_orphaned_resources_results(self, result: list) -> str:
+        """Format orphaned resources as HTML table."""
+        html_parts = [
+            "<div class='orphaned-resources-results'>",
+            "<h3><i class='fas fa-trash-alt me-2'></i>Orphaned Resources</h3>",
+            f"<p>Found {len(result)} orphaned resources that may be safe to delete:</p>",
+            "<table class='table table-sm table-striped'>",
+            "<thead><tr><th>Resource Name</th><th>Type</th><th>Resource Group</th></tr></thead>",
+            "<tbody>"
+        ]
+
+        for resource in result[:50]:  # Limit to 50
+            name = html.escape(resource.get("name", "Unknown"))
+            rtype = html.escape(resource.get("type", "Unknown"))
+            rg = html.escape(resource.get("resourceGroup", "Unknown"))
+            html_parts.append(f"<tr><td><code>{name}</code></td><td>{rtype}</td><td>{rg}</td></tr>")
+
+        html_parts.extend([
+            "</tbody></table>",
+            f"<p><em>Showing {min(len(result), 50)} of {len(result)} resources.</em></p>",
+            "</div>"
+        ])
+
+        return "".join(html_parts)
+
+    def _format_cost_recommendations_results(self, result: list) -> str:
+        """Format cost recommendations as HTML list."""
+        html_parts = [
+            "<div class='cost-recommendations-results'>",
+            "<h3><i class='fas fa-lightbulb me-2'></i>Cost Optimization Recommendations</h3>",
+            "<ul class='list-group'>"
+        ]
+
+        for rec in result[:20]:  # Top 20 recommendations
+            title = html.escape(rec.get("title", "Recommendation"))
+            impact = html.escape(rec.get("impact", "Unknown"))
+            html_parts.append(
+                f"<li class='list-group-item'>"
+                f"<strong>{title}</strong><br>"
+                f"<small class='text-muted'>Potential impact: {impact}</small>"
+                f"</li>"
+            )
+
+        html_parts.extend([
+            "</ul>",
+            f"<p class='mt-2'><em>Showing {min(len(result), 20)} of {len(result)} recommendations.</em></p>",
+            "</div>"
+        ])
+
+        return "".join(html_parts)
+
+    def _format_cost_anomaly_results(self, result: dict) -> str:
+        """Format cost anomalies as HTML table."""
+        html_parts = [
+            "<div class='cost-anomaly-results'>",
+            "<h3><i class='fas fa-exclamation-triangle me-2'></i>Cost Anomalies (Last 30 Days)</h3>"
+        ]
+
+        anomalies = result.get("anomalies", [])
+
+        if not anomalies:
+            return self._format_success_message("Cost Anomaly Analysis", "✅ No cost anomalies detected.")
+
+        html_parts.extend([
+            "<table class='table table-sm table-striped'>",
+            "<thead><tr><th>Date</th><th>Service</th><th>Expected</th><th>Actual</th><th>Variance</th></tr></thead>",
+            "<tbody>"
+        ])
+
+        for anomaly in anomalies[:20]:
+            date = html.escape(anomaly.get("date", "Unknown"))
+            service = html.escape(anomaly.get("service", "Unknown"))
+            expected = anomaly.get("expected_cost", 0)
+            actual = anomaly.get("actual_cost", 0)
+            variance_pct = anomaly.get("variance_percentage", 0)
+
+            color = "text-danger" if variance_pct > 0 else "text-success"
+            html_parts.append(
+                f"<tr>"
+                f"<td>{date}</td>"
+                f"<td>{service}</td>"
+                f"<td>${expected:.2f}</td>"
+                f"<td>${actual:.2f}</td>"
+                f"<td class='{color}'><strong>{variance_pct:+.1f}%</strong></td>"
+                f"</tr>"
+            )
+
+        html_parts.extend([
+            "</tbody></table>",
+            "</div>"
+        ])
+
+        return "".join(html_parts)
+
+    # ------------------------------------------------------------------
+    # Resource Validation (Phase 4)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_resource_name_and_type(query: str) -> tuple[Optional[str], Optional[str]]:
+        """Extract a specific resource name and type from a user query.
+
+        Returns (resource_name, resource_type) where resource_type is one of
+        'container_app', 'vm', or None when no specific resource is identifiable.
+
+        Examples:
+            "health of my-app container app"   → ("my-app", "container_app")
+            "status of web-vm01"               → ("web-vm01", "vm")
+            "show all container apps"          → (None, "container_app")
+            "check resource health"            → (None, None)
+        """
+        q = query.lower()
+
+        # -- Container App patterns --
+        # "health of <name>" / "status of <name> container app"
+        ca_name_patterns = [
+            r"(?:health|status|check|diagnose|restart|scale)\s+(?:of\s+)?([a-z0-9][\w-]{1,62})\s+container[\s-]?app",
+            r"container[\s-]?app\s+([a-z0-9][\w-]{1,62})\b",
+            r"\b([a-z0-9][\w-]{1,62})\s+container[\s-]?app\b",
+        ]
+        for pattern in ca_name_patterns:
+            m = re.search(pattern, q)
+            if m:
+                return m.group(1), "container_app"
+
+        # -- VM patterns --
+        # "health of <name> vm" / "<name>-vm" / "virtual machine <name>"
+        vm_name_patterns = [
+            r"(?:health|status|check|diagnose)\s+(?:of\s+)?([a-z0-9][\w-]{1,62})\s+(?:vm|virtual[\s-]?machine)",
+            r"virtual[\s-]?machine\s+([a-z0-9][\w-]{1,62})\b",
+            r"\b([a-z0-9][\w-]{2,62}(?:-vm\d*|vm\d+))\b",
+        ]
+        for pattern in vm_name_patterns:
+            m = re.search(pattern, q)
+            if m:
+                return m.group(1), "vm"
+
+        # -- Detect resource type without a specific name --
+        if re.search(r"\bcontainer[\s-]?apps?\b|\bcontainerapps?\b", q):
+            return None, "container_app"
+        if re.search(r"\b(vms?|virtual[\s-]?machines?)\b", q):
+            return None, "vm"
+
+        return None, None
+
+    def _check_specific_resource_exists(
+        self, resource_name: str, resource_type: Optional[str]
+    ) -> tuple[bool, str]:
+        """Pre-flight check: verify a named resource is in the cached inventory.
+
+        Uses the in-memory grounding context (populated from resource_inventory_client)
+        so this is a zero-cost O(n) string scan — no extra Azure API calls.
+
+        Args:
+            resource_name:  Normalised (lower-case) resource name from the query.
+            resource_type:  'container_app', 'vm', or None (any type).
+
+        Returns:
+            (exists, friendly_message)
+            - exists=True means the name was found; caller should proceed normally.
+            - exists=False means the name is NOT in inventory; friendly_message is ready
+              to return to the user with zero tool calls.
+        """
+        ctx = self._inventory_grounding_context
+        if not ctx:
+            # No inventory data — can't validate, let the agent try
+            return True, ""
+
+        name_lower = resource_name.lower()
+
+        # Check the grounding context for the resource name
+        # The context lines look like:
+        #   container_apps (3): my-app (rg=prod-rg), api-svc (rg=prod-rg) …
+        #   container_app_resource_ids: my-app=/subscriptions/…
+        ctx_lower = ctx.lower()
+        if name_lower in ctx_lower:
+            return True, ""
+
+        # Not found — build a friendly, informative error
+        rtype_label = self._get_resource_type_label(resource_type or "") if resource_type else "resource"
+
+        # Collect known names of the same type from grounding context for suggestions
+        known_names: List[str] = []
+        if resource_type == "container_app":
+            m = re.search(r"container_apps\s*\(\d+\)\s*:\s*([^\n]+)", ctx)
+            if m:
+                # Parse "name (rg=xxx), name2 (rg=yyy)"
+                for part in m.group(1).split(","):
+                    part = part.strip()
+                    n = re.match(r"([^\s(]+)", part)
+                    if n:
+                        known_names.append(n.group(1).strip())
+        elif resource_type == "vm":
+            # VMs may appear in grounding context under cached_resource_types or future lines
+            for line in ctx.splitlines():
+                if "microsoft.compute/virtualmachines" in line.lower():
+                    m = re.search(r"\((\d+)\)", line)
+                    if m:
+                        known_names.append(f"({m.group(1)} VMs in inventory)")
+
+        # Build message
+        msg_parts = [
+            f"<p>❌ <strong>{html.escape(resource_name)}</strong> was not found in the current Azure inventory "
+            f"({rtype_label}).</p>"
+        ]
+        if known_names:
+            escaped = [html.escape(n) for n in known_names[:6]]
+            msg_parts.append(
+                f"<p>Known {rtype_label}s in scope: <code>{', '.join(escaped)}</code></p>"
+            )
+        msg_parts.append(
+            "<p>Please verify the resource name and try again, or ask to "
+            "<em>list all resources</em> to see what's available.</p>"
+        )
+
+        friendly_msg = "\n".join(msg_parts)
+        logger.info(
+            "Pre-flight resource check: '%s' (%s) not found in inventory — short-circuiting",
+            resource_name, resource_type,
+        )
+        return False, friendly_msg
+
+    def _build_resource_not_found_response(
+        self, query: str, workflow_id: str, friendly_msg: str
+    ) -> Dict[str, Any]:
+        """Build the standard orchestrator response dict for a not-found resource."""
+        return {
+            "workflow_id": workflow_id,
+            "intent": "resource_not_found",
+            "tools_executed": 0,
+            "results": {
+                "summary": {
+                    "total_tools": 0,
+                    "successful": 0,
+                    "failed": 0,
+                    "skipped": 1,
+                    "needs_input": 0,
+                    "intent": "resource_not_found",
+                },
+                "results": [],
+                "agent_content": friendly_msg,
+                "formatted_response": friendly_msg,
+            },
+            "agent_metadata": {
+                "thread_id": None,
+                "run_id": None,
+                "tools_called": [],
+                "execution_source": "resource_validation",
+                "latency_ms": 0,
+                "token_usage": {},
+            },
+        }
 
     # ------------------------------------------------------------------
     # MCP Fallback Path
@@ -824,6 +1509,56 @@ class SREOrchestratorAgent(BaseSREAgent):
         has_vm = bool(re.search(r"\b(vms?|virtual\s+machines?)\b", q))
         has_health = bool(re.search(r"\b(health|healthy|status|unhealthy|degraded|availability)\b", q))
         return has_vm and has_health
+
+    @staticmethod
+    def _is_cost_analysis_query(query: str) -> bool:
+        """Detect if query requires cost analysis workflow.
+
+        Matches patterns like:
+        - "cost by resource group"
+        - "30-day spend trend"
+        - "cost recommendations"
+        - "orphaned resources"
+        - "spending anomalies"
+        """
+        query_lower = query.lower()
+        cost_keywords = [
+            "cost by resource group",
+            "spend trend",
+            "cost analysis",
+            "spending",
+            "cost recommendation",
+            "cost optimization",
+            "orphaned resource",
+            "idle resource",
+            "cost anomal",
+            "reduce cost",
+            "rightsizing",
+            "azure spend",
+            "total cost",
+            "cost breakdown",
+        ]
+        return any(keyword in query_lower for keyword in cost_keywords)
+
+    @staticmethod
+    def _is_diagnostic_logging_query(query: str) -> bool:
+        """Detect if query requires diagnostic logging workflow.
+
+        Matches patterns like:
+        - "enable diagnostic logging"
+        - "diagnostic settings"
+        - "check diagnostic"
+        """
+        query_lower = query.lower()
+        diagnostic_keywords = [
+            "enable diagnostic",
+            "diagnostic logging",
+            "diagnostic setting",
+            "check diagnostic",
+            "configure diagnostic",
+            "set up diagnostic",
+        ]
+        return any(keyword in query_lower for keyword in diagnostic_keywords)
 
     # ------------------------------------------------------------------
     # Legacy execute() — delegates to handle_request()
