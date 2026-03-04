@@ -272,13 +272,6 @@ generate_appsettings() {
     "CONTAINER_MODE": "true",
     "PlaywrightLLMExtraction": "false"
   },
-  "RoutingTelemetry": {
-    "_comment": "Phase 4: Production routing monitoring and validation",
-    "ROUTING_TELEMETRY_ENABLED": "true",
-    "ROUTING_TELEMETRY_LOG_DIR": "/mnt/routing_logs",
-    "ROUTING_TELEMETRY_SAMPLE_RATE": "1.0",
-    "Description": "Captures routing decisions for Phase 3 accuracy validation. Set ENABLED=false to disable. SAMPLE_RATE controls % of queries logged (1.0=100%, 0.5=50%)."
-  },
   "McpSettings": {
     "AzureCliExecutorEnabled": false
   }

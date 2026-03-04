@@ -27,34 +27,5 @@ MANIFESTS: list[ToolManifest] = [
             "Do NOT use 'virtual_machines' (Azure MCP namespace group) for listing."
         ),
         preferred_over=frozenset({"virtual_machines"}),
-        # Phase 3 metadata
-        primary_phrasings=(
-            "list my virtual machines",
-            "show all VMs in my subscription",
-            "what virtual machines do I have",
-            "list VMs in resource group",
-            "show running VMs",
-            "enumerate virtual machines",
-            "display all Azure VMs",
-            "show stopped VMs",
-            "list compute resources",
-            "get all VMs",
-            # Abbreviation variants — replaces hard-coded vm/vms expansion in tool_retriever.py
-            "list my VMs",
-            "show my VMs",
-            "all VMs",
-            "my VMs",
-            "list VMs",
-        ),
-        avoid_phrasings=(
-            "check VM health",                   # → check_resource_health
-            "VM performance metrics",            # → get_performance_metrics
-            "restart the VM",                    # → execute_safe_restart
-            "scale VM",                          # → scale_resource
-            "list AKS clusters",                 # → azure MCP (AKS is not VMs)
-        ),
-        confidence_boost=1.3,
-        requires_sequence=None,
-        preferred_over_list=("virtual_machines",),
     ),
 ]

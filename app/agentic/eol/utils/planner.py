@@ -369,20 +369,6 @@ def _pick_list_intent_override(query: str, tool_names: List[str]) -> Optional[Tu
     if not is_list_intent:
         return None
 
-    # Do not collapse performance/utilization queries into a list-only tool.
-    # Example: "show CPU and memory utilization of these VMs" should run a
-    # list + metrics sequence, not just virtual_machine_list.
-    vm_intent = bool(re.search(r"\bvirtual\s*machines?\b|\bvms?\b", q, re.I))
-    perf_intent = bool(
-        re.search(
-            r"\b(cpu|memory|utili[sz]ation|performance|metric(?:s)?|usage|trend(?:s)?)\b",
-            q,
-            re.I,
-        )
-    )
-    if vm_intent and perf_intent:
-        return None
-
     available = set(tool_names)
 
     # Manifest-aligned list/discovery intents (prefer explicit list tools)
@@ -452,56 +438,6 @@ def _pick_list_intent_override(query: str, tool_names: List[str]) -> Optional[Tu
                 )
 
     return None
-
-
-def _pick_vm_metrics_sequence(
-    query: str,
-    tool_names: List[str],
-) -> Optional[List[PlanStep]]:
-    """Return deterministic two-step plan for VM CPU/memory utilization intents.
-
-    Sequence:
-    1) virtual_machine_list
-    2) get_performance_metrics (resource_id fan-out from step_1 virtual_machines[*])
-    """
-    q = query.lower()
-    has_vm_intent = bool(re.search(r"\bvirtual\s*machines?\b|\bvms?\b", q, re.I))
-    has_perf_intent = bool(
-        re.search(
-            r"\b(cpu|memory|utili[sz]ation|performance|metric(?:s)?|usage|trend(?:s)?)\b",
-            q,
-            re.I,
-        )
-    )
-    if not (has_vm_intent and has_perf_intent):
-        return None
-
-    available = set(tool_names)
-    if "virtual_machine_list" not in available or "get_performance_metrics" not in available:
-        return None
-
-    return [
-        PlanStep(
-            step_id="step_1",
-            tool_name="virtual_machine_list",
-            params={},
-            affordance=ToolAffordance.READ,
-            rationale="VM metrics sequence: discover VMs before querying utilization metrics.",
-            is_parallel=False,
-        ),
-        PlanStep(
-            step_id="step_2",
-            tool_name="get_performance_metrics",
-            params={
-                "resource_id": "$step_1.virtual_machines[*].resource_id",
-                "metric_names": ["Percentage CPU", "Available Memory Bytes"],
-            },
-            depends_on=["step_1"],
-            affordance=ToolAffordance.READ,
-            rationale="VM metrics sequence: retrieve CPU and memory metrics for each discovered VM.",
-            is_parallel=False,
-        ),
-    ]
 
 
 def _pick_container_app_health_sequence(
@@ -802,16 +738,6 @@ class Planner:
                 return ExecutionPlan(
                     query=query,
                     steps=health_sequence,
-                    is_fast_path=True,
-                    conflict_notes=conflict_notes,
-                )
-
-            vm_metrics_sequence = _pick_vm_metrics_sequence(query, all_tool_names)
-            if vm_metrics_sequence:
-                logger.debug("⚡ Planner vm-metrics sequence fast-path")
-                return ExecutionPlan(
-                    query=query,
-                    steps=vm_metrics_sequence,
                     is_fast_path=True,
                     conflict_notes=conflict_notes,
                 )

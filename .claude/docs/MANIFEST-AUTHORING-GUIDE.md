@@ -9,12 +9,11 @@ How to write high-quality MCP tool manifests that enable accurate tool selection
 1. [Why Manifest Quality Matters](#why-manifest-quality-matters)
 2. [Manifest Structure](#manifest-structure)
 3. [Field-by-Field Guidance](#field-by-field-guidance)
-4. [Phase 3 Fields (New)](#phase-3-fields-new)
-5. [Template for Excellent Manifests](#template-for-excellent-manifests)
-6. [Good vs Bad Examples](#good-vs-bad-examples)
-7. [Documenting Tool Conflicts](#documenting-tool-conflicts)
-8. [Quality Checklist](#quality-checklist)
-9. [Running the Linter](#running-the-linter)
+4. [Template for Excellent Manifests](#template-for-excellent-manifests)
+5. [Good vs Bad Examples](#good-vs-bad-examples)
+6. [Documenting Tool Conflicts](#documenting-tool-conflicts)
+7. [Quality Checklist](#quality-checklist)
+8. [Running the Linter](#running-the-linter)
 
 ---
 
@@ -43,7 +42,6 @@ Every tool manifest is a `ToolManifest` frozen dataclass:
 ```python
 @dataclass(frozen=True)
 class ToolManifest:
-    # ── Core fields (required) ────────────────────────────────────────────
     tool_name: str                          # Unique identifier
     source: str                             # MCP server origin
     domains: FrozenSet[str]                 # Domain classification
@@ -52,17 +50,10 @@ class ToolManifest:
     example_queries: Tuple[str, ...]        # Natural language triggers
     conflicts_with: FrozenSet[str]          # Confusable tool names
     conflict_note: str                      # Disambiguation guidance
-    preferred_over: FrozenSet[str]          # Priority over other tools (core set)
+    preferred_over: FrozenSet[str]          # Priority over other tools
     requires_confirmation: bool = False     # Gate for mutating tools
     deprecated: bool = False                # Sunset flag
     output_schema: Dict = field(default_factory=dict)
-
-    # ── Phase 3: Intelligent Routing fields (optional, default to safe values) ──
-    primary_phrasings: Tuple[str, ...] = ()       # Positive routing examples
-    avoid_phrasings: Tuple[str, ...] = ()         # Negative routing examples
-    confidence_boost: float = 1.0                 # Retrieval score multiplier
-    requires_sequence: Optional[Tuple[str, ...]] = None  # Prerequisite tool chain
-    preferred_over_list: Tuple[str, ...] = ()     # Extended preference list (convenience)
 ```
 
 ---
@@ -231,7 +222,7 @@ conflict_note="This tool is different from resourcehealth."
 
 ### `preferred_over`
 
-**Purpose:** Core set of tool names that this tool should be ranked higher than
+**Purpose:** Declares that this tool should be ranked higher than named tools
 when both are candidates for the same query.
 
 ```python
@@ -241,159 +232,12 @@ preferred_over=frozenset({"azure_cli_execute_command"})
 
 ---
 
-## Phase 3 Fields (New)
-
-Phase 3 adds five new optional fields to support **metadata-driven routing** —
-shifting routing logic from hard-coded patterns in `router.py` into manifest
-metadata where it can be maintained without code changes.
-
-All Phase 3 fields have safe defaults so existing manifests continue to work
-without modification.
-
-### `primary_phrasings` *(Tuple[str, ...], default: ())*
-
-**Purpose:** Positive example queries specifically used to **boost retrieval
-confidence** when the user's query closely matches one of these phrases.
-
-Differs from `example_queries`:
-- `example_queries` — used for semantic embedding similarity
-- `primary_phrasings` — used for direct scoring boost during retrieval
-
-**Rules:**
-- Aim for 5–10 diverse, natural-language phrasings
-- Cover the most common intents users express for this tool
-- Each phrase must be ≥5 characters
-- Use tuples (not lists) since the dataclass is frozen
-
-```python
-primary_phrasings=(
-    "list my container apps",
-    "show all container apps",
-    "what container apps do I have",
-    "display container apps in subscription",
-    "get all container apps in resource group",
-),
-```
-
-**When to populate:** Add for high-traffic tools that need reliable routing.
-Leave empty `()` for rarely-used or highly-specific tools.
-
-### `avoid_phrasings` *(Tuple[str, ...], default: ())*
-
-**Purpose:** Negative examples — queries that SHOULD NOT trigger this tool.
-
-Used to suppress false-positive matches where superficially similar queries
-actually belong to a different, more specific tool.
-
-**Rules:**
-- Include queries where users have been routed to this tool incorrectly
-- Add a comment indicating the correct tool for each phrase
-- Each phrase must be ≥5 characters
-- Use tuples (not lists)
-
-```python
-avoid_phrasings=(
-    "check health of container apps",  # → check_container_app_health
-    "restart container app",           # → execute_safe_restart
-    "deploy container app",            # → deploy_container_app
-),
-```
-
-**When to populate:** Add when observing false-positive routing incidents or
-when a tool has an obvious "nearest alternative" for common query patterns.
-
-### `confidence_boost` *(float, default: 1.0)*
-
-**Purpose:** A score multiplier applied to this tool's retrieval score.
-Expresses tool preference without hard-coding keyword rules.
-
-**Valid range:** 1.0–2.0
-
-| Value | When to use |
-|-------|-------------|
-| `1.0` | Default — no preference (leave unset or set explicitly) |
-| `1.1` | Mild preference — slightly more specialised than an alternative |
-| `1.2` | Moderate preference — clearly the right tool for its domain |
-| `1.3` | Strong preference — a specialised SRE/network tool vs a generic one |
-| `1.5` | Very strong — critical tool that should almost always win |
-
-```python
-# container_app_list is the go-to tool for listing; boost it
-confidence_boost=1.2,
-
-# check_container_app_health is the preferred health check — boost further
-confidence_boost=1.3,
-```
-
-**Anti-pattern:** Do not set `confidence_boost > 1.5`. Extreme values indicate
-the routing conflict should instead be resolved via `conflicts_with` / `conflict_note`.
-
-### `requires_sequence` *(Optional[Tuple[str, ...]], default: None)*
-
-**Purpose:** Encodes deterministic tool chaining in metadata instead of router code.
-When the router plans to include this tool, it injects the prerequisite tools
-earlier in the plan if they aren't already present.
-
-**Rules:**
-- `None` = no prerequisites (default — leave unset for most tools)
-- Non-empty tuple = ordered list of tool names that must run first
-- Do not use an empty tuple `()` — use `None` instead
-- All prerequisite tool names should exist in the manifest index
-
-**The canonical use case** is container app health chaining:
-
-```python
-# check_container_app_health requires the list step to provide resource IDs
-requires_sequence=("container_app_list",),
-```
-
-This replaces the hard-coded pattern that previously lived in `router.py`:
-```python
-# OLD (hard-coded, fragile):
-if "container" in query and "health" in query:
-    inject_tools(["container_app_list", "check_container_app_health"])
-
-# NEW (metadata-driven, maintainable):
-# Set requires_sequence=("container_app_list",) on check_container_app_health manifest
-```
-
-### `preferred_over_list` *(Tuple[str, ...], default: ())*
-
-**Purpose:** Extended set of lower-priority tool names that this tool should
-be ranked above during retrieval.
-
-Complements the core `preferred_over` FrozenSet field.  Use `preferred_over_list`
-when you need to declare additional dynamic preferences beyond the static conflict-
-resolution set in `preferred_over`, or when authoring manifests that should
-compose cleanly with the other Phase 3 tuple fields.
-
-**Rules:**
-- `()` (empty tuple) = no additional preference (default)
-- Each entry must be a non-empty string matching an existing tool name
-- The router merges `preferred_over` and `preferred_over_list` during ranking
-- Use tuples (not lists) since the dataclass is frozen
-
-```python
-# container_app_list is also preferred over these generic alternatives
-preferred_over_list=(
-    "azure_cli_execute_command",
-    "generic_resource_query",
-),
-```
-
-**When to populate:** Prefer `preferred_over` (FrozenSet) for compile-time-known
-static conflicts.  Use `preferred_over_list` for dynamically discovered conflicts
-or when co-authoring a set of Phase 3 fields that belong together semantically.
-
----
-
 ## Template for Excellent Manifests
 
-Copy this template when adding a new tool (all Phase 3 fields included):
+Copy this template when adding a new tool:
 
 ```python
 ToolManifest(
-    # ── Core fields ──
     tool_name="<snake_case_name>",
     source="<server_label>",
     domains=frozenset({"<primary_domain>"}),
@@ -413,21 +257,6 @@ ToolManifest(
     ),
     preferred_over=frozenset({"<lower_priority_tool>"}),
     requires_confirmation=False,  # True for DESTRUCTIVE/DEPLOY
-
-    # ── Phase 3: Intelligent Routing (optional — add for high-traffic tools) ──
-    primary_phrasings=(
-        "<common natural query 1>",
-        "<common natural query 2>",
-        "<common natural query 3>",
-        "<common natural query 4>",
-        "<common natural query 5>",
-    ),
-    avoid_phrasings=(
-        "<query that belongs to another tool>",  # → <other_tool_name>
-    ),
-    confidence_boost=1.0,          # 1.0 = default; 1.1–1.5 for preferred tools
-    requires_sequence=None,        # or ("prerequisite_tool",) for chained tools
-    preferred_over_list=(),        # additional tools to rank above (tuple)
 ),
 ```
 
@@ -437,7 +266,7 @@ ToolManifest(
 
 ### Example 1: Health Check Tool
 
-**Excellent manifest (with Phase 3):**
+**Excellent manifest:**
 
 ```python
 ToolManifest(
@@ -459,22 +288,6 @@ ToolManifest(
         "resourcehealth only provides generic Azure platform availability."
     ),
     preferred_over=frozenset({"resourcehealth"}),
-
-    # Phase 3
-    primary_phrasings=(
-        "what is the health of my container apps",
-        "check container app health",
-        "is my container app healthy",
-        "container app status check",
-        "show container app health",
-    ),
-    avoid_phrasings=(
-        "list my container apps",       # → container_app_list
-        "restart container app",        # → execute_safe_restart
-    ),
-    confidence_boost=1.3,
-    requires_sequence=("container_app_list",),
-    preferred_over_list=(),
 )
 ```
 
@@ -520,21 +333,6 @@ ToolManifest(
     ),
     preferred_over=frozenset(),
     requires_confirmation=True,  # Required for DESTRUCTIVE
-
-    # Phase 3
-    primary_phrasings=(
-        "restart my container app",
-        "reboot the service",
-        "safe restart for production",
-        "restart the failing app",
-    ),
-    avoid_phrasings=(
-        "scale up container app",    # → scale_resource
-        "add more replicas",         # → scale_resource
-    ),
-    confidence_boost=1.1,
-    requires_sequence=None,
-    preferred_over_list=(),
 )
 ```
 
@@ -596,7 +394,6 @@ expected:
 
 Before submitting a new or updated manifest, verify:
 
-**Core fields:**
 - [ ] `tool_name` matches MCP server registration (snake_case)
 - [ ] `source` is set to the correct MCP server label
 - [ ] `domains` has at least 1 domain from the vocabulary
@@ -608,20 +405,8 @@ Before submitting a new or updated manifest, verify:
 - [ ] `conflict_note` is set when `conflicts_with` is non-empty
 - [ ] `conflict_note` names both tools and explains when to use each
 - [ ] `requires_confirmation=True` for DESTRUCTIVE and DEPLOY tools
-
-**Phase 3 fields (for high-traffic tools):**
-- [ ] `primary_phrasings` has 5+ phrases if this is a top-20 tool
-- [ ] `avoid_phrasings` documents the nearest "wrong tool" alternatives
-- [ ] `confidence_boost` is in range [1.0, 2.0]
-- [ ] `requires_sequence` is set for tools with mandatory prerequisites
-- [ ] `requires_sequence=None` (not empty tuple) when there are no prerequisites
-- [ ] `preferred_over_list` is a tuple of strings (empty tuple `()` is fine)
-
-**Validation:**
 - [ ] Linter passes: `python scripts/manifest_linter.py`
 - [ ] Quality score is 80+: `python scripts/manifest_quality_scorecard.py`
-- [ ] Phase 3 tests pass: `pytest tests/tools/test_manifest_quality.py -v -k phase3`
-- [ ] Migration audit passes: `python utils/migrate_manifests.py`
 
 ---
 
@@ -647,14 +432,6 @@ python scripts/manifest_quality_scorecard.py --top-gaps 10
 
 # Fail if below quality threshold
 python scripts/manifest_quality_scorecard.py --min-score 80
-
-# Phase 3 field validation only
-pytest tests/tools/test_manifest_quality.py -v -k phase3
-
-# Migration audit (Phase 3 field adoption report)
-python utils/migrate_manifests.py
-python utils/migrate_manifests.py --verbose     # per-tool details
-python utils/migrate_manifests.py --strict      # CI gate: fail if schema missing
 ```
 
 ### Linter Rules Reference
@@ -673,15 +450,8 @@ python utils/migrate_manifests.py --strict      # CI gate: fail if schema missin
 | CONF-002 | Error | conflict_note required when conflicts_with is set |
 | PREF-001 | Warning | preferred_over references existing tools |
 | AFF-001 | Error | DESTRUCTIVE/DEPLOY tools need confirmation |
-| P3-001 | Advisory | primary_phrasings strings are ≥5 chars |
-| P3-002 | Advisory | avoid_phrasings strings are ≥5 chars |
-| P3-003 | Error | confidence_boost in range [1.0, 2.0] |
-| P3-004 | Error | requires_sequence is None or non-empty tuple of strings |
-| P3-005 | Advisory | requires_sequence references known tool names |
-| P3-006 | Error | preferred_over_list is a tuple of non-empty strings |
 
 ---
 
-**Version:** 3.0 (Updated 2026-03-03)
-**Changes:** Added `preferred_over_list` Phase 3 field; added migration audit script docs; removed duplicate content
+**Version:** 1.0 (Created 2026-03-03)
 **Audience:** Developers adding or updating MCP tool manifests

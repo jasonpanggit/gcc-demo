@@ -225,6 +225,14 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
         build_patch_meta_tool = None  # type: ignore[assignment]
 
 try:
+    from app.agentic.eol.utils.legacy.tool_router import ToolRouter  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    try:
+        from utils.legacy.tool_router import ToolRouter  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        ToolRouter = None  # type: ignore[assignment]
+
+try:
     from app.agentic.eol.utils.legacy.tool_embedder import ToolEmbedder  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     try:
@@ -237,16 +245,13 @@ _pipeline_router_import_error: Optional[str] = None
 try:
     from app.agentic.eol.utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
     from app.agentic.eol.utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
-    from app.agentic.eol.utils.tool_manifest_index import get_tool_manifest_index as _get_manifest_index  # type: ignore[import-not-found]
 except ModuleNotFoundError:
     try:
         from utils.router import Router as PipelineRouter  # type: ignore[import-not-found]
         from utils.tool_retriever import ToolRetriever as PipelineToolRetriever  # type: ignore[import-not-found]
-        from utils.tool_manifest_index import get_tool_manifest_index as _get_manifest_index  # type: ignore[import-not-found]
     except ModuleNotFoundError as _e:
         PipelineRouter = None  # type: ignore[assignment,misc]
         PipelineToolRetriever = None  # type: ignore[assignment,misc]
-        _get_manifest_index = None  # type: ignore[assignment]
         _pipeline_router_import_error = str(_e)
 
 # Phase 6 — full pipeline: Planner + Executor + Verifier + ResponseComposer
@@ -540,11 +545,10 @@ FORMATTING:
     ) -> List[Dict[str, Any]]:
         """Pick a compact, relevance-biased subset of candidate tools.
 
-        .. note::
-            Heuristic fallback used only when the pipeline Router+ToolRetriever
-            are unavailable. The primary routing path is
-            :meth:`_get_active_tools_for_iteration_async` which uses the
-            Phase 5 pipeline.
+        .. deprecated::
+            Routing now goes through :meth:`_get_active_tools_for_iteration`
+            which delegates to :class:`ToolRouter`.  This method is kept only
+            as a local heuristic fallback when the ToolRouter is unavailable.
         """
         if not candidates:
             return []
@@ -591,9 +595,9 @@ FORMATTING:
     ) -> List[Dict[str, Any]]:
         """Hard-cap routed tools to ``_routed_tool_budget``.
 
-        The pipeline Router+ToolRetriever performs quality-based selection; this method
+        The ToolRouter already performs quality-based selection; this method
         only applies the final budget ceiling so we never exceed the configured
-        maximum.
+        maximum regardless of the router's own ``_MAX_TOOL_COUNT``.
         """
         tools = list(active_tools or [])
         if not tools:
@@ -613,12 +617,76 @@ FORMATTING:
         )
         return tools
 
-    async def _get_active_tools_for_iteration_async(
+    def _get_active_tools_for_iteration(
         self,
         user_message: str,
         prior_tool_names: Optional[List[str]],
     ) -> List[Dict[str, Any]]:
         """Return the tool subset to send to the LLM for this iteration.
+
+        Routing pipeline (in order):
+        1. ToolRouter intent-based filtering with per-iteration domain pinning.
+        2. If router returns nothing + prior tools exist → reuse prior sources.
+        3. If router unavailable → local heuristic fallback.
+        4. Apply ``_routed_tool_budget`` hard cap.
+        5. Return ``[]`` if no tools available (logs a warning).
+        """
+        if not self._tool_definitions:
+            return []
+
+        active_tools: List[Dict[str, Any]] = []
+
+        if self._tool_router:
+            active_tools = list(
+                self._tool_router.filter_tools_for_query(
+                    user_message,
+                    self._tool_definitions,
+                    self._tool_source_map,
+                    prior_tool_names=list(prior_tool_names or []),
+                ) or []
+            )
+            # If router returned nothing but we have prior tools, fall back to
+            # reusing their sources so the model can continue its current task.
+            if not active_tools and prior_tool_names:
+                prior_requested = set(prior_tool_names)
+                active_tools = [
+                    tool for tool in self._tool_definitions
+                    if isinstance(tool, dict)
+                    and isinstance(tool.get("function", tool), dict)
+                    and (tool.get("function", tool).get("name") in prior_requested)
+                ]
+                if active_tools:
+                    logger.info(
+                        "🔁 Router returned no tools; reusing %d prior requested tool(s): %s",
+                        len(active_tools),
+                        ", ".join(sorted(prior_requested)),
+                    )
+        else:
+            # ToolRouter unavailable — use local heuristic as fallback
+            logger.warning("⚠️ ToolRouter unavailable; using local heuristic fallback")
+            active_tools = self._select_compact_tools_for_query(
+                user_message,
+                self._tool_definitions,
+                self._routed_tool_budget,
+            )
+
+        if not active_tools:
+            logger.warning(
+                "⚠️ Routing produced no tools for query (strict mode); LLM will answer without tools"
+            )
+            return []
+
+        return self._enforce_routed_tool_budget(
+            active_tools,
+            len(self._tool_definitions),
+        )
+
+    async def _get_active_tools_for_iteration_async(
+        self,
+        user_message: str,
+        prior_tool_names: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Async version of _get_active_tools_for_iteration.
 
         Phase 5 routing path (MCP_AGENT_PIPELINE=routing):
             1. Router.route()            → List[DomainMatch]
@@ -652,13 +720,13 @@ FORMATTING:
                         [m.domain.value for m in domain_matches[:3]],
                     )
                     return retrieval_result.tools
-                # Pipeline returned 0 tools — return [] so caller uses full catalog.
+                # Fall through to legacy path if pipeline returned nothing
                 logger.warning(
-                    "🗺️ [ROUTING] pipeline returned 0 tools; returning [] (caller uses full catalog)"
+                    "🗺️ [ROUTING] pipeline returned 0 tools; falling back to legacy router"
                 )
             except Exception as _pipe_exc:
                 logger.warning(
-                    "🗺️ [ROUTING] pipeline error (%s); returning [] (caller uses full catalog)", _pipe_exc
+                    "🗺️ [ROUTING] pipeline error (%s); falling back to legacy router", _pipe_exc
                 )
 
         # Pipeline not active — return empty list; caller will use full catalog fallback.
@@ -859,28 +927,18 @@ FORMATTING:
 
     @staticmethod
     def _expected_tools_for_query_intent(query: str) -> Set[str]:
-        """Return a narrow expected tool set for strong query intents.
+        """Return a narrow expected tool set for strong network query intents."""
+        q = (query or "").lower()
 
-        Migrated to manifest metadata: uses ToolManifestIndex.find_tools_matching_query()
-        to derive expected tools from primary_phrasings rather than hard-coded keyword
-        checks.  Falls back to an empty set if the manifest index is unavailable.
+        if "effective route" in q or "effective routes" in q:
+            return {"get_effective_routes", "analyze_route_path"}
 
-        Previous hard-coded patterns (now expressed via manifest primary_phrasings):
-          - "effective route"  → get_effective_routes, analyze_route_path
-          - "vnet peering"     → inspect_vnet, virtual_network_list
-          - "nsg" / "network security group" → inspect_nsg_rules, nsg_list,
-                                               assess_network_security_posture
-        """
-        if not query:
-            return set()
-        try:
-            manifest_index = _get_manifest_index() if _get_manifest_index else None
-            if manifest_index is not None:
-                matched = manifest_index.find_tools_matching_query(query)
-                if matched:
-                    return set(matched)
-        except Exception:
-            pass  # Graceful degradation — manifest index unavailable
+        if "vnet peering" in q or ("peering" in q and "vnet" in q):
+            return {"inspect_vnet", "virtual_network_list"}
+
+        if "nsg" in q or "network security group" in q:
+            return {"inspect_nsg_rules", "nsg_list", "assess_network_security_posture"}
+
         return set()
 
     def _detect_semantic_cli_fallback_candidates(
@@ -983,7 +1041,8 @@ FORMATTING:
         self._monitor_history: List[Dict[str, str]] = []  # Prior monitor delegation request/response pairs
         self._sre_agent: Optional[Any] = None  # Lazy-initialized SRESubAgent
         self._sre_history: List[Dict[str, str]] = []  # Prior SRE delegation request/response pairs
-        self._tool_embedder: Optional[Any] = None  # Lazy-initialized ToolEmbedder (semantic ranking for ToolRetriever)
+        self._tool_router: Optional[Any] = None  # Lazy-initialized ToolRouter (keyword fallback)
+        self._tool_embedder: Optional[Any] = None  # Lazy-initialized ToolEmbedder (semantic primary)
         self._pipeline_router: Optional[Any] = None   # Phase 4/5 pipeline Router
         self._pipeline_retriever: Optional[Any] = None  # Phase 4/5 pipeline ToolRetriever
 
@@ -1266,7 +1325,7 @@ FORMATTING:
                 domains_str = ", ".join(m.domain.value for m in domain_matches[:5])
                 _mode_tag = "ROUTING" if self._pipeline_routing else "SHADOW"
                 logger.info(
-                    "🔬 [%s] pipeline: %d tools (pool=%d) | catalog_size=%d | domains=[%s]",
+                    "🔬 [%s] pipeline: %d tools (pool=%d) vs legacy: %d tools | domains=[%s]",
                     _mode_tag,
                     len(retrieval_result.tools),
                     retrieval_result.pool_size,
@@ -2167,6 +2226,11 @@ FORMATTING:
                     # Initialize the SRESubAgent now
                     self._init_sre_agent()
 
+            # --- Initialize legacy ToolRouter (used by sync fallback path) ---
+            if ToolRouter is not None and self._tool_router is None:
+                self._tool_router = ToolRouter(composite_client=self._mcp_client)
+                logger.info("🎯 ToolRouter initialized for intent-based tool pre-filtering")
+
             # --- Initialize ToolEmbedder for semantic retrieval ---
             if ToolEmbedder is not None and self._tool_embedder is None:
                 self._tool_embedder = ToolEmbedder()
@@ -2648,7 +2712,7 @@ FORMATTING:
         else:
             self._tool_source_map = {}
 
-        # Register meta-tool sources for pipeline routing source map
+        # Register meta-tool sources for ToolRouter filtering
         if self._monitor_agent:
             self._tool_source_map["monitor_agent"] = "meta"
         if self._sre_agent:

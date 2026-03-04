@@ -24,25 +24,6 @@ MANIFESTS: list[ToolManifest] = [
             "NOT the same as Azure MCP 'monitor' which configures Azure Monitor resources."
         ),
         preferred_over=frozenset(),
-        # Phase 3 metadata
-        primary_phrasings=(
-            "find monitor resources for AKS",
-            "get workbooks for Container Apps",
-            "find KQL queries for my service",
-            "discover available monitoring workbooks",
-            "what monitoring resources are available for my service",
-            "find alerts and workbooks for my Azure service",
-            "get community workbooks for monitoring",
-            "show monitoring resources for my resource type",
-        ),
-        avoid_phrasings=(
-            "deploy a workbook",                       # → deploy_workbook
-            "list monitor categories",                 # → list_monitor_categories
-            "search for monitor categories by keyword",  # → search_categories
-        ),
-        confidence_boost=1.2,
-        requires_sequence=None,
-        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="deploy_workbook",
@@ -58,24 +39,6 @@ MANIFESTS: list[ToolManifest] = [
         conflict_note="",
         preferred_over=frozenset(),
         requires_confirmation=True,
-        # Phase 3 metadata
-        primary_phrasings=(
-            "deploy AKS workbook",
-            "install Container Apps monitoring workbook",
-            "deploy monitoring workbook to my workspace",
-            "install a workbook for monitoring",
-            "deploy community workbook",
-            "set up monitoring workbook for my service",
-            "push workbook to Azure Monitor",
-        ),
-        avoid_phrasings=(
-            "find available workbooks",                # → get_service_monitor_resources
-            "list monitoring categories",              # → list_monitor_categories
-            "get content of a workbook",               # → get_resource_content
-        ),
-        confidence_boost=1.2,
-        requires_sequence=("get_service_monitor_resources",),
-        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="get_resource_content",
@@ -90,24 +53,6 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
-        # Phase 3 metadata
-        primary_phrasings=(
-            "get content of a monitor resource",
-            "show the KQL query for an alert",
-            "retrieve workbook content",
-            "show the definition of a monitoring alert",
-            "get the KQL for a monitor query",
-            "show workbook JSON definition",
-            "retrieve alert rule content",
-        ),
-        avoid_phrasings=(
-            "find monitoring resources",               # → get_service_monitor_resources
-            "deploy a workbook",                       # → deploy_workbook
-            "search monitor categories",               # → search_categories
-        ),
-        confidence_boost=1.1,
-        requires_sequence=None,
-        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="list_monitor_categories",
@@ -122,23 +67,6 @@ MANIFESTS: list[ToolManifest] = [
         conflicts_with=frozenset(),
         conflict_note="",
         preferred_over=frozenset(),
-        # Phase 3 metadata
-        primary_phrasings=(
-            "list monitor categories",
-            "what monitoring resources are available",
-            "show Azure Monitor community categories",
-            "what categories exist in Azure Monitor community",
-            "list all monitoring resource categories",
-            "enumerate monitoring categories",
-            "what types of monitor resources are there",
-        ),
-        avoid_phrasings=(
-            "find workbooks for my service",           # → get_service_monitor_resources
-            "search for monitoring resources by keyword",  # → search_categories
-        ),
-        confidence_boost=1.1,
-        requires_sequence=None,
-        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="search_categories",
@@ -156,23 +84,5 @@ MANIFESTS: list[ToolManifest] = [
             "NOT for Azure Cognitive Search or log searching."
         ),
         preferred_over=frozenset(),
-        # Phase 3 metadata
-        primary_phrasings=(
-            "search monitor categories",
-            "find Azure Monitor community resources by keyword",
-            "search for monitoring workbooks by name",
-            "find monitoring resources containing a keyword",
-            "search Azure Monitor community for AKS resources",
-            "keyword search in Monitor Community categories",
-            "find all monitoring resources matching a term",
-        ),
-        avoid_phrasings=(
-            "list all monitor categories",             # → list_monitor_categories (full list)
-            "find workbooks for a specific service",   # → get_service_monitor_resources
-            "deploy a workbook",                       # → deploy_workbook
-        ),
-        confidence_boost=1.1,
-        requires_sequence=None,
-        preferred_over_list=(),
     ),
 ]

@@ -50,10 +50,28 @@ _READ_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Migrated to manifest metadata: action tool classification now uses
-# ToolManifestIndex.is_action_tool() which reads affordance (WRITE/DESTRUCTIVE/DEPLOY)
-# from each tool's ToolManifest rather than relying on name prefixes.
-# The name-prefix fallback is preserved inside is_action_tool() for unregistered tools.
+# Tool name prefixes that indicate an action tool inappropriate for read queries.
+# These are verb-prefixed tools that require specific src/dst arguments or mutate state.
+_ACTION_TOOL_PREFIXES = (
+    "test_",
+    "check_",
+    "create_",
+    "delete_",
+    "update_",
+    "restart_",
+    "trigger_",
+    "enable_",
+    "disable_",
+    "assign_",
+    "run_",
+    "execute_",
+    "invoke_",
+    "start_",
+    "stop_",
+    "reset_",
+    "patch_",
+    "deploy_",
+)
 
 
 # Azure/network domains that should always have azure_cli_execute_command available
@@ -70,18 +88,8 @@ _CONTAINER_APP_HEALTH_TOOL = "check_container_app_health"
 _CONTAINER_APP_LIST_TOOL = "container_app_list"  # referenced in health-chain guardrail
 
 
-# Migrated to manifest metadata: container-app health intent is now detected via
-# ToolManifestIndex.find_tools_matching_query() using check_container_app_health's
-# primary_phrasings.  The requires_sequence=("container_app_list",) in that manifest
-# drives prerequisite injection through get_prerequisite_tools().
-#
-# Kept for backward compatibility with any external callers (deprecated):
 def _is_container_app_health_intent(query: str) -> bool:
-    """Deprecated: use manifest-driven intent detection instead.
-
-    Kept as a fallback while external code migrates.  Returns True when query
-    asks for container app health/status using the legacy regex approach.
-    """
+    """Return True when query asks for container app health/status."""
     if not query:
         return False
     return bool(
@@ -91,17 +99,7 @@ def _is_container_app_health_intent(query: str) -> bool:
 
 
 def _is_action_tool(name: str) -> bool:
-    """Deprecated: use ToolManifestIndex.is_action_tool() instead.
-
-    Kept as a module-level fallback while call sites migrate.  Internal
-    ToolRetriever logic now delegates to the manifest index.
-    """
-    # Fallback name-prefix heuristic for tools without a manifest
-    _ACTION_TOOL_PREFIXES = (
-        "test_", "check_", "create_", "delete_", "update_", "restart_",
-        "trigger_", "enable_", "disable_", "assign_", "run_", "execute_",
-        "invoke_", "start_", "stop_", "reset_", "patch_", "deploy_",
-    )
+    """Return True when a tool name starts with an action verb prefix."""
     lname = name.lower()
     return any(lname.startswith(p) for p in _ACTION_TOOL_PREFIXES)
 
@@ -333,25 +331,14 @@ class ToolRetriever:
 
         # Intent filter: for read queries, remove action-verb tools so they
         # never reach the planner (neither fast-path nor LLM path).
-        # Manifest-driven: uses ToolManifestIndex.is_action_tool() (reads affordance)
-        # and find_tools_matching_query() to detect which action tools to preserve
-        # based on their primary_phrasings.
         if _READ_INTENT_RE.match(query.strip()):
-            # Manifest-driven: preserve tools whose primary_phrasings match the query.
-            # This replaces the hard-coded _is_container_app_health_intent check —
-            # e.g. "what is the health of my container apps" now matches
-            # check_container_app_health.primary_phrasings and is preserved.
             preserve_action_tools: Set[str] = set()
-            matched_tools = self._manifests.find_tools_matching_query(query)
-            preserve_action_tools.update(matched_tools)
-            # Also preserve any tools required as prerequisites via requires_sequence
-            ranked_names_list = [self._tool_name(t) for t in ranked]
-            prereqs = self._manifests.get_prerequisite_tools(ranked_names_list)
-            preserve_action_tools.update(prereqs)
+            if _is_container_app_health_intent(query):
+                preserve_action_tools.add(_CONTAINER_APP_HEALTH_TOOL)
 
             filtered = [
                 t for t in ranked
-                if (not self._manifests.is_action_tool(self._tool_name(t)))
+                if (not _is_action_tool(self._tool_name(t)))
                 or (self._tool_name(t) in preserve_action_tools)
             ]
 
@@ -381,26 +368,27 @@ class ToolRetriever:
                     trace.tools_injected_by_guardrail.append(_CLI_FALLBACK_TOOL)
                     logger.debug("ToolRetriever: injected %s as CLI escape-hatch", _CLI_FALLBACK_TOOL)
 
-        # Manifest-driven prerequisite guardrail: for each tool in the ranked set,
-        # consult its requires_sequence manifest field and inject any missing
-        # prerequisite tools.  This replaces the hard-coded container-app health
-        # injection block (_is_container_app_health_intent → inject container_app_list).
-        ranked_tool_names = [self._tool_name(t) for t in ranked]
-        missing_prereqs = self._manifests.get_prerequisite_tools(ranked_tool_names)
-        for prereq_name in missing_prereqs:
-            prereq_tool = next(
-                (t for t in pool if self._tool_name(t) == prereq_name), None
-            )
-            if prereq_tool:
-                if len(ranked) >= self._top_k:
-                    ranked = ranked[:-1]
-                ranked.append(prereq_tool)
-                trace.guardrails_triggered.append(f"requires_sequence_inject:{prereq_name}")
-                trace.tools_injected_by_guardrail.append(prereq_name)
-                logger.debug(
-                    "ToolRetriever: injected prerequisite %s via manifest requires_sequence",
-                    prereq_name,
+        # Deterministic guardrail: preserve container-app health tool for
+        # list+health chaining plans (planner stage 3 deterministic sequence).
+        # container_app_health has requires_sequence=("container_app_list",) in its manifest,
+        # so the planner needs both tools available to build the chained plan.
+        if _is_container_app_health_intent(query):
+            ranked_names = {self._tool_name(t) for t in ranked}
+            if _CONTAINER_APP_HEALTH_TOOL not in ranked_names:
+                health_tool = next(
+                    (t for t in pool if self._tool_name(t) == _CONTAINER_APP_HEALTH_TOOL),
+                    None,
                 )
+                if health_tool:
+                    if len(ranked) >= self._top_k:
+                        ranked = ranked[:-1]
+                    ranked.append(health_tool)
+                    trace.guardrails_triggered.append("container_app_health_inject")
+                    trace.tools_injected_by_guardrail.append(_CONTAINER_APP_HEALTH_TOOL)
+                    logger.debug(
+                        "ToolRetriever: injected %s for container-app health intent",
+                        _CONTAINER_APP_HEALTH_TOOL,
+                    )
 
         # Build conflict notes for active tool set
         tool_names = [self._tool_name(t) for t in ranked]
@@ -486,12 +474,24 @@ class ToolRetriever:
             }
             return pool[:top_k], scores
 
-        # Migrated to manifest metadata: Azure abbreviation synonyms (vnet↔virtual network,
-        # vm↔virtual machine, nsg↔network security group) are now expressed as
-        # primary_phrasings in the relevant tool manifests (virtual_network_list,
-        # virtual_machine_list, nsg_list, inspect_nsg_rules, etc.) rather than being
-        # expanded here.  The semantic ranking path already covers these via phrasings;
-        # the keyword fallback path benefits from tool name token matching alone.
+        # Expand common Azure abbreviations: 'virtual'+'network' → also 'vnet', etc.
+        if "virtual" in tokens and ("network" in tokens or "networks" in tokens):
+            tokens.add("vnet")
+        if "virtual" in tokens and ("machine" in tokens or "machines" in tokens):
+            tokens.add("vm")
+        if "network" in tokens and "security" in tokens:
+            tokens.add("nsg")
+        # Reverse-expand: abbreviated forms → full tokens so specialised list
+        # tools (e.g. virtual_network_list) out-score generic inspect tools
+        if "vnet" in tokens or "vnets" in tokens:
+            tokens.add("virtual")
+            tokens.add("network")
+        if "vm" in tokens or "vms" in tokens:
+            tokens.add("virtual")
+            tokens.add("machine")
+        if "nsg" in tokens or "nsgs" in tokens:
+            tokens.add("network")
+            tokens.add("security")
 
         scored: List[tuple] = []
         keyword_scores: Dict[str, float] = {}
