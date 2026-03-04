@@ -1,4 +1,4 @@
-# EOL Agentic Application
+# Azure Agentic Application
 
 FastAPI-based agentic application for software lifecycle and Azure operations workflows.
 

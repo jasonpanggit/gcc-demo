@@ -188,6 +188,177 @@ function executeScripts(element) {
     });
 }
 
+function sanitizeHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    const forbiddenTags = ['style', 'iframe', 'object', 'embed'];
+    forbiddenTags.forEach(tag => {
+        template.content.querySelectorAll(tag).forEach(node => node.remove());
+    });
+
+    template.content.querySelectorAll('*').forEach(node => {
+        [...node.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith('on') || name === 'formaction' || name === 'srcdoc') {
+                node.removeAttribute(attr.name);
+            }
+
+            if (node.tagName.toLowerCase() === 'script' && name === 'src') {
+                node.removeAttribute(attr.name);
+            }
+        });
+    });
+
+    return template.innerHTML;
+}
+
+function buildStructuredHtml(text) {
+    const container = document.createElement('div');
+    const lines = text.split('\n');
+    let index = 0;
+    let hasRichContent = false;
+
+    const isListLine = (line) => {
+        const trimmed = line.trim();
+        return /^[-*+]\s+/.test(trimmed) || /^\d+\.\s+/.test(trimmed);
+    };
+
+    const parseCodeBlock = (startIndex) => {
+        let idx = startIndex + 1;
+        const codeLines = [];
+        while (idx < lines.length && !lines[idx].trim().startsWith('```')) {
+            codeLines.push(lines[idx]);
+            idx++;
+        }
+        if (idx < lines.length && lines[idx].trim().startsWith('```')) {
+            idx++;
+        }
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+        code.textContent = codeLines.join('\n');
+        pre.appendChild(code);
+        return { node: pre, nextIndex: idx, hasRichContent: true };
+    };
+
+    const parseListBlock = (startIndex) => {
+        const firstLine = lines[startIndex];
+        if (!firstLine || !isListLine(firstLine)) {
+            return null;
+        }
+
+        const isOrdered = /^\d+\.\s+/.test(firstLine.trim());
+        const list = document.createElement(isOrdered ? 'ol' : 'ul');
+        let idx = startIndex;
+
+        while (idx < lines.length) {
+            const line = lines[idx];
+            if (!line.trim() || !isListLine(line)) {
+                break;
+            }
+            const trimmed = line.trim();
+            const itemText = isOrdered
+                ? trimmed.replace(/^\d+\.\s+/, '')
+                : trimmed.replace(/^[-*+]\s+/, '');
+            const li = document.createElement('li');
+            li.textContent = itemText;
+            list.appendChild(li);
+            idx++;
+        }
+
+        return list.children.length ? { node: list, nextIndex: idx, hasRichContent: true } : null;
+    };
+
+    const parseParagraphBlock = (startIndex) => {
+        let idx = startIndex;
+        const collectedLines = [];
+
+        while (idx < lines.length) {
+            const line = lines[idx];
+            if (!line.trim()) {
+                break;
+            }
+            if (idx !== startIndex && (line.trim().startsWith('```') || isListLine(line))) {
+                break;
+            }
+            collectedLines.push(line);
+            idx++;
+        }
+
+        if (!collectedLines.length) {
+            return { node: document.createTextNode(''), nextIndex: idx, hasRichContent: false };
+        }
+
+        const paragraph = document.createElement('p');
+        collectedLines.forEach((line, lineIndex) => {
+            if (lineIndex > 0) {
+                paragraph.appendChild(document.createElement('br'));
+            }
+            paragraph.appendChild(document.createTextNode(line.trim()));
+        });
+        return { node: paragraph, nextIndex: idx, hasRichContent: false };
+    };
+
+    while (index < lines.length) {
+        if (!lines[index].trim()) {
+            index++;
+            continue;
+        }
+
+        if (lines[index].trim().startsWith('```')) {
+            const block = parseCodeBlock(index);
+            container.appendChild(block.node);
+            index = block.nextIndex;
+            hasRichContent = true;
+            continue;
+        }
+
+        const listBlock = parseListBlock(index);
+        if (listBlock) {
+            container.appendChild(listBlock.node);
+            index = listBlock.nextIndex;
+            hasRichContent = true;
+            continue;
+        }
+
+        const paragraphBlock = parseParagraphBlock(index);
+        container.appendChild(paragraphBlock.node);
+        index = paragraphBlock.nextIndex;
+        if (paragraphBlock.hasRichContent) {
+            hasRichContent = true;
+        }
+    }
+
+    return { html: container.innerHTML, hasRichContent };
+}
+
+function formatContent(text) {
+    if (!text) {
+        return { html: '', hasRichContent: false };
+    }
+
+    const trimmed = String(text).trim();
+    if (!trimmed) {
+        return { html: '', hasRichContent: false };
+    }
+
+    const containsHtml = /<\/?[a-z][\s\S]*>/i.test(trimmed);
+    const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol|<p[\s>]|<strong|<em|<h[1-6][\s>]|<a\s|<canvas|<script|<div[\s>]/.test(trimmed);
+
+    if (containsHtml && isTrustedHtml) {
+        return {
+            html: sanitizeHtml(trimmed),
+            hasRichContent: true
+        };
+    }
+
+    const { html, hasRichContent } = buildStructuredHtml(trimmed);
+    return {
+        html: sanitizeHtml(html || `<p>${escapeHtml(trimmed)}</p>`),
+        hasRichContent
+    };
+}
+
 /**
  * Add message to chat
  */
@@ -221,12 +392,17 @@ function addMessage(content, type = 'agent') {
     const label = labelByType[type] || 'Assistant';
     const timestamp = new Date().toLocaleTimeString();
 
+    const isUser = type === 'user';
+    const formatted = isUser ? { html: `<p>${escapeHtml(String(content))}</p>`, hasRichContent: false } : formatContent(content);
+    const rendered = formatted.html;
+    const contentClass = formatted.hasRichContent ? 'chat-html-content' : 'chat-text-content';
+
     messageDiv.innerHTML = `
         <div class="chat-message-header">
             <span class="chat-message-label"><i class="fas ${iconClass}"></i>${label}</span>
             <span class="chat-message-time">${timestamp}</span>
         </div>
-        <div class="chat-message-content">${content}</div>
+        <div class="chat-message-content ${contentClass}">${rendered}</div>
     `;
 
     chatHistory.appendChild(messageDiv);

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Routing Analytics Dashboard - Azure Agentic Platform</title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #1a202c;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            color: #718096;
+            font-size: 16px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .controls label {
+            color: #4a5568;
+            font-weight: 500;
+        }
+
+        .controls input[type="date"] {
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .controls button {
+            padding: 8px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .controls button:hover {
+            background: #5a67d8;
+        }
+
+        .auto-refresh {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .auto-refresh input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .metric-label {
+            color: #718096;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            color: #1a202c;
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .metric-subtitle {
+            color: #a0aec0;
+            font-size: 13px;
+        }
+
+        .metric-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .metric-status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .metric-status.warning {
+            background: #feebc8;
+            color: #7c2d12;
+        }
+
+        .metric-status.info {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-card h3 {
+            color: #1a202c;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .table-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .table-card h3 {
+            color: #1a202c;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f7fafc;
+        }
+
+        th {
+            padding: 12px;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 14px;
+            color: #2d3748;
+        }
+
+        tbody tr:hover {
+            background: #f7fafc;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge.high {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge.medium {
+            background: #feebc8;
+            color: #7c2d12;
+        }
+
+        .badge.low {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            border: 1px solid #fc8181;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 20px 0;
+            color: #742a2a;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #a0aec0;
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .metric-value {
+                font-size: 28px;
+            }
+        }
+
+        .refresh-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #48bb78;
+            margin-left: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📊 Routing Analytics Dashboard</h1>
+            <p class="subtitle">Real-time monitoring of routing accuracy and tool usage</p>
+
+            <div class="controls">
+                <label for="start-date">Start Date:</label>
+                <input type="date" id="start-date">
+
+                <label for="end-date">End Date:</label>
+                <input type="date" id="end-date">
+
+                <button onclick="loadDashboard()">🔄 Refresh</button>
+                <button onclick="exportReport()">📥 Export Report</button>
+
+                <div class="auto-refresh">
+                    <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+                    <label for="auto-refresh">Auto-refresh (30s)</label>
+                    <span id="refresh-indicator" style="display:none;" class="refresh-indicator"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid" id="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total Queries</div>
+                <div class="metric-value" id="total-queries">-</div>
+                <div class="metric-subtitle">Processed in date range</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Routing Accuracy</div>
+                <div class="metric-value" id="routing-accuracy">-</div>
+                <div class="metric-subtitle">Success rate</div>
+                <div id="accuracy-status" class="metric-status success" style="display:none;">✓ Target: ≥90%</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Avg Execution Time</div>
+                <div class="metric-value" id="avg-execution-time">-</div>
+                <div class="metric-subtitle">Milliseconds per query</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">User Corrections</div>
+                <div class="metric-value" id="user-corrections">-</div>
+                <div class="metric-subtitle" id="corrections-rate">- of queries</div>
+            </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="charts-grid">
+            <!-- Confidence Distribution Chart -->
+            <div class="chart-card">
+                <h3>Confidence Distribution</h3>
+                <div class="chart-container">
+                    <canvas id="confidence-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Tool Usage Chart -->
+            <div class="chart-card">
+                <h3>Top 10 Tools</h3>
+                <div class="chart-container">
+                    <canvas id="tool-usage-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Time Series Chart (Full Width) -->
+        <div class="chart-card" style="margin-bottom: 20px;">
+            <h3>Routing Accuracy Over Time</h3>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="timeseries-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Low Confidence Queries Table -->
+        <div class="table-card">
+            <h3>⚠️ Low Confidence Queries</h3>
+            <p style="color: #718096; font-size: 14px; margin-bottom: 15px;">
+                These queries may need metadata improvements for better routing accuracy
+            </p>
+            <div id="low-confidence-container">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+
+        <!-- User Corrections Table -->
+        <div class="table-card">
+            <h3>🔄 User Corrections</h3>
+            <p style="color: #718096; font-size: 14px; margin-bottom: 15px;">
+                Queries where users manually corrected the tool selection (indicates misrouting)
+            </p>
+            <div id="corrections-container">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Last updated: <span id="last-updated">-</span> |
+            <a href="/" style="color: rgba(255, 255, 255, 0.8);">← Back to Home</a>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let confidenceChart = null;
+        let toolUsageChart = null;
+        let timeseriesChart = null;
+        let autoRefreshInterval = null;
+
+        // Initialize dashboard on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default dates (last 7 days)
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+
+            document.getElementById('end-date').valueAsDate = endDate;
+            document.getElementById('start-date').valueAsDate = startDate;
+
+            // Load dashboard
+            loadDashboard();
+        });
+
+        // Load dashboard data
+        async function loadDashboard() {
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+
+            try {
+                // Load all data in parallel
+                await Promise.all([
+                    loadSummary(startDate, endDate),
+                    loadToolUsage(startDate, endDate),
+                    loadTimeseries(startDate, endDate),
+                    loadLowConfidence(startDate, endDate),
+                    loadCorrections(startDate, endDate)
+                ]);
+
+                // Update last updated time
+                document.getElementById('last-updated').textContent = new Date().toLocaleString();
+            } catch (error) {
+                console.error('Failed to load dashboard:', error);
+                showError('Failed to load dashboard data. Please check console for details.');
+            }
+        }
+
+        // Load summary metrics
+        async function loadSummary(startDate, endDate) {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            const response = await fetch(`/api/routing-analytics/summary?${params}`);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                const data = result.data;
+
+                // Update metrics
+                document.getElementById('total-queries').textContent = data.total_queries.toLocaleString();
+
+                const accuracy = (data.routing_accuracy * 100).toFixed(1) + '%';
+                document.getElementById('routing-accuracy').textContent = accuracy;
+
+                // Show accuracy status
+                const accuracyStatus = document.getElementById('accuracy-status');
+                if (data.routing_accuracy >= 0.9) {
+                    accuracyStatus.className = 'metric-status success';
+                    accuracyStatus.textContent = '✓ Target: ≥90%';
+                } else {
+                    accuracyStatus.className = 'metric-status warning';
+                    accuracyStatus.textContent = '⚠ Below target (90%)';
+                }
+                accuracyStatus.style.display = 'inline-block';
+
+                document.getElementById('avg-execution-time').textContent =
+                    Math.round(data.avg_execution_time_ms) + 'ms';
+
+                document.getElementById('user-corrections').textContent = data.user_corrections;
+                const correctionRate = data.total_queries > 0
+                    ? ((data.user_corrections / data.total_queries) * 100).toFixed(1) + '%'
+                    : '0%';
+                document.getElementById('corrections-rate').textContent = correctionRate + ' of queries';
+
+                // Update confidence chart
+                updateConfidenceChart(data.confidence_distribution);
+            }
+        }
+
+        // Load tool usage data
+        async function loadToolUsage(startDate, endDate) {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            params.append('limit', '10');
+
+            const response = await fetch(`/api/routing-analytics/tool-usage?${params}`);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                updateToolUsageChart(result.data);
+            }
+        }
+
+        // Load timeseries data
+        async function loadTimeseries(startDate, endDate) {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            params.append('interval', 'hour');
+
+            const response = await fetch(`/api/routing-analytics/timeseries?${params}`);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                updateTimeseriesChart(result.data);
+            }
+        }
+
+        // Load low confidence queries
+        async function loadLowConfidence(startDate, endDate) {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            params.append('limit', '20');
+
+            const response = await fetch(`/api/routing-analytics/low-confidence?${params}`);
+            const result = await response.json();
+
+            const container = document.getElementById('low-confidence-container');
+
+            if (result.success && result.data && result.data.length > 0) {
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Query</th>
+                                <th>Selected Tools</th>
+                                <th>Confidence</th>
+                                <th>Score</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${result.data.map(item => `
+                                <tr>
+                                    <td>${escapeHtml(item.query)}</td>
+                                    <td>${item.selected_tools.join(', ')}</td>
+                                    <td><span class="badge ${item.confidence_level}">${item.confidence_level}</span></td>
+                                    <td>${item.final_score.toFixed(2)}</td>
+                                    <td>${new Date(item.timestamp).toLocaleString()}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>✓ No low confidence queries found</p>
+                        <p style="font-size: 13px; margin-top: 8px;">All queries are routing with high confidence</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Load user corrections
+        async function loadCorrections(startDate, endDate) {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            params.append('limit', '20');
+
+            const response = await fetch(`/api/routing-analytics/corrections?${params}`);
+            const result = await response.json();
+
+            const container = document.getElementById('corrections-container');
+
+            if (result.success && result.data && result.data.length > 0) {
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Query</th>
+                                <th>Original Tool</th>
+                                <th>Corrected Tool</th>
+                                <th>Count</th>
+                                <th>Latest</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${result.data.map(item => `
+                                <tr>
+                                    <td>${escapeHtml(item.query)}</td>
+                                    <td>${item.original_tool}</td>
+                                    <td><strong>${item.corrected_tool}</strong></td>
+                                    <td>${item.count}</td>
+                                    <td>${new Date(item.timestamp).toLocaleString()}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>✓ No user corrections recorded</p>
+                        <p style="font-size: 13px; margin-top: 8px;">Users are not manually overriding tool selections</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Update confidence distribution chart
+        function updateConfidenceChart(distribution) {
+            const ctx = document.getElementById('confidence-chart').getContext('2d');
+
+            if (confidenceChart) {
+                confidenceChart.destroy();
+            }
+
+            confidenceChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [
+                            (distribution.high * 100).toFixed(1),
+                            (distribution.medium * 100).toFixed(1),
+                            (distribution.low * 100).toFixed(1)
+                        ],
+                        backgroundColor: [
+                            '#48bb78',
+                            '#ed8936',
+                            '#f56565'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update tool usage chart
+        function updateToolUsageChart(data) {
+            const ctx = document.getElementById('tool-usage-chart').getContext('2d');
+
+            if (toolUsageChart) {
+                toolUsageChart.destroy();
+            }
+
+            toolUsageChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.tool_name.substring(0, 20)),
+                    datasets: [{
+                        label: 'Usage Count',
+                        data: data.map(item => item.count),
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update timeseries chart
+        function updateTimeseriesChart(data) {
+            const ctx = document.getElementById('timeseries-chart').getContext('2d');
+
+            if (timeseriesChart) {
+                timeseriesChart.destroy();
+            }
+
+            timeseriesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => new Date(item.timestamp).toLocaleString()),
+                    datasets: [
+                        {
+                            label: 'Queries',
+                            data: data.map(item => item.queries),
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Accuracy',
+                            data: data.map(item => item.accuracy * 100),
+                            borderColor: '#48bb78',
+                            backgroundColor: 'rgba(72, 187, 120, 0.1)',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Query Count'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Accuracy (%)'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            },
+                            min: 0,
+                            max: 100
+                        }
+                    }
+                }
+            });
+        }
+
+        // Toggle auto-refresh
+        function toggleAutoRefresh() {
+            const enabled = document.getElementById('auto-refresh').checked;
+            const indicator = document.getElementById('refresh-indicator');
+
+            if (enabled) {
+                indicator.style.display = 'inline-block';
+                autoRefreshInterval = setInterval(() => {
+                    loadDashboard();
+                }, 30000); // 30 seconds
+            } else {
+                indicator.style.display = 'none';
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        }
+
+        // Export report
+        function exportReport() {
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+
+            alert('Export functionality coming soon!\n\nWill export:\n- Summary metrics\n- Charts as images\n- Data tables as CSV\n\nDate range: ' + startDate + ' to ' + endDate);
+        }
+
+        // Show error message
+        function showError(message) {
+            const container = document.getElementById('metrics-grid');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = '⚠️ ' + message;
+            container.before(errorDiv);
+
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

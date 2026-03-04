@@ -58,6 +58,8 @@ from api.teams_bot import router as teams_bot_router
 from api.sre_audit import router as sre_audit_router
 from api.sre_orchestrator import router as sre_orchestrator_router
 from api.patch_management import router as patch_management_router
+from api.routing_analytics import router as routing_analytics_router
+from api.telemetry_debug import router as telemetry_debug_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -167,6 +169,8 @@ app.include_router(teams_bot_router)
 app.include_router(sre_audit_router)
 app.include_router(sre_orchestrator_router)
 app.include_router(patch_management_router)  # Arc VM patch assessment
+app.include_router(routing_analytics_router)  # Routing telemetry analytics
+app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 
 # Configure logging to prevent duplicate log messages
 import logging

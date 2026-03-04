@@ -2188,6 +2188,10 @@
 
         chatHistory.appendChild(messageDiv);
 
+        if (role === 'assistant') {
+            executeAssistantScripts(body);
+        }
+
         // Scroll to bottom
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
@@ -2202,7 +2206,7 @@
         const template = document.createElement('template');
         template.innerHTML = html;
 
-        const forbiddenTags = ['script', 'style', 'iframe', 'object', 'embed'];
+        const forbiddenTags = ['style', 'iframe', 'object', 'embed'];
         forbiddenTags.forEach(tag => {
             template.content.querySelectorAll(tag).forEach(node => node.remove());
         });
@@ -2213,10 +2217,63 @@
                 if (name.startsWith('on') || name === 'formaction' || name === 'srcdoc') {
                     node.removeAttribute(attr.name);
                 }
+
+                // Allow inline scripts only; never allow external script sources.
+                if (node.tagName.toLowerCase() === 'script' && name === 'src') {
+                    node.removeAttribute(attr.name);
+                }
             });
         });
 
         return template.innerHTML;
+    }
+
+    function executeAssistantScripts(container) {
+        if (!container) {
+            return;
+        }
+
+        const scripts = container.querySelectorAll('script');
+        scripts.forEach(oldScript => {
+            const parent = oldScript.parentNode;
+            const src = oldScript.getAttribute('src');
+            const code = (oldScript.textContent || '').trim();
+            const looksLikeChartScript = /\bnew\s+Chart\b|\bChart\s*\./.test(code);
+
+            if (src || !looksLikeChartScript) {
+                oldScript.remove();
+                return;
+            }
+
+            const executeInline = () => {
+                if (!parent) {
+                    return;
+                }
+                const newScript = document.createElement('script');
+                newScript.textContent = code;
+                parent.appendChild(newScript);
+            };
+
+            oldScript.remove();
+
+            // Chart.js may still be loading; wait briefly before executing.
+            if (typeof window.Chart === 'undefined') {
+                let attempts = 0;
+                const timer = setInterval(() => {
+                    attempts += 1;
+                    if (typeof window.Chart !== 'undefined') {
+                        clearInterval(timer);
+                        executeInline();
+                    } else if (attempts >= 20) {
+                        clearInterval(timer);
+                        console.warn('Chart.js not ready; skipped assistant chart script execution');
+                    }
+                }, 100);
+                return;
+            }
+
+            executeInline();
+        });
     }
 
     function deduplicateSequentialContent(container) {
@@ -2546,7 +2603,7 @@
         }
 
         const containsHtml = /<\/?[a-z][\s\S]*>/i.test(trimmed);
-        const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol|<p[\s>]|<strong|<em|<h[1-6][\s>]|<a\s/.test(trimmed);
+        const isTrustedHtml = /<table|class=["']mcp-meta|<pre|<ul|<ol|<p[\s>]|<strong|<em|<h[1-6][\s>]|<a\s|<canvas|<script/.test(trimmed);
 
         if (containsHtml && isTrustedHtml) {
             return {
@@ -3234,6 +3291,9 @@
 </style>
 
 <link rel="stylesheet" href="/static/css/agent-communication.css">
+
+<!-- Chart.js for assistant-generated metric charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <!-- Agent Communication Handler -->
 <script src="/static/js/agent-communication.js"></script>

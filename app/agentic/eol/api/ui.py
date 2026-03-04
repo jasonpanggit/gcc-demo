@@ -485,3 +485,32 @@ async def visualizations_ui(request: Request):
         HTMLResponse with rendered visualizations.html template.
     """
     return templates.TemplateResponse(request, "visualizations.html")
+
+
+@router.get("/routing-analytics", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="routing_analytics_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def routing_analytics_ui(request: Request):
+    """
+    Routing Analytics Dashboard page.
+
+    Real-time monitoring and analysis of routing accuracy, tool usage,
+    and query patterns. Provides insights into:
+    - Overall routing accuracy (target: ≥90%)
+    - Confidence distribution (high/medium/low)
+    - Top 10 most-used tools
+    - Low confidence queries needing metadata improvements
+    - User corrections (misrouted queries)
+    - Performance metrics over time
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered routing-analytics.html template.
+    """
+    return templates.TemplateResponse(request, "routing-analytics.html")

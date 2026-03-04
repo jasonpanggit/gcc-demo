@@ -23,6 +23,7 @@
     "ClientSecret": "your-service-principal-secret",
     "UseServicePrincipal": true
   },
+
   "ManagedIdentity": {
     "_comment": "System Assigned Managed Identity for the Container App",
     "ClientId": "your-managed-identity-client-id"
@@ -46,10 +47,7 @@
       "ProjectName": "your-ai-project-name",
       "Endpoint": "https://your-ai-foundry.cognitiveservices.azure.com/",
       "ProjectEndpoint": "https://your-ai-foundry.services.ai.azure.com/api/projects/your-ai-project-name",
-      "SREAgentName": "gccsreagent",
-      "SREAgentId": "your-sre-agent-id-optional",
-      "SREEnabled": "true",
-      "Comment": "Azure AI Agent Service configuration for Azure AI SRE agent integration"
+      "Comment": "Azure AI Foundry project configuration"
     },
     "Kusto": {
       "ClusterUri": "https://data-explorer.azure.com",
@@ -57,24 +55,16 @@
       "Description": "Azure Resource Graph endpoint for KQL queries"
     },
     "SREPerformance": {
-      "ToolCallTimeout": 30,
-      "TotalTimeout": 120,
-      "ParallelToolLimit": 5,
-      "CacheTTL": 300,
-      "ConnectionPoolSize": 10,
-      "EnableStreaming": true,
-      "EnableCache": true,
       "DisableFormatResponse": true,
       "HybridFormattingEnabled": true,
       "HybridTimeoutSeconds": 15,
       "HybridMaxTokens": 240,
-      "Comment": "Performance tuning for SRE agent integration"
+      "Comment": "Performance tuning for SRE response formatting"
     }
   },
   "TeamsBot": {
     "AppId": "your-teams-bot-app-id",
-    "AppPassword": "your-teams-bot-app-password",
-    "_comment": "Microsoft Teams Bot credentials for SRE notifications"
+    "AppPassword": "your-teams-bot-app-password"
   },
   "AppSettings": {
     "WEBSITES_PORT": "8000",
@@ -83,7 +73,14 @@
     "ENVIRONMENT": "production",
     "CONTAINER_MODE": "true"
   },
+  "RoutingTelemetry": {
+    "_comment": "Production routing monitoring and validation",
+    "ROUTING_TELEMETRY_ENABLED": "true",
+    "ROUTING_TELEMETRY_LOG_DIR": "/mnt/routing_logs",
+    "ROUTING_TELEMETRY_SAMPLE_RATE": "1.0",
+    "Description": "Captures routing decisions for accuracy validation. Set ENABLED=false to disable. SAMPLE_RATE controls % of queries logged (1.0=100%, 0.5=50%)."
+  },
   "McpSettings": {
-    "AzureCliExecutorEnabled": false
+    "AzureCliExecutorEnabled": true
   }
 }

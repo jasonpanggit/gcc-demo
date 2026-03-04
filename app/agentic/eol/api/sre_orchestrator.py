@@ -200,7 +200,24 @@ async def execute_sre_request(request: SREExecuteRequest, response: Response):
             logger.debug("SRE routing metadata collection skipped: %s", routing_exc)
 
         # Execute request
+        start_exec_time = time.time()
         result = await orchestrator.handle_request(request_payload)
+        exec_duration = time.time() - start_exec_time
+
+        # Log execution result to telemetry
+        try:
+            from utils.routing_telemetry import get_routing_telemetry
+            telemetry = get_routing_telemetry()
+            success = result.get("status") != "error"
+            workflow_id = request.workflow_id or result.get("workflow_id")
+            telemetry.log_execution_result(
+                query=request.query,
+                success=success,
+                execution_time_ms=int(exec_duration * 1000),
+                session_id=workflow_id
+            )
+        except (ImportError, Exception) as e:
+            logger.debug(f"SRE execution telemetry logging skipped: {e}")
 
         # --- Telemetry response headers ---
         _set_sre_headers(response, result)
