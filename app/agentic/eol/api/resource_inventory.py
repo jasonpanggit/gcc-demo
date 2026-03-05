@@ -236,12 +236,6 @@ async def query_resources(
             error="No subscription_id provided and none configured",
         )
 
-    if not resource_type:
-        return StandardResponse(
-            success=False,
-            error="resource_type query parameter is required",
-        )
-
     try:
         client = get_resource_inventory_client()
         metrics = get_inventory_metrics()
@@ -255,20 +249,33 @@ async def query_resources(
         if name:
             filters["name"] = name
 
-        async with metrics.track_query_async("get_resources"):
-            resources = await client.get_resources(
-                resource_type=resource_type,
-                subscription_id=sub,
-                filters=filters or None,
-                refresh=refresh,
-            )
+        if resource_type:
+            # Single-type query (existing path)
+            async with metrics.track_query_async("get_resources"):
+                resources = await client.get_resources(
+                    resource_type=resource_type,
+                    subscription_id=sub,
+                    filters=filters or None,
+                    refresh=refresh,
+                )
+            type_label = resource_type
+        else:
+            # All-types query — aggregate across every cached type.
+            # Live discovery is intentionally skipped here; the user should
+            # trigger a refresh first if cache is empty.
+            async with metrics.track_query_async("get_all_resources"):
+                resources = await client.get_all_resources(
+                    subscription_id=sub,
+                    filters=filters or None,
+                )
+            type_label = "all types"
 
         duration = (time.time() - start) * 1000
         paginated = _paginate(resources, offset, limit)
 
         return StandardResponse(
             data=paginated,
-            message=f"Found {paginated['total']} resources of type {resource_type}",
+            message=f"Found {paginated['total']} resources of type {type_label}",
             duration_ms=round(duration, 1),
         )
 

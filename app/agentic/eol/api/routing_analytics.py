@@ -32,6 +32,9 @@ except ModuleNotFoundError:
 
 logger = get_logger(__name__)
 
+# Prevent repeating the same missing-dir warning on every analytics request.
+_LOG_DIR_WARNING_EMITTED = False
+
 router = APIRouter(
     prefix="/api/routing-analytics",
     tags=["Routing Analytics"],
@@ -94,9 +97,35 @@ class TimeseriesDataPoint(BaseModel):
 # ============================================================================
 
 def _get_log_dir() -> Path:
-    """Get the routing logs directory from environment or default."""
-    log_dir = os.getenv("ROUTING_TELEMETRY_LOG_DIR", "./routing_logs")
-    return Path(log_dir)
+    """Get a usable routing logs directory from environment or default.
+
+    Tries the configured directory first and creates it if missing. If that
+    fails (for example due to filesystem permissions), falls back to a local
+    ``./routing_logs`` directory to keep analytics endpoints functional.
+    """
+    configured = Path(os.getenv("ROUTING_TELEMETRY_LOG_DIR", "./routing_logs"))
+    try:
+        configured.mkdir(parents=True, exist_ok=True)
+        return configured
+    except Exception as exc:
+        fallback = Path("./routing_logs")
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # If fallback also fails, return configured so callers still behave
+            # deterministically and can report an accurate path.
+            return configured
+
+        global _LOG_DIR_WARNING_EMITTED
+        if not _LOG_DIR_WARNING_EMITTED:
+            logger.warning(
+                "Unable to use ROUTING_TELEMETRY_LOG_DIR=%s (%s); falling back to %s",
+                configured,
+                exc,
+                fallback,
+            )
+            _LOG_DIR_WARNING_EMITTED = True
+        return fallback
 
 
 def _read_routing_logs(start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[Dict]:
@@ -111,7 +140,10 @@ def _read_routing_logs(start_date: Optional[datetime] = None, end_date: Optional
     """
     log_dir = _get_log_dir()
     if not log_dir.exists():
-        logger.warning(f"Routing logs directory does not exist: {log_dir}")
+        global _LOG_DIR_WARNING_EMITTED
+        if not _LOG_DIR_WARNING_EMITTED:
+            logger.warning("Routing logs directory does not exist: %s", log_dir)
+            _LOG_DIR_WARNING_EMITTED = True
         return []
 
     routing_logs = []

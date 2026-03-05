@@ -31,6 +31,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 import logging
 
+from utils.config import config
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     readonly_endpoint,
@@ -308,6 +309,54 @@ async def get_alert_preview(days: int = 90):
         logger.warning(f"⚠️ Invalid OS data format: {type(os_data)}")
         inventory_data = []
     
+    # Merge Azure VMs from Resource Inventory so alert preview includes
+    # both Arc-enabled servers and Azure VMs.
+    try:
+        from utils.resource_inventory_client import get_resource_inventory_client
+
+        inv_client = get_resource_inventory_client()
+        azure_vms = await inv_client.get_resources(
+            "Microsoft.Compute/virtualMachines",
+            subscription_id=config.azure.subscription_id,
+        )
+
+        existing_resource_ids = {
+            str(item.get("resource_id") or item.get("resourceId") or "").lower()
+            for item in inventory_data
+            if str(item.get("resource_id") or item.get("resourceId") or "").strip()
+        }
+
+        for vm in azure_vms:
+            selected = vm.get("selected_properties") or {}
+            resource_id = str(vm.get("resource_id") or vm.get("id") or "")
+            if not resource_id:
+                continue
+            if resource_id.lower() in existing_resource_ids:
+                continue
+
+            vm_name = vm.get("resource_name") or vm.get("name")
+            if not vm_name:
+                continue
+
+            os_name = selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown"
+
+            inventory_data.append({
+                "computer_name": vm_name,
+                "computer": vm_name,
+                "os_name": os_name,
+                "os_version": vm.get("os_version") or "",
+                "os_type": selected.get("os_type") or vm.get("os_type") or "Unknown",
+                "computer_environment": "Azure",
+                "computer_type": "Azure VM",
+                "resource_group": vm.get("resource_group") or vm.get("resourceGroup") or "",
+                "resource_id": resource_id,
+                "source": "resource_inventory",
+                "vm_type": "azure-vm",
+            })
+            existing_resource_ids.add(resource_id.lower())
+    except Exception as exc:
+        logger.warning("Unable to merge Azure VMs into alert preview inventory: %s", exc)
+
     # Load configuration and generate preview
     config = await alert_manager.load_configuration()
     alert_items, summary = await alert_manager.generate_alert_preview(inventory_data, config)

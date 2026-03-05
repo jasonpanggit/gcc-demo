@@ -266,6 +266,92 @@ class ResourceInventoryClient:
 
         return matches
 
+    async def get_all_resources(
+        self,
+        subscription_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return all cached resources for a subscription across all types.
+
+        Scans the L1 cache for every resource type loaded for the given
+        subscription and aggregates the results.  Only types that are already
+        in cache are returned — no live discovery is triggered.
+
+        Args:
+            subscription_id: Target subscription (defaults to config).
+            filters: Optional filter criteria applied client-side.
+
+        Returns:
+            List of all cached resource documents for the subscription.
+        """
+        sub = subscription_id or self._default_subscription()
+        if not sub:
+            logger.warning("No subscription_id available for get_all_resources")
+            return []
+
+        # Enumerate all resource types currently in the L1 cache for this sub.
+        # Cache key format: resource_inv:{subscription_id}:{resource_type}
+        prefix = f"resource_inv:{sub}:"
+        candidate_types: List[str] = []
+        with self._cache._l1_lock:
+            for key in list(self._cache._l1.keys()):
+                if key.startswith(prefix):
+                    parts = key.split(":")
+                    if len(parts) >= 3:
+                        rtype = parts[2]
+                        if rtype not in candidate_types:
+                            candidate_types.append(rtype)
+
+        if not candidate_types:
+            # Fallback: recover type keys from L2 cache documents after restarts
+            # where L1 is empty but Cosmos still has inventory entries.
+            try:
+                if self._cache._ensure_l2() and self._cache._l2_container is not None:
+                    query = (
+                        "SELECT c.cache_key FROM c "
+                        "WHERE STARTSWITH(c.cache_key, @prefix)"
+                    )
+                    params = [{"name": "@prefix", "value": prefix}]
+                    rows = list(
+                        self._cache._l2_container.query_items(
+                            query=query,
+                            parameters=params,
+                            enable_cross_partition_query=True,
+                        )
+                    )
+                    for row in rows:
+                        key = str(row.get("cache_key", ""))
+                        parts = key.split(":")
+                        # Expected: resource_inv:{subscription}:{resource_type}
+                        # Ignore filtered variants that include hash suffixes.
+                        if len(parts) == 3:
+                            rtype = parts[2]
+                            if rtype and rtype not in candidate_types:
+                                candidate_types.append(rtype)
+            except Exception as exc:
+                logger.debug(
+                    "get_all_resources: unable to enumerate L2 keys for %s: %s",
+                    sub,
+                    exc,
+                )
+
+        if not candidate_types:
+            logger.info(
+                "get_all_resources: no cached types for subscription %s", sub
+            )
+            return []
+
+        all_resources: List[Dict[str, Any]] = []
+        for rtype in candidate_types:
+            resources = await self.get_resources(rtype, sub, filters=filters)
+            all_resources.extend(resources)
+
+        logger.info(
+            "get_all_resources: %d resources across %d types for %s",
+            len(all_resources), len(candidate_types), sub,
+        )
+        return all_resources
+
     async def resolve_tool_parameters(
         self,
         tool_name: str,

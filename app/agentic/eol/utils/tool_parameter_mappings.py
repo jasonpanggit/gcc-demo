@@ -124,6 +124,16 @@ _RESOURCE_GROUP = ParameterMapping(
     description="Azure resource group name",
 )
 
+# Use for subscription-wide list tools where implicit env RG would over-scope
+# results (for example, listing all container apps in a subscription).
+_RESOURCE_GROUP_NO_ENV = ParameterMapping(
+    name="resource_group",
+    required=False,
+    inventory_field="resource_group",
+    env_var=None,
+    description="Azure resource group name",
+)
+
 _HOURS = ParameterMapping(
     name="hours",
     required=False,
@@ -632,7 +642,7 @@ _register(
         tool_name="container_app_list",
         category="config",
         description="List Container Apps with basic metadata",
-        parameters=[_SUBSCRIPTION_ID, _RESOURCE_GROUP],
+        parameters=[_SUBSCRIPTION_ID, _RESOURCE_GROUP_NO_ENV],
         resource_types=_CONTAINER_APP_TYPES,
     ),
     ToolMapping(

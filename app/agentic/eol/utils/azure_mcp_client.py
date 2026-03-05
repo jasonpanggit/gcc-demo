@@ -70,19 +70,15 @@ class AzureMCPClient:
             # The Azure MCP server will use these for authentication
             mcp_env = os.environ.copy()
             
-            # Check if Service Principal authentication is configured. We allow
-            # explicit opt-in via USE_SERVICE_PRINCIPAL, but also auto-detect when
-            # the standard AZURE_SP_* variables are provided to avoid silent
-            # fallbacks to Managed Identity.
+            # Check if Service Principal authentication is configured.
+            # Runtime auth mode is explicit: USE_SERVICE_PRINCIPAL=true means SPN,
+            # otherwise Managed Identity.
             use_sp_flag = os.getenv("USE_SERVICE_PRINCIPAL")
             sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
             sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
             tenant_id = os.getenv("AZURE_TENANT_ID")
 
-            if use_sp_flag is None:
-                use_sp = bool(sp_client_id and sp_client_secret and tenant_id)
-            else:
-                use_sp = use_sp_flag.lower() == "true"
+            use_sp = bool(use_sp_flag and use_sp_flag.lower() == "true")
             
             if use_sp and sp_client_id and sp_client_secret and tenant_id:
                 self._auth_mode = "service_principal"
@@ -101,9 +97,11 @@ class AzureMCPClient:
                     )
                 self._auth_mode = "managed_identity"
                 logger.info("🔐 Using Managed Identity authentication for Azure MCP Server")
-                # For Managed Identity, ensure CLIENT_ID is set if available
+                # For Managed Identity, only set CLIENT_ID when explicitly opting
+                # into user-assigned MI. System-assigned MI should not set it.
+                use_mi_client_id = os.getenv("MANAGED_IDENTITY_USE_CLIENT_ID", "false").lower() == "true"
                 managed_identity_client_id = os.getenv("MANAGED_IDENTITY_CLIENT_ID")
-                if managed_identity_client_id:
+                if use_mi_client_id and managed_identity_client_id:
                     mcp_env["AZURE_CLIENT_ID"] = managed_identity_client_id
                     logger.info(f"   Managed Identity Client ID: {managed_identity_client_id[:8]}...")
             

@@ -19,6 +19,7 @@ All endpoints return HTMLResponse with rendered Jinja2 templates.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -457,7 +458,12 @@ async def resource_inventory_ui(request: Request):
     Returns:
         HTMLResponse with rendered resource-inventory.html template.
     """
-    return templates.TemplateResponse(request, "resource-inventory.html")
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(
+        request,
+        "resource-inventory.html",
+        {"asset_version": asset_version},
+    )
 
 
 @router.get("/visualizations", response_class=HTMLResponse)

@@ -11,7 +11,8 @@
 // ---------------------------------------------------------------------------
 let dataTable = null;
 let currentResources = [];
-let currentPage = { offset: 0, limit: 50, total: 0 };
+let currentPage = { page: 1, offset: 0, limit: 50, total: 0, totalPages: 1, hasMore: false };
+let activeFilters = { sub: '', rtype: '', loc: '', rg: '' };
 
 const API_BASE = '/api/resource-inventory';
 
@@ -120,26 +121,34 @@ async function loadStats() {
 // Search / Query
 // ---------------------------------------------------------------------------
 async function searchResources() {
-    const sub = document.getElementById('filter-subscription').value;
-    const rtype = document.getElementById('filter-resource-type').value;
-    const loc = document.getElementById('filter-location').value.trim();
-    const rg = document.getElementById('filter-resource-group').value.trim();
+    activeFilters = {
+        sub: document.getElementById('filter-subscription').value,
+        rtype: document.getElementById('filter-resource-type').value,
+        loc: document.getElementById('filter-location').value.trim(),
+        rg: document.getElementById('filter-resource-group').value.trim(),
+    };
 
-    if (!rtype) {
-        setStatus('Please select a resource type.', 'warning');
-        return;
-    }
+    currentPage.page = 1;
+    currentPage.offset = 0;
+    await loadResourcesPage();
+}
 
-    setStatus('Searching...', 'info');
+async function loadResourcesPage() {
+    const { sub, rtype, loc, rg } = activeFilters;
+
+    setStatus(rtype ? 'Searching selected resource type...' : 'Searching all cached resource types...', 'info');
     document.getElementById('btn-search').disabled = true;
+    const pageSizeEl = document.getElementById('page-size-select');
+    currentPage.limit = pageSizeEl ? parseInt(pageSizeEl.value, 10) || 50 : currentPage.limit;
+    currentPage.offset = (currentPage.page - 1) * currentPage.limit;
 
     const params = new URLSearchParams();
     if (sub) params.set('subscription_id', sub);
-    params.set('resource_type', rtype);
+    if (rtype) params.set('resource_type', rtype.toLowerCase());
     if (loc) params.set('location', loc);
     if (rg) params.set('resource_group', rg);
-    params.set('offset', '0');
-    params.set('limit', '500');
+    params.set('offset', String(currentPage.offset));
+    params.set('limit', String(currentPage.limit));
 
     const result = await apiFetch(`/resources?${params.toString()}`);
     document.getElementById('btn-search').disabled = false;
@@ -152,14 +161,113 @@ async function searchResources() {
     const data = result.data || {};
     currentResources = data.items || [];
     currentPage.total = data.total || 0;
+    currentPage.offset = data.offset || 0;
+    currentPage.limit = data.limit || currentPage.limit;
+    currentPage.page = Math.floor(currentPage.offset / Math.max(1, currentPage.limit)) + 1;
+    currentPage.totalPages = Math.max(1, Math.ceil(currentPage.total / Math.max(1, currentPage.limit)));
+    currentPage.hasMore = !!data.has_more;
 
     renderTable(currentResources);
+    updatePaginationControls();
     document.getElementById('badge-total').textContent = `${currentPage.total} resources`;
     document.getElementById('stat-total').textContent = currentPage.total;
-    document.getElementById('stat-types').textContent = new Set(currentResources.map(r => r.resource_type)).size;
+    document.getElementById('stat-types').textContent = rtype ? '1' : '--';
 
     const dur = result.duration_ms ? ` (${result.duration_ms}ms)` : '';
-    setStatus(`Found ${currentPage.total} resources${dur}`, 'success');
+    const start = currentPage.total === 0 ? 0 : currentPage.offset + 1;
+    const end = Math.min(currentPage.offset + currentResources.length, currentPage.total);
+    setStatus(`Found ${currentPage.total} resources${dur}. Showing ${start}-${end}.`, 'success');
+}
+
+function updatePaginationControls() {
+    const container = document.getElementById('pagination-container');
+    if (!container) return;
+
+    if (currentPage.total <= 0) {
+        container.classList.add('d-none');
+        return;
+    }
+
+    container.classList.remove('d-none');
+
+    const info = document.getElementById('pagination-info');
+    const start = currentPage.total === 0 ? 0 : currentPage.offset + 1;
+    const end = Math.min(currentPage.offset + currentResources.length, currentPage.total);
+    if (info) {
+        info.textContent = `Showing ${start}-${end} of ${currentPage.total}`;
+    }
+
+    const controls = document.getElementById('pagination-controls');
+    if (!controls) return;
+
+    let html = '';
+    html += `<li class="page-item ${currentPage.page <= 1 ? 'disabled' : ''}">`
+         + `<a class="page-link" href="#" onclick="previousPage(); return false;" aria-label="Previous">&laquo;</a></li>`;
+
+    const pages = generatePageNumbers(currentPage.page, currentPage.totalPages);
+    pages.forEach((p) => {
+        if (p.disabled) {
+            html += `<li class="page-item disabled"><span class="page-link">${p.text}</span></li>`;
+        } else {
+            html += `<li class="page-item ${p.active ? 'active' : ''}">`
+                 + `<a class="page-link" href="#" onclick="goToPage(${p.page}); return false;">${p.text}</a></li>`;
+        }
+    });
+
+    html += `<li class="page-item ${currentPage.page >= currentPage.totalPages ? 'disabled' : ''}">`
+         + `<a class="page-link" href="#" onclick="nextPage(); return false;" aria-label="Next">&raquo;</a></li>`;
+
+    controls.innerHTML = html;
+}
+
+function generatePageNumbers(current, total) {
+    const pages = [];
+    const maxVisible = 5;
+    const half = Math.floor(maxVisible / 2);
+    let start = Math.max(1, current - half);
+    let end = Math.min(total, start + maxVisible - 1);
+
+    if ((end - start) < (maxVisible - 1)) {
+        start = Math.max(1, end - maxVisible + 1);
+    }
+
+    if (start > 1) {
+        pages.push({ page: 1, text: '1', active: false, disabled: false });
+        if (start > 2) pages.push({ page: null, text: '...', active: false, disabled: true });
+    }
+
+    for (let p = start; p <= end; p += 1) {
+        pages.push({ page: p, text: String(p), active: p === current, disabled: false });
+    }
+
+    if (end < total) {
+        if (end < total - 1) pages.push({ page: null, text: '...', active: false, disabled: true });
+        pages.push({ page: total, text: String(total), active: false, disabled: false });
+    }
+
+    return pages;
+}
+
+async function goToPage(page) {
+    if (page < 1 || page > currentPage.totalPages || page === currentPage.page) {
+        return;
+    }
+    currentPage.page = page;
+    await loadResourcesPage();
+}
+
+async function previousPage() {
+    await goToPage(currentPage.page - 1);
+}
+
+async function nextPage() {
+    await goToPage(currentPage.page + 1);
+}
+
+async function changePageSize() {
+    currentPage.page = 1;
+    currentPage.offset = 0;
+    await loadResourcesPage();
 }
 
 function quickSearch(query) {
@@ -303,8 +411,7 @@ async function startRefresh() {
             `Done! ${d.resources_discovered || 0} resources discovered.`;
         setStatus(`Refresh complete: ${d.resources_discovered || 0} resources`, 'success');
         // Auto-reload current view
-        const rtype = document.getElementById('filter-resource-type').value;
-        if (rtype) searchResources();
+        searchResources();
         loadStats();
     } else {
         document.getElementById('refresh-status').textContent = `Error: ${result.error}`;
@@ -361,3 +468,8 @@ function setStatus(message, type) {
     document.getElementById('status-message').innerHTML =
         `<i class="bi ${icons[type] || icons.info} me-2"></i>${message}`;
 }
+
+window.goToPage = goToPage;
+window.previousPage = previousPage;
+window.nextPage = nextPage;
+window.changePageSize = changePageSize;

@@ -27,6 +27,337 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+_COMPOSER_NOISY_KEYS = {
+    "stdout",
+    "stderr",
+    "raw",
+    "raw_output",
+    "content_raw",
+    "metadata_raw",
+    "debug",
+    "trace",
+    "stack",
+    "exception",
+    "template",
+    "properties",
+    "identity",
+    "systemData",
+    "delegatedIdentities",
+    "outboundIpAddresses",
+}
+
+_COMPOSER_PRIORITY_KEYS = [
+    "name",
+    "id",
+    "resource_id",
+    "resource_group",
+    "resourceGroup",
+    "location",
+    "type",
+    "status",
+    "state",
+    "severity",
+    "summary",
+    "message",
+    "timestamp",
+    "total",
+    "count",
+]
+
+
+def _compact_for_composer(value: Any, depth: int = 0) -> Any:
+    """Recursively compact tool payloads to reduce prompt tokens.
+
+    Keeps identifiers and status fields, drops known noisy fields, and caps
+    list/dict breadth so LLM context remains stable for all tools.
+    """
+    if depth >= 4:
+        if isinstance(value, (dict, list)):
+            return "<omitted:depth-limit>"
+        return value
+
+    if isinstance(value, str):
+        return value if len(value) <= 400 else value[:400] + "..."
+
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+
+    if isinstance(value, list):
+        max_items = 40
+        compact_items = [_compact_for_composer(item, depth + 1) for item in value[:max_items]]
+        if len(value) > max_items:
+            compact_items.append(f"<omitted:{len(value) - max_items} more items>")
+        return compact_items
+
+    if isinstance(value, dict):
+        keys = list(value.keys())
+        preferred = [k for k in _COMPOSER_PRIORITY_KEYS if k in value]
+        remaining = [k for k in keys if k not in preferred and k not in _COMPOSER_NOISY_KEYS]
+        ordered = preferred + remaining
+
+        compact_dict: Dict[str, Any] = {}
+        max_keys = 40
+        for key in ordered[:max_keys]:
+            compact_dict[key] = _compact_for_composer(value.get(key), depth + 1)
+
+        if len(ordered) > max_keys:
+            compact_dict["_omitted_keys"] = len(ordered) - max_keys
+        return compact_dict
+
+    return str(value)
+
+
+def _extract_payload_dict(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Extract the most useful dict payload from nested tool wrappers."""
+    if not isinstance(result, dict):
+        return None
+
+    if isinstance(result.get("parsed"), dict):
+        return result.get("parsed")
+
+    nested_result = result.get("result")
+    if isinstance(nested_result, dict):
+        if isinstance(nested_result.get("parsed"), dict):
+            return nested_result.get("parsed")
+        return nested_result
+
+    nested_data = result.get("data")
+    if isinstance(nested_data, dict):
+        return nested_data
+
+    return result
+
+
+def _is_list_style_tool(tool_name: str) -> bool:
+    lowered = (tool_name or "").lower()
+    return (
+        lowered.endswith("_list")
+        or lowered.startswith("list_")
+        or "_list_" in lowered
+        or lowered in {"subscription_list", "resource_group_list", "container_app_list"}
+    )
+
+
+def _compact_list_tool_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Compact list-tool payloads into deterministic render fields."""
+    list_candidates = [
+        payload.get("apps"),
+        payload.get("items"),
+        payload.get("resources"),
+        payload.get("value"),
+        payload.get("data"),
+        payload.get("result"),
+    ]
+
+    items_list: Optional[List[Any]] = None
+    for candidate in list_candidates:
+        if isinstance(candidate, list):
+            items_list = candidate
+            break
+
+    if not isinstance(items_list, list):
+        return None
+
+    compact_items: List[Dict[str, Any]] = []
+    for item in items_list:
+        if not isinstance(item, dict):
+            continue
+        compact_items.append(
+            {
+                "name": item.get("name") or item.get("resource_name") or item.get("display_name"),
+                "resource_group": item.get("resource_group") or item.get("resourceGroup"),
+                "location": item.get("location"),
+                "type": item.get("type") or item.get("resource_type"),
+                "status": item.get("status") or item.get("state") or item.get("provisioning_state") or item.get("provisioningState"),
+                "id": item.get("id") or item.get("resource_id"),
+            }
+        )
+
+    if not compact_items and items_list:
+        # Non-dict list entries (for example, simple strings)
+        compact_items = [{"value": str(v)} for v in items_list]
+
+    total_items = (
+        payload.get("total_apps")
+        or payload.get("total_items")
+        or payload.get("total")
+        or payload.get("count")
+        or len(items_list)
+    )
+
+    return {
+        "success": payload.get("success"),
+        "total_items": total_items,
+        "items": compact_items,
+    }
+
+
+def _is_detail_style_tool(tool_name: str) -> bool:
+    """Whether a tool is likely to return detailed non-list payloads."""
+    lowered = (tool_name or "").lower()
+    detail_markers = (
+        "configuration",
+        "diagnostic",
+        "dependency",
+        "health",
+        "metric",
+        "log",
+        "compliance",
+        "performance",
+        "security",
+    )
+    return any(marker in lowered for marker in detail_markers)
+
+
+def _compact_detail_tool_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact detail/diagnostic payloads while preserving key semantics."""
+    top_keys = [
+        "success",
+        "status",
+        "summary",
+        "message",
+        "resource_name",
+        "resource_group",
+        "resource_id",
+        "resource_type",
+        "time_range",
+        "count",
+        "total",
+        "healthy",
+        "unhealthy",
+    ]
+
+    compact: Dict[str, Any] = {}
+    for key in top_keys:
+        if key in payload:
+            compact[key] = _compact_for_composer(payload.get(key), depth=1)
+
+    # Preserve common analysis buckets in compact form.
+    candidate_sections = [
+        "configuration",
+        "settings",
+        "properties",
+        "findings",
+        "issues",
+        "recommendations",
+        "dependencies",
+        "alerts",
+        "metrics",
+        "routes",
+        "logs",
+        "results",
+    ]
+    for section in candidate_sections:
+        if section in payload:
+            compact[section] = _compact_for_composer(payload.get(section), depth=1)
+
+    # Keep a small, generic tail of extra keys so we do not lose unique tool data.
+    if len(compact) < 12:
+        for key, value in payload.items():
+            if key in compact or key in _COMPOSER_NOISY_KEYS:
+                continue
+            compact[key] = _compact_for_composer(value, depth=1)
+            if len(compact) >= 12:
+                break
+
+    return compact
+
+
+def _extract_completion_text(raw: Any) -> str:
+    """Extract assistant text from chat-completions style responses.
+
+    Supports both legacy string ``message.content`` and newer structured
+    content-part payloads returned by GPT-5-family models.
+    """
+    try:
+        # Some Azure/OpenAI SDK variants expose a direct output_text field.
+        direct_output_text = getattr(raw, "output_text", None)
+        if isinstance(direct_output_text, str) and direct_output_text.strip():
+            return direct_output_text
+
+        choices = getattr(raw, "choices", None) or []
+        if choices:
+            first_choice = choices[0]
+            message = getattr(first_choice, "message", None)
+            content = getattr(message, "content", "") if message is not None else ""
+
+            # Some SDK builds expose plain text directly on the choice.
+            choice_text = getattr(first_choice, "text", None)
+            if isinstance(choice_text, str) and choice_text.strip():
+                return choice_text
+
+            if isinstance(content, str):
+                return content
+
+            if isinstance(content, list):
+                parts: List[str] = []
+                for item in content:
+                    if isinstance(item, str):
+                        parts.append(item)
+                        continue
+
+                    text_value: Optional[str] = None
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            text_value = text
+                        elif isinstance(text, dict):
+                            nested = text.get("value")
+                            if isinstance(nested, str):
+                                text_value = nested
+                        if text_value is None:
+                            # Additional content-part shape: {"content": "..."} or {"value": "..."}
+                            alt_content = item.get("content")
+                            if isinstance(alt_content, str):
+                                text_value = alt_content
+                            elif isinstance(alt_content, dict):
+                                nested = alt_content.get("value")
+                                if isinstance(nested, str):
+                                    text_value = nested
+                            elif isinstance(alt_content, list):
+                                nested_parts = [str(p) for p in alt_content if isinstance(p, str)]
+                                if nested_parts:
+                                    text_value = "\n".join(nested_parts)
+                        if text_value is None and isinstance(item.get("value"), str):
+                            text_value = item.get("value")
+                    else:
+                        obj_text = getattr(item, "text", None)
+                        if isinstance(obj_text, str):
+                            text_value = obj_text
+                        elif isinstance(obj_text, dict):
+                            nested = obj_text.get("value")
+                            if isinstance(nested, str):
+                                text_value = nested
+                        if text_value is None:
+                            obj_content = getattr(item, "content", None)
+                            if isinstance(obj_content, str):
+                                text_value = obj_content
+                            elif isinstance(obj_content, dict):
+                                nested = obj_content.get("value")
+                                if isinstance(nested, str):
+                                    text_value = nested
+                        if text_value is None:
+                            obj_value = getattr(item, "value", None)
+                            if isinstance(obj_value, str):
+                                text_value = obj_value
+
+                    if text_value:
+                        parts.append(text_value)
+
+                if parts:
+                    return "\n".join(parts)
+
+            # Last-resort fallback for unknown object payloads.
+            if content is not None:
+                content_str = str(content)
+                if content_str and content_str != "None":
+                    return content_str
+
+    except Exception:
+        pass
+
+    return ""
+
 # ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
@@ -68,6 +399,7 @@ complete, accurate HTML response for display in a web dashboard.
 8. If no data was returned, say so clearly — NEVER invent data.
 9. End with a concise <p> summary.
 10. For effective-route outputs, render ALL route rows returned by tools (do not sample or collapse).
+11. For list/discovery outputs (for example, container app inventory), include ALL returned items unless the user explicitly asks for a subset (such as top 5).
 
 ## Confirmation prompts (destructive steps)
 
@@ -126,6 +458,11 @@ class ResponseComposer:
             logger.info("✍️ ResponseComposer: LLM produced HTML (%d chars)", len(content))
             return content
 
+        if ok and not content.strip():
+            logger.warning("ResponseComposer: LLM call succeeded but returned empty content")
+        elif not ok:
+            logger.warning("ResponseComposer: LLM call reported failure")
+
         # Fallback: static HTML summary
         logger.warning("ResponseComposer: LLM unavailable; using static fallback")
         return _build_static_fallback(query, execution_result, verification_result)
@@ -147,6 +484,7 @@ class ResponseComposer:
 
             endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
             if not endpoint:
+                logger.warning("ResponseComposer: AZURE_OPENAI_ENDPOINT is not configured")
                 return False, ""
 
             api_key = os.getenv("AZURE_OPENAI_API_KEY")
@@ -154,6 +492,12 @@ class ResponseComposer:
             deployment = (
                 os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME")
                 or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+            )
+            logger.info(
+                "ResponseComposer: invoking Azure OpenAI deployment=%s api_version=%s endpoint_set=%s",
+                deployment,
+                api_version,
+                bool(endpoint),
             )
 
             async_credential = None
@@ -183,21 +527,48 @@ class ResponseComposer:
                 )
 
             try:
-                raw = await client.chat.completions.create(
-                    model=deployment,
-                    messages=[
+                # GPT-5 deployments reject `max_tokens`; use `max_completion_tokens`.
+                completion_kwargs = {
+                    "model": deployment,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
+                }
+
+                deployment_lower = (deployment or "").lower()
+                if deployment_lower.startswith("gpt-5"):
+                    # Azure GPT-5 currently only supports default temperature behavior.
+                    completion_kwargs["max_completion_tokens"] = max_tokens
+                else:
+                    completion_kwargs["temperature"] = temperature
+                    completion_kwargs["max_tokens"] = max_tokens
+
+                raw = await client.chat.completions.create(
+                    **completion_kwargs,
                 )
             finally:
                 await client.close()
                 if async_credential:
                     await async_credential.close()
 
-            return True, raw.choices[0].message.content or ""
+            extracted = _extract_completion_text(raw)
+            if not extracted.strip():
+                try:
+                    choices = getattr(raw, "choices", None) or []
+                    first = choices[0] if choices else None
+                    message = getattr(first, "message", None) if first is not None else None
+                    content_obj = getattr(message, "content", None) if message is not None else None
+                    logger.warning(
+                        "ResponseComposer: empty extracted text (raw_type=%s, has_choices=%s, content_type=%s)",
+                        type(raw).__name__,
+                        bool(choices),
+                        type(content_obj).__name__ if content_obj is not None else "None",
+                    )
+                except Exception:
+                    logger.warning("ResponseComposer: empty extracted text (unable to inspect raw shape)")
+
+            return True, extracted
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("ResponseComposer LLM call failed: %s", exc)
@@ -272,6 +643,33 @@ def _summarise_result(result: Optional[Dict[str, Any]], tool_name: str = "") -> 
         return "  (no result)"
     if result.get("_legacy"):
         return "  (handled by legacy ReAct loop)"
+
+    if _is_list_style_tool(tool_name):
+        try:
+            payload = _extract_payload_dict(result)
+            if isinstance(payload, dict):
+                compact_list_payload = _compact_list_tool_payload(payload)
+                if compact_list_payload is not None:
+                    text = json.dumps(compact_list_payload, indent=2, default=str)
+                    if len(text) > 12000:
+                        text = text[:12000] + "\n  ... (truncated)"
+                    return text
+        except Exception:
+            # Fall through to tool-specific or generic summarization
+            pass
+
+    if _is_detail_style_tool(tool_name):
+        try:
+            payload = _extract_payload_dict(result)
+            if isinstance(payload, dict):
+                compact_detail = _compact_detail_tool_payload(payload)
+                text = json.dumps(compact_detail, indent=2, default=str)
+                if len(text) > 10000:
+                    text = text[:10000] + "\n  ... (truncated)"
+                return text
+        except Exception:
+            # Fall through to tool-specific or generic summarization
+            pass
 
     if tool_name == "get_performance_metrics":
         try:
@@ -434,9 +832,60 @@ def _summarise_result(result: Optional[Dict[str, Any]], tool_name: str = "") -> 
             # Fall through to generic summarization
             pass
 
+    # Keep container-app list prompts compact and deterministic. Passing large
+    # raw payloads can degrade model reliability even when the tool succeeds.
+    if tool_name == "container_app_list":
+        try:
+            payload: Optional[Dict[str, Any]] = None
+            if isinstance(result, dict):
+                if isinstance(result.get("parsed"), dict):
+                    payload = result.get("parsed")
+                elif isinstance(result.get("result"), dict):
+                    nested_result = result.get("result")
+                    if isinstance(nested_result.get("parsed"), dict):
+                        payload = nested_result.get("parsed")
+                    else:
+                        payload = nested_result
+                else:
+                    payload = result
+
+            apps_raw = payload.get("apps") if isinstance(payload, dict) else None
+            if isinstance(apps_raw, list):
+                compact_apps: List[Dict[str, Any]] = []
+                for app in apps_raw:
+                    if not isinstance(app, dict):
+                        continue
+                    compact_apps.append(
+                        {
+                            "name": app.get("name"),
+                            "resource_group": app.get("resource_group") or app.get("resourceGroup"),
+                            "location": app.get("location"),
+                            "provisioning_state": app.get("provisioning_state") or app.get("provisioningState"),
+                        }
+                    )
+
+                compact_payload = {
+                    "success": payload.get("success") if isinstance(payload, dict) else None,
+                    "total_apps": payload.get("total_apps") if isinstance(payload, dict) else len(compact_apps),
+                    "apps": compact_apps,
+                }
+                text = json.dumps(compact_payload, indent=2, default=str)
+                if len(text) > 12000:
+                    text = text[:12000] + "\n  ... (truncated)"
+                return text
+        except Exception:
+            # Fall through to generic summarization
+            pass
+
     try:
-        text = json.dumps(result, indent=2, default=str)
-        limit = 12000 if tool_name in {"get_effective_routes", "get_performance_metrics"} else 2000
+        compact_result = _compact_for_composer(result)
+        text = json.dumps(compact_result, indent=2, default=str)
+        large_result_limits: Dict[str, int] = {
+            "get_effective_routes": 12000,
+            "get_performance_metrics": 12000,
+            "container_app_list": 12000,
+        }
+        limit = large_result_limits.get(tool_name, 6000)
         if len(text) > limit:
             text = text[:limit] + "\n  ... (truncated)"
         return text
@@ -458,6 +907,49 @@ def _build_static_fallback(
     import html as _html
 
     rows: List[str] = []
+    container_app_html = ""
+
+    def _extract_payload(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(result, dict):
+            return None
+
+        # Some wrappers nest the parsed payload one level down.
+        for nested_key in ("result", "data"):
+            nested = result.get(nested_key)
+            if isinstance(nested, dict):
+                if isinstance(nested.get("apps"), list):
+                    return nested
+                if isinstance(nested.get("parsed"), dict):
+                    return nested.get("parsed")
+
+        if isinstance(result.get("parsed"), dict):
+            return result.get("parsed")
+
+        content = result.get("content")
+        if isinstance(content, list):
+            for entry in content:
+                candidate_text: Optional[str] = None
+                if isinstance(entry, str):
+                    candidate_text = entry
+                elif isinstance(entry, dict):
+                    text_value = entry.get("text")
+                    if isinstance(text_value, str):
+                        candidate_text = text_value
+                else:
+                    text_value = getattr(entry, "text", None)
+                    if isinstance(text_value, str):
+                        candidate_text = text_value
+
+                if not candidate_text:
+                    continue
+                try:
+                    parsed = json.loads(candidate_text)
+                except Exception:
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
+
+        return result
     for sr in execution_result.step_results:
         status = "⏭️ Skipped" if sr.skipped else ("✅ OK" if sr.success else "❌ Failed")
         detail = sr.skip_reason or sr.error or ""
@@ -469,6 +961,32 @@ def _build_static_fallback(
             f"<td>{_html.escape(detail[:120])}</td>"
             f"</tr>"
         )
+
+        if sr.success and sr.tool_name == "container_app_list":
+            payload = _extract_payload(sr.result)
+            apps = payload.get("apps") if isinstance(payload, dict) else None
+            if isinstance(apps, list) and apps:
+                app_rows: List[str] = []
+                for app in apps:
+                    if not isinstance(app, dict):
+                        continue
+                    name = _html.escape(str(app.get("name", "")))
+                    rg = _html.escape(str(app.get("resource_group", "")))
+                    location = _html.escape(str(app.get("location", "")))
+                    app_rows.append(
+                        f"<tr><td>{name}</td><td>{rg}</td><td>{location}</td></tr>"
+                    )
+
+                if app_rows:
+                    total_apps = payload.get("total_apps") if isinstance(payload, dict) else len(app_rows)
+                    container_app_html = (
+                        "<h3>Container Apps</h3>"
+                        f"<p>Retrieved <strong>{_html.escape(str(total_apps))}</strong> container app(s).</p>"
+                        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
+                        "<thead><tr><th>Name</th><th>Resource Group</th><th>Location</th></tr></thead>"
+                        f"<tbody>{''.join(app_rows)}</tbody>"
+                        "</table>"
+                    )
 
     confirmation_html = ""
     blocked: List[str] = []
@@ -495,6 +1013,7 @@ def _build_static_fallback(
     return (
         f"<h3>Query Results</h3>"
         f"<p><em>Query: {_html.escape(query)}</em></p>"
+        f"{container_app_html}"
         f"<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
         f"<thead><tr><th>Step</th><th>Tool</th><th>Status</th><th>Detail</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"

@@ -1289,18 +1289,36 @@ class SREOrchestratorAgent(BaseSREAgent):
             "check resource health"            → (None, None)
         """
         q = query.lower()
+        generic_name_tokens = {
+            "my",
+            "our",
+            "your",
+            "their",
+            "the",
+            "a",
+            "an",
+            "all",
+            "any",
+            "this",
+            "that",
+            "these",
+            "those",
+        }
 
         # -- Container App patterns --
         # "health of <name>" / "status of <name> container app"
         ca_name_patterns = [
-            r"(?:health|status|check|diagnose|restart|scale)\s+(?:of\s+)?([a-z0-9][\w-]{1,62})\s+container[\s-]?app",
-            r"container[\s-]?app\s+([a-z0-9][\w-]{1,62})\b",
-            r"\b([a-z0-9][\w-]{1,62})\s+container[\s-]?app\b",
+            r"(?:health|status|check|diagnose|restart|scale)\s+(?:of\s+)?([a-z0-9][\w-]{1,62})\s+container[\s-]?apps?\b",
+            r"container[\s-]?apps?\s+([a-z0-9][\w-]{1,62})\b",
+            r"\b([a-z0-9][\w-]{1,62})\s+container[\s-]?apps?\b",
         ]
         for pattern in ca_name_patterns:
             m = re.search(pattern, q)
             if m:
-                return m.group(1), "container_app"
+                candidate = m.group(1).strip()
+                if candidate in generic_name_tokens:
+                    continue
+                return candidate, "container_app"
 
         # -- VM patterns --
         # "health of <name> vm" / "<name>-vm" / "virtual machine <name>"
@@ -1312,7 +1330,10 @@ class SREOrchestratorAgent(BaseSREAgent):
         for pattern in vm_name_patterns:
             m = re.search(pattern, q)
             if m:
-                return m.group(1), "vm"
+                candidate = m.group(1).strip()
+                if candidate in generic_name_tokens:
+                    continue
+                return candidate, "vm"
 
         # -- Detect resource type without a specific name --
         if re.search(r"\bcontainer[\s-]?apps?\b|\bcontainerapps?\b", q):

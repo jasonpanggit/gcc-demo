@@ -275,7 +275,14 @@ class ToolEmbedder:
             # Managed identity / workload identity fallback (container env)
             try:
                 from azure.identity.aio import DefaultAzureCredential  # type: ignore[import-not-found]
+
+                # In MI runtime mode, skip EnvironmentCredential to avoid failures from
+                # empty/stale AZURE_CLIENT_SECRET values in container env.
+                use_sp_runtime = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
+                has_sp_secret = bool((os.getenv("AZURE_CLIENT_SECRET") or "").strip())
+
                 async_credential = DefaultAzureCredential(
+                    exclude_environment_credential=not (use_sp_runtime and has_sp_secret),
                     exclude_interactive_browser_credential=True,
                     exclude_shared_token_cache_credential=True,
                     exclude_visual_studio_code_credential=True,
@@ -284,6 +291,11 @@ class ToolEmbedder:
                 token = await async_credential.get_token("https://cognitiveservices.azure.com/.default")
                 kwargs = {"api_key": token.token, "azure_endpoint": endpoint, "api_version": api_version}
             except Exception as exc:
+                if async_credential is not None:
+                    try:
+                        await async_credential.close()
+                    except Exception:
+                        pass
                 raise RuntimeError(f"No auth available for ToolEmbedder (no API key, managed identity failed: {exc})")
 
         deployment = self._get_embedding_deployment()

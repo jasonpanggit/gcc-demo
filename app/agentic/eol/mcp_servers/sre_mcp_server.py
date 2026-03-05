@@ -677,7 +677,7 @@ async def check_container_app_health(
                         "az containerapp logs show "
                         f"--name {container_app_name} "
                         f"--resource-group {resource_group} "
-                        "--tail 100 --format text --output json"
+                        "--tail 100 --format text"
                     ),
                     timeout=30,
                     add_subscription=True,
@@ -722,14 +722,75 @@ async def check_container_app_health(
                     }
                     logger.info(f"Azure CLI fallback successful for {container_app_name}: {health_status}")
                 else:
-                    # CLI command failed
-                    health_data["health_status"] = "Unknown - CLI access failed"
-                    health_data["table_used"] = "None (CLI error)"
-                    health_data["cli_error"] = cli_response.get("error", "Unknown Azure CLI error")
+                    # CLI command failed; try an app-level fallback for revision-specific failures.
+                    cli_error = str(cli_response.get("error", "Unknown Azure CLI error") or "")
+                    health_data["cli_error"] = cli_error
+
+                    if "could not find a revision" in cli_error.lower():
+                        logger.info(
+                            "Container App logs fallback hit missing revision for %s; trying app-level status",
+                            container_app_name,
+                        )
+
+                        show_response = await cli_executor.execute(
+                            (
+                                "az containerapp show "
+                                f"--name {container_app_name} "
+                                f"--resource-group {resource_group} "
+                                "--output json"
+                            ),
+                            timeout=30,
+                            add_subscription=True,
+                        )
+
+                        if show_response.get("status") == "success" and isinstance(show_response.get("output"), dict):
+                            show_payload = show_response.get("output") or {}
+                            properties = show_payload.get("properties") if isinstance(show_payload, dict) else {}
+                            if not isinstance(properties, dict):
+                                properties = {}
+
+                            provisioning_state = str(properties.get("provisioningState") or "Unknown")
+                            running_status = str(properties.get("runningStatus") or "Unknown")
+                            latest_revision = (
+                                properties.get("latestReadyRevisionName")
+                                or properties.get("latestRevisionName")
+                                or "Unknown"
+                            )
+
+                            normalized_state = provisioning_state.lower()
+                            normalized_running = running_status.lower()
+                            if normalized_state == "succeeded" and normalized_running in {"running", "ready"}:
+                                status = "Healthy"
+                            elif normalized_state in {"failed", "canceled", "cancelled"}:
+                                status = "Unhealthy"
+                            else:
+                                status = "Degraded"
+
+                            health_data.update(
+                                {
+                                    "total_logs": 0,
+                                    "error_count": 0,
+                                    "warning_count": 0,
+                                    "health_status": status,
+                                    "recent_errors": [],
+                                    "table_used": "Azure CLI (containerapp show fallback)",
+                                    "provisioning_state": provisioning_state,
+                                    "running_status": running_status,
+                                    "latest_revision": latest_revision,
+                                }
+                            )
+                        else:
+                            health_data["health_status"] = "Unknown - CLI access failed"
+                            health_data["table_used"] = "None (CLI error)"
+                            health_data["show_error"] = show_response.get("error", "containerapp show failed")
+                    else:
+                        health_data["health_status"] = "Unknown - CLI access failed"
+                        health_data["table_used"] = "None (CLI error)"
+
                     logger.warning(
                         "Azure CLI failed for %s: %s",
                         container_app_name,
-                        health_data["cli_error"],
+                        cli_error,
                     )
                     
             except subprocess.TimeoutExpired:

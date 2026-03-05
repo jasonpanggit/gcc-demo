@@ -374,6 +374,40 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 logger = get_logger(__name__, level=os.getenv("LOG_LEVEL", "DEBUG"))
 
 
+def _extract_completion_text(raw: Any) -> str:
+    """Extract assistant text from chat-completions response payloads."""
+    try:
+        choices = getattr(raw, "choices", None) or []
+        if not choices:
+            return ""
+        message = getattr(choices[0], "message", None)
+        content = getattr(message, "content", "") if message is not None else ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+                    elif isinstance(text, dict) and isinstance(text.get("value"), str):
+                        parts.append(text["value"])
+                    continue
+                obj_text = getattr(item, "text", None)
+                if isinstance(obj_text, str):
+                    parts.append(obj_text)
+                elif isinstance(obj_text, dict) and isinstance(obj_text.get("value"), str):
+                    parts.append(obj_text["value"])
+            return "\n".join(parts)
+    except Exception:
+        return ""
+    return ""
+
+
 # Shared formatter instance
 _response_formatter = ResponseFormatter()
 
@@ -2452,16 +2486,22 @@ FORMATTING:
 
                     if oai_client is not None:
                         try:
-                            resp = await oai_client.chat.completions.create(
-                                model=deployment,
-                                messages=[
+                            completion_kwargs: Dict[str, Any] = {
+                                "model": deployment,
+                                "messages": [
                                     {"role": "system", "content": "You are an Azure CLI expert. Output only valid JSON."},
                                     {"role": "user", "content": synthesis_prompt},
                                 ],
-                                temperature=0,
-                                max_tokens=400,
-                            )
-                            raw = (resp.choices[0].message.content or "").strip()
+                            }
+                            deployment_lower = (deployment or "").lower()
+                            if deployment_lower.startswith("gpt-5"):
+                                completion_kwargs["max_completion_tokens"] = 400
+                            else:
+                                completion_kwargs["temperature"] = 0
+                                completion_kwargs["max_tokens"] = 400
+
+                            resp = await oai_client.chat.completions.create(**completion_kwargs)
+                            raw = _extract_completion_text(resp).strip()
                             if raw.startswith("```"):
                                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
                             llm_commands = json.loads(raw)
@@ -3171,21 +3211,27 @@ FORMATTING:
                 client = AsyncAzureOpenAI(api_key=token.token, azure_endpoint=endpoint, api_version=api_version)
 
             try:
-                raw = await client.chat.completions.create(
-                    model=deployment,
-                    messages=[
+                completion_kwargs: Dict[str, Any] = {
+                    "model": deployment,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                }
+                deployment_lower = (deployment or "").lower()
+                if deployment_lower.startswith("gpt-5"):
+                    completion_kwargs["max_completion_tokens"] = max_tokens
+                else:
+                    completion_kwargs["temperature"] = temperature
+                    completion_kwargs["max_tokens"] = max_tokens
+
+                raw = await client.chat.completions.create(**completion_kwargs)
             finally:
                 await client.close()
                 if async_credential:
                     await async_credential.close()
 
-            content = raw.choices[0].message.content or ""
+            content = _extract_completion_text(raw)
             return True, content
         except Exception as exc:  # pragma: no cover - network/service dependency
             logger.error("Prompt execution failed: %s", exc)

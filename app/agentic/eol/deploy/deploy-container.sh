@@ -237,36 +237,22 @@ if [[ "$AI_PROJECT_ENDPOINT" == *"/api/projects/"* ]]; then
     fi
 fi
 
-# Determine authentication method
-if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
-    echo "✅ Using Service Principal authentication (from appsettings.json)"
-    AUTH_MODE="Service Principal"
-    # Build environment variable string with Service Principal
-    ENV_VARS="SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
-    ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
-    ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
-    ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
-    ENV_VARS="$ENV_VARS MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
-    # Standard env names required by DefaultAzureCredential EnvironmentCredential.
-    ENV_VARS="$ENV_VARS AZURE_CLIENT_ID=$SP_CLIENT_ID"
-    ENV_VARS="$ENV_VARS AZURE_CLIENT_SECRET=$SP_CLIENT_SECRET"
+# Runtime authentication is always Managed Identity.
+# Service Principal is used only for Azure CLI deployment operations above.
+echo "✅ Runtime authentication: Managed Identity"
+AUTH_MODE="Managed Identity"
+ENV_VARS="SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
+ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
+ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
+ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
+ENV_VARS="$ENV_VARS USE_SERVICE_PRINCIPAL=false"
+# Keep SPN vars for SRE MCP (SPN-only by design), but remove SDK env-credential
+# vars so DefaultAzureCredential uses system-assigned MI for app runtime.
+if [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_ID=$SP_CLIENT_ID"
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_SECRET=$SP_CLIENT_SECRET"
-    ENV_VARS="$ENV_VARS USE_SERVICE_PRINCIPAL=true"
-else
-    echo "✅ Using Managed Identity authentication"
-    AUTH_MODE="Managed Identity"
-    # Build environment variable string without Service Principal
-    ENV_VARS="SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
-    ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
-    ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
-    ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
-    ENV_VARS="$ENV_VARS MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
-    # When user-assigned MI is configured, AZURE_CLIENT_ID helps SDK credential selection.
-    if [[ -n "$MANAGED_IDENTITY_CLIENT_ID" ]] && [[ "$MANAGED_IDENTITY_CLIENT_ID" != "null" ]]; then
-        ENV_VARS="$ENV_VARS AZURE_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
-    fi
 fi
+REMOVE_ENV_VARS="AZURE_CLIENT_ID AZURE_CLIENT_SECRET MANAGED_IDENTITY_CLIENT_ID"
 
 # Add Azure Services configuration
 ENV_VARS="$ENV_VARS AZURE_OPENAI_ENDPOINT=$OPENAI_ENDPOINT"
@@ -366,8 +352,37 @@ cleanup_temp_files() {
 }
 trap cleanup_temp_files EXIT
 
+# Build a concrete remove list so az does not warn for missing variables.
+REMOVE_ENV_ARGS=()
+if [[ -n "$REMOVE_ENV_VARS" ]]; then
+    EXISTING_ENV_NAMES=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "properties.template.containers[0].env[].name" \
+        -o tsv 2>/dev/null || true)
+
+    if [[ -n "$EXISTING_ENV_NAMES" ]]; then
+        while IFS= read -r CANDIDATE; do
+            [[ -z "$CANDIDATE" ]] && continue
+            if printf '%s\n' "$EXISTING_ENV_NAMES" | grep -Fxq "$CANDIDATE"; then
+                REMOVE_ENV_ARGS+=("$CANDIDATE")
+            fi
+        done < <(printf '%s\n' $REMOVE_ENV_VARS)
+    fi
+fi
+
+if (( ${#REMOVE_ENV_ARGS[@]} > 0 )); then
+    echo "ℹ️ Removing legacy env vars: ${REMOVE_ENV_ARGS[*]}"
+else
+    echo "ℹ️ No legacy env vars found to remove."
+fi
+
 run_update() {
     local suffix="$1"
+    local remove_args=()
+    if (( ${#REMOVE_ENV_ARGS[@]} > 0 )); then
+        remove_args=(--remove-env-vars "${REMOVE_ENV_ARGS[@]}")
+    fi
     # shellcheck disable=SC2086
     az containerapp update \
         --name "$CONTAINER_APP_NAME" \
@@ -379,6 +394,7 @@ run_update() {
         --memory 3.0Gi \
         --min-replicas 1 \
         --set-env-vars $ENV_VARS \
+        "${remove_args[@]}" \
         --query "{name:name, latestRevision:properties.latestRevisionName, status:properties.runningStatus}" \
         -o json >"$OUT_FILE" 2> >(tee "$ERR_FILE" >&2)
 }
@@ -434,7 +450,8 @@ echo "   az containerapp logs show --name $CONTAINER_APP_NAME --resource-group $
 echo ""
 echo "💡 Configuration:"
 echo "   All settings are read from: $APPSETTINGS_FILE"
-echo "   To change authentication, edit 'ServicePrincipal.UseServicePrincipal' in this file"
+echo "   Azure CLI auth: ServicePrincipal.UseServicePrincipal"
+echo "   Container runtime auth: Managed Identity (always)"
 echo ""
 echo "🧪 Test Azure MCP connection:"
 echo "   curl $APP_URL/api/azure-mcp/status"

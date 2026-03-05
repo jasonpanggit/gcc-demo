@@ -48,6 +48,32 @@
     .badge-soft-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
     .badge-soft-danger { background: #fde2e1; color: #c1121f; border: 1px solid #f8d7da; }
     .badge-soft-secondary { background: #e9ecef; color: #495057; border: 1px solid #dee2e6; }
+    .vm-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+        white-space: nowrap;
+    }
+    .vm-chip.azure {
+        background: rgba(13, 110, 253, 0.12);
+        color: #0b5ed7;
+        border-color: rgba(13, 110, 253, 0.3);
+    }
+    .vm-chip.arc {
+        background: rgba(32, 201, 151, 0.14);
+        color: #0f8f6f;
+        border-color: rgba(32, 201, 151, 0.35);
+    }
+    .vm-chip.other {
+        background: rgba(108, 117, 125, 0.14);
+        color: #495057;
+        border-color: rgba(108, 117, 125, 0.3);
+    }
     .table th { font-size: 0.9rem; }
     .table td { font-size: 0.9rem; }
     .table thead th { position: sticky; top: 0; z-index: 5; }
@@ -121,7 +147,7 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label">Lookback (days)</label>
                         <select class="form-select" id="lookbackDays">
                             <option value="30">30</option>
@@ -130,7 +156,7 @@
                             <option value="180">180</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label">Environment</label>
                         <select class="form-select" id="environmentFilter">
                             <option value="all" selected>All</option>
@@ -139,9 +165,18 @@
                             <option value="Unknown">Unknown</option>
                         </select>
                     </div>
+                    <div class="col-md-2">
+                        <label class="form-label">VM Type</label>
+                        <select class="form-select" id="vmTypeFilter">
+                            <option value="all" selected>All</option>
+                            <option value="azure-vm">Azure VM</option>
+                            <option value="arc">Arc VM</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
                     <div class="col-md-4">
                         <label class="form-label">Search</label>
-                        <input type="text" id="searchInput" class="form-control" placeholder="Search by computer or OS name">
+                        <input type="text" id="searchInput" class="form-control" placeholder="Search by computer, OS, or VM type">
                     </div>
                     <div class="col-md-2 d-flex align-items-end">
                         <button class="btn btn-outline-primary w-100" id="applyFilters"><i class="fas fa-filter me-1"></i>Apply</button>
@@ -175,9 +210,14 @@
                                 </div>
                             </div>
                             <div class="col-12">
-                                <div class="text-muted small mb-2">Windows Server versions</div>
-                                <div class="chart-container pie-compact">
-                                    <canvas id="windowsServerChart" aria-label="Windows Server version distribution"></canvas>
+                                <div class="row g-3">
+                                    <div class="col-md-7">
+                                        <div class="text-muted small mb-2">Windows Server versions</div>
+                                        <div class="chart-container pie-compact">
+                                            <canvas id="windowsServerChart" aria-label="Windows Server version distribution"></canvas>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-5" aria-hidden="true"></div>
                                 </div>
                             </div>
                         </div>
@@ -266,6 +306,7 @@
     const elements = {
         lookback: document.getElementById('lookbackDays'),
         environment: document.getElementById('environmentFilter'),
+        vmType: document.getElementById('vmTypeFilter'),
         search: document.getElementById('searchInput'),
         apply: document.getElementById('applyFilters'),
         reset: document.getElementById('resetFilters'),
@@ -309,12 +350,17 @@
     }
 
     function normalizeItem(item) {
-        const osName = item.os_name || item.name || 'Unknown';
-        const osVersion = item.os_version || item.version || '';
+        const rawOsName = item.os_name || item.name || 'Unknown';
+        const normalizedOsName = normalizeOsName(rawOsName);
+        const inferredVersion = inferOsVersion(rawOsName);
+        const osVersion = item.os_version || item.version || inferredVersion;
         const environmentRaw = item.computer_environment || item.environment || 'Unknown';
         const environment = environmentRaw === 'NonAzure' ? 'Non-Azure' : environmentRaw;
+        const computerType = item.computer_type || item.computerType || '';
         const heartbeat = item.last_heartbeat || item.lastHeartbeat || item.time_generated;
-        const resourceGroup = item.resource_group || parseResourceGroup(item.resource_id || item.resourceId || '');
+        const resourceId = item.resource_id || item.resourceId || '';
+        const resourceGroup = item.resource_group || parseResourceGroup(resourceId);
+        const vmType = detectVmType(item, environment, computerType, resourceId);
         const rawEol = item.eol_date
             || item.eolDate
             || item.support_end_date
@@ -330,11 +376,14 @@
         const eolMeta = classifyEol(eolDate);
         return {
             computer: item.computer_name || item.computer || 'Unknown',
-            os_name: osName,
+            os_name: normalizedOsName,
             os_version: osVersion,
             os_type: item.os_type || item.type || '',
             computer_environment: environment,
+            computer_type: computerType || 'Unknown',
+            vm_type: vmType,
             resource_group: resourceGroup || 'Unknown',
+            resource_id: resourceId,
             last_heartbeat: heartbeat,
             eol_date: eolDate,
             support_end_date: supportEndDate,
@@ -343,6 +392,48 @@
             days_until_eol: eolMeta.days,
             bucket: eolMeta.bucket
         };
+    }
+
+    function normalizeOsName(osName) {
+        const raw = String(osName || '').trim();
+        if (!raw) return 'Unknown';
+        // Resource inventory commonly reports WindowsServer without a space.
+        return raw.replace(/^windowsserver\b/i, 'Windows Server');
+    }
+
+    function inferOsVersion(osName) {
+        const text = String(osName || '');
+        const match = text.match(/\b(20\d{2}|19\d{2})\b/);
+        return match ? match[1] : '';
+    }
+
+    function isWindowsServerName(osName) {
+        const value = String(osName || '').toLowerCase();
+        return value.includes('windows server') || value.includes('windowsserver');
+    }
+
+    function detectVmType(item, environment, computerType, resourceId) {
+        const explicitType = String(item.vm_type || item.vmType || '').toLowerCase();
+        if (explicitType === 'azure-vm' || explicitType === 'arc') {
+            return explicitType;
+        }
+        const rid = String(resourceId || '').toLowerCase();
+        const compType = String(computerType || '').toLowerCase();
+        const env = String(environment || '').toLowerCase();
+
+        if (rid.includes('/microsoft.compute/virtualmachines/') || compType.includes('azure vm')) {
+            return 'azure-vm';
+        }
+        if (rid.includes('/microsoft.hybridcompute/machines/') || compType.includes('arc-enabled server')) {
+            return 'arc';
+        }
+        if (env === 'azure') {
+            return 'azure-vm';
+        }
+        if (env === 'non-azure' || env === 'nonazure') {
+            return 'arc';
+        }
+        return 'other';
     }
 
     function parseResourceGroup(resourceId) {
@@ -354,14 +445,18 @@
     function applyFilters() {
         const term = (elements.search?.value || '').toLowerCase();
         const env = (elements.environment?.value || 'all');
+        const vmType = (elements.vmType?.value || 'all');
         state.filtered = state.inventory.filter(item => {
             const matchesTerm = term ? (
                 item.computer.toLowerCase().includes(term) ||
                 item.os_name.toLowerCase().includes(term) ||
-                item.os_version.toLowerCase().includes(term)
+                item.os_version.toLowerCase().includes(term) ||
+                (item.vm_type || '').toLowerCase().includes(term) ||
+                (item.computer_type || '').toLowerCase().includes(term)
             ) : true;
             const matchesEnv = env === 'all' ? true : (item.computer_environment || 'Unknown') === env;
-            return matchesTerm && matchesEnv;
+            const matchesVmType = vmType === 'all' ? true : (item.vm_type || 'other') === vmType;
+            return matchesTerm && matchesEnv && matchesVmType;
         });
         renderTable();
         renderStats();
@@ -381,7 +476,7 @@
                 <td>${escapeHtml(item.computer)}</td>
                 <td>${escapeHtml(item.os_name)}</td>
                 <td>${escapeHtml(item.os_version)}</td>
-                <td>${escapeHtml(item.computer_environment)}</td>
+                <td>${formatEnvironmentCell(item)}</td>
                 <td><small class="text-muted">${formatDateTime(item.last_heartbeat)}</small></td>
                 <td>${formatDate(item.eol_date)}</td>
                 <td>${item.days_until_eol === null ? '—' : item.days_until_eol}</td>
@@ -390,6 +485,14 @@
         });
         elements.tableBody.innerHTML = rows.join('');
         elements.tableCount.textContent = String(state.filtered.length);
+    }
+
+    function formatEnvironmentCell(item) {
+        const env = escapeHtml(item.computer_environment || 'Unknown');
+        const vmType = item.vm_type || 'other';
+        const chipClass = vmType === 'azure-vm' ? 'azure' : (vmType === 'arc' ? 'arc' : 'other');
+        const label = vmType === 'azure-vm' ? 'Azure VM' : (vmType === 'arc' ? 'Arc VM' : 'Other');
+        return `${env}<div class="mt-1"><span class="vm-chip ${chipClass}">${escapeHtml(label)}</span></div>`;
     }
 
     function formatRiskBadge(risk, label) {
@@ -406,29 +509,41 @@
 
     function renderStats() {
         const total = state.inventory.length;
-        const azure = state.inventory.filter(i => (i.computer_environment || '').toLowerCase().includes('azure')).length;
+        const azureVm = state.inventory.filter(i => i.vm_type === 'azure-vm').length;
+        const arcVm = state.inventory.filter(i => i.vm_type === 'arc').length;
         const expiring = state.inventory.filter(i => ['critical', 'high'].includes(i.eol_risk)).length;
         const withEol = state.inventory.filter(i => i.eol_date).length;
 
         if (elements.statTotal) elements.statTotal.textContent = `${total} systems`;
         if (elements.statExpiring) elements.statExpiring.textContent = `${expiring} expiring/expired`;
-        if (elements.statAzure) elements.statAzure.textContent = `${azure} Azure / Arc`;
+        if (elements.statAzure) elements.statAzure.textContent = `${azureVm} Azure VM / ${arcVm} Arc`;
         if (elements.osCountLabel) elements.osCountLabel.textContent = `${total} systems`;
         if (elements.eolCountLabel) elements.eolCountLabel.textContent = `${withEol} with EOL data`;
     }
 
     function renderCharts() {
+        const selectedVmType = elements.vmType?.value || 'all';
+        const chartItems = selectedVmType === 'all' ? state.inventory : state.filtered;
+
+        if (elements.osCountLabel) {
+            elements.osCountLabel.textContent = `${chartItems.length} systems${selectedVmType === 'all' ? '' : ' (filtered)'}`;
+        }
+        if (elements.eolCountLabel) {
+            const withEolChart = chartItems.filter(i => i.eol_date).length;
+            elements.eolCountLabel.textContent = `${withEolChart} with EOL data${selectedVmType === 'all' ? '' : ' (filtered)'}`;
+        }
+
         const groupCounts = {};
         const typeBuckets = { Windows: 0, Linux: 0, Other: 0 };
         const windowsServerCounts = {};
-        state.inventory.forEach(item => {
+        chartItems.forEach(item => {
             const groupName = (item.resource_group || 'Unknown').trim() || 'Unknown';
             groupCounts[groupName] = (groupCounts[groupName] || 0) + 1;
 
             const name = (item.os_name || '').toLowerCase();
             if (name.includes('windows')) {
                 typeBuckets.Windows += 1;
-                if (name.includes('windows server')) {
+                if (isWindowsServerName(name)) {
                     const versionText = `${item.os_version || ''} ${item.os_name || ''}`;
                     const match = versionText.match(/(20\d{2}|19\d{2})/);
                     const label = match ? match[1] : 'Unknown';
@@ -448,13 +563,17 @@
 
         const labels = topGroups.map(([name]) => name);
         const values = topGroups.map(([, count]) => count);
+        if (!labels.length) {
+            labels.push('No data');
+            values.push(0);
+        }
         if (otherCount > 0) {
             labels.push('Other');
             values.push(otherCount);
         }
 
         const eolBuckets = { expired: 0, '0-90': 0, '91-180': 0, '181-365': 0, '>365': 0, unknown: 0 };
-        state.inventory.forEach(item => {
+        chartItems.forEach(item => {
             const bucket = item.bucket || 'unknown';
             if (eolBuckets[bucket] !== undefined) {
                 eolBuckets[bucket] += 1;
@@ -547,7 +666,10 @@
                 borderRadius: 6
             }]
         }, {
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            plugins: {
+                legend: { display: false }
+            }
         });
 
         updateTimelineLegendUI();
@@ -709,6 +831,7 @@
 
     function resetFilters() {
         if (elements.environment) elements.environment.value = 'all';
+        if (elements.vmType) elements.vmType.value = 'all';
         if (elements.search) elements.search.value = '';
         applyFilters();
     }
@@ -716,6 +839,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         elements.apply?.addEventListener('click', applyFilters);
         elements.environment?.addEventListener('change', applyFilters);
+        elements.vmType?.addEventListener('change', applyFilters);
         elements.search?.addEventListener('keyup', (e) => { if (e.key === 'Enter') applyFilters(); });
         elements.reset?.addEventListener('click', resetFilters);
         elements.refresh?.addEventListener('click', loadInventory);

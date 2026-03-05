@@ -68,7 +68,11 @@ class BaseCosmosClient:
             return
 
         try:
-            credential = DefaultAzureCredential()
+            use_sp_runtime = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
+            has_sp_creds = bool((os.getenv("AZURE_CLIENT_ID") or "").strip()) and bool((os.getenv("AZURE_CLIENT_SECRET") or "").strip())
+            credential = DefaultAzureCredential(
+                exclude_environment_credential=not (use_sp_runtime and has_sp_creds)
+            )
             # Validate token availability (best-effort).
             # Skip when COSMOS_SKIP_CREDENTIAL_VALIDATION=true (e.g. CI / mock mode)
             # to prevent blocking in environments without Azure credentials.
@@ -102,7 +106,11 @@ class BaseCosmosClient:
             return
 
         try:
-            credential = DefaultAzureCredential()
+            use_sp_runtime = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
+            has_sp_creds = bool((os.getenv("AZURE_CLIENT_ID") or "").strip()) and bool((os.getenv("AZURE_CLIENT_SECRET") or "").strip())
+            credential = DefaultAzureCredential(
+                exclude_environment_credential=not (use_sp_runtime and has_sp_creds)
+            )
             # Skip credential validation when COSMOS_SKIP_CREDENTIAL_VALIDATION=true
             if os.getenv("COSMOS_SKIP_CREDENTIAL_VALIDATION", "false").lower() != "true":
                 credential.get_token('https://cosmos.azure.com/.default')

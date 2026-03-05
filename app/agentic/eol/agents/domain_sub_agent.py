@@ -289,9 +289,14 @@ class DomainSubAgent:
             create_kwargs: Dict[str, Any] = {
                 "model": deployment,
                 "messages": messages,
-                "temperature": 0.2,
-                "max_tokens": 3000,
             }
+            deployment_lower = (deployment or "").lower()
+            if deployment_lower.startswith("gpt-5"):
+                # GPT-5 deployments reject `max_tokens` and custom temperature.
+                create_kwargs["max_completion_tokens"] = 3000
+            else:
+                create_kwargs["temperature"] = 0.2
+                create_kwargs["max_tokens"] = 3000
 
             # Build tool payload
             tools_payload = []

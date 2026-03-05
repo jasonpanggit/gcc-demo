@@ -177,6 +177,62 @@ async def get_os(days: int = 90):
     result = await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
     if result.get("success") and isinstance(result.get("data"), list):
         try:
+            # Enrich OS inventory with Azure VMs discovered via Resource Inventory
+            # so pages using /api/os can include VMs that don't currently report
+            # to Heartbeat/Log Analytics.
+            from utils.resource_inventory_client import get_resource_inventory_client
+
+            inv_client = get_resource_inventory_client()
+            azure_vms = await inv_client.get_resources(
+                "Microsoft.Compute/virtualMachines",
+                subscription_id=config.azure.subscription_id,
+            )
+
+            existing_resource_ids = {
+                str(item.get("resource_id") or item.get("resourceId") or "").lower()
+                for item in result["data"]
+                if str(item.get("resource_id") or item.get("resourceId") or "").strip()
+            }
+
+            for vm in azure_vms:
+                selected = vm.get("selected_properties") or {}
+                resource_id = str(vm.get("resource_id") or vm.get("id") or "")
+                if not resource_id:
+                    continue
+                if resource_id.lower() in existing_resource_ids:
+                    continue
+
+                vm_name = vm.get("resource_name") or vm.get("name")
+                if not vm_name:
+                    continue
+
+                os_name = selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown"
+                inferred_version = ""
+                try:
+                    m = re.search(r"\b(20\d{2}|19\d{2})\b", str(os_name))
+                    inferred_version = m.group(1) if m else ""
+                except Exception:
+                    inferred_version = ""
+                result["data"].append({
+                    "computer_name": vm_name,
+                    "computer": vm_name,
+                    "os_name": os_name,
+                    "name": os_name,
+                    "os_version": vm.get("os_version") or inferred_version,
+                    "version": vm.get("os_version") or inferred_version,
+                    "os_type": selected.get("os_type") or vm.get("os_type") or "Unknown",
+                    "vendor": "Unknown",
+                    "computer_environment": "Azure",
+                    "computer_type": "Azure VM",
+                    "resource_group": vm.get("resource_group") or vm.get("resourceGroup") or "",
+                    "resource_id": resource_id,
+                    "last_heartbeat": None,
+                    "source": "resource_inventory",
+                    "software_type": "operating system",
+                    "vm_type": "azure-vm",
+                })
+                existing_resource_ids.add(resource_id.lower())
+
             import re
 
             orchestrator = _get_eol_orchestrator()
@@ -206,6 +262,7 @@ async def get_os(days: int = 90):
                     item["support_end_date"] = data_block.get("support_end_date") or data_block.get("support")
                 item["eol_source"] = data_block.get("source") or data_block.get("agent_used")
                 item["eol_confidence"] = data_block.get("confidence")
+            result["count"] = len(result["data"])
         except Exception:
             pass
     return result
