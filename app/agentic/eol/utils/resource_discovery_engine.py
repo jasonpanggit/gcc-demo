@@ -54,6 +54,11 @@ try:
 except ImportError:
     from utils.logger import get_logger  # type: ignore[import-not-found]
 
+try:
+    from app.agentic.eol.utils.retry import retry_async
+except ImportError:
+    from utils.retry import retry_async  # type: ignore[import-not-found]
+
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -221,13 +226,18 @@ class ResourceDiscoveryEngine:
         query: str,
         subscription_ids: List[str],
     ) -> List[Dict[str, Any]]:
-        """Execute a paginated Resource Graph query and return all rows."""
+        """Execute a paginated Resource Graph query and return all rows.
+
+        Each page fetch is retried with exponential backoff to handle transient
+        errors and throttling (HTTP 429) from the Resource Graph API.
+        """
         if not AZURE_SDK_AVAILABLE or ResourceGraphClient is None:
             raise RuntimeError("azure-mgmt-resourcegraph is required")
 
         graph_client = self._get_graph_client()
         all_rows: List[Dict[str, Any]] = []
         skip_token: Optional[str] = None
+        loop = asyncio.get_event_loop()
 
         while True:
             options = QueryRequestOptions(
@@ -243,11 +253,24 @@ class ResourceDiscoveryEngine:
                 options=options,
             )
 
-            # Resource Graph SDK calls are synchronous; run in executor
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, graph_client.resources, request
+            # Retry each individual page fetch with exponential backoff to
+            # handle transient errors and Resource Graph throttling (429).
+            @retry_async(
+                retries=4,
+                initial_delay=1.0,
+                max_delay=30.0,
+                backoff_factor=2.0,
+                on_retry=lambda attempt, exc, delay: logger.warning(
+                    "Resource Graph page fetch retry %d after %.1fs: %s",
+                    attempt, delay, exc,
+                ),
             )
+            async def _fetch_page() -> Any:
+                return await loop.run_in_executor(
+                    None, graph_client.resources, request
+                )
+
+            response = await _fetch_page()
 
             data = response.data if hasattr(response, "data") else []
             all_rows.extend(data)
@@ -364,22 +387,31 @@ class ResourceDiscoveryEngine:
         Returns:
             Dict with keys ``created``, ``modified``, ``deleted``.
         """
-        # Query resources that were changed after last_scan_time
+        # Query resources changed after last_scan_time using the Resource Graph
+        # systemData.lastModifiedAt field (correct timestamp). Falls back to
+        # properties.timeCreated when lastModifiedAt is unavailable.
+        # Both the subscription filter and the time filter are applied so this
+        # query is genuinely incremental (not a full scan).
         kql_changed = (
             "Resources\n"
+            f"| where subscriptionId =~ '{subscription_id}'\n"
             "| project id, name, type, location, resourceGroup,"
             "  subscriptionId, tags, sku, kind, identity,"
             "  managedBy, plan, zones, extendedLocation, properties,"
-            "  changedTime = todatetime(properties.provisioningState)\n"
+            "  changedTime = coalesce("
+            "    todatetime(systemData.lastModifiedAt),"
+            "    todatetime(properties.timeCreated)"
+            "  )\n"
+            f"| where changedTime > datetime('{last_scan_time}')\n"
             "| order by id asc"
         )
 
         # Fetch all current resource IDs to detect deletions
         kql_ids = (
             "Resources\n"
-            "| where subscriptionId == '{sub}'\n"
+            f"| where subscriptionId =~ '{subscription_id}'\n"
             "| project id"
-        ).format(sub=subscription_id)
+        )
 
         try:
             changed_raw, current_ids_raw = await asyncio.gather(
@@ -492,10 +524,12 @@ class ResourceDiscoveryEngine:
 
         # Use typed KQL relationship extraction when available
         rel_kql_snippet = _RELATIONSHIP_KQL.get(resource_type)
+        # Escape single quotes in resource_id to prevent KQL syntax errors
+        safe_id = resource_id.replace("'", "''")
         if rel_kql_snippet:
             kql = (
                 "Resources\n"
-                f"| where id =~ '{resource_id}'\n"
+                f"| where id =~ '{safe_id}'\n"
                 f"| {rel_kql_snippet}\n"
                 "| mvexpand _rels\n"
                 "| extend rel_id = tostring(_rels.id)\n"
@@ -503,13 +537,18 @@ class ResourceDiscoveryEngine:
                 "| project rel_id"
             )
         else:
-            # Generic fallback: find resources that reference this resource
+            # Generic fallback: find resources that reference this resource in
+            # any of the common reference fields. The limit is raised to 200 to
+            # avoid silently dropping relationships in large environments.
             kql = (
                 "Resources\n"
-                f"| where properties contains '{resource_id}'\n"
-                f"| where id !~ '{resource_id}'\n"
+                f"| where id !~ '{safe_id}'\n"
+                f"| where (properties contains '{safe_id}'"
+                f"     or managedBy contains '{safe_id}'"
+                f"     or tostring(identity) contains '{safe_id}'"
+                f"     or tostring(tags) contains '{safe_id}')\n"
                 "| project id, type\n"
-                "| limit 20"
+                "| limit 200"
             )
 
         try:
@@ -619,9 +658,15 @@ class ResourceDiscoveryEngine:
 
         resource["enriched_properties"] = enrichment
 
-        # Cache successful and failed enrichments (failed ones are retried
-        # once TTL expires)
-        self._enrichment_cache[resource_id] = (enrichment, time.time())
+        # Cache strategy:
+        # - "success"     → cache for TTL (avoid redundant API calls)
+        # - "unsupported" → cache indefinitely (type won't change at runtime)
+        # - "failed"      → do NOT cache; allow immediate retry on next call
+        #   so transient errors (throttling, auth blips) don't lock out a
+        #   resource from enrichment for the full TTL window.
+        status = enrichment.get("enrichment_status")
+        if status in ("success", "unsupported"):
+            self._enrichment_cache[resource_id] = (enrichment, time.time())
 
         return resource
 

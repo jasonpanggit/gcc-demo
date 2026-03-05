@@ -425,9 +425,13 @@ class TestEnrichProperties:
         mock_iv.os_name = "Ubuntu"
         mock_iv.os_version = "22.04"
 
+        mock_vm = MagicMock()
+        mock_vm.instance_view = mock_iv
+
         with patch("utils.resource_discovery_engine.ComputeManagementClient") as MockCompute:
             mock_client = MockCompute.return_value
-            mock_client.virtual_machines.instance_view.return_value = mock_iv
+            # Engine calls virtual_machines.get(..., expand="instanceView")
+            mock_client.virtual_machines.get.return_value = mock_vm
 
             result = await engine.enrich_properties(resource)
 
@@ -464,7 +468,7 @@ class TestEnrichProperties:
         assert enriched["runtime_stack"] == "PYTHON|3.11"
 
     async def test_unsupported_type_returns_message(self, engine):
-        """Should return 'not implemented' for unsupported resource types."""
+        """Should return 'unsupported' status for unimplemented resource types."""
         resource = {
             "resource_id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/kv-1",
             "resource_type": "microsoft.keyvault/vaults",
@@ -473,7 +477,7 @@ class TestEnrichProperties:
         result = await engine.enrich_properties(resource)
 
         enriched = result["enriched_properties"]
-        assert enriched["supported"] is False
+        assert enriched["enrichment_status"] == "unsupported"
         assert "not yet implemented" in enriched["message"]
 
     async def test_enrichment_error_handled_gracefully(self, engine):
@@ -484,13 +488,13 @@ class TestEnrichProperties:
         }
 
         with patch("utils.resource_discovery_engine.ComputeManagementClient") as MockCompute:
-            MockCompute.return_value.virtual_machines.instance_view.side_effect = Exception("API timeout")
+            MockCompute.return_value.virtual_machines.get.side_effect = Exception("API timeout")
 
             result = await engine.enrich_properties(resource)
 
         enriched = result["enriched_properties"]
-        assert "error" in enriched
-        assert "API timeout" in enriched["error"]
+        assert enriched["enrichment_status"] == "failed"
+        assert "API timeout" in enriched["enrichment_error"]
 
 
 # ---------------------------------------------------------------------------
