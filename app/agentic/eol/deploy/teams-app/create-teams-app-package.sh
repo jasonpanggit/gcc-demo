@@ -9,6 +9,45 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Read app URL from appsettings so webhook/status output is environment-specific.
+APPSETTINGS_INPUT="../appsettings.json"
+if [[ "$1" == "--config" || "$1" == "-c" ]]; then
+    if [[ -z "$2" ]]; then
+        echo "❌ Missing value for $1"
+        echo "Usage: ./create-teams-app-package.sh [--config <appsettings.json>]"
+        exit 1
+    fi
+    APPSETTINGS_INPUT="$2"
+    shift 2
+fi
+
+if [[ "$APPSETTINGS_INPUT" = /* ]]; then
+    APPSETTINGS_FILE="$APPSETTINGS_INPUT"
+else
+    APPSETTINGS_FILE="$SCRIPT_DIR/$APPSETTINGS_INPUT"
+fi
+
+if [ ! -f "$APPSETTINGS_FILE" ]; then
+    echo "❌ Appsettings file not found at $APPSETTINGS_FILE"
+    exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+    echo "❌ jq is required to parse appsettings. Please install jq and retry."
+    exit 1
+fi
+
+APP_URL=$(jq -r '.Deployment.ContainerApp.Url // empty' "$APPSETTINGS_FILE")
+if [[ -z "$APP_URL" || "$APP_URL" == "null" ]]; then
+    echo "❌ .Deployment.ContainerApp.Url is missing in $APPSETTINGS_FILE"
+    exit 1
+fi
+
+# Remove trailing slash to avoid double slashes in endpoint paths.
+APP_URL_BASE="${APP_URL%/}"
+BOT_WEBHOOK_URL="$APP_URL_BASE/api/teams-bot/messages"
+BOT_STATUS_URL="$APP_URL_BASE/api/teams-bot/status"
+
 echo "=========================================="
 echo "Teams App Package Creator"
 echo "=========================================="
@@ -124,8 +163,8 @@ echo "   • Show all container apps"
 echo "   • Check health of my container app"
 echo ""
 echo "🔗 Bot webhook endpoint:"
-echo "   https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io/api/teams-bot/messages"
+echo "   $BOT_WEBHOOK_URL"
 echo ""
 echo "📊 Check bot status:"
-echo "   curl https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io/api/teams-bot/status"
+echo "   curl $BOT_STATUS_URL"
 echo ""

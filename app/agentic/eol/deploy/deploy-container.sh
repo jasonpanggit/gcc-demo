@@ -2,23 +2,56 @@
 
 # Azure Container Apps Deployment Script with Service Principal Authentication
 # Builds Docker image and deploys EOL application to Azure Container Apps
-# Reads configuration from appsettings.json
+# Reads configuration from appsettings.json (or file provided via --config)
 
 # To rebuild and deploy:
-#   ./deploy-container.sh [version] [build-only] [force-rebuild]
+#   ./deploy-container.sh [--config <file>] [version] [build-only] [force-rebuild]
 # Parameters:
+#   --config/-c: Optional appsettings file name (in deploy/) or absolute path
 #   version: Optional version/tag for the Docker image (default: git commit or timestamp)
 #   build-only: If "true", only build and push the Docker image without deploying (default: false)
 #   force-rebuild: If "true", forces Docker to rebuild the image without cache (default: false)
 # Example:
-#   ./deploy-container.sh "" false true
+#   ./deploy-container.sh --config appsettings.staging.json "" false true
 
 set -e
 
 # Parse parameters
-REQUESTED_VERSION=${1:-}
-BUILD_ONLY=${2:-false}
-FORCE_REBUILD=${3:-false}
+APPSETTINGS_INPUT="appsettings.json"
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config|-c)
+            if [[ -z "$2" ]]; then
+                echo "❌ Missing value for $1"
+                exit 1
+            fi
+            APPSETTINGS_INPUT="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: ./deploy-container.sh [--config <file>] [version] [build-only] [force-rebuild]"
+            echo "  --config/-c: appsettings file name in deploy/ (e.g. appsettings.staging.json) or absolute path"
+            echo "  version: optional image version/tag"
+            echo "  build-only: true|false"
+            echo "  force-rebuild: true|false"
+            exit 0
+            ;;
+        --*)
+            echo "❌ Unknown option: $1"
+            exit 1
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+REQUESTED_VERSION=${POSITIONAL_ARGS[0]:-}
+BUILD_ONLY=${POSITIONAL_ARGS[1]:-false}
+FORCE_REBUILD=${POSITIONAL_ARGS[2]:-false}
 
 # Navigate to parent directory (app root) from deployment folder
 cd "$(dirname "$0")/.."
@@ -34,15 +67,19 @@ else
     VERSION_SOURCE="manual"
 fi
 DEPLOYMENT_DIR="$APP_DIR/deploy"
-APPSETTINGS_FILE="$DEPLOYMENT_DIR/appsettings.json"
+if [[ "$APPSETTINGS_INPUT" = /* ]]; then
+    APPSETTINGS_FILE="$APPSETTINGS_INPUT"
+else
+    APPSETTINGS_FILE="$DEPLOYMENT_DIR/$APPSETTINGS_INPUT"
+fi
 
-# Check if appsettings.json exists
+# Check if appsettings file exists
 if [ ! -f "$APPSETTINGS_FILE" ]; then
-    echo "❌ appsettings.json not found at $APPSETTINGS_FILE"
+    echo "❌ Appsettings file not found at $APPSETTINGS_FILE"
     exit 1
 fi
 
-echo "📖 Reading configuration from appsettings.json..."
+echo "📖 Reading configuration from $(basename "$APPSETTINGS_FILE")..."
 
 # Read configuration from appsettings.json using jq
 SUBSCRIPTION_ID=$(jq -r '.Azure.SubscriptionId' "$APPSETTINGS_FILE")
@@ -51,6 +88,7 @@ RESOURCE_GROUP=$(jq -r '.Azure.ResourceGroup' "$APPSETTINGS_FILE")
 CONTAINER_APP_NAME=$(jq -r '.Deployment.ContainerApp.Name' "$APPSETTINGS_FILE")
 CONFIGURED_CONTAINER_NAME=$(jq -r '.Deployment.ContainerApp.ContainerName // empty' "$APPSETTINGS_FILE")
 ACR_NAME=$(jq -r '.Deployment.ContainerRegistry.Name' "$APPSETTINGS_FILE")
+ACR_RESOURCE_GROUP=$(jq -r '.Deployment.ContainerRegistry.ResourceGroup // .Azure.ResourceGroup' "$APPSETTINGS_FILE")
 IMAGE_NAME=$(jq -r '.Deployment.ContainerRegistry.ImageName' "$APPSETTINGS_FILE")
 MANAGED_IDENTITY_CLIENT_ID=$(jq -r '.ManagedIdentity.ClientId' "$APPSETTINGS_FILE")
 USE_SERVICE_PRINCIPAL=$(jq -r '.ServicePrincipal.UseServicePrincipal' "$APPSETTINGS_FILE")
@@ -75,14 +113,25 @@ echo "🚀 Starting deployment process..."
 echo "Application directory: $APP_DIR"
 echo "Resource Group: $RESOURCE_GROUP"
 echo "Container App: $CONTAINER_APP_NAME"
+echo "ACR Resource Group: $ACR_RESOURCE_GROUP"
 echo "Image: $FULL_IMAGE_NAME"
 echo ""
 
 # Check if Azure CLI is logged in
 echo "🔐 Checking Azure CLI authentication..."
-if ! az account show > /dev/null 2>&1; then
-    echo "❌ Azure CLI not authenticated. Please run 'az login' first."
-    exit 1
+
+# If Service Principal auth is enabled in config, use it for Azure CLI operations.
+if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
+    echo "🔑 Authenticating Azure CLI using configured Service Principal..."
+    az login --service-principal \
+        --username "$SP_CLIENT_ID" \
+        --password "$SP_CLIENT_SECRET" \
+        --tenant "$TENANT_ID" > /dev/null
+else
+    if ! az account show > /dev/null 2>&1; then
+        echo "❌ Azure CLI not authenticated. Please run 'az login' first."
+        exit 1
+    fi
 fi
 
 # Set the subscription
@@ -114,7 +163,7 @@ echo ""
 
 # Login to ACR
 echo "🔐 Logging in to Azure Container Registry..."
-az acr login --name "$ACR_NAME"
+az acr login --name "$ACR_NAME" --resource-group "$ACR_RESOURCE_GROUP"
 
 # Build and push Docker image
 echo "🏗️  Building Docker image..."
@@ -196,7 +245,11 @@ if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n
     ENV_VARS="SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
     ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
     ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
+    ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
     ENV_VARS="$ENV_VARS MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
+    # Standard env names required by DefaultAzureCredential EnvironmentCredential.
+    ENV_VARS="$ENV_VARS AZURE_CLIENT_ID=$SP_CLIENT_ID"
+    ENV_VARS="$ENV_VARS AZURE_CLIENT_SECRET=$SP_CLIENT_SECRET"
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_ID=$SP_CLIENT_ID"
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_SECRET=$SP_CLIENT_SECRET"
     ENV_VARS="$ENV_VARS USE_SERVICE_PRINCIPAL=true"
@@ -207,7 +260,12 @@ else
     ENV_VARS="SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
     ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
     ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
+    ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
     ENV_VARS="$ENV_VARS MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
+    # When user-assigned MI is configured, AZURE_CLIENT_ID helps SDK credential selection.
+    if [[ -n "$MANAGED_IDENTITY_CLIENT_ID" ]] && [[ "$MANAGED_IDENTITY_CLIENT_ID" != "null" ]]; then
+        ENV_VARS="$ENV_VARS AZURE_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
+    fi
 fi
 
 # Add Azure Services configuration
@@ -376,7 +434,7 @@ echo "   az containerapp logs show --name $CONTAINER_APP_NAME --resource-group $
 echo ""
 echo "💡 Configuration:"
 echo "   All settings are read from: $APPSETTINGS_FILE"
-echo "   To change authentication, edit 'ServicePrincipal.UseServicePrincipal' in appsettings.json"
+echo "   To change authentication, edit 'ServicePrincipal.UseServicePrincipal' in this file"
 echo ""
 echo "🧪 Test Azure MCP connection:"
 echo "   curl $APP_URL/api/azure-mcp/status"

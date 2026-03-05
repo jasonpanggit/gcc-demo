@@ -84,10 +84,28 @@ NEVER generate fake resource IDs, metric values, or example data.
 If a tool call fails, report the real error — do NOT substitute made-up data.
 
 SAFETY — DESTRUCTIVE OPERATIONS:
-Before executing any remediation tool (restart, scale, clear_cache):
-1. Call plan_remediation or generate_remediation_plan first.
-2. Present the plan to the user.
-3. Wait for confirmation — do NOT execute without approval.
+Before executing any remediation tool (restart, scale, cache clear, security fix, runbook):
+1. Always call plan_remediation or generate_remediation_plan first (unless already called).
+2. For new tools: use dry_run=true first to preview the impact.
+3. Present the plan clearly to the user — explain WHAT will change and any SIDE EFFECTS.
+4. Wait for explicit confirmation — do NOT execute without the user approving.
+5. After execution, verify recovery using a health check tool.
+6. If a tool returns "blocked" (ALLOW_REAL_REMEDIATION not set), inform the user and do not retry.
+
+REMEDIATION TOOL SELECTION:
+• Use safe_restart_resource for: restarts with rollback protection, Container Apps, App Service, AKS
+• Use clear_resource_cache for: stale data issues, CDN purge, Redis flush, APIM cache reset
+• Use apply_security_recommendation for: Defender recommendations — enable HTTPS, diagnostic logging, NSG rules, encryption
+• Use execute_runbook for: predefined automation playbooks — high-memory-restart, scale-out-on-cpu, clear-stale-cache, rotate-app-secret
+• Use execute_safe_restart for: legacy restart path (prefer safe_restart_resource for new requests)
+• Use scale_resource for: manual scaling operations
+• Use execute_remediation_step for: step-by-step execution of a plan from generate_remediation_plan
+
+REMEDIATION SAFETY MATRIX:
+  dry_run=true      → Preview only, zero impact — ALWAYS use first
+  confirmed=false   → Returns plan but does not execute
+  confirmed=true    → Executes (still blocked by ALLOW_REAL_REMEDIATION for destructive ops)
+  High/Critical severity security recommendations → ALWAYS blocked without ALLOW_REAL_REMEDIATION
 
 TOOL SELECTION BY DOMAIN:
 
@@ -129,6 +147,7 @@ Application Insights & Tracing:
   → query_app_insights_traces (distributed tracing by operation ID)
   → get_request_telemetry (P95/P99 latencies, failure rates)
   → analyze_dependency_map (service-to-service dependencies)
+  → get_app_insights_roles (discover valid app_name/cloud_RoleName values — call this FIRST when app_name is unknown)
   → trace_dependency_chain (full dependency chain analysis)
 
 Cost Optimization:
@@ -157,13 +176,17 @@ Log Analysis:
   → analyze_log_patterns (log pattern mining and clustering)
 
 Remediation:
-  → plan_remediation (impact assessment — always call first)
-  → generate_remediation_plan (detailed step-by-step plan)
-  → execute_safe_restart (restart with safety checks — requires approval)
+  → plan_remediation (impact assessment — always call first for legacy workflows)
+  → generate_remediation_plan (detailed step-by-step plan with approval tokens)
+  → safe_restart_resource (safe restart with drain + rollback — prefer over execute_safe_restart)
+  → clear_resource_cache (flush CDN/Redis/APIM/app cache — use dry_run=true first)
+  → apply_security_recommendation (apply Defender recommendation — use dry_run=true first)
+  → execute_runbook (run named playbook: high-memory-restart, scale-out-on-cpu, clear-stale-cache, rotate-app-secret, enable-diagnostic-logging)
+  → execute_safe_restart (legacy: restart with safety checks — requires approval)
   → scale_resource (scaling operation — requires approval)
-  → clear_cache (cache invalidation — requires approval)
-  → execute_remediation_step (execute plan step — requires approval)
-  → register_custom_runbook (register automation runbook)
+  → clear_cache (legacy: cache invalidation — requires approval)
+  → execute_remediation_step (execute plan step — requires approval + approval_token)
+  → register_custom_runbook (register new automation runbook)
 
 Notifications:
   → send_teams_notification (Teams channel notifications)
@@ -179,8 +202,12 @@ PARAMETER GUIDANCE:
 • workspace_id = Log Analytics workspace GUID (e.g. "65b615a0-7003-4058-88c5-0cf65ac5bb87").
   NEVER use the subscription ID as workspace_id — they are different values.
   The workspace_id comes from the [Azure grounding context] prepended to the query.
-  If not available, ask the user for the workspace ID or use search_logs_by_error
-  which has built-in workspace resolution.
+  analyze_dependency_map can auto-discover the workspace_id from env vars or Resource Graph;
+  pass it explicitly when multiple workspaces exist.
+  If workspace_id is unknown, call get_app_insights_roles without a workspace_id — it will
+  attempt auto-discovery and list available app names.
+• app_name = cloud_RoleName value in App Insights. Call get_app_insights_roles first
+  when app_name is not provided by the user — NEVER guess or fabricate an app name.
 • resource_id = full ARM resource ID
   (e.g. "/subscriptions/{sub}/resourceGroups/{rg}/providers/{type}/{name}").
   NEVER pass a subscription ID as a resource_id.
@@ -195,7 +222,11 @@ COMMON WORKFLOWS:
 • Cost review → get_cost_analysis → identify_orphaned_resources → get_cost_recommendations
 • SLO check → get_slo_dashboard → calculate_error_budget
 • Security audit → get_security_score → list_security_recommendations → check_compliance_status
-• Remediation → plan_remediation → present plan → wait for approval → execute_safe_restart/scale_resource
+• Remediation → plan_remediation → present plan → wait for approval → safe_restart_resource(dry_run=true) → safe_restart_resource(confirmed=true)
+• Cache issue → clear_resource_cache(dry_run=true) → present plan → clear_resource_cache(confirmed=true)
+• Security fix → list_security_recommendations → apply_security_recommendation(dry_run=true) → present plan → apply_security_recommendation(confirmed=true)
+• Runbook → execute_runbook (no args to list) → execute_runbook(runbook_id, dry_run=true) → execute_runbook(runbook_id, confirmed=true)
+• Dependency map → get_app_insights_roles(workspace_id) → analyze_dependency_map(workspace_id, app_name)
 
 FORMATTING:
 - Return responses as raw HTML (no markdown, no backticks).
@@ -224,12 +255,26 @@ FORMATTING:
     async def _pre_tool_call(
         self, tool_name: str, arguments: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Block destructive operations that haven't been confirmed."""
-        destructive_tools = {
+        """Block destructive operations that haven't been confirmed.
+
+        New Phase 3 tools (safe_restart_resource, clear_resource_cache,
+        apply_security_recommendation, execute_runbook) implement their own
+        dry_run / confirmed / ALLOW_REAL_REMEDIATION gates internally.
+        The legacy tools (execute_safe_restart, scale_resource, clear_cache,
+        execute_remediation_step) are gated here as a second layer of defense.
+        """
+        # Legacy tools: hard-block without ALLOW_REAL_REMEDIATION
+        legacy_destructive_tools = {
             "execute_safe_restart", "scale_resource", "clear_cache",
             "execute_remediation_step",
         }
-        if tool_name in destructive_tools:
+        # Phase 3 tools: block if confirmed is not set AND dry_run is not set
+        phase3_destructive_tools = {
+            "safe_restart_resource", "clear_resource_cache",
+            "apply_security_recommendation", "execute_runbook",
+        }
+
+        if tool_name in legacy_destructive_tools:
             allow_real = os.getenv("ALLOW_REAL_REMEDIATION", "false").lower() == "true"
             if not allow_real:
                 return {
@@ -238,6 +283,27 @@ FORMATTING:
                     "error": (
                         f"Tool '{tool_name}' blocked: ALLOW_REAL_REMEDIATION is not enabled. "
                         "Set ALLOW_REAL_REMEDIATION=true to allow destructive operations."
+                    ),
+                }
+
+        if tool_name in phase3_destructive_tools:
+            # Allow dry_run calls without restriction
+            if arguments.get("dry_run") is True:
+                return None  # pass through
+            # Allow confirmed=false (returns plan, no execution)
+            if not arguments.get("confirmed", False):
+                return None  # pass through — tool will return plan only
+            # confirmed=true: enforce ALLOW_REAL_REMEDIATION for execution
+            allow_real = os.getenv("ALLOW_REAL_REMEDIATION", "false").lower() == "true"
+            if not allow_real:
+                return {
+                    "success": False,
+                    "blocked": True,
+                    "error": (
+                        f"Tool '{tool_name}' with confirmed=true blocked: "
+                        "ALLOW_REAL_REMEDIATION is not enabled. "
+                        "Set ALLOW_REAL_REMEDIATION=true to allow real execution. "
+                        "Use dry_run=true to preview without executing."
                     ),
                 }
         return None

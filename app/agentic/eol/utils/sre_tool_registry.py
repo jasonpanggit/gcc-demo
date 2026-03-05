@@ -55,6 +55,7 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "get_diagnostic_logs",
         "get_resource_dependencies",
         "container_app_list",
+        "get_subscription_health_summary",
         "describe_capabilities",
     ],
     SREDomain.INCIDENT: [
@@ -65,7 +66,9 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "generate_incident_summary",
         "query_app_insights_traces",
         "get_request_telemetry",
+        "get_app_insights_roles",
         "get_audit_trail",
+        "get_subscription_health_summary",
         "describe_capabilities",
     ],
     SREDomain.PERFORMANCE: [
@@ -106,6 +109,12 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "scale_resource",
         "clear_cache",
         "execute_remediation_step",
+        # Phase 3: New auto-remediation tools
+        "safe_restart_resource",
+        "clear_resource_cache",
+        "apply_security_recommendation",
+        "execute_runbook",
+        "register_custom_runbook",
         "send_teams_notification",
         "send_teams_alert",
         "send_sre_status_update",
@@ -122,6 +131,7 @@ _DOMAIN_TOOLS: Dict[SREDomain, List[str]] = {
         "get_diagnostic_logs",
         "analyze_resource_configuration",
         "container_app_list",
+        "get_subscription_health_summary",
         "describe_capabilities",
     ],
 }

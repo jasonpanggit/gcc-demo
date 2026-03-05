@@ -13,6 +13,7 @@
     },
     "ContainerRegistry": {
       "Name": "your-acr-name",
+      "ResourceGroup": "your-acr-resource-group",
       "ImageName": "eol-app",
       "DefaultTag": "latest"
     }

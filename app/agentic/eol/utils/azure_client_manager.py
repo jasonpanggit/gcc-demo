@@ -144,13 +144,20 @@ class AzureSDKManager:
             # Honour any exclusions requested via env var (comma-separated source names)
             excluded = [x.strip() for x in os.getenv("AZURE_CREDENTIAL_EXCLUDE", "").split(",") if x.strip()]
 
-            # Attempt persistent token cache; ignore if msal-extensions is unavailable
+            # Attempt persistent token cache for local/dev shells.
+            # In headless Linux containers (ACA), keyring/libsecret is usually unavailable,
+            # so prefer in-memory caching to avoid credential acquisition failures.
             cache_opts = None
-            try:
-                from azure.identity import TokenCachePersistenceOptions
-                cache_opts = TokenCachePersistenceOptions(name="gcc-demo")
-            except Exception:
-                pass  # In-memory cache is the fallback
+            container_mode = os.getenv("CONTAINER_MODE", "false").lower() == "true"
+            if not container_mode:
+                try:
+                    from azure.identity import TokenCachePersistenceOptions
+                    cache_opts = TokenCachePersistenceOptions(
+                        name="gcc-demo",
+                        allow_unencrypted_storage=True,
+                    )
+                except Exception:
+                    pass  # In-memory cache is the fallback
 
             kwargs: Dict[str, Any] = {}
             if cache_opts is not None:

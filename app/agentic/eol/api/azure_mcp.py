@@ -10,6 +10,10 @@ from pydantic import BaseModel
 from utils import get_logger
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
+try:
+    from utils.tool_manifest_index import get_tool_manifest_index
+except ImportError:
+    from app.agentic.eol.utils.tool_manifest_index import get_tool_manifest_index
 
 # Import stdio client for direct MCP communication
 from utils.azure_mcp_client import get_azure_mcp_client
@@ -43,6 +47,12 @@ class ResourceQueryRequest(BaseModel):
 
 async def _load_composite_tool_catalog() -> List[Dict[str, Any]]:
     """Retrieve the full MCP tool catalog with source metadata, using orchestrator when possible."""
+    manifest_index = None
+    try:
+        manifest_index = get_tool_manifest_index()
+    except Exception as exc:  # pragma: no cover - manifest loader failure should not block tools API
+        logger.warning("Unable to load tool manifest index for examples: %s", exc)
+
     if not _orchestrator_disabled():
         try:
             from agents.mcp_orchestrator import get_mcp_orchestrator
@@ -57,12 +67,15 @@ async def _load_composite_tool_catalog() -> List[Dict[str, Any]]:
                     func = tool.get("function", {})
                     metadata = tool.get("metadata", {})
                     name = func.get("name", "unknown")
+                    manifest = manifest_index.get(name) if manifest_index else None
+                    manifest_examples = list(manifest.example_queries) if manifest else []
                     formatted.append({
                         "name": name,
                         "description": func.get("description") or tool.get("description", "No description available"),
                         "parameters": func.get("parameters", {}),
                         "source": metadata.get("source") or source_map.get(name),
                         "original_name": metadata.get("original_name") or func.get("x_original_name"),
+                        "example_queries": manifest_examples,
                         "metadata": metadata,
                     })
 
@@ -77,12 +90,15 @@ async def _load_composite_tool_catalog() -> List[Dict[str, Any]]:
     for tool in tools:
         func = tool.get("function", {})
         name = func.get("name", "unknown")
+        manifest = manifest_index.get(name) if manifest_index else None
+        manifest_examples = list(manifest.example_queries) if manifest else []
         formatted.append({
             "name": name,
             "description": func.get("description", "No description available"),
             "parameters": func.get("parameters", {}),
             "source": "azure",
             "original_name": func.get("name"),
+            "example_queries": manifest_examples,
             "metadata": {"source": "azure", "original_name": func.get("name")},
         })
 

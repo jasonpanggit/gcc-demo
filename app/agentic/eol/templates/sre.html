@@ -32,11 +32,11 @@
                     <span class="fw-semibold" style="font-size:0.9rem;">
                         <i class="fas fa-lightbulb me-2 text-warning"></i>Try asking…
                     </span>
-                    <button class="btn btn-sm btn-link text-muted p-0" onclick="toggleSuggestedPrompts()" id="toggle-prompts-btn" title="Hide suggestions">
-                        <i class="fas fa-chevron-up"></i>
+                    <button class="btn btn-sm btn-link text-muted p-0" onclick="toggleSuggestedPrompts()" id="toggle-prompts-btn" title="Show suggestions">
+                        <i class="fas fa-chevron-down"></i>
                     </button>
                 </div>
-                <div class="card-body py-2 px-3" id="suggested-prompts-body">
+                <div class="card-body py-2 px-3" id="suggested-prompts-body" style="display: none;">
                     <!-- Health & Availability -->
                     <div class="mb-2">
                         <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
@@ -46,6 +46,9 @@
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is the health of my container apps?')">What is the health of my container apps?</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Which resources have health issues or active alerts in my subscription?')">Which resources have health issues?</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show recent alerts and incidents in the last 24 hours')">Recent alerts last 24h</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check AKS cluster health and node pool status')">AKS cluster health</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Diagnose my App Service — is it healthy?')">Diagnose App Service</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is the health summary for my entire subscription?')">Subscription health summary</button>
                         </div>
                     </div>
                     <!-- Incident Triage -->
@@ -58,17 +61,33 @@
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('My application latency has spiked — what changed recently?')">Latency spike — what changed?</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Triage the highest severity active alerts and suggest remediation')">Triage active high-severity alerts</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is causing elevated error rates on my API endpoints?')">Elevated error rates on API</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Correlate all alerts from the past hour and identify the root cause')">Correlate last-hour alerts</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Generate a postmortem report for the latest incident')">Generate incident postmortem</button>
+                        </div>
+                    </div>
+                    <!-- Performance & SLO -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-tachometer-alt me-1"></i>Performance &amp; SLO
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is my current SLO burn rate?')">SLO burn rate</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('How much error budget do I have remaining this month?')">Error budget remaining</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Identify CPU and memory bottlenecks in my container apps')">CPU &amp; memory bottlenecks</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Detect any performance anomalies in the last 6 hours')">Performance anomalies (6h)</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Will I exhaust my resource capacity in the next 7 days?')">Capacity exhaustion forecast</button>
                         </div>
                     </div>
                     <!-- Network Diagnostics -->
                     <div class="mb-2">
                         <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
-                            <i class="fas fa-network-wired me-1"></i>Network Diagnostics
+                            <i class="fas fa-network-wired me-1"></i>Network &amp; Dependencies
                         </small>
                         <div class="d-flex flex-wrap gap-1 mt-1">
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Analyze the service-to-service dependency map for my container app')">Dependency map</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Trace the dependency chain for a failing API call')">Trace failing API call</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What external dependencies is my container app calling?')">App external dependencies</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show request telemetry P95 and P99 latencies for my app')">P95/P99 request latencies</button>
                         </div>
                     </div>
                     <!-- Security & Compliance -->
@@ -81,6 +100,23 @@
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('List my high-severity security recommendations')">High-severity recommendations</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check my CIS compliance status')">CIS compliance status</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check my NIST compliance status')">NIST compliance status</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Check my PCI-DSS compliance status')">PCI-DSS compliance</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show the audit trail for recent resource changes')">Audit trail</button>
+                        </div>
+                    </div>
+                    <!-- Auto-Remediation -->
+                    <div class="mb-2">
+                        <small class="text-muted fw-semibold text-uppercase" style="font-size:0.7rem; letter-spacing:0.04em;">
+                            <i class="fas fa-wrench me-1"></i>Auto-Remediation
+                        </small>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Preview a safe restart plan for my container app')">Preview restart plan</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Clear the CDN cache for my application')">Clear CDN cache</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Apply the enable-HTTPS security recommendation to my App Service')">Apply HTTPS recommendation</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show available automation runbooks')">List available runbooks</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Preview the high-memory-restart runbook for my container app')">Preview high-memory runbook</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Enable diagnostic logging on my App Service')">Enable diagnostic logging</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Flush the Redis cache for my application')">Flush Redis cache</button>
                         </div>
                     </div>
                     <!-- Inventory & Cost -->
@@ -93,6 +129,8 @@
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Show my cost breakdown by resource group')">Cost by resource group</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('Are there any spending anomalies this month?')">Spending anomalies</button>
                             <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What are my top Azure Advisor cost recommendations?')">Advisor cost recommendations</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What resources would I save money by rightsizing?')">Rightsizing opportunities</button>
+                            <button class="btn btn-sm btn-outline-secondary prompt-chip" onclick="sendExample('What is my total Azure spend trend for the past 30 days?')">30-day spend trend</button>
                         </div>
                     </div>
                 </div>
@@ -114,11 +152,16 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="fas fa-heartbeat me-2"></i>Agent Status</h5>
-                    <button class="btn btn-sm btn-outline-primary" onclick="refreshStatus()">
-                        <i class="fas fa-sync-alt me-1"></i>Refresh
-                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="refreshStatus()">
+                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                        </button>
+                        <button class="btn btn-sm btn-link text-muted p-0" onclick="toggleAgentStatus()" id="toggle-agent-status-btn" title="Show agent status">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body">
+                <div class="card-body" id="agent-status-body" style="display: none;">
                     <div id="status-container">
                         <p class="text-muted">Loading agent status...</p>
                     </div>
@@ -410,6 +453,16 @@ function toggleSuggestedPrompts() {
     body.style.display = isHidden ? '' : 'none';
     icon.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     btn.title = isHidden ? 'Hide suggestions' : 'Show suggestions';
+}
+
+function toggleAgentStatus() {
+    const body = document.getElementById('agent-status-body');
+    const btn = document.getElementById('toggle-agent-status-btn');
+    const icon = btn.querySelector('i');
+    const isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? '' : 'none';
+    icon.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    btn.title = isHidden ? 'Hide agent status' : 'Show agent status';
 }
 </script>
 {% endblock %}

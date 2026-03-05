@@ -1652,7 +1652,7 @@
     function getToolSource(tool) {
         // Determine server source from tool namespace or category
         if (tool.namespace) {
-            if (tool.namespace.startsWith('azure_cli_executor')) return 'azure_cli_executor'; 
+            if (tool.namespace.startsWith('azure_cli_executor') || tool.namespace.startsWith('azure_cli_')) return 'azure_cli_executor'; 
             if (tool.namespace.startsWith('microsoft_learn')) return 'microsoft_learn';
             if (tool.namespace.startsWith('inventory')) return 'inventory';
             if (tool.namespace.startsWith('os_eol')) return 'os_eol';
@@ -1759,6 +1759,9 @@
         runtimeAzureTools.forEach(tool => {
             const source = tool.source || 'azure';
             if (source === selectedServer) {
+                const runtimeExamples = Array.isArray(tool.example_queries)
+                    ? tool.example_queries
+                    : (Array.isArray(tool?.metadata?.example_queries) ? tool.metadata.example_queries : []);
                 // Check if we already have metadata for this tool
                 const hasMetadata = serverTools.some(t => t.namespace === tool.name);
                 if (!hasMetadata) {
@@ -1768,8 +1771,14 @@
                         display_name: tool.name.replace(/_/g, ' '),
                         namespace: tool.name,
                         description: tool.description || 'No description available',
-                        category: mcpSourceDisplayNames[source] || source
+                        category: mcpSourceDisplayNames[source] || source,
+                        example_queries: runtimeExamples
                     });
+                } else if (runtimeExamples.length) {
+                    const existing = serverTools.find(t => t.namespace === tool.name);
+                    if (existing && (!Array.isArray(existing.example_queries) || !existing.example_queries.length)) {
+                        existing.example_queries = runtimeExamples;
+                    }
                 }
             }
         });
@@ -1781,10 +1790,10 @@
         }
 
         // Populate tool selector
-        populateToolSelectorForServer(serverTools);
+        populateToolSelectorForServer(serverTools, selectedServer);
     }
 
-    function populateToolSelectorForServer(tools) {
+    function populateToolSelectorForServer(tools, selectedServer) {
         const selector = document.getElementById('tool-selector');
         if (!selector) {
             return;
@@ -1808,27 +1817,49 @@
             grouped.get(category).push(tool);
         });
 
-        const sortedCategories = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
-        sortedCategories.forEach(category => {
-            const optgroup = document.createElement('optgroup');
-            optgroup.label = category;
-            grouped.get(category)
-                .sort((a, b) => (a.display_name || a.namespace || '').localeCompare(b.display_name || b.namespace || ''))
-                .forEach(tool => {
-                    const optionKey = tool.slug || tool.namespace || tool.display_name;
-                    if (!optionKey) {
-                        return;
-                    }
-                    const option = document.createElement('option');
-                    option.value = optionKey;
-                    option.textContent = tool.display_name || tool.namespace || optionKey;
-                    optgroup.appendChild(option);
+        const makeOptionKey = (tool) => {
+            if (tool && tool.slug) {
+                return `slug:${tool.slug}`;
+            }
+            if (tool && tool.namespace) {
+                return `ns:${tool.namespace}`;
+            }
+            return tool && tool.display_name ? `name:${tool.display_name}` : '';
+        };
 
-                    // Keep a lookup so runtime-only tools can still drive examples dropdown.
-                    quickExampleToolsByKey[optionKey] = tool;
-                });
-            selector.appendChild(optgroup);
-        });
+        const appendToolOption = (target, tool) => {
+            const optionKey = makeOptionKey(tool);
+            if (!optionKey) {
+                return;
+            }
+            const option = document.createElement('option');
+            option.value = optionKey;
+            option.textContent = tool.display_name || tool.namespace || optionKey;
+            target.appendChild(option);
+
+            // Keep a lookup so runtime-only tools can still drive examples dropdown.
+            quickExampleToolsByKey[optionKey] = tool;
+        };
+
+        const sortedCategories = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+        const singleCategory = sortedCategories.length === 1 ? sortedCategories[0] : null;
+        const selectedServerLabel = selectedServer ? (mcpSourceDisplayNames[selectedServer] || selectedServer.replace(/_/g, ' ')) : '';
+        const shouldFlatten = !!singleCategory && selectedServerLabel && singleCategory.toLowerCase() === selectedServerLabel.toLowerCase();
+
+        if (shouldFlatten) {
+            grouped.get(singleCategory)
+                .sort((a, b) => (a.display_name || a.namespace || '').localeCompare(b.display_name || b.namespace || ''))
+                .forEach(tool => appendToolOption(selector, tool));
+        } else {
+            sortedCategories.forEach(category => {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = category;
+                grouped.get(category)
+                    .sort((a, b) => (a.display_name || a.namespace || '').localeCompare(b.display_name || b.namespace || ''))
+                    .forEach(tool => appendToolOption(optgroup, tool));
+                selector.appendChild(optgroup);
+            });
+        }
 
         selector.disabled = false;
     }
@@ -1892,11 +1923,48 @@
             });
         }
 
+        if (!examples.length) {
+            const manifestQueries = Array.isArray(tool.example_queries)
+                ? tool.example_queries
+                : (Array.isArray(tool?.metadata?.example_queries) ? tool.metadata.example_queries : []);
+
+            manifestQueries.forEach((query, index) => {
+                if (typeof query !== 'string' || !query.trim()) {
+                    return;
+                }
+                examples.push({
+                    label: `Example ${index + 1}`,
+                    prompt: query.trim(),
+                    operationTitle: null,
+                    parameters: Array.isArray(tool.parameters) ? tool.parameters : []
+                });
+            });
+        }
+
+        const buildRuntimeFallbackPrompt = (runtimeTool) => {
+            const namespace = runtimeTool && runtimeTool.namespace ? runtimeTool.namespace : 'this tool';
+            const description = typeof runtimeTool?.description === 'string' ? runtimeTool.description : '';
+            const normalized = description.replace(/\s+/g, ' ').trim();
+            const sentence = normalized.split(/(?<=[.!?])\s+/)[0] || normalized;
+            const trimmedSentence = sentence.length > 220 ? `${sentence.slice(0, 217)}...` : sentence;
+
+            if (trimmedSentence) {
+                const cleaned = trimmedSentence.replace(/^the\s+/i, '').trim();
+                // Prefer direct natural-language instruction when description already reads like one.
+                if (/^(list|show|get|find|retrieve|query|create|update|delete|check|analyze|describe|run|execute|trace)\b/i.test(cleaned)) {
+                    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                }
+                return `Use ${namespace} to ${cleaned.charAt(0).toLowerCase() + cleaned.slice(1)}`;
+            }
+
+            return `Use ${namespace} to help with this request.`;
+        };
+
         // Final fallback for runtime-only tools without documented examples.
         if (!examples.length && tool.namespace) {
-            const fallbackPrompt = `Use ${tool.namespace} to ${tool.description || 'help with this request'}`;
+            const fallbackPrompt = buildRuntimeFallbackPrompt(tool);
             examples.push({
-                label: `Use ${tool.namespace}`,
+                label: tool.display_name || `Suggested prompt`,
                 prompt: fallbackPrompt,
                 operationTitle: null,
                 parameters: Array.isArray(tool.parameters) ? tool.parameters : []
@@ -1978,9 +2046,9 @@
 
         const selectedSlug = toolSelector.value;
         const metadata = selectedSlug
-            ? (metadataBySlug[selectedSlug]
-                || quickExampleToolsByKey[selectedSlug]
-                || metadataTools.find(tool => tool && tool.namespace === selectedSlug)
+            ? (quickExampleToolsByKey[selectedSlug]
+                || metadataBySlug[selectedSlug.replace(/^slug:/, '')]
+                || metadataTools.find(tool => tool && (`ns:${tool.namespace}` === selectedSlug || tool.namespace === selectedSlug))
                 || null)
             : null;
 

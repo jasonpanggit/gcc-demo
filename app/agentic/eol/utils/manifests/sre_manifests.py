@@ -327,7 +327,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.2,
         requires_sequence=None,
-        preferred_over_list=("analyze_dependency_map",),
+        preferred_over_list=(),  # Removed circular: analyze_dependency_map already prefers over get_resource_dependencies
     ),
     ToolManifest(
         tool_name="container_app_list",
@@ -552,8 +552,7 @@ MANIFESTS: list[ToolManifest] = [
         preferred_over_list=("generate_postmortem",),
     ),
     ToolManifest(
-        tool_name="get_audit_trail",
-        source="sre",
+        tool_name="get_audit_trail",        source="sre",
         domains=frozenset({"sre_incident"}),
         tags=frozenset({"audit", "trail", "compliance", "incident"}),
         affordance=ToolAffordance.READ,
@@ -586,7 +585,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("analyze_activity_log",),
+        preferred_over_list=(),  # Removed circular: analyze_activity_log already prefers over get_audit_trail
     ),
     # ---- Performance ----
     ToolManifest(
@@ -769,6 +768,42 @@ MANIFESTS: list[ToolManifest] = [
         confidence_boost=1.3,
         requires_sequence=None,
         preferred_over_list=("get_resource_dependencies", "trace_dependency_chain"),
+    ),
+    ToolManifest(
+        tool_name="get_app_insights_roles",
+        source="sre",
+        domains=frozenset({"sre_performance", "sre_incident"}),
+        tags=frozenset({"appinsights", "discovery", "roles", "telemetry"}),
+        affordance=ToolAffordance.READ,
+        example_queries=(
+            "what app names are in App Insights",
+            "discover application roles in my workspace",
+            "list cloud role names in Application Insights",
+        ),
+        conflicts_with=frozenset(),
+        conflict_note="",
+        preferred_over=frozenset(),
+        # Phase 3 metadata
+        primary_phrasings=(
+            "what app names are in App Insights",
+            "discover application roles in my workspace",
+            "list cloud role names in Application Insights",
+            "what apps are sending telemetry to this workspace",
+            "find valid app_name values for dependency map",
+            "which applications are instrumented in App Insights",
+            "show me available app names for telemetry queries",
+            "list Application Insights role names",
+            "what cloud_RoleName values exist in my workspace",
+        ),
+        avoid_phrasings=(
+            "analyze service dependencies",              # → analyze_dependency_map
+            "show request telemetry",                    # → get_request_telemetry
+            "query Application Insights traces",         # → query_app_insights_traces
+            "show performance metrics",                  # → get_performance_metrics
+        ),
+        confidence_boost=1.3,
+        requires_sequence=None,
+        preferred_over_list=(),
     ),
     ToolManifest(
         tool_name="predict_resource_exhaustion",
@@ -992,7 +1027,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("get_cost_analysis", "identify_orphaned_resources"),
+        preferred_over_list=("identify_orphaned_resources",),  # Removed get_cost_analysis: it already prefers over get_cost_recommendations
     ),
     ToolManifest(
         tool_name="analyze_cost_anomalies",
@@ -1029,7 +1064,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("get_cost_analysis",),
+        preferred_over_list=(),  # Removed circular: get_cost_analysis already prefers over analyze_cost_anomalies
     ),
     ToolManifest(
         tool_name="get_security_score",
@@ -1462,7 +1497,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.2,
         requires_sequence=None,
-        preferred_over_list=("send_teams_notification",),
+        preferred_over_list=(),  # Removed circular: send_teams_notification already prefers over send_sre_status_update
     ),
     # ---- RCA ----
     ToolManifest(
@@ -1534,7 +1569,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("analyze_dependency_map", "get_resource_dependencies"),
+        preferred_over_list=("get_resource_dependencies",),  # Removed circular: analyze_dependency_map already prefers over trace_dependency_chain
     ),
     ToolManifest(
         tool_name="analyze_log_patterns",
@@ -1607,7 +1642,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("predict_resource_exhaustion",),
+        preferred_over_list=(),  # Removed circular: predict_resource_exhaustion already prefers over predict_capacity_issues
     ),
     ToolManifest(
         tool_name="generate_postmortem",
@@ -1644,7 +1679,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=None,
-        preferred_over_list=("generate_incident_summary",),
+        preferred_over_list=(),  # Removed circular: generate_incident_summary already prefers over generate_postmortem
     ),
     ToolManifest(
         tool_name="calculate_mttr_metrics",
@@ -1839,7 +1874,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.3,
         requires_sequence=("define_slo",),
-        preferred_over_list=("monitor_slo_burn_rate",),
+        preferred_over_list=(),  # Removed circular: monitor_slo_burn_rate already prefers over calculate_error_budget
     ),
     ToolManifest(
         tool_name="get_slo_dashboard",
@@ -1876,7 +1911,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         confidence_boost=1.2,
         requires_sequence=None,
-        preferred_over_list=("calculate_error_budget", "monitor_slo_burn_rate"),
+        preferred_over_list=("calculate_error_budget",),  # Removed monitor_slo_burn_rate: it already prefers over get_slo_dashboard
     ),
     # ---- Cross-domain utility ----
     ToolManifest(

@@ -115,6 +115,7 @@ litellm/
 .planning/
 **/.planning/
 CLAUDE.md
+tasks/
 
 # github - ignore all .github directories
 .github/

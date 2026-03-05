@@ -2,13 +2,13 @@
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
   "version": "1.0.0",
-  "id": "bd0f04dc-9706-4111-a4fc-54c4c11a58b6",
+  "id": "032abaff-bc2d-4763-aa5b-439e8ba70d79",
   "packageName": "com.azure.mcporchestrator",
   "developer": {
     "name": "Azure MCP Orchestrator Bot",
-    "websiteUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
-    "privacyUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
-    "termsOfUseUrl": "https://azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io"
+    "websiteUrl": "https://agentic-aiops-demo.jollymushroom-e4a001e7.southeastasia.azurecontainerapps.io",
+    "privacyUrl": "https://agentic-aiops-demo.jollymushroom-e4a001e7.southeastasia.azurecontainerapps.io",
+    "termsOfUseUrl": "https://agentic-aiops-demo.jollymushroom-e4a001e7.southeastasia.azurecontainerapps.io"
   },
   "icons": {
     "color": "color.png",
@@ -25,7 +25,7 @@
   "accentColor": "#0078D4",
   "bots": [
     {
-      "botId": "bd0f04dc-9706-4111-a4fc-54c4c11a58b6",
+      "botId": "032abaff-bc2d-4763-aa5b-439e8ba70d79",
       "scopes": [
         "personal",
         "team",
@@ -71,7 +71,7 @@
     "messageTeamMembers"
   ],
   "validDomains": [
-    "azure-agentic-platform-vnet.jollywater-179e4f4a.australiaeast.azurecontainerapps.io",
+    "agentic-aiops-demo.jollymushroom-e4a001e7.southeastasia.azurecontainerapps.io",
     "*.azurecontainerapps.io"
   ]
 }
