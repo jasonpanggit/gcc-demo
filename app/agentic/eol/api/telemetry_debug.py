@@ -66,11 +66,11 @@ async def debug_telemetry():
 async def test_routing_telemetry(request: TestQueryRequest):
     """Test endpoint to trigger routing decision telemetry."""
     try:
-        from utils.tool_manifest_index import _get_manifest_index
+        from utils.tool_manifest_index import get_tool_manifest_index
         from utils.routing_telemetry import get_routing_telemetry
 
         # Get manifest index
-        manifest_index = _get_manifest_index()
+        manifest_index = get_tool_manifest_index()
         if not manifest_index:
             return StandardResponse(
                 success=False,

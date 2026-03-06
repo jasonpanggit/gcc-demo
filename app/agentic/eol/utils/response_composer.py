@@ -263,6 +263,56 @@ def _compact_detail_tool_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return compact
 
 
+def _tool_result_source(result: Optional[Dict[str, Any]]) -> str:
+    """Best-effort extraction of source marker from tool result payload."""
+    payload = _extract_payload_dict(result)
+    if not isinstance(payload, dict):
+        return ""
+
+    source = payload.get("source")
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+
+    nested_data = payload.get("data")
+    if isinstance(nested_data, dict):
+        nested_source = nested_data.get("source")
+        if isinstance(nested_source, str) and nested_source.strip():
+            return nested_source.strip()
+
+    return ""
+
+
+def _should_use_deterministic_renderer(execution_result: "ExecutionResult") -> bool:
+    """Return True when code-based rendering should bypass the LLM composer.
+
+    This path is designed for structured inventory/list outputs where LLM
+    summarization adds cost without adding value.
+    """
+    successful = [sr for sr in execution_result.step_results if sr.success and not sr.skipped]
+    if not successful:
+        return False
+
+    known_structured_tools = {
+        "container_app_list",
+        "law_get_os_summary",
+        "azure_resource_get_os_summary",
+        "inventory_cached_discovery",
+    }
+    cache_sources = {
+        "resource_inventory_cache",
+        "azure_resource_inventory",
+    }
+
+    for sr in successful:
+        if sr.tool_name in known_structured_tools:
+            continue
+        if _tool_result_source(sr.result) in cache_sources:
+            continue
+        return False
+
+    return True
+
+
 def _extract_completion_text(raw: Any) -> str:
     """Extract assistant text from chat-completions style responses.
 
@@ -400,6 +450,9 @@ complete, accurate HTML response for display in a web dashboard.
 9. End with a concise <p> summary.
 10. For effective-route outputs, render ALL route rows returned by tools (do not sample or collapse).
 11. For list/discovery outputs (for example, container app inventory), include ALL returned items unless the user explicitly asks for a subset (such as top 5).
+12. If OS summary data is present from Arc and/or Azure inventory, use explicit section labels:
+    - <h3>Arc-Enabled Servers OS Summary</h3> for law_get_os_summary output.
+    - <h3>Azure Virtual Machines OS Summary (Resource Inventory)</h3> for azure_resource_get_os_summary output.
 
 ## Confirmation prompts (destructive steps)
 
@@ -447,6 +500,17 @@ class ResponseComposer:
         Returns:
             HTML string ready to be returned to the user.
         """
+        if _should_use_deterministic_renderer(execution_result):
+            logger.info(
+                "ResponseComposer: using deterministic renderer (cache-backed/structured outputs)",
+            )
+            return _build_static_fallback(
+                query,
+                execution_result,
+                verification_result,
+                include_step_table=False,
+            )
+
         user_prompt = _build_composer_user_prompt(
             query, execution_result, verification_result
         )
@@ -587,10 +651,17 @@ def _build_composer_user_prompt(
 ) -> str:
     """Build the user-prompt for the ResponseComposer LLM call."""
     parts = [f"USER QUERY: {query}", ""]
+    has_arc_os_summary = False
+    has_azure_os_summary = False
 
     # Step results
     parts.append("TOOL EXECUTION RESULTS:")
     for sr in execution_result.step_results:
+        if sr.success and sr.tool_name == "law_get_os_summary":
+            has_arc_os_summary = True
+        if sr.success and sr.tool_name == "azure_resource_get_os_summary":
+            has_azure_os_summary = True
+
         if sr.skipped:
             parts.append(
                 f"  [{sr.step_id}] {sr.tool_name}: SKIPPED — {sr.skip_reason}"
@@ -602,6 +673,13 @@ def _build_composer_user_prompt(
             )
         else:
             parts.append(f"  [{sr.step_id}] {sr.tool_name}: FAILED — {sr.error}")
+
+    if has_arc_os_summary or has_azure_os_summary:
+        parts += ["", "SPECIAL LABELING REQUIREMENT:"]
+        if has_arc_os_summary:
+            parts.append("  - Include section heading exactly: Arc-Enabled Servers OS Summary")
+        if has_azure_os_summary:
+            parts.append("  - Include section heading exactly: Azure Virtual Machines OS Summary (Resource Inventory)")
 
     # Blocked steps requiring confirmation
     blocked: List[str] = []
@@ -902,12 +980,15 @@ def _build_static_fallback(
     query: str,
     execution_result: ExecutionResult,
     verification_result: Optional[VerificationResult],
+    include_step_table: bool = True,
 ) -> str:
     """Build a minimal HTML page when the LLM is unavailable."""
     import html as _html
 
     rows: List[str] = []
     container_app_html = ""
+    arc_os_html = ""
+    azure_os_html = ""
 
     def _extract_payload(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not isinstance(result, dict):
@@ -950,6 +1031,17 @@ def _build_static_fallback(
                     return parsed
 
         return result
+
+    def _extract_summary_data(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return data
+        if isinstance(payload.get("os_breakdown"), list):
+            return payload
+        return None
+
     for sr in execution_result.step_results:
         status = "⏭️ Skipped" if sr.skipped else ("✅ OK" if sr.success else "❌ Failed")
         detail = sr.skip_reason or sr.error or ""
@@ -988,6 +1080,78 @@ def _build_static_fallback(
                         "</table>"
                     )
 
+        if sr.success and sr.tool_name == "law_get_os_summary":
+            payload = _extract_summary_data(_extract_payload(sr.result))
+            os_summary = payload.get("os_summary") if isinstance(payload, dict) else None
+            os_versions = payload.get("os_versions") if isinstance(payload, dict) else None
+            total_computers = payload.get("total_computers") if isinstance(payload, dict) else None
+
+            version_rows: List[str] = []
+            if isinstance(os_versions, list):
+                for item in os_versions:
+                    if not isinstance(item, dict):
+                        continue
+                    name = _html.escape(str(item.get("os_type", "Unknown")))
+                    version = _html.escape(str(item.get("version", "Unknown")))
+                    count = _html.escape(str(item.get("count", 0)))
+                    version_rows.append(
+                        f"<tr><td>{name}</td><td>{version}</td><td>{count}</td></tr>"
+                    )
+
+            summary_rows: List[str] = []
+            if isinstance(os_summary, dict):
+                for k, v in sorted(os_summary.items(), key=lambda item: str(item[0]).lower()):
+                    summary_rows.append(
+                        f"<tr><td>{_html.escape(str(k))}</td><td>{_html.escape(str(v))}</td></tr>"
+                    )
+
+            details_html = ""
+            if version_rows:
+                details_html += (
+                    "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
+                    "<thead><tr><th>OS</th><th>Version</th><th>Count</th></tr></thead>"
+                    f"<tbody>{''.join(version_rows)}</tbody>"
+                    "</table>"
+                )
+            elif summary_rows:
+                details_html += (
+                    "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
+                    "<thead><tr><th>OS</th><th>Count</th></tr></thead>"
+                    f"<tbody>{''.join(summary_rows)}</tbody>"
+                    "</table>"
+                )
+
+            if details_html:
+                arc_os_html = (
+                    "<h3>Arc-Enabled Servers OS Summary</h3>"
+                    f"<p>Total Arc computers: <strong>{_html.escape(str(total_computers or 0))}</strong></p>"
+                    f"{details_html}"
+                )
+
+        if sr.success and sr.tool_name == "azure_resource_get_os_summary":
+            payload = _extract_summary_data(_extract_payload(sr.result))
+            os_breakdown = payload.get("os_breakdown") if isinstance(payload, dict) else None
+            total_vms = payload.get("total_virtual_machines") if isinstance(payload, dict) else None
+
+            azure_rows: List[str] = []
+            if isinstance(os_breakdown, list):
+                for item in os_breakdown:
+                    if not isinstance(item, dict):
+                        continue
+                    os_name = _html.escape(str(item.get("os", "Unknown")))
+                    count = _html.escape(str(item.get("count", 0)))
+                    azure_rows.append(f"<tr><td>{os_name}</td><td>{count}</td></tr>")
+
+            if azure_rows:
+                azure_os_html = (
+                    "<h3>Azure Virtual Machines OS Summary (Resource Inventory)</h3>"
+                    f"<p>Total Azure VMs: <strong>{_html.escape(str(total_vms or 0))}</strong></p>"
+                    "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
+                    "<thead><tr><th>OS</th><th>Count</th></tr></thead>"
+                    f"<tbody>{''.join(azure_rows)}</tbody>"
+                    "</table>"
+                )
+
     confirmation_html = ""
     blocked: List[str] = []
     if verification_result:
@@ -1010,14 +1174,24 @@ def _build_static_fallback(
             "</div>"
         )
 
-    return (
-        f"<h3>Query Results</h3>"
-        f"<p><em>Query: {_html.escape(query)}</em></p>"
-        f"{container_app_html}"
+    step_table_html = (
         f"<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%'>"
         f"<thead><tr><th>Step</th><th>Tool</th><th>Status</th><th>Detail</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         f"</table>"
-        f"{confirmation_html}"
+    ) if include_step_table else ""
+
+    status_html = (
         f"<p>{'All steps completed successfully.' if execution_result.all_succeeded and not blocked else 'Some steps require attention — see above.'}</p>"
+    ) if include_step_table else ""
+
+    return (
+        f"<h3>Query Results</h3>"
+        f"<p><em>Query: {_html.escape(query)}</em></p>"
+        f"{arc_os_html}"
+        f"{azure_os_html}"
+        f"{container_app_html}"
+        f"{step_table_html}"
+        f"{confirmation_html}"
+        f"{status_html}"
     )

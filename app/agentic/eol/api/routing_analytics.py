@@ -249,6 +249,32 @@ def _read_correction_logs(start_date: Optional[datetime] = None, end_date: Optio
     return correction_logs
 
 
+def _parse_date_filters(
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Parse API date filters, making date-only end dates inclusive.
+
+    UI inputs are usually ``YYYY-MM-DD`` (no time). For those values we expand:
+    - ``start_date`` to start of day (00:00:00)
+    - ``end_date`` to end of day (23:59:59.999999)
+    """
+    start_dt: Optional[datetime] = None
+    end_dt: Optional[datetime] = None
+
+    if start_date:
+        start_dt = datetime.fromisoformat(start_date)
+        if len(start_date) == 10:  # YYYY-MM-DD
+            start_dt = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if end_date:
+        end_dt = datetime.fromisoformat(end_date)
+        if len(end_date) == 10:  # YYYY-MM-DD
+            end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    return start_dt, end_dt
+
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
@@ -275,9 +301,8 @@ async def get_routing_summary(
         StandardResponse with RoutingSummary data
     """
     try:
-        # Parse dates
-        start_dt = datetime.fromisoformat(start_date) if start_date else None
-        end_dt = datetime.fromisoformat(end_date) if end_date else None
+        # Parse dates (date-only end_date is inclusive through end-of-day)
+        start_dt, end_dt = _parse_date_filters(start_date, end_date)
 
         # Read logs
         routing_logs = _read_routing_logs(start_dt, end_dt)
@@ -368,9 +393,8 @@ async def get_tool_usage(
         StandardResponse with list of ToolUsageItem
     """
     try:
-        # Parse dates
-        start_dt = datetime.fromisoformat(start_date) if start_date else None
-        end_dt = datetime.fromisoformat(end_date) if end_date else None
+        # Parse dates (date-only end_date is inclusive through end-of-day)
+        start_dt, end_dt = _parse_date_filters(start_date, end_date)
 
         # Read logs
         routing_logs = _read_routing_logs(start_dt, end_dt)
@@ -431,9 +455,8 @@ async def get_timeseries_data(
         StandardResponse with list of TimeseriesDataPoint
     """
     try:
-        # Parse dates
-        start_dt = datetime.fromisoformat(start_date) if start_date else None
-        end_dt = datetime.fromisoformat(end_date) if end_date else None
+        # Parse dates (date-only end_date is inclusive through end-of-day)
+        start_dt, end_dt = _parse_date_filters(start_date, end_date)
 
         # Read logs
         routing_logs = _read_routing_logs(start_dt, end_dt)
@@ -534,9 +557,8 @@ async def get_low_confidence_queries(
         StandardResponse with list of LowConfidenceQuery
     """
     try:
-        # Parse dates
-        start_dt = datetime.fromisoformat(start_date) if start_date else None
-        end_dt = datetime.fromisoformat(end_date) if end_date else None
+        # Parse dates (date-only end_date is inclusive through end-of-day)
+        start_dt, end_dt = _parse_date_filters(start_date, end_date)
 
         # Read logs
         routing_logs = _read_routing_logs(start_dt, end_dt)
@@ -595,9 +617,8 @@ async def get_user_corrections(
         StandardResponse with list of UserCorrectionItem
     """
     try:
-        # Parse dates
-        start_dt = datetime.fromisoformat(start_date) if start_date else None
-        end_dt = datetime.fromisoformat(end_date) if end_date else None
+        # Parse dates (date-only end_date is inclusive through end-of-day)
+        start_dt, end_dt = _parse_date_filters(start_date, end_date)
 
         # Read logs
         correction_logs = _read_correction_logs(start_dt, end_dt)

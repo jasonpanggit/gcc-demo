@@ -28,6 +28,11 @@ except ModuleNotFoundError:  # pragma: no cover - support execution without top-
     from agents.software_inventory_agent import SoftwareInventoryAgent  # type: ignore[import-not-found]
 
 try:
+    from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client
+except ModuleNotFoundError:  # pragma: no cover - support execution without top-level package
+    from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
+
+try:
     from .tool_registry import get_tool_registry
 except ImportError:  # pragma: no cover - optional dependency
     get_tool_registry = None  # type: ignore[assignment]
@@ -93,6 +98,29 @@ class InventoryFallbackExecutor:
                 original_name="law_get_os_summary",
             ),
             self._build_tool(
+                name="inventory.azure_resource_os_summary",
+                description=(
+                    "Summarize operating systems for Azure virtual machines from cached Azure resource inventory."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "subscription_id": {
+                            "type": ["string", "null"],
+                            "description": "Optional Azure subscription ID. Defaults to configured subscription.",
+                            "default": None,
+                        },
+                        "refresh": {
+                            "type": "boolean",
+                            "description": "Force refresh from Resource Graph instead of cache.",
+                            "default": False,
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                original_name="azure_resource_get_os_summary",
+            ),
+            self._build_tool(
                 name="inventory.software_inventory",
                 description="Load software inventory records from Azure Log Analytics ConfigurationData.",
                 parameters={
@@ -129,6 +157,8 @@ class InventoryFallbackExecutor:
             "law_get_os_inventory": self._handle_os_inventory,
             "inventory.os_summary": self._handle_os_summary,
             "law_get_os_summary": self._handle_os_summary,
+            "inventory.azure_resource_os_summary": self._handle_azure_resource_os_summary,
+            "azure_resource_get_os_summary": self._handle_azure_resource_os_summary,
             "inventory.software_inventory": self._handle_software_inventory,
             "law_get_software_inventory": self._handle_software_inventory,
         }
@@ -294,6 +324,91 @@ class InventoryFallbackExecutor:
             "data": summary,
         }
         return self._format_response(requested_name, payload, success)
+
+    async def _handle_azure_resource_os_summary(self, requested_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            inventory_client = get_resource_inventory_client()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            return self._format_response(
+                requested_name,
+                payload={"success": False, "error": f"Resource inventory client unavailable: {exc}"},
+                success=False,
+            )
+
+        subscription_id = (
+            arguments.get("subscription_id")
+            or os.getenv("SUBSCRIPTION_ID")
+            or os.getenv("AZURE_SUBSCRIPTION_ID")
+        )
+        refresh = bool(arguments.get("refresh", False))
+
+        try:
+            vms = await inventory_client.get_resources(
+                "Microsoft.Compute/virtualMachines",
+                subscription_id=subscription_id,
+                refresh=refresh,
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            return self._format_response(
+                requested_name,
+                payload={
+                    "success": False,
+                    "error": f"Azure VM summary lookup failed: {exc}",
+                    "requested": {
+                        "subscription_id": subscription_id,
+                        "refresh": refresh,
+                    },
+                },
+                success=False,
+            )
+
+        os_counts: Dict[str, int] = {}
+        windows_count = 0
+        linux_count = 0
+        unknown_count = 0
+
+        for vm in vms:
+            selected = vm.get("selected_properties") or {}
+            if not isinstance(selected, dict):
+                selected = {}
+
+            os_type = str(selected.get("os_type") or "").strip()
+            os_image = str(selected.get("os_image") or "").strip()
+            bucket = os_image or os_type or "Unknown"
+
+            os_counts[bucket] = os_counts.get(bucket, 0) + 1
+
+            os_type_lower = os_type.lower()
+            if "windows" in os_type_lower:
+                windows_count += 1
+            elif "linux" in os_type_lower:
+                linux_count += 1
+            else:
+                unknown_count += 1
+
+        payload = {
+            "success": True,
+            "requested": {
+                "subscription_id": subscription_id,
+                "refresh": refresh,
+            },
+            "data": {
+                "source": "azure_resource_inventory",
+                "resource_type": "Microsoft.Compute/virtualMachines",
+                "total_virtual_machines": len(vms),
+                "windows_count": windows_count,
+                "linux_count": linux_count,
+                "unknown_count": unknown_count,
+                "os_breakdown": [
+                    {"os": os_name, "count": count}
+                    for os_name, count in sorted(
+                        os_counts.items(),
+                        key=lambda item: (-item[1], item[0].lower()),
+                    )
+                ],
+            },
+        }
+        return self._format_response(requested_name, payload, success=True)
 
     async def _handle_software_inventory(self, requested_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         try:

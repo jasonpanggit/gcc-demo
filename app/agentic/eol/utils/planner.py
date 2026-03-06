@@ -588,6 +588,64 @@ def _pick_container_app_health_sequence(
     ]
 
 
+def _pick_operating_systems_summary_sequence(
+    query: str,
+    tool_names: List[str],
+) -> Optional[List[PlanStep]]:
+    """Return deterministic OS-summary sequence for Arc + Azure VM coverage.
+
+    Sequence:
+    1) law_get_os_summary              (Arc-enabled servers from Log Analytics)
+    2) azure_resource_get_os_summary   (Azure VMs from resource inventory)
+    """
+    q = query.lower()
+    is_list_intent = bool(
+        re.search(r"\b(show|list|get|display|enumerate|what\s+are|summarize)\b", q)
+    )
+    has_os_intent = bool(
+        re.search(r"\boperating\s+systems?\b|\bos\b", q, re.I)
+    )
+    if not (is_list_intent and has_os_intent):
+        return None
+
+    available = set(tool_names)
+    has_arc_tool = "law_get_os_summary" in available
+    has_azure_tool = "azure_resource_get_os_summary" in available
+
+    if not (has_arc_tool or has_azure_tool):
+        return None
+
+    steps: List[PlanStep] = []
+    if has_arc_tool:
+        steps.append(
+            PlanStep(
+                step_id="step_1",
+                tool_name="law_get_os_summary",
+                params={},
+                affordance=ToolAffordance.READ,
+                rationale="OS summary sequence: retrieve Arc OS summary first.",
+                is_parallel=False,
+            )
+        )
+
+    if has_azure_tool:
+        steps.append(
+            PlanStep(
+                step_id=f"step_{len(steps) + 1}",
+                tool_name="azure_resource_get_os_summary",
+                params={},
+                affordance=ToolAffordance.READ,
+                rationale=(
+                    "OS summary sequence: retrieve Azure VM OS summary from resource inventory "
+                    "to complement Arc results."
+                ),
+                is_parallel=False,
+            )
+        )
+
+    return steps or None
+
+
 # ---------------------------------------------------------------------------
 # JSON schema the planner asks the LLM to produce
 # ---------------------------------------------------------------------------
@@ -832,6 +890,16 @@ class Planner:
         # Uses all_tool_names so action tools excluded from the read fast-path
         # (test_network_connectivity, check_dns_resolution, etc.) are still reachable.
         if all_tool_names:
+            os_summary_sequence = _pick_operating_systems_summary_sequence(query, all_tool_names)
+            if os_summary_sequence:
+                logger.debug("⚡ Planner operating-systems summary sequence fast-path")
+                return ExecutionPlan(
+                    query=query,
+                    steps=os_summary_sequence,
+                    is_fast_path=True,
+                    conflict_notes=conflict_notes,
+                )
+
             health_sequence = _pick_container_app_health_sequence(query, all_tool_names)
             if health_sequence:
                 logger.debug("⚡ Planner container-app-health sequence fast-path")

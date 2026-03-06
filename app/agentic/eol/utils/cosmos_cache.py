@@ -51,6 +51,16 @@ class BaseCosmosClient:
         # Cache container references to avoid repeated Cosmos DB calls
         self._container_cache: Dict[str, Any] = {}
 
+    @staticmethod
+    def _is_firewall_forbidden(exc: Exception) -> bool:
+        """Return True when Cosmos rejects the request due to network/firewall rules."""
+        text = str(exc or "").lower()
+        return (
+            "forbidden" in text
+            and "request originated from ip" in text
+            and "firewall" in text
+        )
+
     def _ensure_initialized(self):
         """Synchronous best-effort initialization used for quick validation."""
         if self._initialization_attempted:
@@ -84,9 +94,18 @@ class BaseCosmosClient:
             self.initialized = True
             logger.info("✅ Base Cosmos client initialized")
         except Exception as e:
-            tb = traceback.format_exc()
-            logger.error(f"❌ Failed to initialize base Cosmos client: {e}\n{tb}")
-            self.last_error = tb
+            if self._is_firewall_forbidden(e):
+                message = (
+                    "Cosmos DB access blocked by firewall/public-network rules; "
+                    "continuing with in-memory cache only. "
+                    "Allow app outbound IPs or use Cosmos private endpoint/VNet integration."
+                )
+                logger.warning("⚠️ %s", message)
+                self.last_error = f"Cosmos firewall blocked access: {e}"
+            else:
+                tb = traceback.format_exc()
+                logger.error(f"❌ Failed to initialize base Cosmos client: {e}\n{tb}")
+                self.last_error = tb
             self.initialized = False
 
     async def _initialize_async(self):
@@ -120,9 +139,18 @@ class BaseCosmosClient:
             self.initialized = True
             logger.info("✅ Base Cosmos client initialized (async)")
         except Exception as e:
-            tb = traceback.format_exc()
-            logger.error(f"❌ Failed to initialize base Cosmos client (async): {e}\n{tb}")
-            self.last_error = tb
+            if self._is_firewall_forbidden(e):
+                message = (
+                    "Cosmos DB access blocked by firewall/public-network rules; "
+                    "continuing with in-memory cache only. "
+                    "Allow app outbound IPs or use Cosmos private endpoint/VNet integration."
+                )
+                logger.warning("⚠️ %s", message)
+                self.last_error = f"Cosmos firewall blocked access: {e}"
+            else:
+                tb = traceback.format_exc()
+                logger.error(f"❌ Failed to initialize base Cosmos client (async): {e}\n{tb}")
+                self.last_error = tb
             self.initialized = False
 
     def get_container(self, container_id: str, partition_path: str = '/cache_key', offer_throughput: int = 400, default_ttl: Optional[int] = None):

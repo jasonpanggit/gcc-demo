@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Annotated, Dict, List, Optional
@@ -29,6 +30,11 @@ try:
 except ModuleNotFoundError:
     from app.agentic.eol.agents.os_inventory_agent import OSInventoryAgent
     from app.agentic.eol.agents.software_inventory_agent import SoftwareInventoryAgent
+
+try:
+    from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client
+except ModuleNotFoundError:
+    from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +166,113 @@ async def law_get_os_summary(
         "success": True,
         "requested": {"days": days},
         "data": summary,
+    }
+    return _text_payload(payload)
+
+
+@_server.tool(
+    name="azure_resource_get_os_summary",
+    description=(
+        "Get operating system summary for Azure virtual machines from cached Azure resource inventory. "
+        "Returns counts by OS image/OS type for Microsoft.Compute/virtualMachines resources. "
+        "Use this to complement Arc-only law_get_os_summary so OS coverage includes non-Arc Azure VMs."
+    ),
+)
+async def azure_resource_get_os_summary(
+    context: Context,  # noqa: ARG001 - unused
+    subscription_id: Annotated[
+        Optional[str],
+        "Azure subscription ID. Defaults to SUBSCRIPTION_ID/AZURE_SUBSCRIPTION_ID.",
+    ] = None,
+    refresh: Annotated[
+        bool,
+        "Force refresh from Azure Resource Graph instead of cache (default false).",
+    ] = False,
+) -> List[TextContent]:
+    try:
+        inventory_client = get_resource_inventory_client()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("Resource inventory client initialization failed")
+        return _text_payload({"success": False, "error": str(exc)})
+
+    target_subscription = (
+        subscription_id
+        or os.getenv("SUBSCRIPTION_ID")
+        or os.getenv("AZURE_SUBSCRIPTION_ID")
+    )
+
+    try:
+        vms = await inventory_client.get_resources(
+            "Microsoft.Compute/virtualMachines",
+            subscription_id=target_subscription,
+            refresh=refresh,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("Azure VM OS summary retrieval from resource inventory failed")
+        return _text_payload(
+            {
+                "success": False,
+                "error": str(exc),
+                "requested": {
+                    "subscription_id": target_subscription,
+                    "refresh": refresh,
+                },
+            }
+        )
+
+    os_counts: Dict[str, int] = {}
+    windows_count = 0
+    linux_count = 0
+    unknown_count = 0
+
+    for vm in vms:
+        selected = vm.get("selected_properties") or {}
+        if not isinstance(selected, dict):
+            selected = {}
+
+        os_type = str(selected.get("os_type") or "").strip()
+        os_image = str(selected.get("os_image") or "").strip()
+
+        if os_image:
+            bucket = os_image
+        elif os_type:
+            bucket = os_type
+        else:
+            bucket = "Unknown"
+
+        os_counts[bucket] = os_counts.get(bucket, 0) + 1
+
+        os_type_lower = os_type.lower()
+        if "windows" in os_type_lower:
+            windows_count += 1
+        elif "linux" in os_type_lower:
+            linux_count += 1
+        else:
+            unknown_count += 1
+
+    os_breakdown = [
+        {"os": os_name, "count": count}
+        for os_name, count in sorted(
+            os_counts.items(),
+            key=lambda item: (-item[1], item[0].lower()),
+        )
+    ]
+
+    payload = {
+        "success": True,
+        "requested": {
+            "subscription_id": target_subscription,
+            "refresh": refresh,
+        },
+        "data": {
+            "source": "azure_resource_inventory",
+            "resource_type": "Microsoft.Compute/virtualMachines",
+            "total_virtual_machines": len(vms),
+            "windows_count": windows_count,
+            "linux_count": linux_count,
+            "unknown_count": unknown_count,
+            "os_breakdown": os_breakdown,
+        },
     }
     return _text_payload(payload)
 

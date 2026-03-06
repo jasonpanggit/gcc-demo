@@ -342,7 +342,11 @@ class ToolRetriever:
             # e.g. "what is the health of my container apps" now matches
             # check_container_app_health.primary_phrasings and is preserved.
             preserve_action_tools: Set[str] = set()
-            matched_tools = self._manifests.find_tools_matching_query(query)
+            # Intent checks should not emit routing telemetry side effects.
+            matched_tools = self._manifests.find_tools_matching_query(
+                query,
+                enable_telemetry=False,
+            )
             preserve_action_tools.update(matched_tools)
             # Also preserve any tools required as prerequisites via requires_sequence
             ranked_names_list = [self._tool_name(t) for t in ranked]
@@ -411,6 +415,11 @@ class ToolRetriever:
         trace.final_tool_count = len(ranked)
         trace.duration_ms = (time.monotonic() - trace_start) * 1000
 
+        # Log a routing decision for the actual retriever output. This keeps
+        # analytics populated even when selection comes from semantic/keyword
+        # retrieval paths (not only manifest metadata direct matches).
+        self._log_routing_decision(query, tool_names, trace)
+
         # Emit structured telemetry log
         self._emit_trace(trace)
 
@@ -431,6 +440,73 @@ class ToolRetriever:
             pool_size=pool_size,
             trace=trace,
         )
+
+    def _log_routing_decision(
+        self,
+        query: str,
+        tool_names: List[str],
+        trace: ToolSelectionTrace,
+    ) -> None:
+        """Best-effort routing telemetry logging for final retrieval result."""
+        if not query or not tool_names:
+            return
+
+        try:
+            from utils.routing_telemetry import (
+                SelectionMethod,
+                ToolCandidate,
+                get_routing_telemetry,
+            )
+
+            telemetry = get_routing_telemetry()
+            if not telemetry.enabled:
+                return
+
+            score_map = {entry.tool_name: float(entry.final_score) for entry in trace.tool_scores}
+            candidates: List[ToolCandidate] = []
+            for rank, name in enumerate(tool_names[:10]):
+                score = score_map.get(name, 0.0)
+                if score <= 0:
+                    # Semantic ranking doesn't expose a normalized score today,
+                    # so use a stable descending fallback score for telemetry.
+                    score = max(0.1, 1.5 - (rank * 0.1))
+
+                candidates.append(
+                    ToolCandidate(
+                        tool_name=name,
+                        base_score=score,
+                        confidence_boost=1.0,
+                        final_score=score,
+                        matched_phrasing=None,
+                        match_type="semantic" if trace.ranking_method.startswith("semantic") else "keyword",
+                    )
+                )
+
+            if not candidates:
+                return
+
+            prerequisite_chains: Dict[str, List[str]] = {}
+            for name in tool_names:
+                seq = self._manifests.get_requires_sequence(name)
+                if seq:
+                    prerequisite_chains[name] = list(seq)
+
+            if trace.ranking_method.startswith("semantic"):
+                selection_method = SelectionMethod.EMBEDDING_FALLBACK
+            elif tool_names and tool_names[0] == _CLI_FALLBACK_TOOL:
+                selection_method = SelectionMethod.CLI_ESCAPE
+            else:
+                selection_method = SelectionMethod.METADATA_MATCH
+
+            telemetry.log_routing_decision(
+                query=query,
+                selected_tools=tool_names,
+                candidates=candidates,
+                selection_method=selection_method,
+                prerequisite_chains=prerequisite_chains if prerequisite_chains else None,
+            )
+        except (ImportError, Exception) as exc:
+            logger.debug("ToolRetriever routing telemetry skipped: %s", exc)
 
     # ------------------------------------------------------------------
     # Helpers

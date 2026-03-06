@@ -923,7 +923,10 @@ FORMATTING:
         try:
             manifest_index = _get_manifest_index() if _get_manifest_index else None
             if manifest_index is not None:
-                matched = manifest_index.find_tools_matching_query(query)
+                matched = manifest_index.find_tools_matching_query(
+                    query,
+                    enable_telemetry=False,
+                )
                 if matched:
                     return set(matched)
         except Exception:
