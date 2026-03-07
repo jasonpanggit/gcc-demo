@@ -224,6 +224,37 @@ class CVEScanStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ============================================================================
+# CVE-to-Patch Mapping Models (Phase 6)
+# ============================================================================
+
+class ApplicablePatch(BaseModel):
+    """Patch applicable to a CVE."""
+    patch_id: str  # KB number or package name
+    patch_name: str
+    vendor: str  # "microsoft", "ubuntu", "redhat", etc.
+    severity: str  # Patch severity classification
+    release_date: Optional[str] = None
+    affected_vm_count: int  # How many VMs need this patch
+    installation_status: Optional[str] = None  # "available", "installed", "pending"
+
+
+class CVEPatchMapping(BaseModel):
+    """CVE-to-patch mapping result."""
+    cve_id: str
+    patches: List[ApplicablePatch]
+    priority_score: int  # 0-100, calculated from CVSS + exposure
+    total_affected_vms: int
+    recommendation: str  # "Install immediately", "Schedule maintenance", etc.
+
+
+class CVEPatchRequest(BaseModel):
+    """Request to get patches for CVE."""
+    cve_id: str
+    subscription_ids: Optional[List[str]] = None
+    include_installed: bool = False  # Include already-installed patches
+
+
 # Export all models
 __all__ = [
     "CVSSScore",
@@ -238,5 +269,8 @@ __all__ = [
     "CVEMatch",
     "ScanResult",
     "CVEScanRequest",
-    "CVEScanStatusResponse"
+    "CVEScanStatusResponse",
+    "ApplicablePatch",
+    "CVEPatchMapping",
+    "CVEPatchRequest"
 ]

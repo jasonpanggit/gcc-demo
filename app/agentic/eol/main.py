@@ -63,6 +63,7 @@ from api.telemetry_debug import router as telemetry_debug_router
 from api.cve_sync import router as cve_sync_router
 from api.cve import router as cve_router
 from api.cve_scan import router as cve_scan_router
+from api.cve_patches import router as cve_patches_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -177,6 +178,7 @@ app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE sync jobs
 app.include_router(cve_router, prefix="/api", tags=["CVE"])  # CVE search and detail
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
+app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -539,6 +541,7 @@ def get_inventory_discovery_status() -> Dict[str, Any]:
 # Global CVE service instance
 _cve_service = None
 _cve_scanner = None
+_cve_patch_mapper = None
 
 
 async def get_cve_service():
@@ -604,6 +607,27 @@ async def get_cve_scanner():
         logger.info("✅ CVE scanner singleton initialized")
 
     return _cve_scanner
+
+
+async def get_cve_patch_mapper():
+    """Get or create CVE patch mapper singleton (Phase 6)."""
+    global _cve_patch_mapper
+    if _cve_patch_mapper is None:
+        from utils.cve_patch_mapper import CVEPatchMapper
+        from utils.patch_mcp_client import PatchMCPClient
+
+        # Create patch client
+        patch_client = PatchMCPClient()
+
+        # Create patch mapper
+        _cve_patch_mapper = CVEPatchMapper(
+            cve_service=await get_cve_service(),
+            cve_scanner=await get_cve_scanner(),
+            patch_mcp_client=patch_client
+        )
+        logger.info("✅ CVE patch mapper singleton initialized")
+
+    return _cve_patch_mapper
 
 
 async def _startup_cve_system():
