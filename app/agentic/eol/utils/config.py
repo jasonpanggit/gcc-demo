@@ -169,6 +169,7 @@ class CVEDataConfig:
     github_graphql_url: str = "https://api.github.com/graphql"
 
     # API keys (optional for some sources)
+    cve_org_api_org: str = field(default_factory=lambda: os.getenv("CVE_API_ORG", ""))
     nvd_api_key: str = field(default_factory=lambda: os.getenv("NVD_API_KEY", ""))
     msrc_api_key: str = field(default_factory=lambda: os.getenv("MSRC_API_KEY", ""))
     github_token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", ""))
@@ -331,6 +332,7 @@ class ConfigManager:
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
+        self._cve_data_config: Optional[CVEDataConfig] = None
         self._cve_sync_config: Optional[CVESyncConfig] = None
         self._cve_scanner_config: Optional[CVEScannerConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
@@ -491,6 +493,13 @@ class ConfigManager:
         return self._cve_sync_config
 
     @property
+    def cve_data(self) -> CVEDataConfig:
+        """Get CVE data source/cache configuration."""
+        if self._cve_data_config is None:
+            self._cve_data_config = CVEDataConfig()
+        return self._cve_data_config
+
+    @property
     def cve_scanner(self) -> CVEScannerConfig:
         """Get CVE scanner configuration (Phase 5)"""
         if self._cve_scanner_config is None:
@@ -565,3 +574,7 @@ class ConfigManager:
 
 # Global configuration instance
 config = ConfigManager()
+
+# Compatibility alias used by some modules
+def get_config() -> ConfigManager:
+    return config

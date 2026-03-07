@@ -64,6 +64,10 @@ class CVEVMService:
 
         logger.info("CVEVMService initialized with L1 caching")
 
+    async def get_latest_scan(self) -> Optional[ScanResult]:
+        """Return the latest completed CVE scan result."""
+        return await self._get_latest_scan()
+
     async def get_vm_vulnerabilities(self, vm_id: str) -> Optional[VMVulnerabilityResponse]:
         """Get CVEs affecting a specific VM.
 

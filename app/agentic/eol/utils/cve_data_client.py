@@ -148,14 +148,14 @@ class BaseCVEClient(ABC):
 
         # Use retry_async from existing utility
         try:
-            result = await retry_async(
-                _do_request,
+            retried_request = retry_async(
                 retries=self.max_retries,
                 exceptions=(
                     aiohttp.ClientError,
                     asyncio.TimeoutError,
                 )
-            )
+            )(_do_request)
+            result = await retried_request()
             return result
         except Exception as e:
             logger.error(f"Request failed after {self.max_retries} retries: {url} - {e}")

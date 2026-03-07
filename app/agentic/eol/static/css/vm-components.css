@@ -28,6 +28,18 @@
     z-index: 100;
 }
 
+.overview-toggle-wrap {
+    min-height: 2.5rem;
+}
+
+#overview-table tbody tr td {
+    vertical-align: middle;
+}
+
+#overview-table .btn {
+    white-space: nowrap;
+}
+
 .form-check {
     margin-bottom: 0.5rem;
 }

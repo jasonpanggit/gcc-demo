@@ -8,7 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 try:
@@ -30,6 +30,181 @@ def _get_cve_vm_service():
     """Lazy import to avoid circular dependency."""
     from main import get_cve_vm_service
     return get_cve_vm_service
+
+
+def _normalize_vm_source(vm_type: Optional[str]) -> str:
+    if vm_type == "arc":
+        return "Arc-enabled server"
+    if vm_type == "azure-vm":
+        return "Azure VM"
+    return "Virtual machine"
+
+
+def _calculate_risk_level(total_cves: int, critical: int, high: int, medium: int, low: int) -> str:
+    if critical > 0:
+        return "Critical"
+    if high > 0:
+        return "High"
+    if medium > 0:
+        return "Medium"
+    if low > 0 or total_cves > 0:
+        return "Low"
+    return "Healthy"
+
+
+@router.get("/cve/inventory/overview", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=30)
+async def get_vm_vulnerability_overview(
+    days: int = Query(default=90, ge=1, le=365, description="Look-back window for Arc VM inventory")
+):
+    """Return vulnerability counts for all Azure VMs and Arc-enabled servers."""
+    try:
+        try:
+            from api.patch_management import list_machines
+        except ModuleNotFoundError:
+            from app.agentic.eol.api.patch_management import list_machines
+
+        service = await _get_cve_vm_service()
+        machine_result = await list_machines(days=days)
+        machines: List[Dict[str, Any]] = machine_result.get("data", []) if isinstance(machine_result, dict) else []
+        scan = await service.get_latest_scan()
+
+        match_counts: Dict[str, Dict[str, Any]] = {}
+        total_matches = 0
+
+        if scan:
+            for match in scan.matches:
+                vm_bucket = match_counts.setdefault(
+                    match.vm_id,
+                    {
+                        "vm_id": match.vm_id,
+                        "vm_name": match.vm_name or match.vm_id,
+                        "total_cves": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "medium": 0,
+                        "low": 0,
+                    }
+                )
+                vm_bucket["total_cves"] += 1
+                total_matches += 1
+
+                severity = str(match.severity or "UNKNOWN").upper()
+                if severity == "CRITICAL":
+                    vm_bucket["critical"] += 1
+                elif severity == "HIGH":
+                    vm_bucket["high"] += 1
+                elif severity == "MEDIUM":
+                    vm_bucket["medium"] += 1
+                else:
+                    vm_bucket["low"] += 1
+
+        overview_rows: List[Dict[str, Any]] = []
+
+        for machine in machines:
+            resource_id = str(machine.get("resource_id") or "")
+            counts = match_counts.pop(resource_id, None) or {
+                "vm_id": resource_id,
+                "vm_name": machine.get("computer") or machine.get("name") or resource_id,
+                "total_cves": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+            }
+
+            risk_level = _calculate_risk_level(
+                counts["total_cves"],
+                counts["critical"],
+                counts["high"],
+                counts["medium"],
+                counts["low"],
+            )
+
+            overview_rows.append(
+                {
+                    "vm_id": resource_id,
+                    "vm_name": machine.get("computer") or machine.get("name") or counts["vm_name"],
+                    "resource_group": machine.get("resource_group"),
+                    "subscription_id": machine.get("subscription_id"),
+                    "location": machine.get("location"),
+                    "os_type": machine.get("os_type"),
+                    "os_name": machine.get("os_name"),
+                    "os_version": machine.get("os_version"),
+                    "vm_type": machine.get("vm_type"),
+                    "source_label": _normalize_vm_source(machine.get("vm_type")),
+                    "total_cves": counts["total_cves"],
+                    "critical": counts["critical"],
+                    "high": counts["high"],
+                    "medium": counts["medium"],
+                    "low": counts["low"],
+                    "risk_level": risk_level,
+                    "has_scan_data": scan is not None,
+                }
+            )
+
+        for unmatched in match_counts.values():
+            risk_level = _calculate_risk_level(
+                unmatched["total_cves"],
+                unmatched["critical"],
+                unmatched["high"],
+                unmatched["medium"],
+                unmatched["low"],
+            )
+            overview_rows.append(
+                {
+                    "vm_id": unmatched["vm_id"],
+                    "vm_name": unmatched["vm_name"],
+                    "resource_group": None,
+                    "subscription_id": None,
+                    "location": None,
+                    "os_type": None,
+                    "os_name": None,
+                    "os_version": None,
+                    "vm_type": None,
+                    "source_label": "Virtual machine",
+                    "total_cves": unmatched["total_cves"],
+                    "critical": unmatched["critical"],
+                    "high": unmatched["high"],
+                    "medium": unmatched["medium"],
+                    "low": unmatched["low"],
+                    "risk_level": risk_level,
+                    "has_scan_data": True,
+                }
+            )
+
+        overview_rows.sort(
+            key=lambda item: (
+                -int(item.get("total_cves", 0)),
+                -int(item.get("critical", 0)),
+                -int(item.get("high", 0)),
+                str(item.get("vm_name") or "").lower(),
+            )
+        )
+
+        vulnerable_vms = sum(1 for item in overview_rows if int(item.get("total_cves", 0)) > 0)
+        summary = {
+            "scan_available": scan is not None,
+            "scan_id": scan.scan_id if scan else None,
+            "scan_date": (scan.completed_at or scan.started_at) if scan else None,
+            "total_vms": len(overview_rows),
+            "vulnerable_vms": vulnerable_vms,
+            "healthy_vms": len(overview_rows) - vulnerable_vms,
+            "total_cves": total_matches,
+            "arc_count": sum(1 for item in overview_rows if item.get("vm_type") == "arc"),
+            "azure_vm_count": sum(1 for item in overview_rows if item.get("vm_type") == "azure-vm"),
+        }
+
+        return StandardResponse.success_response(data=overview_rows, metadata=summary)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to build VM vulnerability overview: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve VM vulnerability overview: {str(e)}"
+        )
 
 
 @router.get("/cve/inventory/{vm_id}", response_model=StandardResponse)
@@ -73,6 +248,27 @@ async def get_vm_vulnerabilities(
                 status_code=503,
                 detail="No scan data available. Trigger a scan at /api/cve/scan"
             )
+
+        try:
+            try:
+                from api.patch_management import list_machines
+            except ModuleNotFoundError:
+                from app.agentic.eol.api.patch_management import list_machines
+
+            machine_result = await list_machines(days=90)
+            machines = machine_result.get("data", []) if isinstance(machine_result, dict) else []
+            machine = next((item for item in machines if str(item.get("resource_id") or "") == vm_id), None)
+            if machine:
+                result.resource_group = machine.get("resource_group")
+                result.subscription_id = machine.get("subscription_id")
+                result.os_type = machine.get("os_type")
+                result.os_name = machine.get("os_name")
+                result.os_version = machine.get("os_version")
+                result.location = machine.get("location")
+                if not result.vm_name or result.vm_name == vm_id:
+                    result.vm_name = machine.get("computer") or machine.get("name") or result.vm_name
+        except Exception as metadata_error:
+            logger.warning(f"Failed to enrich VM {vm_id} metadata: {metadata_error}")
 
         # Apply filters
         cve_details = result.cve_details

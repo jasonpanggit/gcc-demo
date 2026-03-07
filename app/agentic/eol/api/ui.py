@@ -610,7 +610,12 @@ async def cve_dashboard_page(request: Request):
     Returns:
         HTMLResponse with rendered cve-dashboard.html template.
     """
-    return templates.TemplateResponse(request, "cve-dashboard.html")
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(
+        request,
+        "cve-dashboard.html",
+        {"asset_version": asset_version},
+    )
 
 
 @router.get("/vm-vulnerability", response_class=HTMLResponse)

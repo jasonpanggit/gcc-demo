@@ -24,6 +24,9 @@ export TEST_CACHE_ENABLED=false
 # Change to the eol directory
 cd "$(dirname "$0")"
 
+# Add the eol directory to PYTHONPATH so uvicorn worker subprocesses can resolve imports
+export PYTHONPATH="$(pwd):${PYTHONPATH}"
+
 # Resolve the project root so we can use the workspace virtual environment
 PROJECT_ROOT="$(cd ../../.. && pwd)"
 PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"

@@ -6,7 +6,7 @@ Fetches CVE data from all sources in parallel and merges into unified model.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse
 
@@ -41,6 +41,26 @@ except ModuleNotFoundError:
 
 
 logger = get_logger(__name__)
+
+
+def _ensure_utc_datetime(value: Any) -> Optional[datetime]:
+    """Normalize string or datetime input to timezone-aware UTC datetime."""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+
+    if not isinstance(value, datetime):
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc)
 
 
 class CVEDataAggregator:
@@ -163,6 +183,54 @@ class CVEDataAggregator:
         logger.info(f"Fetched and merged {len(unified_cves)} CVEs since {since_date.isoformat()}")
         return unified_cves
 
+    async def search_and_merge_cves(
+        self,
+        query: Optional[str] = None,
+        limit: int = 100,
+        source: Optional[str] = None
+    ) -> List[UnifiedCVE]:
+        """Run live CVE search and merge source results.
+
+        Current live search support is strongest through NVD's keyword API.
+        CVE.org is included only when source is explicitly set to cve_org and
+        there is no keyword query (CVE.org API does not support text search).
+        """
+        requested_source = (source or "").strip().lower()
+
+        source_results: Dict[str, List[Dict[str, Any]]] = {}
+
+        if requested_source in ("", "nvd"):
+            nvd_results = await self.nvd_client.search_cves(
+                query=query,
+                resultsPerPage=min(limit, 2000)
+            )
+            source_results["nvd"] = nvd_results
+
+        if requested_source == "cve_org" and not query:
+            cve_org_results = await self.cve_org_client.search_cves(
+                state="PUBLISHED",
+                resultsPerPage=min(limit, 2000)
+            )
+            source_results["cve_org"] = cve_org_results
+
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for records in source_results.values():
+            for record in records:
+                cve_id = (record.get("cve_id") or "").upper()
+                if not cve_id:
+                    continue
+                grouped.setdefault(cve_id, []).append(record)
+
+        merged: List[UnifiedCVE] = []
+        for cve_id, data in grouped.items():
+            try:
+                merged.append(self.merge_cve_data(data))
+            except Exception as e:
+                logger.warning("Failed to merge live CVE %s: %s", cve_id, e)
+
+        merged.sort(key=lambda c: c.last_modified_date, reverse=True)
+        return merged[:limit]
+
     def merge_cve_data(self, cve_data_list: List[Dict[str, Any]]) -> UnifiedCVE:
         """Merge CVE data from multiple sources with conflict resolution.
 
@@ -233,7 +301,7 @@ class CVEDataAggregator:
             references=references,
             vendor_metadata=vendor_metadata,
             sources=sources,
-            last_synced=datetime.utcnow()
+            last_synced=datetime.now(timezone.utc)
         )
 
     def _merge_field(
@@ -263,23 +331,22 @@ class CVEDataAggregator:
         self,
         data_list: List[Dict[str, Any]],
         field: str,
-        prefer_earliest: bool = False
+        prefer_earliest: bool = False,
+        prefer_latest: bool = False
     ) -> datetime:
         """Merge date field, preferring earliest or latest."""
         dates = []
         for data in data_list:
             value = data.get(field)
-            if value:
-                if isinstance(value, str):
-                    try:
-                        dates.append(datetime.fromisoformat(value.replace('Z', '+00:00')))
-                    except ValueError:
-                        pass
-                elif isinstance(value, datetime):
-                    dates.append(value)
+            normalized = _ensure_utc_datetime(value)
+            if normalized is not None:
+                dates.append(normalized)
 
         if not dates:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
+
+        if prefer_latest:
+            return max(dates)
 
         return min(dates) if prefer_earliest else max(dates)
 
@@ -462,7 +529,8 @@ async def create_aggregator(config: Optional[Any] = None) -> CVEDataAggregator:
         base_url=cve_config.cve_org_base_url,
         rate_limit_per_second=10.0,
         request_timeout=cve_config.request_timeout,
-        max_retries=cve_config.max_retries
+        max_retries=cve_config.max_retries,
+        cve_api_org=cve_config.cve_org_api_org or None
     )
 
     nvd_client = NVDClient(

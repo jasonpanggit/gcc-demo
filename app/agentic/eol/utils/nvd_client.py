@@ -7,7 +7,7 @@ API Documentation: https://nvd.nist.gov/developers/vulnerabilities
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 
@@ -137,10 +137,26 @@ class NVDClient(BaseCVEClient):
         Returns:
             List of CVE data dicts
         """
-        # NVD requires ISO 8601 format with timezone
-        date_str = since_date.strftime("%Y-%m-%dT%H:%M:%S.000")
+        # NVD requires ISO 8601 format with timezone (UTC "Z" accepted).
+        # Example: 2026-03-01T12:34:56.000Z
+        if since_date.tzinfo is None:
+            since_date = since_date.replace(tzinfo=timezone.utc)
+        else:
+            since_date = since_date.astimezone(timezone.utc)
 
-        filters = {"lastModStartDate": date_str}
+        date_str = since_date.isoformat(timespec="milliseconds")
+        if date_str.endswith("+00:00"):
+            date_str = date_str[:-6] + "Z"
+
+        end_date = datetime.now(timezone.utc)
+        end_date_str = end_date.isoformat(timespec="milliseconds")
+        if end_date_str.endswith("+00:00"):
+            end_date_str = end_date_str[:-6] + "Z"
+
+        filters = {
+            "lastModStartDate": date_str,
+            "lastModEndDate": end_date_str,
+        }
         if limit:
             filters["resultsPerPage"] = min(limit, 2000)  # NVD max
 

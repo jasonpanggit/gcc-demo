@@ -36,11 +36,40 @@ function getTypeMeta(resourceType) {
     return RESOURCE_TYPE_META[key] || { label: resourceType, icon: 'bi-cloud', color: '#6c757d' };
 }
 
+function applyInitialFiltersFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const requestedType = params.get('resource_type') || params.get('type');
+    if (!requestedType) {
+        return;
+    }
+
+    const resourceTypeAliases = {
+        'virtual machines': 'Microsoft.Compute/virtualMachines',
+        'virtual machine': 'Microsoft.Compute/virtualMachines',
+        'microsoft.compute/virtualmachines': 'Microsoft.Compute/virtualMachines',
+    };
+
+    const normalizedRequestedType = resourceTypeAliases[requestedType.trim().toLowerCase()] || requestedType.trim();
+    const resourceTypeSelect = document.getElementById('filter-resource-type');
+    if (!resourceTypeSelect) {
+        return;
+    }
+
+    const matchingOption = Array.from(resourceTypeSelect.options).find(
+        (option) => option.value.toLowerCase() === normalizedRequestedType.toLowerCase()
+    );
+
+    if (matchingOption) {
+        resourceTypeSelect.value = matchingOption.value;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
     initDataTable();
+    applyInitialFiltersFromUrl();
     loadSubscriptions();
     loadStats();
     // Auto-load data for default selected resource type

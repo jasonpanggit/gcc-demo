@@ -23,6 +23,29 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+@router.get("/cve/stats")
+@readonly_endpoint(agent_name="cve_stats", timeout_seconds=15)
+async def get_cve_stats() -> StandardResponse:
+    """Get cached CVE statistics for the UI."""
+    try:
+        from main import get_cve_service
+
+        cve_service = await get_cve_service()
+        cached_count = await cve_service.count_cves({})
+
+        return StandardResponse(
+            success=True,
+            message="CVE stats retrieved",
+            data={
+                "cached_count": cached_count,
+                "l1_cache": cve_service.get_cache_stats()
+            }
+        )
+    except Exception as e:
+        logger.error(f"CVE stats retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/cve/search")
 @readonly_endpoint(agent_name="cve_search", timeout_seconds=30)
 async def search_cves(request: CVESearchRequest) -> StandardResponse:
@@ -124,12 +147,13 @@ async def search_cves(request: CVESearchRequest) -> StandardResponse:
             offset=request.offset
         )
 
-        # Check if more results available (fetch one extra to detect)
-        has_more = len(results) == request.limit
+        total_count = await cve_service.count_cves(filters)
+        total_count = max(total_count, request.offset + len(results))
+        has_more = request.offset + len(results) < total_count
 
         response_data = CVESearchResponse(
             results=results,
-            total_count=len(results),  # Note: Cosmos DB doesn't provide total count without extra query
+            total_count=total_count,
             offset=request.offset,
             limit=request.limit,
             has_more=has_more

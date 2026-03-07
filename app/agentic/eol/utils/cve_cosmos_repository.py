@@ -131,42 +131,7 @@ class CVECosmosRepository:
         """
         container = await self._get_container()
 
-        # Build Cosmos DB SQL query
-        query_parts = ["SELECT * FROM c WHERE 1=1"]
-        parameters = []
-
-        # Severity filter
-        if "severity" in filters:
-            query_parts.append("AND c.cvss_v3.base_severity = @severity")
-            parameters.append({"name": "@severity", "value": filters["severity"]})
-
-        # CVSS score range
-        if "min_score" in filters:
-            query_parts.append("AND c.cvss_v3.base_score >= @min_score")
-            parameters.append({"name": "@min_score", "value": filters["min_score"]})
-
-        if "max_score" in filters:
-            query_parts.append("AND c.cvss_v3.base_score <= @max_score")
-            parameters.append({"name": "@max_score", "value": filters["max_score"]})
-
-        # Date range
-        if "published_after" in filters:
-            query_parts.append("AND c.published_date >= @published_after")
-            parameters.append({"name": "@published_after", "value": filters["published_after"]})
-
-        if "published_before" in filters:
-            query_parts.append("AND c.published_date <= @published_before")
-            parameters.append({"name": "@published_before", "value": filters["published_before"]})
-
-        # Keyword search (case-insensitive contains)
-        if "keyword" in filters:
-            query_parts.append("AND CONTAINS(LOWER(c.description), LOWER(@keyword))")
-            parameters.append({"name": "@keyword", "value": filters["keyword"]})
-
-        # Source filter
-        if "source" in filters:
-            query_parts.append("AND ARRAY_CONTAINS(c.sources, @source)")
-            parameters.append({"name": "@source", "value": filters["source"]})
+        query_parts, parameters = self._build_where_clause(filters)
 
         # Add ordering and pagination
         query_parts.append("ORDER BY c.last_modified_date DESC")
@@ -194,6 +159,27 @@ class CVECosmosRepository:
         except Exception as e:
             logger.error(f"Failed to query CVEs: {e}")
             return []
+
+    async def count_cves(self, filters: Dict[str, Any]) -> int:
+        """Count cached CVEs matching the supplied filters."""
+        container = await self._get_container()
+        query_parts, parameters = self._build_where_clause(filters, select_clause="SELECT VALUE COUNT(1)")
+        query = " ".join(query_parts)
+
+        try:
+            items = container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            )
+
+            async for item in items:
+                return int(item)
+
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to count CVEs: {e}")
+            return 0
 
     async def get_cves_modified_since(self, since_date: datetime) -> List[UnifiedCVE]:
         """Get CVEs modified since given date for incremental sync.
@@ -235,3 +221,56 @@ class CVECosmosRepository:
         doc.pop("id", None)  # Use cve_id instead
 
         return UnifiedCVE(**doc)
+
+    def _build_where_clause(
+        self,
+        filters: Dict[str, Any],
+        select_clause: str = "SELECT *"
+    ) -> tuple[List[str], List[Dict[str, Any]]]:
+        """Build shared Cosmos SQL WHERE clause for query and count operations."""
+        query_parts = [f"{select_clause} FROM c WHERE 1=1"]
+        parameters: List[Dict[str, Any]] = []
+
+        if "severity" in filters:
+            query_parts.append("AND c.cvss_v3.base_severity = @severity")
+            parameters.append({"name": "@severity", "value": filters["severity"]})
+
+        if "min_score" in filters:
+            query_parts.append("AND c.cvss_v3.base_score >= @min_score")
+            parameters.append({"name": "@min_score", "value": filters["min_score"]})
+
+        if "max_score" in filters:
+            query_parts.append("AND c.cvss_v3.base_score <= @max_score")
+            parameters.append({"name": "@max_score", "value": filters["max_score"]})
+
+        if "published_after" in filters:
+            query_parts.append("AND c.published_date >= @published_after")
+            parameters.append({"name": "@published_after", "value": filters["published_after"]})
+
+        if "published_before" in filters:
+            query_parts.append("AND c.published_date <= @published_before")
+            parameters.append({"name": "@published_before", "value": filters["published_before"]})
+
+        if "keyword" in filters:
+            query_parts.append(
+                "AND (CONTAINS(LOWER(c.description), LOWER(@keyword)) OR CONTAINS(LOWER(c.cve_id), LOWER(@keyword)))"
+            )
+            parameters.append({"name": "@keyword", "value": filters["keyword"]})
+
+        if "source" in filters:
+            query_parts.append("AND ARRAY_CONTAINS(c.sources, @source)")
+            parameters.append({"name": "@source", "value": filters["source"]})
+
+        if "vendor" in filters:
+            query_parts.append(
+                "AND EXISTS(SELECT VALUE p FROM p IN c.affected_products WHERE CONTAINS(LOWER(p.vendor), LOWER(@vendor)))"
+            )
+            parameters.append({"name": "@vendor", "value": filters["vendor"]})
+
+        if "product" in filters:
+            query_parts.append(
+                "AND EXISTS(SELECT VALUE p FROM p IN c.affected_products WHERE CONTAINS(LOWER(p.product), LOWER(@product)))"
+            )
+            parameters.append({"name": "@product", "value": filters["product"]})
+
+        return query_parts, parameters

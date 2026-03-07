@@ -39,6 +39,7 @@ class CVEOrgClient(BaseCVEClient):
             request_timeout=kwargs.get('request_timeout', 30),
             max_retries=kwargs.get('max_retries', 3)
         )
+        self.cve_api_org = (kwargs.get('cve_api_org') or '').strip()
 
     async def fetch_cve(self, cve_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single CVE by ID from CVE.org.
@@ -73,9 +74,12 @@ class CVEOrgClient(BaseCVEClient):
         """
         cve_id = cve_id.upper()
         url = f"{self.base_url}/cve/{cve_id}"
+        request_kwargs: Dict[str, Any] = {}
+        if self.cve_api_org:
+            request_kwargs["headers"] = {"CVE-API-ORG": self.cve_api_org}
 
         try:
-            data = await self._request("GET", url)
+            data = await self._request("GET", url, **request_kwargs)
             if data is None:
                 return None
 
@@ -130,19 +134,27 @@ class CVEOrgClient(BaseCVEClient):
         Returns:
             List of CVE data dicts
         """
-        url = f"{self.base_url}/cveRecords"
+        if not self.cve_api_org:
+            logger.info("Skipping CVE.org list search: CVE_API_ORG not configured")
+            return []
+
+        # CVE list endpoint (requires CVE-API-ORG header)
+        url = f"{self.base_url}/cve"
 
         # Build query string
         if filters:
             url += "?" + urlencode(filters)
 
         try:
-            data = await self._request("GET", url)
+            data = await self._request("GET", url, headers={"CVE-API-ORG": self.cve_api_org})
             if data is None or not isinstance(data, dict):
                 return []
 
-            # CVE.org returns paginated results
-            cves = data.get("cveRecords", [])
+            # CVE.org list responses can vary by deployment shape.
+            cves = data.get("cveRecords") or data.get("vulnerabilities") or data.get("cves") or []
+            if cves and isinstance(cves[0], dict) and "cve" in cves[0]:
+                cves = [row.get("cve") for row in cves if isinstance(row, dict) and row.get("cve")]
+
             normalized = [self._normalize_cve(cve) for cve in cves if cve]
 
             # Handle pagination (API returns totalResults and currentPage)

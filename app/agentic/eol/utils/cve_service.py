@@ -5,7 +5,7 @@ Provides high-level CVE operations with L1/L2 caching.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 try:
@@ -23,6 +23,28 @@ except ModuleNotFoundError:
 
 
 logger = get_logger(__name__)
+
+
+def _iso_to_datetime(value: Any) -> Optional[datetime]:
+    """Best-effort ISO datetime parser used for filter checks."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 class CVEService:
@@ -120,7 +142,102 @@ class CVEService:
             List of UnifiedCVE models
         """
         logger.debug(f"Searching CVEs with filters: {filters}")
-        return await self.repository.query_cves(filters, limit, offset)
+        try:
+            cached_results = await self.repository.query_cves(filters, limit, offset)
+        except Exception as e:
+            logger.debug("CVE repository query unavailable, continuing with live fallback: %s", e)
+            cached_results = []
+
+        if cached_results:
+            return cached_results
+
+        # Live fallback path for mock mode and cold-start environments.
+        keyword = (filters.get("keyword") or "").strip()
+        if not keyword:
+            return cached_results
+
+        logger.info("CVE search cache miss; fetching live results for keyword '%s'", keyword)
+        live_results = await self.aggregator.search_and_merge_cves(
+            query=keyword,
+            limit=limit,
+            source=filters.get("source")
+        )
+
+        # Apply local filter checks to keep behavior close to repository query semantics.
+        filtered_live_results = [
+            cve for cve in live_results
+            if self._matches_filters(cve, filters)
+        ]
+
+        # Persist to L2 when available and always populate L1 cache.
+        for cve in filtered_live_results:
+            try:
+                await self.repository.upsert_cve(cve)
+            except Exception as e:
+                # In mock mode Cosmos may be unavailable; still return live data.
+                logger.debug("CVE live fallback upsert skipped for %s: %s", cve.cve_id, e)
+
+            self.cache.set(cve.cve_id, cve)
+
+        return filtered_live_results[:limit]
+
+    async def count_cves(self, filters: Dict[str, Any]) -> int:
+        """Count cached CVEs matching the supplied filters."""
+        try:
+            return await self.repository.count_cves(filters)
+        except Exception as e:
+            logger.debug("CVE repository count unavailable: %s", e)
+            return 0
+
+    def _matches_filters(self, cve: UnifiedCVE, filters: Dict[str, Any]) -> bool:
+        """Apply repository-like filtering checks to live-fetched CVEs."""
+        severity = filters.get("severity")
+        if severity:
+            cve_severity = (cve.cvss_v3.base_severity if cve.cvss_v3 else "") or ""
+            if cve_severity.upper() != str(severity).upper():
+                return False
+
+        min_score = filters.get("min_score")
+        if min_score is not None:
+            score = cve.cvss_v3.base_score if cve.cvss_v3 else None
+            if score is None or score < float(min_score):
+                return False
+
+        max_score = filters.get("max_score")
+        if max_score is not None:
+            score = cve.cvss_v3.base_score if cve.cvss_v3 else None
+            if score is None or score > float(max_score):
+                return False
+
+        published_after = _iso_to_datetime(filters.get("published_after"))
+        if published_after and cve.published_date < published_after:
+            return False
+
+        published_before = _iso_to_datetime(filters.get("published_before"))
+        if published_before and cve.published_date > published_before:
+            return False
+
+        source = filters.get("source")
+        if source and source not in cve.sources:
+            return False
+
+        vendor_filter = (filters.get("vendor") or "").strip().lower()
+        if vendor_filter:
+            if not any((p.vendor or "").lower().find(vendor_filter) != -1 for p in cve.affected_products):
+                return False
+
+        product_filter = (filters.get("product") or "").strip().lower()
+        if product_filter:
+            if not any((p.product or "").lower().find(product_filter) != -1 for p in cve.affected_products):
+                return False
+
+        keyword = (filters.get("keyword") or "").strip().lower()
+        if keyword:
+            haystack = f"{cve.cve_id} {cve.description}".lower()
+            if keyword not in haystack:
+                return False
+
+        return True
 
     async def sync_cve(self, cve_id: str) -> Optional[UnifiedCVE]:
         """Force sync CVE from external sources.

@@ -31,22 +31,22 @@ Legacy format handling has been removed as all agents now use the standardized f
 <!-- Hero Section -->
 <div class="hero-section">
     <div class="hero-content">
-        <div class="row align-items-center">
-            <div class="col-lg-12">
+        <div class="hero-row">
+            <div class="hero-copy">
                 <h1 class="hero-title">
                     <span class="hero-icon me-3"><i class="fas fa-search"></i></span>EOL Date Search Assistant
                 </h1>
                 <p class="hero-subtitle">
                     Discover software end-of-life information using our intelligent orchestrator system.
                 </p>
-                <div class="d-flex gap-3 justify-content-start flex-wrap">
-                    <button class="btn action-btn action-btn-primary" onclick="clearCommunicationsStream()">
-                        <i class="fas fa-broom me-2"></i>Clear Communications
-                    </button>
-                    <button class="btn action-btn action-btn-secondary" onclick="clearSearchHistory()">
-                        <i class="fas fa-history me-2"></i>Clear History
-                    </button>
-                </div>
+            </div>
+            <div class="hero-action">
+                <button class="btn hero-action-button" onclick="clearCommunicationsStream()">
+                    <i class="fas fa-broom me-2"></i>Clear Communications
+                </button>
+                <button class="btn hero-action-button" onclick="clearSearchHistory()">
+                    <i class="fas fa-history me-2"></i>Clear History
+                </button>
             </div>
         </div>
     </div>
@@ -57,53 +57,6 @@ Legacy format handling has been removed as all agents now use the standardized f
 
     <style>
         /* EOL Search Styles - Consistent with other templates */
-        .action-buttons {
-            display: flex;
-            gap: var(--spacing-md);
-            flex-wrap: wrap;
-        }
-
-        .action-btn {
-            padding: var(--spacing-md) var(--spacing-xl);
-            font-weight: 600;
-            border-radius: var(--radius-lg);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            min-width: 160px;
-            justify-content: center;
-            border: none;
-        }
-
-        .action-btn-primary {
-            background: transparent;
-            color: white;
-            border: 2px solid white !important;
-        }
-
-        .action-btn-primary:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border: 2px solid white !important;
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .action-btn-secondary {
-            background: transparent;
-            color: white;
-            border: 2px solid white !important;
-        }
-
-        .action-btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border: 2px solid white !important;
-            color: white;
-            transform: translateY(-2px);
-        }
-
         /* modern-card styles now in common-components.css */
 
         /* Stats Cards */

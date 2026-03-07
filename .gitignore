@@ -112,7 +112,7 @@ litellm/
 !.claude/docs/PHASE-1-BASELINE-REPORT.md
 !.claude/docs/MANIFEST-AUTHORING-GUIDE.md
 
-.planning/
+.planning/**
 **/.planning/
 CLAUDE.md
 tasks/

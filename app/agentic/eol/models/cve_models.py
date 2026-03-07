@@ -274,6 +274,12 @@ class VMVulnerabilityResponse(BaseModel):
     """Response for GET /api/cve/inventory/{vm_id}."""
     vm_id: str
     vm_name: str
+    resource_group: Optional[str] = None
+    subscription_id: Optional[str] = None
+    os_type: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    location: Optional[str] = None
     scan_id: str
     scan_date: str
     total_cves: int

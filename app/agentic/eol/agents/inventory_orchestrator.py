@@ -9,6 +9,7 @@ internal flow to rely on a single assistant agent backed by Azure OpenAI.
 from __future__ import annotations
 
 import asyncio
+import copy
 import html
 import math
 import os
@@ -247,6 +248,29 @@ Guidelines:
                 user_message=user_message,
                 conversation_id=conversation_id,
             )
+
+            if self._should_use_os_inventory_fast_path(user_message, agent_grounding):
+                response_text = self._build_os_inventory_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "os_inventory_summary"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
             system_prompt = self._SYSTEM_PROMPT_TEMPLATE.format(context=context)
             if agent_grounding.get("insights"):
                 system_prompt = f"{system_prompt}\n\nLive Agent Insights:\n{agent_grounding['insights']}"
@@ -1134,21 +1158,22 @@ Guidelines:
         agents_called: List[str],
         conversation_id: int,
     ) -> None:
-        os_agent = orchestrator.agents.get("os_inventory")
-        if not os_agent or not hasattr(os_agent, "get_os_summary"):
-            return
-
         try:
-            os_summary = await asyncio.wait_for(os_agent.get_os_summary(), timeout=20.0)
+            os_data_list, from_cache = await self._get_merged_os_inventory_records(orchestrator)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("OS summary retrieval failed: %s", exc)
             return
+
+        os_summary = self._build_os_summary_from_records(os_data_list)
+        os_summary["from_cache"] = from_cache
 
         metadata["os_summary"] = {
             "total_computers": os_summary.get("total_computers"),
             "windows_count": os_summary.get("windows_count"),
             "linux_count": os_summary.get("linux_count"),
             "top_versions": os_summary.get("top_versions", [])[:5],
+            "azure_vm_count": os_summary.get("azure_vm_count", 0),
+            "arc_count": os_summary.get("arc_count", 0),
         }
         agents_called.append("os_inventory")
         os_section = self._format_os_insights(os_summary)
@@ -1163,6 +1188,8 @@ Guidelines:
                 "agent": "os_inventory",
                 "type": "summary",
                 "total_computers": os_summary.get("total_computers"),
+                "azure_vm_count": os_summary.get("azure_vm_count", 0),
+                "arc_count": os_summary.get("arc_count", 0),
             },
             agent_name="os_inventory",
         )
@@ -1176,15 +1203,8 @@ Guidelines:
         agents_called: List[str],
         conversation_id: int,
     ) -> None:
-        os_agent = orchestrator.agents.get("os_inventory")
-        if not os_agent or not hasattr(os_agent, "get_os_inventory"):
-            return
-
         try:
-            os_inventory_result = await asyncio.wait_for(
-                os_agent.get_os_inventory(limit=None, use_cache=True),
-                timeout=25.0,
-            )
+            os_data_list, from_cache = await self._get_merged_os_inventory_records(orchestrator)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("OS inventory sample unavailable: %s", exc)
             agents_called.append("os_inventory")
@@ -1203,13 +1223,8 @@ Guidelines:
             return
 
         agents_called.append("os_inventory")
-        os_data_list = (
-            os_inventory_result.get("data")
-            if isinstance(os_inventory_result, dict) and isinstance(os_inventory_result.get("data"), list)
-            else []
-        )
         all_rows = self._summarize_os_inventory(os_data_list, limit=None)
-        from_cache = bool(os_inventory_result.get("from_cache")) if isinstance(os_inventory_result, dict) else False
+        summary_metrics = self._build_os_summary_from_records(os_data_list)
 
         full_records: List[Dict[str, Optional[str]]] = []
         for item in os_data_list:
@@ -1245,8 +1260,10 @@ Guidelines:
         metadata["os_inventory"].update(
             {
                 "count": len(os_data_list),
-                "success": bool(os_inventory_result.get("success", True)) if isinstance(os_inventory_result, dict) else bool(all_rows),
+                "success": bool(all_rows) or bool(os_data_list),
                 "from_cache": from_cache,
+                "azure_vm_count": summary_metrics.get("azure_vm_count", 0),
+                "arc_count": summary_metrics.get("arc_count", 0),
                 "sample": all_rows[:15] if all_rows else metadata.get("os_inventory", {}).get("sample"),
                 "paginated_rows": {
                     "rows": all_rows,
@@ -1517,6 +1534,7 @@ Guidelines:
         error: Optional[str],
         agent_metadata: Optional[Dict[str, Any]] = None,
         agents_called: Optional[List[str]] = None,
+        fast_path: bool = False,
     ) -> Dict[str, Any]:
         conversation_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1566,10 +1584,89 @@ Guidelines:
             "confirmation_required": False,
             "confirmation_declined": confirmation_state == "declined",
             "pending_message": None,
-            "fast_path": False,
+            "fast_path": fast_path,
             "error": error,
             "metadata": metadata_payload,
         }
+
+    def _should_use_os_inventory_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not intent.get("is_os_inventory_query"):
+            return False
+        if intent.get("is_eol_query") or intent.get("is_approaching_eol_query"):
+            return False
+        if intent.get("is_software_inventory_query"):
+            return False
+
+        normalized = user_message.lower()
+        direct_os_phrases = (
+            "what operating system",
+            "what os",
+            "operating system do i have",
+            "os do i have",
+            "operating system counts",
+            "os counts",
+        )
+        return any(phrase in normalized for phrase in direct_os_phrases)
+
+    def _build_os_inventory_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_os_summary = metadata.get("os_summary")
+        os_summary: Dict[str, Any] = raw_os_summary if isinstance(raw_os_summary, dict) else {}
+        raw_os_inventory_meta = metadata.get("os_inventory")
+        os_inventory_meta: Dict[str, Any] = raw_os_inventory_meta if isinstance(raw_os_inventory_meta, dict) else {}
+        if not os_summary:
+            return ""
+
+        total_computers = os_summary.get("total_computers", 0)
+        windows_count = os_summary.get("windows_count", 0)
+        linux_count = os_summary.get("linux_count", 0)
+        azure_vm_count = os_summary.get("azure_vm_count", os_inventory_meta.get("azure_vm_count", 0))
+        arc_count = os_summary.get("arc_count", os_inventory_meta.get("arc_count", 0))
+
+        sections: List[str] = ["<section><h2>Operating System Inventory</h2>"]
+        sections.append(
+            "<p>"
+            f"You have <strong>{self._sanitize_cell(total_computers)}</strong> computers in inventory: "
+            f"<strong>{self._sanitize_cell(windows_count)}</strong> Windows and "
+            f"<strong>{self._sanitize_cell(linux_count)}</strong> Linux. "
+            f"That includes <strong>{self._sanitize_cell(azure_vm_count)}</strong> Azure VMs and "
+            f"<strong>{self._sanitize_cell(arc_count)}</strong> Arc-enabled servers."
+            "</p>"
+        )
+
+        top_versions = os_summary.get("top_versions") if isinstance(os_summary.get("top_versions"), list) else []
+        if top_versions:
+            version_rows = [
+                [item.get("name_version", "Unknown"), str(item.get("count", 0))]
+                for item in top_versions[:5]
+            ]
+            table = self._render_html_table(
+                ["Operating system", "Count"],
+                version_rows,
+                footnote=f"Showing top {min(len(top_versions), 5)} operating system variants.",
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Operating system counts</h3>{table}</div>")
+
+        sections.append("</section>")
+        return "".join(sections)
 
     async def _gather_agent_grounding(
         self,
@@ -1818,6 +1915,13 @@ Guidelines:
                 f"<li>Windows {self._sanitize_cell(windows_count or 0)} • Linux {self._sanitize_cell(linux_count or 0)}</li>"
             )
 
+        azure_vm_count = os_summary.get("azure_vm_count")
+        arc_count = os_summary.get("arc_count")
+        if azure_vm_count is not None or arc_count is not None:
+            bullets.append(
+                f"<li>Azure VMs {self._sanitize_cell(azure_vm_count or 0)} • Arc-enabled servers {self._sanitize_cell(arc_count or 0)}</li>"
+            )
+
         sections: List[str] = ["<section><h3>Operating System Coverage</h3>"]
         if bullets:
             sections.append(f"<ul>{''.join(bullets)}</ul>")
@@ -1981,6 +2085,150 @@ Guidelines:
                 str(len(data["computers"])) if data["computers"] else "-",
             ])
         return rows
+
+    async def _get_merged_os_inventory_records(self, orchestrator: Any) -> Tuple[List[Dict[str, Any]], bool]:
+        os_agent = orchestrator.agents.get("os_inventory")
+        if not os_agent or not hasattr(os_agent, "get_os_inventory"):
+            return [], False
+
+        os_inventory_result = await asyncio.wait_for(
+            os_agent.get_os_inventory(limit=None, use_cache=True),
+            timeout=25.0,
+        )
+        raw_os_data: Any = os_inventory_result.get("data") if isinstance(os_inventory_result, dict) else []
+        os_data_list: List[Dict[str, Any]] = [
+            item for item in raw_os_data if isinstance(item, dict)
+        ] if isinstance(raw_os_data, list) else []
+        merged_records: List[Dict[str, Any]] = [
+            dict(item) for item in os_data_list if isinstance(item, dict)
+        ]
+        merged_records = await self._merge_azure_vm_os_inventory(merged_records)
+        from_cache = bool(os_inventory_result.get("from_cache")) if isinstance(os_inventory_result, dict) else False
+        return merged_records, from_cache
+
+    async def _merge_azure_vm_os_inventory(self, os_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not isinstance(os_items, list):
+            return os_items
+
+        try:
+            from utils.resource_inventory_client import get_resource_inventory_client
+
+            inv_client = get_resource_inventory_client()
+            azure_vms = await inv_client.get_resources(
+                "Microsoft.Compute/virtualMachines",
+                subscription_id=config.azure.subscription_id,
+            )
+
+            existing_resource_ids = {
+                str(item.get("resource_id") or item.get("resourceId") or "").lower()
+                for item in os_items
+                if str(item.get("resource_id") or item.get("resourceId") or "").strip()
+            }
+            existing_computer_names = {
+                str(item.get("computer_name") or item.get("computer") or "").strip().lower()
+                for item in os_items
+                if str(item.get("computer_name") or item.get("computer") or "").strip()
+            }
+
+            for vm in azure_vms:
+                selected = vm.get("selected_properties") or {}
+                resource_id = str(vm.get("resource_id") or vm.get("id") or "")
+                if not resource_id or resource_id.lower() in existing_resource_ids:
+                    continue
+
+                vm_name = str(vm.get("resource_name") or vm.get("name") or "").strip()
+                if not vm_name or vm_name.lower() in existing_computer_names:
+                    continue
+
+                os_name = selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown"
+                match = re.search(r"\b(20\d{2}|19\d{2})\b", str(os_name))
+                inferred_version = match.group(1) if match else ""
+
+                os_items.append(
+                    {
+                        "computer_name": vm_name,
+                        "computer": vm_name,
+                        "os_name": os_name,
+                        "name": os_name,
+                        "os_version": vm.get("os_version") or inferred_version,
+                        "version": vm.get("os_version") or inferred_version,
+                        "os_type": selected.get("os_type") or vm.get("os_type") or "Unknown",
+                        "vendor": "Unknown",
+                        "computer_environment": "Azure",
+                        "computer_type": "Azure VM",
+                        "resource_group": vm.get("resource_group") or vm.get("resourceGroup") or "",
+                        "resource_id": resource_id,
+                        "last_heartbeat": None,
+                        "source": "resource_inventory",
+                        "software_type": "operating system",
+                        "vm_type": "azure-vm",
+                    }
+                )
+                existing_resource_ids.add(resource_id.lower())
+                existing_computer_names.add(vm_name.lower())
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Failed to merge Azure VMs into inventory assistant OS records: %s", exc)
+
+        return os_items
+
+    def _build_os_summary_from_records(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not records:
+            return {
+                "total_computers": 0,
+                "windows_count": 0,
+                "linux_count": 0,
+                "top_versions": [],
+                "azure_vm_count": 0,
+                "arc_count": 0,
+            }
+
+        unique_ids: Set[str] = set()
+        windows_count = 0
+        linux_count = 0
+        azure_vm_count = 0
+        arc_count = 0
+        version_counts: Dict[str, int] = {}
+
+        for item in records:
+            identifier = (
+                str(item.get("resource_id") or item.get("resourceId") or "").strip().lower()
+                or str(item.get("computer") or item.get("computer_name") or "").strip().lower()
+            )
+            if not identifier or identifier in unique_ids:
+                continue
+            unique_ids.add(identifier)
+
+            computer_type = str(item.get("computer_type") or item.get("computer_environment") or "").lower()
+            vm_type = str(item.get("vm_type") or "").lower()
+            if vm_type == "azure-vm" or "azure vm" in computer_type:
+                azure_vm_count += 1
+            elif vm_type == "arc" or "arc-enabled" in computer_type:
+                arc_count += 1
+
+            os_type = str(item.get("os_type") or item.get("os_name") or item.get("name") or "").lower()
+            if "windows" in os_type:
+                windows_count += 1
+            elif os_type:
+                linux_count += 1
+
+            name = str(item.get("os_name") or item.get("name") or "Unknown").strip() or "Unknown"
+            version = str(item.get("os_version") or item.get("version") or "").strip()
+            name_version = f"{name} {version}".strip()
+            version_counts[name_version] = version_counts.get(name_version, 0) + 1
+
+        top_versions = [
+            {"name_version": name_version, "count": count}
+            for name_version, count in sorted(version_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+        ]
+
+        return {
+            "total_computers": len(unique_ids),
+            "windows_count": windows_count,
+            "linux_count": linux_count,
+            "top_versions": top_versions,
+            "azure_vm_count": azure_vm_count,
+            "arc_count": arc_count,
+        }
 
     def _summarize_os_inventory(self, records: List[Dict[str, Any]], limit: Optional[int] = 15) -> List[List[str]]:
         if not records:
