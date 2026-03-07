@@ -191,8 +191,62 @@ async def get_patches(
     Returns list of applicable patches with KB numbers, package names,
     priority ranking, and affected VM count.
     """
-    # Implementation will be added in task 4
-    pass
+    try:
+        # Lazy import to avoid circular dependency
+        from main import get_cve_patch_mapper
+
+        patch_mapper = await get_cve_patch_mapper()
+
+        # Get patches for CVE
+        mapping = await patch_mapper.get_patches_for_cve(cve_id, subscription_ids)
+
+        if not mapping.patches:
+            return TextContent(
+                type="text",
+                text=json.dumps({
+                    "success": True,
+                    "cve_id": cve_id,
+                    "patches": [],
+                    "message": f"No patches found for {cve_id}",
+                    "tool_name": "get_patches"
+                }, indent=2)
+            )
+
+        # Format patch data
+        patches = [
+            {
+                "kb_number": p.kb_number,
+                "package_name": p.package_name,
+                "title": p.title,
+                "priority": p.priority,
+                "affected_vm_count": p.affected_vm_count,
+                "vendor": p.vendor
+            }
+            for p in mapping.patches
+        ]
+
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "cve_id": cve_id,
+                "patches": patches,
+                "total_patches": len(patches),
+                "priority_score": mapping.priority_score,
+                "total_affected_vms": mapping.total_affected_vms,
+                "recommendation": mapping.recommendation,
+                "tool_name": "get_patches"
+            }, indent=2)
+        )
+    except Exception as e:
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False,
+                "error": str(e),
+                "tool_name": "get_patches"
+            }, indent=2)
+        )
 
 
 @mcp.tool()
