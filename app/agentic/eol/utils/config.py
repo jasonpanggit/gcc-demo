@@ -36,6 +36,7 @@ class AppConfig:
     timeout: int = 60
     log_level: str = "INFO"
     debug_mode: bool = False
+    base_url: str = field(default_factory=lambda: os.getenv("APP_BASE_URL", "http://localhost:8000"))
 
 
 @dataclass
@@ -257,6 +258,78 @@ class CVEScannerConfig:
     )
 
 
+@dataclass
+class CVEMonitoringConfig:
+    """CVE monitoring and alerting configuration.
+
+    Controls scheduled CVE scanning, delta detection, and multi-channel alerting.
+
+    Environment variables:
+        ENABLE_CVE_MONITORING: Enable scheduled scanning (default: true)
+        CVE_SCAN_SCHEDULE_CRON: Cron schedule for scans (default: "0 9 * * *" - 9 AM daily)
+        CVE_ALERT_SEVERITY_THRESHOLD: Minimum severity to alert (HIGH or CRITICAL, default: HIGH)
+        CVE_ALERT_ON_NEW_CVES: Alert on new CVE detection (default: true)
+        CVE_ALERT_ON_SEVERITY_INCREASE: Alert on severity increases (default: true)
+        CVE_ENABLE_ESCALATION: Enable escalation for unacknowledged alerts (default: true)
+        CVE_ESCALATION_TIMEOUT_HOURS: Hours before escalation (default: 24)
+        CVE_MAX_ALERTS_PER_BATCH: Max CVEs per alert batch (default: 50)
+        CVE_SCAN_TIMEOUT_SECONDS: Scan completion timeout (default: 600)
+    """
+
+    # Master switch
+    enable_cve_monitoring: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_CVE_MONITORING", "true").lower() == "true"
+    )
+
+    # Scan schedule (cron expression)
+    scan_schedule_cron: str = field(
+        default_factory=lambda: os.getenv("CVE_SCAN_SCHEDULE_CRON", "0 9 * * *")
+    )
+
+    # Alert filters
+    alert_severity_threshold: str = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_SEVERITY_THRESHOLD", "HIGH")
+    )
+
+    alert_on_new_cves: bool = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_ON_NEW_CVES", "true").lower() == "true"
+    )
+
+    alert_on_severity_increase: bool = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_ON_SEVERITY_INCREASE", "true").lower() == "true"
+    )
+
+    # Escalation
+    enable_escalation: bool = field(
+        default_factory=lambda: os.getenv("CVE_ENABLE_ESCALATION", "true").lower() == "true"
+    )
+
+    escalation_timeout_hours: int = field(
+        default_factory=lambda: int(os.getenv("CVE_ESCALATION_TIMEOUT_HOURS", "24"))
+    )
+
+    # Performance
+    max_alerts_per_batch: int = field(
+        default_factory=lambda: int(os.getenv("CVE_MAX_ALERTS_PER_BATCH", "50"))
+    )
+
+    scan_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_TIMEOUT_SECONDS", "600"))
+    )
+
+    def __post_init__(self):
+        """Validate configuration values"""
+        valid_severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        if self.alert_severity_threshold not in valid_severities:
+            raise ValueError(
+                f"Invalid severity threshold: {self.alert_severity_threshold}. "
+                f"Must be one of {valid_severities}"
+            )
+
+        if self.escalation_timeout_hours < 1:
+            raise ValueError("Escalation timeout must be at least 1 hour")
+
+
 # ============================================================================
 # Phase 2 Day 6: Centralized Timeout Configuration
 # ============================================================================
@@ -335,6 +408,7 @@ class ConfigManager:
         self._cve_data_config: Optional[CVEDataConfig] = None
         self._cve_sync_config: Optional[CVESyncConfig] = None
         self._cve_scanner_config: Optional[CVEScannerConfig] = None
+        self._cve_monitoring_config: Optional[CVEMonitoringConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -505,6 +579,13 @@ class ConfigManager:
         if self._cve_scanner_config is None:
             self._cve_scanner_config = CVEScannerConfig()
         return self._cve_scanner_config
+
+    @property
+    def cve_monitoring(self) -> CVEMonitoringConfig:
+        """Get CVE monitoring configuration (Phase 9)"""
+        if self._cve_monitoring_config is None:
+            self._cve_monitoring_config = CVEMonitoringConfig()
+        return self._cve_monitoring_config
 
     @property
     def timeouts(self) -> TimeoutConfig:
