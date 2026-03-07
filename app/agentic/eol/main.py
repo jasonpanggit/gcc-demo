@@ -536,6 +536,7 @@ def get_inventory_discovery_status() -> Dict[str, Any]:
 
 # Global CVE service instance
 _cve_service = None
+_cve_scanner = None
 
 
 async def get_cve_service():
@@ -568,6 +569,41 @@ async def get_cve_service():
     return _cve_service
 
 
+async def get_cve_scanner():
+    """Get or create CVE scanner singleton (Phase 5)."""
+    global _cve_scanner
+    if _cve_scanner is None:
+        from azure.identity import DefaultAzureCredential
+        from azure.mgmt.resourcegraph import ResourceGraphClient
+        from utils.cve_scanner import CVEScanner, CVEScanRepository
+        from utils.cosmos_cache import base_cosmos
+
+        # Create scan repository
+        scan_repository = CVEScanRepository(
+            cosmos_client=base_cosmos.cosmos_client,
+            database_name=config.azure.cosmos_database,
+            container_name=config.cve_scanner.cosmos_scan_container_name
+        )
+        await scan_repository.initialize()
+
+        # Create Resource Graph client
+        credential = DefaultAzureCredential()
+        resource_graph_client = ResourceGraphClient(credential)
+
+        # Create scanner
+        _cve_scanner = CVEScanner(
+            cve_service=await get_cve_service(),
+            resource_graph_client=resource_graph_client,
+            scan_repository=scan_repository,
+            subscription_id=config.azure.subscription_id,
+            max_vms=config.cve_scanner.max_vms_per_scan,
+            scan_timeout_minutes=config.cve_scanner.scan_timeout_minutes
+        )
+        logger.info("✅ CVE scanner singleton initialized")
+
+    return _cve_scanner
+
+
 async def _startup_cve_system():
     """Initialize CVE data system on startup."""
     try:
@@ -596,6 +632,16 @@ async def _startup_cve_system():
             logger.info(f"✅ CVE data container '{config.cve_data.cosmos_container_name}' initialized")
         except Exception as e:
             logger.warning(f"⚠️ CVE container initialization failed: {e}")
+
+        # Initialize Cosmos DB container for CVE scan results (Phase 5)
+        try:
+            await database.create_container_if_not_exists(
+                id=config.cve_scanner.cosmos_scan_container_name,
+                partition_key=PartitionKey(path="/scan_id")
+            )
+            logger.info(f"✅ CVE scan container '{config.cve_scanner.cosmos_scan_container_name}' initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ CVE scan container initialization failed: {e}")
 
         # Initialize CVE service
         try:

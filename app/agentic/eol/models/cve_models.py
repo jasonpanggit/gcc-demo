@@ -160,6 +160,70 @@ class CVEDetailResponse(BaseModel):
     cache_hit: bool = False  # Whether result came from L1/L2 cache
 
 
+# ============================================================================
+# CVE Scanning Models (Phase 5)
+# ============================================================================
+
+class VMScanTarget(BaseModel):
+    """VM target for CVE scanning."""
+    vm_id: str
+    name: str
+    resource_group: str
+    subscription_id: str
+    os_type: str  # "Linux" or "Windows"
+    os_name: Optional[str] = None  # e.g., "Ubuntu", "Windows Server"
+    os_version: Optional[str] = None  # e.g., "20.04", "2019"
+    installed_packages: List[str] = Field(default_factory=list)  # Package names/versions
+    tags: Dict[str, str] = Field(default_factory=dict)
+    location: str
+    vm_type: str  # "azure" or "arc"
+
+
+class CVEMatch(BaseModel):
+    """CVE matched to a VM."""
+    cve_id: str
+    vm_id: str
+    vm_name: str
+    match_reason: str  # e.g., "OS Ubuntu 20.04 affected"
+    cvss_score: Optional[float] = None
+    severity: Optional[str] = None
+    published_date: Optional[str] = None
+
+
+class ScanResult(BaseModel):
+    """Result of CVE scan."""
+    scan_id: str
+    started_at: str
+    completed_at: Optional[str] = None
+    status: str  # "pending", "running", "completed", "failed"
+    total_vms: int
+    scanned_vms: int
+    total_matches: int
+    matches: List[CVEMatch] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class CVEScanRequest(BaseModel):
+    """Request to trigger CVE scan."""
+    subscription_ids: Optional[List[str]] = None  # None = all subscriptions
+    resource_groups: Optional[List[str]] = None
+    include_arc: bool = True
+    cve_filters: Optional[Dict[str, Any]] = None  # Optional: only scan for specific CVEs
+
+
+class CVEScanStatusResponse(BaseModel):
+    """Response for scan status check."""
+    scan_id: str
+    status: str
+    progress: int  # 0-100
+    total_vms: int
+    scanned_vms: int
+    matches_found: int
+    started_at: str
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+
+
 # Export all models
 __all__ = [
     "CVSSScore",
@@ -169,5 +233,10 @@ __all__ = [
     "UnifiedCVE",
     "CVESearchRequest",
     "CVESearchResponse",
-    "CVEDetailResponse"
+    "CVEDetailResponse",
+    "VMScanTarget",
+    "CVEMatch",
+    "ScanResult",
+    "CVEScanRequest",
+    "CVEScanStatusResponse"
 ]

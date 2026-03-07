@@ -225,6 +225,37 @@ class CVESyncConfig:
     )
 
 
+@dataclass
+class CVEScannerConfig:
+    """CVE scanner configuration for inventory vulnerability scanning.
+
+    Controls VM discovery, package extraction, and CVE matching behavior.
+    """
+
+    # Feature flag
+    enable_scanner: bool = field(
+        default_factory=lambda: os.getenv("CVE_SCANNER_ENABLED", "true").lower() == "true"
+    )
+
+    # Scan limits
+    scan_timeout_minutes: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_TIMEOUT_MINUTES", "30"))
+    )
+    max_vms_per_scan: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_MAX_VMS", "1000"))
+    )
+
+    # Package extraction
+    package_extraction_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_PACKAGE_TIMEOUT", "10"))
+    )
+
+    # Persistence
+    cosmos_scan_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_SCAN_COSMOS_CONTAINER", "cve_scans")
+    )
+
+
 # ============================================================================
 # Phase 2 Day 6: Centralized Timeout Configuration
 # ============================================================================
@@ -301,6 +332,7 @@ class ConfigManager:
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
         self._cve_sync_config: Optional[CVESyncConfig] = None
+        self._cve_scanner_config: Optional[CVEScannerConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -457,6 +489,13 @@ class ConfigManager:
         if self._cve_sync_config is None:
             self._cve_sync_config = CVESyncConfig()
         return self._cve_sync_config
+
+    @property
+    def cve_scanner(self) -> CVEScannerConfig:
+        """Get CVE scanner configuration (Phase 5)"""
+        if self._cve_scanner_config is None:
+            self._cve_scanner_config = CVEScannerConfig()
+        return self._cve_scanner_config
 
     @property
     def timeouts(self) -> TimeoutConfig:
