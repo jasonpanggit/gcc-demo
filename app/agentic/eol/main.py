@@ -65,6 +65,7 @@ from api.cve import router as cve_router
 from api.cve_scan import router as cve_scan_router
 from api.cve_patches import router as cve_patches_router
 from api.cve_inventory import router as cve_inventory_router
+from api.cve_dashboard import router as cve_dashboard_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -181,6 +182,7 @@ app.include_router(cve_router, prefix="/api", tags=["CVE"])  # CVE search and de
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
 app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
+app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard"])  # CVE analytics dashboard (Phase 8)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -545,6 +547,7 @@ _cve_service = None
 _cve_scanner = None
 _cve_patch_mapper = None
 _cve_vm_service = None
+_cve_analytics = None
 
 
 async def get_cve_service():
@@ -656,6 +659,23 @@ async def get_cve_vm_service():
         logger.info("✅ CVE VM service singleton initialized")
 
     return _cve_vm_service
+
+
+async def get_cve_analytics():
+    """Get or create CVE analytics singleton (Phase 8)."""
+    global _cve_analytics
+    if _cve_analytics is None:
+        from utils.cve_analytics import CVEAnalytics
+
+        # Create CVE analytics service
+        _cve_analytics = CVEAnalytics(
+            cve_scanner=await get_cve_scanner(),
+            cve_service=await get_cve_service(),
+            cve_patch_mapper=await get_cve_patch_mapper()
+        )
+        logger.info("✅ CVE analytics singleton initialized")
+
+    return _cve_analytics
 
 
 async def _startup_cve_system():
