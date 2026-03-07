@@ -525,6 +525,95 @@ def get_inventory_discovery_status() -> Dict[str, Any]:
     """Get current inventory discovery status (for health endpoint)."""
     return _inventory_discovery_status.copy()
 
+
+# ============================================================================
+# CVE SERVICE AND SYNC INITIALIZATION
+# ============================================================================
+
+# Global CVE service instance
+_cve_service = None
+
+
+async def get_cve_service():
+    """Get or create CVE service singleton."""
+    global _cve_service
+    if _cve_service is None:
+        from utils.cve_cache import CVECache
+        from utils.cve_cosmos_repository import CVECosmosRepository
+        from utils.cve_data_aggregator import create_aggregator
+        from utils.cve_service import CVEService
+        from utils.cosmos_cache import base_cosmos
+
+        # Create components
+        cache = CVECache(
+            maxsize=config.cve_data.l1_cache_size,
+            ttl=config.cve_data.l1_cache_ttl_seconds
+        )
+
+        repository = CVECosmosRepository(
+            cosmos_client=base_cosmos.cosmos_client,
+            database_name=config.azure.cosmos_database,
+            container_name=config.cve_data.cosmos_container_name
+        )
+
+        aggregator = await create_aggregator(config)
+
+        _cve_service = CVEService(cache, repository, aggregator)
+        logger.info("✅ CVE service singleton initialized")
+
+    return _cve_service
+
+
+async def _startup_cve_system():
+    """Initialize CVE data system on startup."""
+    try:
+        logger.info("Initializing CVE Data System...")
+
+        # Initialize Cosmos DB container for CVE data
+        try:
+            from azure.cosmos import PartitionKey
+            from utils.cosmos_cache import base_cosmos
+
+            database = base_cosmos.cosmos_client.get_database_client(config.azure.cosmos_database)
+            await database.create_container_if_not_exists(
+                id=config.cve_data.cosmos_container_name,
+                partition_key=PartitionKey(path="/cve_id"),
+                indexing_policy={
+                    "indexingMode": "consistent",
+                    "automatic": True,
+                    "includedPaths": [
+                        {"path": "/cvss_v3/base_severity/*"},
+                        {"path": "/published_date/*"},
+                        {"path": "/last_modified_date/*"},
+                        {"path": "/sources/*"}
+                    ]
+                }
+            )
+            logger.info(f"✅ CVE data container '{config.cve_data.cosmos_container_name}' initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ CVE container initialization failed: {e}")
+
+        # Initialize CVE service
+        try:
+            await get_cve_service()
+        except Exception as e:
+            logger.warning(f"⚠️ CVE service initialization warning: {e}")
+
+        # Start CVE scheduler
+        try:
+            from utils.cve_scheduler import get_cve_scheduler
+            scheduler = get_cve_scheduler()
+            await scheduler.start()
+            logger.info(f"✅ CVE scheduler started (cron: {config.cve_sync.full_sync_schedule_cron})")
+        except Exception as e:
+            logger.warning(f"⚠️ CVE scheduler start warning: {e}")
+
+        logger.info("✅ CVE Data System initialized")
+
+    except Exception as e:
+        logger.warning(f"⚠️ CVE system initialization warning: {e}")
+
+
 # ============================================================================
 # STARTUP AND HEALTH ENDPOINTS
 # ============================================================================
@@ -647,6 +736,9 @@ async def _run_startup_tasks():
         # Initialize Resource Inventory Discovery System
         await _startup_inventory_discovery()
 
+        # Initialize CVE Data System (Phase 2)
+        await _startup_cve_system()
+
         logger.info("✅ App startup completed")
     except Exception as e:
         logger.warning(f"⚠️ Startup warning: {e}")
@@ -726,6 +818,30 @@ async def _run_shutdown_tasks():
             logger.debug("Inventory scheduler cleanup cancelled")
         except Exception as e:
             logger.debug(f"Inventory scheduler cleanup: {e}")
+
+        # Stop CVE scheduler (Phase 2)
+        try:
+            from utils.cve_scheduler import get_cve_scheduler
+            cve_scheduler = get_cve_scheduler()
+            if cve_scheduler.is_running:
+                await cve_scheduler.stop()
+                logger.info("✅ CVE scheduler stopped")
+        except asyncio.CancelledError:
+            logger.debug("CVE scheduler cleanup cancelled")
+        except Exception as e:
+            logger.debug(f"CVE scheduler cleanup: {e}")
+
+        # Cleanup CVE service aggregator clients
+        try:
+            global _cve_service
+            if _cve_service is not None:
+                await _cve_service.close()
+                _cve_service = None
+                logger.info("✅ CVE service cleaned up")
+        except asyncio.CancelledError:
+            logger.debug("CVE service cleanup cancelled")
+        except Exception as e:
+            logger.debug(f"CVE service cleanup: {e}")
 
         # Graceful shutdown for SRE orchestrator background tasks (CQ-07)
         try:
