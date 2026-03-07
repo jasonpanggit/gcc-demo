@@ -7,7 +7,8 @@ Used by CVE monitoring scheduler and alert dispatcher.
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+import uuid
 
 
 @dataclass
@@ -94,3 +95,93 @@ class CVEMonitoringStats:
             "last_error": self.last_error,
             "last_delta_summary": self.last_delta_summary
         }
+
+
+@dataclass
+class CVEAlertRule:
+    """CVE alert rule configuration"""
+    # Identity
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    description: str = ""
+    enabled: bool = True
+    rule_type: str = "delta"  # Partition key: delta, threshold, scheduled
+
+    # Severity filters
+    severity_levels: List[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
+    min_cvss_score: Optional[float] = None
+    max_cvss_score: Optional[float] = None
+
+    # VM filters
+    vm_resource_groups: List[str] = field(default_factory=list)  # Empty = all RGs
+    vm_tags: Dict[str, str] = field(default_factory=dict)  # Tag key-value filters
+    vm_name_pattern: Optional[str] = None  # Regex pattern for VM names
+
+    # Notification channels
+    email_recipients: List[str] = field(default_factory=list)
+    teams_enabled: bool = True
+    teams_webhook_url: Optional[str] = None  # Override default webhook
+
+    # Frequency and schedule
+    scan_schedule_cron: Optional[str] = None  # Override default: "0 9 * * *"
+    alert_frequency: str = "immediate"  # immediate, daily, weekly, monthly
+    last_triggered: Optional[str] = None
+
+    # Escalation
+    enable_escalation: bool = False
+    escalation_timeout_hours: int = 24
+    escalation_recipients: List[str] = field(default_factory=list)
+
+    # Metadata
+    created_by: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for Cosmos DB"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "enabled": self.enabled,
+            "rule_type": self.rule_type,
+            "severity_levels": self.severity_levels,
+            "min_cvss_score": self.min_cvss_score,
+            "max_cvss_score": self.max_cvss_score,
+            "vm_resource_groups": self.vm_resource_groups,
+            "vm_tags": self.vm_tags,
+            "vm_name_pattern": self.vm_name_pattern,
+            "email_recipients": self.email_recipients,
+            "teams_enabled": self.teams_enabled,
+            "teams_webhook_url": self.teams_webhook_url,
+            "scan_schedule_cron": self.scan_schedule_cron,
+            "alert_frequency": self.alert_frequency,
+            "last_triggered": self.last_triggered,
+            "enable_escalation": self.enable_escalation,
+            "escalation_timeout_hours": self.escalation_timeout_hours,
+            "escalation_recipients": self.escalation_recipients,
+            "created_by": self.created_by,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CVEAlertRule":
+        """Create from Cosmos DB document"""
+        return cls(**data)
+
+    def __post_init__(self):
+        """Validate rule configuration"""
+        valid_severities = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+        invalid = set(self.severity_levels) - valid_severities
+        if invalid:
+            raise ValueError(f"Invalid severity levels: {invalid}")
+
+        if self.min_cvss_score and (self.min_cvss_score < 0 or self.min_cvss_score > 10):
+            raise ValueError("CVSS score must be between 0 and 10")
+
+        if self.max_cvss_score and (self.max_cvss_score < 0 or self.max_cvss_score > 10):
+            raise ValueError("CVSS score must be between 0 and 10")
+
+        if self.min_cvss_score and self.max_cvss_score and self.min_cvss_score > self.max_cvss_score:
+            raise ValueError("min_cvss_score must be <= max_cvss_score")
