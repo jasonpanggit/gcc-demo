@@ -153,14 +153,22 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Security</div>
+                <div class="nav-section-title">CVE Management</div>
                 <a href="/cve-search" class="nav-item {% if '/cve-search' in request.path or '/cve-detail' in request.path %}active{% endif %}">
-                    <i class="fas fa-shield-virus"></i>
-                    <span class="nav-text">CVE Search</span>
+                    <i class="fas fa-search"></i>
+                    <span class="nav-text">Search CVEs</span>
                 </a>
                 <a href="#" class="nav-item disabled" title="Coming in Phase 8">
-                    <i class="fas fa-chart-pie"></i>
+                    <i class="fas fa-chart-line"></i>
                     <span class="nav-text">CVE Dashboard</span>
+                </a>
+                <a href="/resource-inventory?type=Virtual%20Machines" class="nav-item {% if '/vm-vulnerability' in request.path %}active{% endif %}" title="Select a VM to view its vulnerabilities">
+                    <i class="fas fa-server"></i>
+                    <span class="nav-text">VM Vulnerabilities</span>
+                </a>
+                <a href="#" class="nav-item disabled" title="Coming in Phase 9">
+                    <i class="fas fa-bell"></i>
+                    <span class="nav-text">CVE Alerts</span>
                 </a>
             </div>
 
