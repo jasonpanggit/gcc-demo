@@ -1,0 +1,239 @@
+/* VM Vulnerability Page Styles */
+
+.vm-status-indicator {
+    padding: 1rem;
+}
+
+.vm-status-indicator .status-icon {
+    transition: transform 0.3s ease;
+}
+
+.vm-status-indicator:hover .status-icon {
+    transform: scale(1.1);
+}
+
+/* Summary Metrics Cards */
+.metric-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Filters Sidebar */
+.sticky-top {
+    position: sticky;
+    z-index: 100;
+}
+
+.form-check {
+    margin-bottom: 0.5rem;
+}
+
+.form-check-input:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* CVE Table */
+#cve-table {
+    font-size: 0.9rem;
+}
+
+#cve-table tbody tr {
+    transition: background-color 0.2s;
+}
+
+#cve-table tbody tr:hover {
+    background-color: var(--hover-bg);
+}
+
+.cve-row td {
+    vertical-align: middle;
+}
+
+/* Severity Badges */
+.badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+.badge.bg-warning {
+    background-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+.badge.bg-info {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+}
+
+.badge.bg-secondary {
+    background-color: #6c757d !important;
+}
+
+/* Sort Buttons */
+.sort-btn {
+    transition: all 0.2s;
+}
+
+.sort-btn.active {
+    background-color: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.sort-btn:hover:not(.active) {
+    background-color: var(--hover-bg);
+}
+
+/* Empty States */
+.empty-state-icon {
+    opacity: 0.3;
+}
+
+/* Scan Info Card */
+.card.border-info {
+    border-width: 2px;
+}
+
+/* Export Button */
+#export-report-btn {
+    min-width: 120px;
+}
+
+/* Pagination */
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-item.active .page-link {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+.page-link {
+    color: var(--primary);
+}
+
+.page-link:hover {
+    color: var(--primary-dark);
+    background-color: var(--hover-bg);
+}
+
+/* Modals */
+.modal-content {
+    border-radius: 0.5rem;
+}
+
+.modal-header {
+    border-bottom: 2px solid var(--border-color);
+}
+
+.modal-footer {
+    border-top: 2px solid var(--border-color);
+}
+
+/* Progress Bar */
+.progress {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.progress-bar {
+    transition: width 0.6s ease;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 992px) {
+    .sticky-top {
+        position: relative;
+        top: auto !important;
+    }
+
+    .row.mb-4 {
+        margin-bottom: 1rem !important;
+    }
+}
+
+@media (max-width: 768px) {
+    #cve-table {
+        font-size: 0.8rem;
+    }
+
+    #cve-table th,
+    #cve-table td {
+        padding: 0.5rem 0.25rem;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .summary-metrics .col-md-3 {
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --hover-bg: rgba(255, 255, 255, 0.05);
+        --border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .card {
+        background-color: #1e1e1e;
+        border-color: var(--border-color);
+    }
+
+    .table {
+        color: #e0e0e0;
+    }
+
+    .table-hover tbody tr:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .form-control,
+    .form-select,
+    .form-range {
+        background-color: #2a2a2a;
+        border-color: var(--border-color);
+        color: #e0e0e0;
+    }
+
+    .modal-content {
+        background-color: #1e1e1e;
+        color: #e0e0e0;
+    }
+
+    .page-link {
+        background-color: #2a2a2a;
+        border-color: var(--border-color);
+        color: #e0e0e0;
+    }
+
+    .page-item.active .page-link {
+        background-color: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+}
+
+/* Animation for loading states */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+#main-content {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* Tooltip styling */
+[title] {
+    cursor: help;
+}
