@@ -618,6 +618,41 @@ async def cve_dashboard_page(request: Request):
     )
 
 
+@router.get("/cve-alert-config", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_alert_config_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_alert_config_page(request: Request):
+    """
+    CVE Alert Configuration page.
+
+    Provides UI for managing CVE alert rules:
+    - List all alert rules with status
+    - Create new alert rules
+    - Edit existing rules
+    - Delete rules with confirmation
+    - Test alert rules with sample CVE data
+    - Configure severity filters, VM filters, notification channels
+    - Set custom cron schedules and escalation policies
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve_alert_config.html template.
+    """
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(
+        request,
+        "cve_alert_config.html",
+        {"asset_version": asset_version},
+    )
+
+
+
 @router.get("/vm-vulnerability", response_class=HTMLResponse)
 @with_timeout_and_stats(
     agent_name="vm_vulnerability_page",

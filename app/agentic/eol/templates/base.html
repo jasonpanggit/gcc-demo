@@ -171,9 +171,9 @@
                     <i class="fas fa-bell"></i>
                     <span class="nav-text">Alerts</span>
                 </a>
-                <a class="nav-item disabled" title="Coming in Phase 9" aria-disabled="true" tabindex="-1">
-                    <i class="fas fa-bell"></i>
-                    <span class="nav-text">CVE Alerts</span>
+                <a href="/cve-alert-config" class="nav-item {% if '/cve-alert-config' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell text-warning"></i>
+                    <span class="nav-text">CVE Alert Configuration</span>
                 </a>
             </div>
 
