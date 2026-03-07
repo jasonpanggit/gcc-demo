@@ -66,3 +66,5 @@ uvloop==0.22.1
 websockets==15.0.1
 watchfiles==1.1.1
 httptools==0.7.1
+# PDF generation for CVE dashboard reports
+weasyprint==62.3
