@@ -282,3 +282,34 @@ class CVEPatchMapper:
             return "Schedule within 1 week - Medium priority"
         else:
             return "Schedule during next maintenance window - Low priority"
+
+
+# Singleton pattern
+_cve_patch_mapper_instance: Optional['CVEPatchMapper'] = None
+
+
+async def get_cve_patch_mapper() -> 'CVEPatchMapper':
+    """Get the global CVE patch mapper instance, initializing if needed.
+
+    Returns:
+        Initialized CVEPatchMapper instance
+    """
+    global _cve_patch_mapper_instance
+
+    if _cve_patch_mapper_instance is None:
+        from utils.cve_service import get_cve_service
+        from utils.cve_scanner import get_cve_scanner
+        from utils.patch_mcp_client import get_patch_mcp_client
+
+        cve_service = await get_cve_service()
+        cve_scanner = await get_cve_scanner()
+        patch_client = await get_patch_mcp_client()
+
+        _cve_patch_mapper_instance = CVEPatchMapper(
+            cve_service=cve_service,
+            cve_scanner=cve_scanner,
+            patch_client=patch_client
+        )
+        logger.info("CVE patch mapper singleton initialized")
+
+    return _cve_patch_mapper_instance

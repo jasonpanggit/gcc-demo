@@ -313,3 +313,26 @@ class CVEService:
     async def close(self):
         """Close aggregator clients."""
         await self.aggregator.close()
+
+
+# Singleton pattern
+_cve_service_instance: Optional[CVEService] = None
+
+
+async def get_cve_service() -> CVEService:
+    """Get the global CVE service instance, initializing if needed.
+
+    Returns:
+        Initialized CVEService instance
+    """
+    global _cve_service_instance
+
+    if _cve_service_instance is None:
+        cache = CVECache(maxsize=1000, ttl_seconds=300)
+        repository = CVECosmosRepository()
+        await repository.ensure_initialized()
+        aggregator = CVEDataAggregator()
+        _cve_service_instance = CVEService(cache=cache, repository=repository, aggregator=aggregator)
+        logger.info("CVE service singleton initialized")
+
+    return _cve_service_instance

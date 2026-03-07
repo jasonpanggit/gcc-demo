@@ -649,3 +649,25 @@ class CVEScanner:
         except Exception as e:
             logger.error(f"Failed to get VM matches for CVE {cve_id}: {e}")
             return []
+
+
+# Singleton pattern
+_cve_scanner_instance: Optional['CVEScanner'] = None
+
+
+async def get_cve_scanner() -> 'CVEScanner':
+    """Get the global CVE scanner instance, initializing if needed.
+
+    Returns:
+        Initialized CVEScanner instance
+    """
+    global _cve_scanner_instance
+
+    if _cve_scanner_instance is None:
+        from utils.cve_scan_repository import CVEScanRepository
+        repository = CVEScanRepository()
+        await repository.ensure_initialized()
+        _cve_scanner_instance = CVEScanner(repository=repository)
+        logger.info("CVE scanner singleton initialized")
+
+    return _cve_scanner_instance
