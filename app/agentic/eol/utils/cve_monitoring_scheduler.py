@@ -72,6 +72,7 @@ class CVEMonitoringScheduler:
         """
         Start the monitoring scheduler.
         - Register scan job with cron trigger
+        - Register escalation check job (every 6 hours)
         - Start APScheduler
         """
         if not config.cve_monitoring.enable_cve_monitoring:
@@ -108,6 +109,26 @@ class CVEMonitoringScheduler:
         except Exception as e:
             logger.error(f"Failed to schedule CVE scan job: {e}")
             return
+
+        # Add escalation check job (every 6 hours)
+        if getattr(config.cve_monitoring, 'enable_escalation', True):
+            try:
+                escalation_trigger = CronTrigger(hour="*/6", timezone=timezone.utc)
+
+                self._scheduler.add_job(
+                    self._check_escalations,
+                    trigger=escalation_trigger,
+                    id="cve_escalation_job",
+                    name="CVE Alert Escalation Check",
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=300
+                )
+
+                logger.info("Scheduled CVE escalation job: every 6 hours")
+
+            except Exception as e:
+                logger.error(f"Failed to schedule escalation job: {e}")
 
         # Start scheduler
         self._scheduler.start()
@@ -188,6 +209,27 @@ class CVEMonitoringScheduler:
             self.stats.last_scan_duration_seconds = duration
             logger.error(f"Scan job failed after {duration:.2f}s: {e}", exc_info=True)
 
+    async def _check_escalations(self):
+        """
+        Check for alerts requiring escalation.
+        Runs on separate schedule from scans (every 6 hours).
+        """
+        logger.info("Running escalation check")
+        try:
+            from utils.cve_escalation_service import check_and_escalate_alerts
+
+            summary = await check_and_escalate_alerts()
+            logger.info(f"Escalation check complete: {summary}")
+
+            # Update stats
+            if summary["escalations_sent"] > 0:
+                self.stats.total_alerts_sent += summary["escalations_sent"]
+
+        except Exception as e:
+            self.stats.total_errors += 1
+            self.stats.last_error = f"Escalation check failed: {str(e)}"
+            logger.error(f"Escalation check failed: {e}", exc_info=True)
+
     async def _wait_for_scan_completion(
         self,
         scan_id: str,
@@ -243,12 +285,26 @@ class CVEMonitoringScheduler:
         """
         self._update_next_run_time()
 
-        return {
+        # Get next escalation time
+        next_escalation = None
+        if self._scheduler and self._running:
+            jobs = self._scheduler.get_jobs()
+            escalation_job = next((j for j in jobs if j.id == "cve_escalation_job"), None)
+            if escalation_job and escalation_job.next_run_time:
+                next_escalation = escalation_job.next_run_time.isoformat()
+
+        status_dict = {
             "scheduler_running": self._running,
             "apscheduler_available": APSCHEDULER_AVAILABLE,
             "monitoring_enabled": config.cve_monitoring.enable_cve_monitoring,
             "stats": self.stats.to_dict()
         }
+
+        # Add next escalation time if available
+        if next_escalation:
+            status_dict["stats"]["next_escalation_check"] = next_escalation
+
+        return status_dict
 
     def shutdown(self):
         """Gracefully shutdown scheduler"""
