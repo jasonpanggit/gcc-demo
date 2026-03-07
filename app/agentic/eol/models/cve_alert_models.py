@@ -185,3 +185,81 @@ class CVEAlertRule:
 
         if self.min_cvss_score and self.max_cvss_score and self.min_cvss_score > self.max_cvss_score:
             raise ValueError("min_cvss_score must be <= max_cvss_score")
+
+
+@dataclass
+class CVEAlertHistoryRecord:
+    """Historical record of CVE alert sent"""
+    # Identity
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    alert_rule_id: Optional[str] = None  # Reference to rule that triggered alert
+    alert_type: str = "high"  # Partition key: "critical", "high", "medium", "low"
+
+    # Alert content
+    cve_ids: List[str] = field(default_factory=list)
+    cve_count: int = 0
+    affected_vm_count: int = 0
+    affected_vms: List[str] = field(default_factory=list)  # VM resource IDs
+    affected_vm_names: List[str] = field(default_factory=list)  # VM display names
+
+    # Severity breakdown
+    severity_breakdown: Dict[str, int] = field(default_factory=dict)  # {CRITICAL: 5, HIGH: 10}
+
+    # Delivery
+    recipients: List[str] = field(default_factory=list)
+    channels_sent: List[str] = field(default_factory=list)  # ["email", "teams"]
+    status: str = "success"  # success, failed, partial
+    error_message: Optional[str] = None
+
+    # Lifecycle
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    acknowledged: bool = False
+    acknowledged_by: Optional[str] = None
+    acknowledged_at: Optional[str] = None
+    acknowledged_note: Optional[str] = None
+    dismissed: bool = False
+    dismissed_reason: Optional[str] = None
+    dismissed_at: Optional[str] = None
+    escalated: bool = False
+    escalated_at: Optional[str] = None
+
+    # Metadata
+    scan_id: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for Cosmos DB"""
+        return {
+            "id": self.id,
+            "alert_rule_id": self.alert_rule_id,
+            "alert_type": self.alert_type,
+            "cve_ids": self.cve_ids,
+            "cve_count": self.cve_count,
+            "affected_vm_count": self.affected_vm_count,
+            "affected_vms": self.affected_vms,
+            "affected_vm_names": self.affected_vm_names,
+            "severity_breakdown": self.severity_breakdown,
+            "recipients": self.recipients,
+            "channels_sent": self.channels_sent,
+            "status": self.status,
+            "error_message": self.error_message,
+            "timestamp": self.timestamp,
+            "acknowledged": self.acknowledged,
+            "acknowledged_by": self.acknowledged_by,
+            "acknowledged_at": self.acknowledged_at,
+            "acknowledged_note": self.acknowledged_note,
+            "dismissed": self.dismissed,
+            "dismissed_reason": self.dismissed_reason,
+            "dismissed_at": self.dismissed_at,
+            "escalated": self.escalated,
+            "escalated_at": self.escalated_at,
+            "scan_id": self.scan_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CVEAlertHistoryRecord":
+        """Create from Cosmos DB document"""
+        return cls(**data)
