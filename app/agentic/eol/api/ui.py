@@ -582,6 +582,37 @@ async def cve_detail_ui(request: Request, cve_id: str):
     return templates.TemplateResponse(request, "cve-detail.html", {"cve_id": cve_id})
 
 
+@router.get("/cve-dashboard", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_dashboard_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_dashboard_page(request: Request):
+    """
+    CVE Analytics Dashboard page.
+
+    Provides comprehensive CVE analytics and metrics visualization:
+    - Summary metrics: Total CVEs, Critical, High, Mean Time to Patch
+    - Severity distribution donut chart
+    - CVE trending over time (line chart)
+    - CVE aging distribution (bar chart)
+    - Top 10 CVEs by exposure (sortable table)
+    - VM vulnerability posture (sortable table)
+    - Time range filters (30/90/365 days)
+    - Severity filters (All/Critical/High/Medium/Low)
+    - Drill-down navigation to CVE detail and VM vulnerability pages
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve-dashboard.html template.
+    """
+    return templates.TemplateResponse(request, "cve-dashboard.html")
+
+
 @router.get("/vm-vulnerability", response_class=HTMLResponse)
 @with_timeout_and_stats(
     agent_name="vm_vulnerability_page",
@@ -591,20 +622,14 @@ async def cve_detail_ui(request: Request, cve_id: str):
 )
 async def vm_vulnerability_page(request: Request):
     """
-    VM vulnerability page - shows CVEs affecting a specific VM.
+    VM vulnerability page - overview for all VMs or detail for a specific VM.
 
-    VM-centric vulnerability view displaying all CVEs affecting a particular
-    virtual machine with comprehensive filtering, sorting, and patch management.
-    Supports:
-    - VM details and security status indicator
-    - Summary metrics (total, critical, high, medium/low CVEs)
-    - Multi-column sorting (CVSS, severity, date) per CVE-UI-06
-    - Filters (severity, CVSS range, date, patch status, search)
-    - Pagination for large result sets
-    - Quick patch application actions
+    Supports a standalone overview of Azure VMs and Arc-enabled servers with
+    vulnerability counts, plus a per-VM detail mode when vm_id is present in
+    the query string.
 
     Query params:
-        vm_id: VM resource ID (extracted client-side by JavaScript)
+        vm_id: VM resource ID for detail mode (extracted client-side by JavaScript)
 
     Args:
         request: FastAPI Request object
@@ -612,11 +637,13 @@ async def vm_vulnerability_page(request: Request):
     Returns:
         HTMLResponse with rendered vm-vulnerability.html template.
     """
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     return templates.TemplateResponse(
         request,
         "vm-vulnerability.html",
         {
-            "page_title": "VM Vulnerabilities",
-            "active_nav": "cve-management"
+            "page_title": "My VM Vulnerabilites",
+            "active_nav": "cve-management",
+            "asset_version": asset_version,
         }
     )

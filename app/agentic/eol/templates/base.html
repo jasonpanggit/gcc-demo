@@ -105,7 +105,7 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">AI Assistants</div>
+                <div class="nav-section-title">Assistants</div>
                 <a href="/azure-mcp" class="nav-item {% if '/azure-mcp' in request.path %}active{% endif %}">
                     <i class="fas fa-magic"></i>
                     <span class="nav-text">Ask Anything</span>
@@ -118,33 +118,33 @@
                     <i class="fas fa-robot"></i>
                     <span class="nav-text">Inventory</span>
                 </a>
-                <a href="/eol-search" class="nav-item {% if '/eol-search' in request.path %}active{% endif %}">
-                    <i class="fas fa-search"></i>
-                    <span class="nav-text">EOL Search</span>
-                </a>
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Resources</div>
+                <div class="nav-section-title">Inventory &amp; Lifecycle</div>
                 <a href="/resource-inventory" class="nav-item {% if '/resource-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-boxes"></i>
                     <span class="nav-text">My Azure Resources</span>
                 </a>
                 <a href="/inventory" class="nav-item {% if request.path == '/inventory' %}active{% endif %}">
                     <i class="fas fa-list"></i>
-                    <span class="nav-text">OS & Software (LAW)</span>
+                    <span class="nav-text">My OS &amp; Software</span>
                 </a>
-                <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
-                    <i class="fas fa-chart-line"></i>
-                    <span class="nav-text">OS EOL Tracker</span>
+                <a href="/vm-vulnerability" class="nav-item {% if '/vm-vulnerability' in request.path %}active{% endif %}" title="Open My VM Vulnerabilites">
+                    <i class="fas fa-server"></i>
+                    <span class="nav-text">My VM Vulnerabilites</span>
                 </a>
-                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
-                    <i class="fas fa-shield-virus"></i>
-                    <span class="nav-text">Patch Management</span>
+                <a href="/eol-search" class="nav-item {% if request.path == '/eol-search' %}active{% endif %}">
+                    <i class="fas fa-search"></i>
+                    <span class="nav-text">EOL Search</span>
                 </a>
                 <a href="/eol-inventory" class="nav-item {% if '/eol-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-table"></i>
                     <span class="nav-text">EOL Dates Database</span>
+                </a>
+                <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="nav-text">OS EOL Tracker</span>
                 </a>
                 <a href="/eol-searches" class="nav-item {% if '/eol-searches' in request.path %}active{% endif %}">
                     <i class="fas fa-history"></i>
@@ -153,27 +153,31 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">CVE Management</div>
+                <div class="nav-section-title">Security &amp; Remediation</div>
+                <a href="/cve-dashboard" class="nav-item {% if '/cve-dashboard' in request.path %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">CVE Dashboard</span>
+                </a>
                 <a href="/cve-search" class="nav-item {% if '/cve-search' in request.path or '/cve-detail' in request.path %}active{% endif %}">
                     <i class="fas fa-search"></i>
                     <span class="nav-text">Search CVEs</span>
                 </a>
-                <a href="#" class="nav-item disabled" title="Coming in Phase 8">
-                    <i class="fas fa-chart-line"></i>
-                    <span class="nav-text">CVE Dashboard</span>
+                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
+                    <i class="fas fa-shield-virus"></i>
+                    <span class="nav-text">Patch Management</span>
                 </a>
-                <a href="/resource-inventory?type=Virtual%20Machines" class="nav-item {% if '/vm-vulnerability' in request.path %}active{% endif %}" title="Select a VM to view its vulnerabilities">
-                    <i class="fas fa-server"></i>
-                    <span class="nav-text">VM Vulnerabilities</span>
+                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell"></i>
+                    <span class="nav-text">Alerts</span>
                 </a>
-                <a href="#" class="nav-item disabled" title="Coming in Phase 9">
+                <a class="nav-item disabled" title="Coming in Phase 9" aria-disabled="true" tabindex="-1">
                     <i class="fas fa-bell"></i>
                     <span class="nav-text">CVE Alerts</span>
                 </a>
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Management</div>
+                <div class="nav-section-title">Platform</div>
                 <a href="/docs" class="nav-item {% if request.path == '/docs' %}active{% endif %}" target="_blank" rel="noopener noreferrer">
                     <i class="fas fa-book"></i>
                     <span class="nav-text">API Docs</span>
@@ -181,10 +185,6 @@
                 <a href="/redoc" class="nav-item {% if request.path == '/redoc' %}active{% endif %}" target="_blank" rel="noopener noreferrer">
                     <i class="fas fa-file-alt"></i>
                     <span class="nav-text">API ReDoc</span>
-                </a>
-                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
-                    <i class="fas fa-bell"></i>
-                    <span class="nav-text">Alerts</span>
                 </a>
                 <a href="/cache" class="nav-item {% if '/cache' in request.path %}active{% endif %}">
                     <i class="fas fa-database"></i>
