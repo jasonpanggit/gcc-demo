@@ -354,3 +354,63 @@ async def cve_sync_health_check() -> Dict[str, Any]:
             "apscheduler_available": False,
             "error": "CVE sync scheduler unavailable"
         }
+
+
+@router.get('/healthz/cve-scanner')
+@with_timeout_and_stats(
+    agent_name="cve_scanner_health",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_scanner_health_check() -> Dict[str, Any]:
+    """
+    Health check endpoint for CVE scanner engine (Phase 5).
+
+    Returns CVE scanner status and Resource Graph connectivity.
+
+    Returns:
+        Dict containing:
+            - enabled (bool): Whether CVE scanner is enabled
+            - resource_graph_accessible (bool): Resource Graph connectivity test
+            - scan_container_exists (bool): Cosmos scan container initialized
+            - max_vms_per_scan (int): Configured VM limit
+
+    Note:
+        This endpoint does NOT wrap response in StandardResponse format
+        for maximum compatibility with monitoring tools.
+    """
+    try:
+        from main import get_cve_scanner
+
+        enabled = config.cve_scanner.enable_scanner
+
+        if not enabled:
+            return {
+                "enabled": False,
+                "resource_graph_accessible": False,
+                "scan_container_exists": False,
+                "message": "CVE scanner disabled"
+            }
+
+        # Test Resource Graph connectivity
+        scanner = await get_cve_scanner()
+        resource_graph_accessible = await scanner.test_connectivity()
+
+        return {
+            "enabled": enabled,
+            "resource_graph_accessible": resource_graph_accessible,
+            "scan_container_exists": True,  # Verified at startup
+            "max_vms_per_scan": config.cve_scanner.max_vms_per_scan,
+            "scan_timeout_minutes": config.cve_scanner.scan_timeout_minutes
+        }
+
+    except Exception as e:
+        logger.error(f"CVE scanner health check failed: {e}")
+        return {
+            "enabled": False,
+            "resource_graph_accessible": False,
+            "scan_container_exists": False,
+            "error": str(e)
+        }
+
