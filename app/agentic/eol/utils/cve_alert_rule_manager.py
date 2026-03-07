@@ -9,7 +9,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from models.cve_alert_models import CVEAlertRule
-from utils.cosmos_cache.base_cosmos import get_cosmos_client
+from utils.cosmos_cache import get_cosmos_client
 from utils.logger import get_logger
 from utils.config import config
 

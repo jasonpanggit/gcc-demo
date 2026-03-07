@@ -397,3 +397,15 @@ class CVEAlertDispatcher:
             logger.warning(f"Failed to save notification record: {e}")
 
         return record
+
+
+_cve_alert_dispatcher: CVEAlertDispatcher | None = None
+
+
+def get_cve_alert_dispatcher() -> CVEAlertDispatcher:
+    """Return a shared CVE alert dispatcher instance."""
+
+    global _cve_alert_dispatcher
+    if _cve_alert_dispatcher is None:
+        _cve_alert_dispatcher = CVEAlertDispatcher()
+    return _cve_alert_dispatcher

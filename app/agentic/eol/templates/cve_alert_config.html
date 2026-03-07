@@ -2,160 +2,293 @@
 
 {% block title %}CVE Alert Configuration{% endblock %}
 
+{% block extra_head %}
+<meta name="description" content="Configure CVE alert rules, escalation coverage, and notification delivery for the EOL security workflow.">
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/cve-components.css') }}?v={{ asset_version }}">
+<link rel="stylesheet" href="{{ url_for('static', path='/css/cve-alert-config.css') }}?v={{ asset_version }}">
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid mt-4">
-    <!-- Page Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3">
-            <i class="bi bi-bell-fill text-warning me-2"></i>
-            CVE Alert Configuration
-        </h1>
-        <button class="btn btn-primary" onclick="showCreateRuleModal()">
-            <i class="bi bi-plus-circle me-2"></i>Create Alert Rule
-        </button>
+<div class="container-fluid py-4 cve-alert-config-page">
+    <div class="hero-section mb-4">
+        <div class="hero-content">
+            <div class="hero-row">
+                <div class="hero-copy">
+                    <h1 class="hero-title">
+                        <span class="hero-icon me-3"><i class="fas fa-bell"></i></span>CVE Alert Configuration
+                    </h1>
+                    <p class="hero-subtitle">Define which CVEs trigger notifications, who gets alerted, and when critical findings escalate.</p>
+                    <div class="cve-hero-meta">
+                        <span class="cve-meta-pill" id="rulesLoadedLabel">Loading alert rules...</span>
+                    </div>
+                </div>
+                <div class="hero-action">
+                    <a class="btn hero-action-button" href="/cve-alert-history">
+                        <i class="fas fa-clock-rotate-left me-2"></i>View History
+                    </a>
+                    <button class="btn hero-action-button" type="button" onclick="showCreateRuleModal()">
+                        <i class="fas fa-plus me-2"></i>Create Rule
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Alert Rules Table -->
-    <div class="card shadow-sm">
-        <div class="card-body">
-            <table class="table table-hover" id="alertRulesTable">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Severity Filters</th>
-                        <th>VM Filters</th>
-                        <th>Schedule</th>
-                        <th>Channels</th>
-                        <th>Enabled</th>
-                        <th>Last Triggered</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Populated by JavaScript -->
-                </tbody>
-            </table>
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <div class="card text-center h-100 metric-card alert-config-metric-card">
+                <div class="card-body">
+                    <div class="alert-config-metric-icon text-primary"><i class="fas fa-list-check"></i></div>
+                    <h6 class="text-muted text-uppercase small">Configured Rules</h6>
+                    <h2 class="mb-0" id="totalRulesCount">0</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card text-center h-100 metric-card alert-config-metric-card border-success-subtle">
+                <div class="card-body">
+                    <div class="alert-config-metric-icon text-success"><i class="fas fa-toggle-on"></i></div>
+                    <h6 class="text-muted text-uppercase small">Enabled</h6>
+                    <h2 class="mb-0 text-success" id="enabledRulesCount">0</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card text-center h-100 metric-card alert-config-metric-card border-danger-subtle">
+                <div class="card-body">
+                    <div class="alert-config-metric-icon text-danger"><i class="fas fa-triangle-exclamation"></i></div>
+                    <h6 class="text-muted text-uppercase small">Critical Coverage</h6>
+                    <h2 class="mb-0 text-danger" id="criticalRulesCount">0</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card text-center h-100 metric-card alert-config-metric-card border-warning-subtle">
+                <div class="card-body">
+                    <div class="alert-config-metric-icon text-warning"><i class="fas fa-siren-on"></i></div>
+                    <h6 class="text-muted text-uppercase small">Escalation Enabled</h6>
+                    <h2 class="mb-0 text-warning" id="escalationRulesCount">0</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-xl-4">
+            <div class="card cve-filter-sidebar alert-config-guide-card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-sliders me-2"></i>Rule Design Guide</h5>
+                </div>
+                <div class="card-body">
+                    <div class="filter-group mb-4">
+                        <label class="form-label fw-bold">Severity Strategy</label>
+                        <p class="text-muted small mb-0">Start with Critical and High coverage, then widen to Medium only when your notification volume is manageable.</p>
+                    </div>
+                    <div class="filter-group mb-4">
+                        <label class="form-label fw-bold">Target Scope</label>
+                        <p class="text-muted small mb-0">Use resource group filters to separate production, staging, or business-unit ownership before you add more rules.</p>
+                    </div>
+                    <div class="filter-group mb-4">
+                        <label class="form-label fw-bold">Delivery Paths</label>
+                        <p class="text-muted small mb-0">Email is best for durable auditability. Teams is better for rapid triage and shared operational visibility.</p>
+                    </div>
+                    <div class="filter-group mb-0">
+                        <label class="form-label fw-bold">Escalation</label>
+                        <p class="text-muted small mb-0">Reserve escalation for truly critical findings so overdue alerts stand out instead of blending into routine notifications.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card alert-config-guide-card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-wave-square me-2"></i>Delivery Snapshot</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert-config-stat-row">
+                        <span>Email-enabled rules</span>
+                        <strong id="emailRulesCount">0</strong>
+                    </div>
+                    <div class="alert-config-stat-row">
+                        <span>Teams-enabled rules</span>
+                        <strong id="teamsRulesCount">0</strong>
+                    </div>
+                    <div class="alert-config-stat-row">
+                        <span>Default schedule users</span>
+                        <strong id="defaultScheduleCount">0</strong>
+                    </div>
+                    <div class="alert-config-stat-row border-0 pb-0 mb-0">
+                        <span>Custom schedules</span>
+                        <strong id="customScheduleCount">0</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-8">
+            <div class="card alert-config-table-card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <div>
+                        <h5 class="mb-1">
+                            <i class="fas fa-bell-concierge me-2"></i>Alert Rules
+                            <span class="badge bg-secondary ms-2" id="ruleCountBadge">0</span>
+                        </h5>
+                        <p class="text-muted small mb-0" id="ruleTableSummary">Loading configured rules...</p>
+                    </div>
+                    <button class="btn btn-outline-primary" type="button" onclick="showCreateRuleModal()">
+                        <i class="fas fa-plus me-2"></i>New Rule
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="ruleEmptyState" class="text-center py-5 d-none">
+                        <i class="fas fa-bell-slash empty-state-icon text-muted"></i>
+                        <h5 class="mt-3">No alert rules configured</h5>
+                        <p class="text-muted mb-3">Create your first rule to start notifying operators when new CVEs meet your severity and scope thresholds.</p>
+                        <button class="btn btn-primary" type="button" onclick="showCreateRuleModal()">
+                            <i class="fas fa-plus me-2"></i>Create First Rule
+                        </button>
+                    </div>
+
+                    <div class="table-responsive" id="alertRulesTableWrap">
+                        <table class="table table-hover align-middle cve-results-table alert-config-table" id="alertRulesTable">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Severity Filters</th>
+                                    <th>VM Filters</th>
+                                    <th>Schedule</th>
+                                    <th>Channels</th>
+                                    <th>Enabled</th>
+                                    <th>Last Triggered</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Create/Edit Rule Modal -->
-<div class="modal fade" id="ruleModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
+<div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content alert-config-modal">
             <div class="modal-header">
-                <h5 class="modal-title" id="ruleModalTitle">Create Alert Rule</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div>
+                    <h5 class="modal-title" id="ruleModalTitle">Create Alert Rule</h5>
+                    <p class="text-muted small mb-0">Tune alert scope, delivery channels, and escalation behavior for CVE findings.</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <form id="ruleForm">
-                    <!-- Basic Info -->
-                    <div class="mb-3">
-                        <label for="ruleName" class="form-label">Rule Name *</label>
-                        <input type="text" class="form-control" id="ruleName" required>
-                    </div>
+                    <div class="row g-4">
+                        <div class="col-12 col-lg-6">
+                            <section class="alert-config-form-section">
+                                <h6 class="alert-config-section-title">Identity</h6>
+                                <div class="mb-3">
+                                    <label for="ruleName" class="form-label">Rule Name *</label>
+                                    <input type="text" class="form-control" id="ruleName" required>
+                                </div>
+                                <div class="mb-0">
+                                    <label for="ruleDescription" class="form-label">Description</label>
+                                    <textarea class="form-control" id="ruleDescription" rows="3" placeholder="Describe the systems or owners this rule protects."></textarea>
+                                </div>
+                            </section>
 
-                    <div class="mb-3">
-                        <label for="ruleDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="ruleDescription" rows="2"></textarea>
-                    </div>
-
-                    <!-- Severity Filters -->
-                    <div class="mb-3">
-                        <label class="form-label">Severity Levels</label>
-                        <div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="severityCritical" value="CRITICAL" checked>
-                                <label class="form-check-label" for="severityCritical">Critical</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="severityHigh" value="HIGH" checked>
-                                <label class="form-check-label" for="severityHigh">High</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="severityMedium" value="MEDIUM">
-                                <label class="form-check-label" for="severityMedium">Medium</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" id="severityLow" value="LOW">
-                                <label class="form-check-label" for="severityLow">Low</label>
-                            </div>
+                            <section class="alert-config-form-section">
+                                <h6 class="alert-config-section-title">Severity Filters</h6>
+                                <div class="alert-config-checkbox-grid mb-3">
+                                    <div class="form-check severity-option severity-option-critical">
+                                        <input class="form-check-input" type="checkbox" id="severityCritical" value="CRITICAL" checked>
+                                        <label class="form-check-label" for="severityCritical">Critical</label>
+                                    </div>
+                                    <div class="form-check severity-option severity-option-high">
+                                        <input class="form-check-input" type="checkbox" id="severityHigh" value="HIGH" checked>
+                                        <label class="form-check-label" for="severityHigh">High</label>
+                                    </div>
+                                    <div class="form-check severity-option severity-option-medium">
+                                        <input class="form-check-input" type="checkbox" id="severityMedium" value="MEDIUM">
+                                        <label class="form-check-label" for="severityMedium">Medium</label>
+                                    </div>
+                                    <div class="form-check severity-option severity-option-low">
+                                        <input class="form-check-input" type="checkbox" id="severityLow" value="LOW">
+                                        <label class="form-check-label" for="severityLow">Low</label>
+                                    </div>
+                                </div>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label for="minCvss" class="form-label">Min CVSS Score</label>
+                                        <input type="number" class="form-control" id="minCvss" min="0" max="10" step="0.1" placeholder="7.0">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="maxCvss" class="form-label">Max CVSS Score</label>
+                                        <input type="number" class="form-control" id="maxCvss" min="0" max="10" step="0.1" placeholder="10.0">
+                                    </div>
+                                </div>
+                            </section>
                         </div>
-                    </div>
 
-                    <!-- CVSS Score Range -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label for="minCvss" class="form-label">Min CVSS Score</label>
-                            <input type="number" class="form-control" id="minCvss" min="0" max="10" step="0.1">
-                        </div>
-                        <div class="col-md-6">
-                            <label for="maxCvss" class="form-label">Max CVSS Score</label>
-                            <input type="number" class="form-control" id="maxCvss" min="0" max="10" step="0.1">
-                        </div>
-                    </div>
+                        <div class="col-12 col-lg-6">
+                            <section class="alert-config-form-section">
+                                <h6 class="alert-config-section-title">Target Scope</h6>
+                                <div class="mb-3">
+                                    <label for="vmResourceGroups" class="form-label">Resource Groups</label>
+                                    <input type="text" class="form-control" id="vmResourceGroups" placeholder="rg-prod, rg-staging">
+                                    <div class="form-text">Leave blank to monitor all VMs in scope.</div>
+                                </div>
+                                <div class="mb-0">
+                                    <label for="scanSchedule" class="form-label">Scan Schedule (Cron)</label>
+                                    <input type="text" class="form-control" id="scanSchedule" placeholder="0 9 * * *">
+                                    <div class="form-text">Examples: daily at 9 AM: 0 9 * * * • every 6 hours: 0 */6 * * * • Mondays at 9 AM: 0 9 * * 1</div>
+                                </div>
+                            </section>
 
-                    <!-- VM Filters -->
-                    <div class="mb-3">
-                        <label for="vmResourceGroups" class="form-label">Resource Groups (comma-separated)</label>
-                        <input type="text" class="form-control" id="vmResourceGroups" placeholder="rg-prod, rg-staging">
-                    </div>
+                            <section class="alert-config-form-section">
+                                <h6 class="alert-config-section-title">Delivery & Escalation</h6>
+                                <div class="mb-3">
+                                    <label for="emailRecipients" class="form-label">Email Recipients</label>
+                                    <input type="text" class="form-control" id="emailRecipients" placeholder="admin@company.com, security@company.com">
+                                </div>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="teamsEnabled" checked>
+                                    <label class="form-check-label" for="teamsEnabled">Enable Teams Notifications</label>
+                                </div>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="enableEscalation">
+                                    <label class="form-check-label" for="enableEscalation">Enable escalation for unacknowledged critical CVEs</label>
+                                </div>
+                                <div id="escalationOptions" style="display:none;">
+                                    <div class="mb-3">
+                                        <label for="escalationTimeout" class="form-label">Escalation Timeout (hours)</label>
+                                        <input type="number" class="form-control" id="escalationTimeout" value="24" min="1">
+                                    </div>
+                                    <div class="mb-0">
+                                        <label for="escalationRecipients" class="form-label">Escalation Recipients</label>
+                                        <input type="text" class="form-control" id="escalationRecipients" placeholder="manager@company.com">
+                                    </div>
+                                </div>
+                            </section>
 
-                    <!-- Notification Channels -->
-                    <div class="mb-3">
-                        <label for="emailRecipients" class="form-label">Email Recipients (comma-separated)</label>
-                        <input type="text" class="form-control" id="emailRecipients" placeholder="admin@company.com, security@company.com">
-                    </div>
-
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="teamsEnabled" checked>
-                            <label class="form-check-label" for="teamsEnabled">
-                                Enable Teams Notifications
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Schedule -->
-                    <div class="mb-3">
-                        <label for="scanSchedule" class="form-label">Scan Schedule (Cron)</label>
-                        <input type="text" class="form-control" id="scanSchedule" placeholder="0 9 * * *">
-                        <div class="form-text">
-                            Common schedules: Daily 9 AM: "0 9 * * *", Every 6 hours: "0 */6 * * *", Weekly Monday 9 AM: "0 9 * * 1"
-                        </div>
-                    </div>
-
-                    <!-- Escalation -->
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="enableEscalation">
-                            <label class="form-check-label" for="enableEscalation">
-                                Enable Escalation for Unacknowledged Critical CVEs
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="mb-3" id="escalationOptions" style="display:none;">
-                        <label for="escalationTimeout" class="form-label">Escalation Timeout (hours)</label>
-                        <input type="number" class="form-control" id="escalationTimeout" value="24" min="1">
-
-                        <label for="escalationRecipients" class="form-label mt-2">Escalation Recipients (comma-separated)</label>
-                        <input type="text" class="form-control" id="escalationRecipients" placeholder="manager@company.com">
-                    </div>
-
-                    <!-- Enabled Toggle -->
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="ruleEnabled" checked>
-                            <label class="form-check-label" for="ruleEnabled">
-                                <strong>Rule Enabled</strong>
-                            </label>
+                            <section class="alert-config-form-section mb-0">
+                                <h6 class="alert-config-section-title">Rule State</h6>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="ruleEnabled" checked>
+                                    <label class="form-check-label" for="ruleEnabled"><strong>Rule Enabled</strong></label>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="saveRule()">Save Rule</button>
             </div>
         </div>
@@ -163,6 +296,6 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_scripts %}
 <script src="{{ url_for('static', path='/js/cve-alert-config.js') }}"></script>
 {% endblock %}

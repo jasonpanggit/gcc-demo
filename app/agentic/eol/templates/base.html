@@ -117,7 +117,7 @@
                 </a>
                 <a href="/inventory-assistant" class="nav-item {% if '/inventory-assistant' in request.path %}active{% endif %}">
                     <i class="fas fa-robot"></i>
-                    <span class="nav-text">Inventory</span>
+                    <span class="nav-text">OS & Software</span>
                 </a>
             </div>
 
@@ -163,14 +163,6 @@
                     <i class="fas fa-search"></i>
                     <span class="nav-text">Search CVEs</span>
                 </a>
-                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
-                    <i class="fas fa-shield-virus"></i>
-                    <span class="nav-text">Patch Management</span>
-                </a>
-                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
-                    <i class="fas fa-bell"></i>
-                    <span class="nav-text">Alerts</span>
-                </a>
                 <a href="/cve-alert-config" class="nav-item {% if '/cve-alert-config' in request.path %}active{% endif %}">
                     <i class="fas fa-bell text-warning"></i>
                     <span class="nav-text">CVE Alert Configuration</span>
@@ -178,6 +170,14 @@
                 <a href="/cve-alert-history" class="nav-item {% if '/cve-alert-history' in request.path %}active{% endif %}">
                     <i class="fas fa-clock-rotate-left text-info"></i>
                     <span class="nav-text">CVE Alert History</span>
+                </a>
+                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
+                    <i class="fas fa-shield-virus"></i>
+                    <span class="nav-text">Patch Management</span>
+                </a>
+                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell"></i>
+                    <span class="nav-text">Alerts</span>
                 </a>
             </div>
 

@@ -9,7 +9,7 @@ acknowledge, dismiss, and escalation tracking.
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from models.cve_alert_models import CVEAlertHistoryRecord
-from utils.cosmos_cache.base_cosmos import get_cosmos_client
+from utils.cosmos_cache import get_cosmos_client
 from utils.logger import get_logger
 from utils.config import config
 
