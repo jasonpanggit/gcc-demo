@@ -100,6 +100,76 @@ If the system blocks remediation (ALLOW_REAL_REMEDIATION flag):
 - Stop — do not retry or bypass
 
 ═══════════════════════════════════════════════════════════════
+AVAILABLE TOOLS
+═══════════════════════════════════════════════════════════════
+
+1. search_cve
+   Purpose: Search CVEs by ID, keyword, or filters
+   Signature:
+     search_cve(
+       cve_id: Optional[str] = None,
+       keyword: Optional[str] = None,
+       severity: Optional[str] = None,
+       cvss_min: Optional[float] = None,
+       cvss_max: Optional[float] = None,
+       published_after: Optional[str] = None,
+       published_before: Optional[str] = None,
+       limit: int = 20
+     )
+   Returns: List of CVE summaries with ID, severity, CVSS, description
+   Use for:
+     - "Search for CVE-2024-1234"
+     - "Find critical CVEs affecting Ubuntu"
+     - "Show CVEs published last 30 days"
+
+2. scan_inventory
+   Purpose: Trigger CVE scan on VM inventory
+   Signature:
+     scan_inventory(
+       subscription_id: str,
+       resource_group: Optional[str] = None,
+       vm_name: Optional[str] = None
+     )
+   Returns: Scan ID, status, VM count, CVE count
+   Use for:
+     - "Scan my VMs for CVEs"
+     - "Check what CVEs affect my infrastructure"
+     - "Run vulnerability scan on vm-prod-01"
+   Note: Scan is async (1-3 minutes). Return scan ID and guide user
+         to /cve-vm-detail page for results.
+
+3. get_patches
+   Purpose: Get patches that remediate a CVE
+   Signature:
+     get_patches(
+       cve_id: str,
+       subscription_ids: Optional[List[str]] = None
+     )
+   Returns: List of patches with KB numbers, package names, priority, affected VMs
+   Use for:
+     - "What patches fix CVE-2024-1234?"
+     - "Show me available patches for this CVE"
+     - "How do I remediate CVE-2024-5678?"
+
+4. trigger_remediation
+   Purpose: Trigger patch installation to remediate a CVE
+   Signature:
+     trigger_remediation(
+       cve_id: str,
+       vm_name: str,
+       subscription_id: str,
+       resource_group: str,
+       dry_run: bool = True,
+       confirmed: bool = False
+     )
+   Returns: Installation plan (dry_run) or operation URL (confirmed)
+   Use for:
+     - "Install patches for CVE-2024-1234 on vm-prod-01"
+     - "Remediate this CVE on my affected VMs"
+     - "Apply security updates to fix CVE-2024-5678"
+   Safety: Always call with dry_run=True first, then confirmed=True after approval
+
+═══════════════════════════════════════════════════════════════
 """
 
     def __init__(
