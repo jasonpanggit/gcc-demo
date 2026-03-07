@@ -152,6 +152,48 @@ class InventoryConfig:
     cosmos_autoscale_max_ru: int = 4000
 
 
+
+@dataclass
+class CVEDataConfig:
+    """CVE (Common Vulnerabilities and Exposures) data configuration.
+
+    Controls CVE data fetching from multiple sources: CVE.org, NVD, vendor feeds.
+    """
+
+    # API endpoints
+    cve_org_base_url: str = "https://cveawg.mitre.org/api"
+    nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
+    redhat_base_url: str = "https://access.redhat.com/hydra/rest/securitydata"
+    ubuntu_base_url: str = "https://ubuntu.com/security"
+    msrc_base_url: str = "https://api.msrc.microsoft.com/cvrf/v2.0"
+    github_graphql_url: str = "https://api.github.com/graphql"
+
+    # API keys (optional for some sources)
+    nvd_api_key: str = field(default_factory=lambda: os.getenv("NVD_API_KEY", ""))
+    msrc_api_key: str = field(default_factory=lambda: os.getenv("MSRC_API_KEY", ""))
+    github_token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", ""))
+
+    # Request configuration
+    request_timeout: int = 30  # seconds
+    max_retries: int = 3
+    rate_limit_per_second: float = 5.0  # Default rate limit
+
+    # Cache configuration
+    l1_cache_size: int = 1000  # Max CVEs in memory
+    l1_cache_ttl_seconds: int = 3600  # 1 hour
+    cosmos_container_name: str = "cve_data"
+
+    # Source priority for conflict resolution (lower number = higher priority)
+    source_priority: Dict[str, int] = field(default_factory=lambda: {
+        "nvd": 1,        # Highest priority for CVSS scores
+        "cve_org": 2,    # Authoritative for CVE metadata
+        "github": 3,     # Good for software package CVEs
+        "redhat": 4,     # Enterprise Linux focus
+        "ubuntu": 4,     # Same priority as RedHat
+        "microsoft": 4   # Windows/Office focus
+    })
+
+
 # ============================================================================
 # Phase 2 Day 6: Centralized Timeout Configuration
 # ============================================================================
