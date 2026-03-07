@@ -60,6 +60,7 @@ function initDataTable() {
         },
         columnDefs: [
             { targets: -1, orderable: false, searchable: false },   // actions col
+            { targets: -2, orderable: false, searchable: false },   // CVE badge col
             { targets: 4, orderable: false },                       // tags col
         ],
     });
@@ -295,10 +296,22 @@ function renderTable(resources) {
         const typeCell = `<span class="resource-type-badge" style="--type-color:${meta.color}">` +
                           `<i class="bi ${meta.icon} me-1"></i>${meta.label}</span>`;
 
-        const actions = `<button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="showDetails(${idx})" title="Details">` +
-                        `<i class="bi bi-chevron-right"></i></button>`;
+        // CVE badge (only for VMs)
+        const isVM = (r.resource_type || '').toLowerCase() === 'microsoft.compute/virtualmachines';
+        const cveBadge = isVM
+            ? `<span class="badge bg-secondary" id="cve-count-${r.resource_id}"><i class="fas fa-spinner fa-spin"></i></span>`
+            : '<span class="text-muted">-</span>';
 
-        dataTable.row.add([name, typeCell, rg, loc, tags, discovered, actions]);
+        // Actions (show vulnerability button only for VMs)
+        let actions = `<button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="showDetails(${idx})" title="Details">` +
+                      `<i class="bi bi-chevron-right"></i></button>`;
+        if (isVM) {
+            actions += ` <a href="/vm-vulnerability?vm_id=${encodeURIComponent(r.resource_id)}" ` +
+                       `class="btn btn-sm btn-outline-primary py-0 px-1" title="View CVE vulnerabilities">` +
+                       `<i class="fas fa-shield-alt"></i></a>`;
+        }
+
+        dataTable.row.add([name, typeCell, rg, loc, tags, discovered, cveBadge, actions]);
     });
 
     dataTable.draw();
