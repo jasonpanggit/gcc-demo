@@ -124,8 +124,56 @@ async def scan_inventory(
     Returns scan ID and status. Scan runs asynchronously (1-3 minutes).
     Check results at /cve-vm-detail page or call get_scan_result later.
     """
-    # Implementation will be added in task 3
-    pass
+    try:
+        # Lazy import to avoid circular dependency
+        from main import get_cve_scanner
+        from models.cve_models import CVEScanRequest
+
+        scanner = await get_cve_scanner()
+
+        # Build scan request
+        resource_groups = [resource_group] if resource_group else None
+        scan_request = CVEScanRequest(
+            subscription_ids=[subscription_id],
+            resource_groups=resource_groups,
+            include_arc=True
+        )
+
+        # Start async scan (returns scan_id immediately)
+        scan_id = await scanner.start_scan(scan_request)
+
+        # Get initial status
+        scan_result = await scanner.get_scan_status(scan_id)
+
+        response_data = {
+            "success": True,
+            "scan_id": scan_id,
+            "status": scan_result.status if scan_result else "pending",
+            "message": "Scan started. Check status with scan_id.",
+            "tool_name": "scan_inventory"
+        }
+
+        if scan_result:
+            response_data.update({
+                "vm_count": scan_result.total_vms,
+                "scanned_vms": scan_result.scanned_vms,
+                "cve_count": scan_result.total_matches,
+                "started_at": scan_result.started_at
+            })
+
+        return TextContent(
+            type="text",
+            text=json.dumps(response_data, indent=2)
+        )
+    except Exception as e:
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False,
+                "error": str(e),
+                "tool_name": "scan_inventory"
+            }, indent=2)
+        )
 
 
 @mcp.tool()
