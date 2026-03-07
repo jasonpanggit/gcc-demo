@@ -61,6 +61,7 @@ from api.patch_management import router as patch_management_router
 from api.routing_analytics import router as routing_analytics_router
 from api.telemetry_debug import router as telemetry_debug_router
 from api.cve_sync import router as cve_sync_router
+from api.cve import router as cve_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -173,6 +174,7 @@ app.include_router(patch_management_router)  # Arc VM patch assessment
 app.include_router(routing_analytics_router)  # Routing telemetry analytics
 app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE sync jobs
+app.include_router(cve_router, prefix="/api", tags=["CVE"])  # CVE search and detail
 
 # Configure logging to prevent duplicate log messages
 import logging
