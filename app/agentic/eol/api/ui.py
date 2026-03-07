@@ -580,3 +580,43 @@ async def cve_detail_ui(request: Request, cve_id: str):
         HTMLResponse with rendered cve-detail.html template.
     """
     return templates.TemplateResponse(request, "cve-detail.html", {"cve_id": cve_id})
+
+
+@router.get("/vm-vulnerability", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="vm_vulnerability_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def vm_vulnerability_page(request: Request):
+    """
+    VM vulnerability page - shows CVEs affecting a specific VM.
+
+    VM-centric vulnerability view displaying all CVEs affecting a particular
+    virtual machine with comprehensive filtering, sorting, and patch management.
+    Supports:
+    - VM details and security status indicator
+    - Summary metrics (total, critical, high, medium/low CVEs)
+    - Multi-column sorting (CVSS, severity, date) per CVE-UI-06
+    - Filters (severity, CVSS range, date, patch status, search)
+    - Pagination for large result sets
+    - Quick patch application actions
+
+    Query params:
+        vm_id: VM resource ID (extracted client-side by JavaScript)
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered vm-vulnerability.html template.
+    """
+    return templates.TemplateResponse(
+        request,
+        "vm-vulnerability.html",
+        {
+            "page_title": "VM Vulnerabilities",
+            "active_nav": "cve-management"
+        }
+    )
