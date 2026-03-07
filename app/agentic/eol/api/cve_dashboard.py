@@ -8,15 +8,18 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 
 try:
     from utils.response_models import StandardResponse
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
+    from utils.cve_export import generate_csv_export, generate_pdf_export
 except ImportError:
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
+    from app.agentic.eol.utils.cve_export import generate_csv_export, generate_pdf_export
 
 
 router = APIRouter()
@@ -201,3 +204,90 @@ async def get_dashboard_metrics(
             status_code=500,
             detail=f"Dashboard metrics retrieval failed: {str(e)}"
         )
+
+
+@router.get("/export")
+async def export_dashboard_csv(
+    format: str = Query("csv", description="Export format: csv or pdf"),
+    time_range: int = Query(30, description="Days to look back"),
+    severity: Optional[str] = Query(None, description="Filter by severity")
+) -> StreamingResponse:
+    """
+    Export dashboard data in CSV format.
+
+    Query params:
+        - format: Export format (csv only for GET)
+        - time_range: Days to look back (30, 90, 365)
+        - severity: Optional severity filter (CRITICAL, HIGH, MEDIUM, LOW)
+
+    Returns:
+        StreamingResponse with CSV file download
+    """
+    if format != "csv":
+        raise HTTPException(status_code=400, detail="GET /export only supports format=csv")
+
+    return await generate_csv_export(time_range, severity)
+
+
+@router.post("/export")
+async def export_dashboard_pdf(
+    export_request: dict
+) -> StreamingResponse:
+    """
+    Export dashboard data as PDF report.
+
+    Request body:
+        {
+            "format": "pdf",
+            "time_range": 30,
+            "severity": "CRITICAL" (optional),
+            "chart_images": {
+                "donut": "data:image/png;base64,...",
+                "line": "data:image/png;base64,...",
+                "aging": "data:image/png;base64,..."
+            }
+        }
+
+    Returns:
+        StreamingResponse with PDF file download
+    """
+    format_type = export_request.get('format', 'pdf')
+    if format_type != 'pdf':
+        raise HTTPException(status_code=400, detail="POST /export only supports format=pdf")
+
+    # Get dashboard data (reuse analytics queries)
+    time_range = export_request.get('time_range', 30)
+    severity = export_request.get('severity')
+
+    # Import analytics service
+    from main import get_cve_analytics
+
+    analytics = await get_cve_analytics()
+
+    # Fetch dashboard data
+    summary_stats, top_cves, vm_posture, aging_dist, mttp = await asyncio.gather(
+        analytics.get_summary_stats(time_range, severity),
+        analytics.get_top_cves_by_exposure(severity, limit=10),
+        analytics.get_vm_vulnerability_posture(severity),
+        analytics.get_aging_distribution(severity),
+        analytics.calculate_mttp(time_range)
+    )
+
+    # Add MTTP to summary
+    summary_stats["mttp_days"] = mttp
+
+    dashboard_data = {
+        'summary': summary_stats,
+        'top_cves': top_cves,
+        'vm_posture': vm_posture,
+        'aging': aging_dist
+    }
+
+    chart_images = export_request.get('chart_images', {})
+
+    return await generate_pdf_export(
+        dashboard_data,
+        chart_images,
+        time_range,
+        severity
+    )
