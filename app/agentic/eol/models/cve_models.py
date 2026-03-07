@@ -101,11 +101,73 @@ class UnifiedCVE(BaseModel):
         }
 
 
+# ============================================================================
+# API Request/Response Models (Phase 3)
+# ============================================================================
+
+class CVESearchRequest(BaseModel):
+    """Request model for CVE search API.
+
+    Supports multiple filter types for flexible CVE discovery.
+    """
+    # Identity filters
+    cve_id: Optional[str] = None
+
+    # Text search
+    keyword: Optional[str] = None
+
+    # Severity filters
+    severity: Optional[str] = None  # CRITICAL, HIGH, MEDIUM, LOW
+    min_score: Optional[float] = None  # CVSS minimum score (0.0-10.0)
+    max_score: Optional[float] = None  # CVSS maximum score (0.0-10.0)
+
+    # Date filters
+    published_after: Optional[str] = None  # ISO date string
+    published_before: Optional[str] = None  # ISO date string
+
+    # Product filters
+    vendor: Optional[str] = None
+    product: Optional[str] = None
+
+    # Source filter
+    source: Optional[str] = None  # nvd, cve_org, github, redhat, ubuntu, microsoft
+
+    # Exploit filter
+    exploit_available: Optional[bool] = None
+
+    # Pagination
+    limit: int = 100
+    offset: int = 0
+
+    # Sorting
+    sort_by: str = "published_date"  # published_date, last_modified_date, cvss_score
+    sort_order: str = "desc"  # asc, desc
+
+
+class CVESearchResponse(BaseModel):
+    """Response model for CVE search API."""
+    results: List[UnifiedCVE]
+    total_count: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+class CVEDetailResponse(BaseModel):
+    """Response model for CVE detail API."""
+    cve: UnifiedCVE
+    related_cves: List[str] = []  # CVE IDs of related vulnerabilities
+    cache_hit: bool = False  # Whether result came from L1/L2 cache
+
+
 # Export all models
 __all__ = [
     "CVSSScore",
     "CVEAffectedProduct",
     "CVEReference",
     "CVEVendorMetadata",
-    "UnifiedCVE"
+    "UnifiedCVE",
+    "CVESearchRequest",
+    "CVESearchResponse",
+    "CVEDetailResponse"
 ]
