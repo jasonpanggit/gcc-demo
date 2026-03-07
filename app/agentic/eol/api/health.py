@@ -285,3 +285,72 @@ async def inventory_health_check() -> Dict[str, Any]:
         status["scheduler"] = {"status": "unavailable"}
 
     return status
+
+
+@router.get('/healthz/cve-sync')
+@with_timeout_and_stats(
+    agent_name="cve_sync_health",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_sync_health_check() -> Dict[str, Any]:
+    """
+    Health check endpoint for CVE sync scheduler.
+
+    Returns CVE scheduler status, job statistics, and configuration.
+
+    Returns:
+        Dict containing:
+            - enabled (bool): Whether CVE sync is enabled
+            - scheduler_running (bool): Whether scheduler is active
+            - last_full_sync (str): ISO timestamp of last full sync
+            - last_incremental_sync (str): ISO timestamp of last incremental sync
+            - next_full_sync (str): ISO timestamp of next scheduled full sync
+            - next_incremental_sync (str): ISO timestamp of next scheduled incremental sync
+            - error_count (int): Total errors across all jobs
+            - config (dict): Sync schedule configuration
+
+    Note:
+        This endpoint does NOT wrap response in StandardResponse format
+        for maximum compatibility with monitoring tools.
+    """
+    try:
+        from utils.cve_scheduler import get_cve_scheduler
+
+        scheduler = get_cve_scheduler()
+        status_data = scheduler.get_status()
+
+        # Extract key metrics
+        full_sync_stats = status_data.get("jobs", {}).get("full_sync", {})
+        incremental_stats = status_data.get("jobs", {}).get("incremental_sync", {})
+
+        return {
+            "enabled": status_data.get("cve_sync_enabled", False),
+            "scheduler_running": status_data.get("running", False),
+            "apscheduler_available": status_data.get("apscheduler_available", False),
+            "last_full_sync": full_sync_stats.get("last_run"),
+            "last_incremental_sync": incremental_stats.get("last_run"),
+            "next_full_sync": full_sync_stats.get("next_run"),
+            "next_incremental_sync": incremental_stats.get("next_run"),
+            "total_full_syncs": full_sync_stats.get("total_runs", 0),
+            "total_incremental_syncs": incremental_stats.get("total_runs", 0),
+            "total_errors": (
+                full_sync_stats.get("total_errors", 0) +
+                incremental_stats.get("total_errors", 0)
+            ),
+            "last_full_sync_duration": full_sync_stats.get("last_duration_seconds"),
+            "last_incremental_sync_duration": incremental_stats.get("last_duration_seconds"),
+            "config": {
+                "full_sync_cron": status_data.get("full_sync_cron"),
+                "incremental_interval_hours": status_data.get("incremental_interval_hours"),
+                "lookback_days": status_data.get("sync_lookback_days"),
+            }
+        }
+    except Exception:
+        return {
+            "enabled": False,
+            "scheduler_running": False,
+            "apscheduler_available": False,
+            "error": "CVE sync scheduler unavailable"
+        }
