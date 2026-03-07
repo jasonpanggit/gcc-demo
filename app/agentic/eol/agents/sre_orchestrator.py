@@ -490,14 +490,16 @@ class SREOrchestratorAgent(BaseSREAgent):
     # ------------------------------------------------------------------
 
     async def _init_sre_sub_agent(self) -> None:
-        """Initialise SRESubAgent with tools from the SRE MCP server.
+        """Initialise SRESubAgent with tools from SRE + CVE MCP servers.
 
-        Mirrors the pattern in MCPOrchestratorAgent._init_sre_agent().
+        Merges SRE and CVE tools into a unified catalog for SRESubAgent.
+        Creates a routing tool invoker that dispatches to the correct MCP client.
         """
         if SRESubAgent is None:
             logger.warning("SRESubAgent class not available — skipping init")
             return
 
+        # Initialize SRE MCP client
         try:
             sre_client = await get_sre_mcp_client()
         except SREMCPDisabledError:
@@ -512,13 +514,117 @@ class SREOrchestratorAgent(BaseSREAgent):
             logger.warning("No SRE tools returned by MCP client — SRESubAgent not initialised")
             return
 
+        # Initialize CVE MCP client and get CVE tools
+        cve_tools = []
+        cve_client = None
+        try:
+            from main import get_cve_mcp_client
+            cve_client = await get_cve_mcp_client()
+            # Get CVE tools from the MCP server
+            cve_tool_names = ["search_cve", "scan_inventory", "get_patches", "trigger_remediation"]
+            for tool_name in cve_tool_names:
+                # Build tool definition matching MCP format
+                tool_def = {
+                    "name": tool_name,
+                    "description": self._get_cve_tool_description(tool_name),
+                    "inputSchema": self._get_cve_tool_schema(tool_name)
+                }
+                cve_tools.append(tool_def)
+            logger.info("✅ CVE MCP client integrated with %d CVE tools", len(cve_tools))
+        except Exception as exc:
+            logger.warning("CVE MCP client init failed: %s — continuing without CVE tools", exc)
+
+        # Merge SRE and CVE tools
+        all_tools = sre_tools + cve_tools
+        logger.info("📦 Merged tool catalog: %d SRE + %d CVE = %d total tools",
+                   len(sre_tools), len(cve_tools), len(all_tools))
+
+        # Create unified tool invoker that routes to correct MCP client
+        async def unified_tool_invoker(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            """Route tool calls to correct MCP client based on tool name."""
+            cve_tool_names = {"search_cve", "scan_inventory", "get_patches", "trigger_remediation"}
+            if tool_name in cve_tool_names:
+                if cve_client is None:
+                    return {
+                        "success": False,
+                        "error": "CVE MCP client not available"
+                    }
+                # Route to CVE MCP client
+                result = await cve_client.mcp.call_tool(tool_name, arguments=arguments)
+                # Parse MCP response
+                if hasattr(result, 'text'):
+                    return json.loads(result.text)
+                return result
+            else:
+                # Route to SRE MCP client
+                return await sre_client.call_tool(tool_name, arguments)
+
         self._sre_sub_agent = SRESubAgent(
-            tool_definitions=sre_tools,
-            tool_invoker=sre_client.call_tool,
+            tool_definitions=all_tools,
+            tool_invoker=unified_tool_invoker,
             event_callback=None,
         )
-        self._sre_tool_invoker = sre_client.call_tool
-        logger.info("✅ SRESubAgent initialised with %d SRE tools", len(sre_tools))
+        self._sre_tool_invoker = unified_tool_invoker
+        logger.info("✅ SRESubAgent initialised with %d total tools (%d SRE + %d CVE)",
+                   len(all_tools), len(sre_tools), len(cve_tools))
+
+    def _get_cve_tool_description(self, tool_name: str) -> str:
+        """Get description for CVE tool."""
+        descriptions = {
+            "search_cve": "Search CVEs by ID, keyword, severity, CVSS score, or date filters. Returns CVE summaries with metadata.",
+            "scan_inventory": "Trigger CVE vulnerability scan on VM inventory. Scans VMs for known CVEs and returns scan status.",
+            "get_patches": "Get patches that remediate a specific CVE. Returns patch list with KB numbers and affected VMs.",
+            "trigger_remediation": "Trigger patch installation to remediate a CVE on a VM. Supports dry_run and requires confirmation."
+        }
+        return descriptions.get(tool_name, "CVE management tool")
+
+    def _get_cve_tool_schema(self, tool_name: str) -> Dict[str, Any]:
+        """Get input schema for CVE tool."""
+        schemas = {
+            "search_cve": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID (e.g. CVE-2024-1234)"},
+                    "keyword": {"type": "string", "description": "Keyword search"},
+                    "severity": {"type": "string", "description": "Severity filter: CRITICAL, HIGH, MEDIUM, LOW"},
+                    "cvss_min": {"type": "number", "description": "Minimum CVSS score"},
+                    "cvss_max": {"type": "number", "description": "Maximum CVSS score"},
+                    "published_after": {"type": "string", "description": "ISO date"},
+                    "published_before": {"type": "string", "description": "ISO date"},
+                    "limit": {"type": "integer", "description": "Max results (default 20)"}
+                }
+            },
+            "scan_inventory": {
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string", "description": "Azure subscription ID"},
+                    "resource_group": {"type": "string", "description": "Resource group (optional)"},
+                    "vm_name": {"type": "string", "description": "Specific VM name (optional)"}
+                },
+                "required": ["subscription_id"]
+            },
+            "get_patches": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID"},
+                    "subscription_ids": {"type": "array", "items": {"type": "string"}, "description": "Subscription IDs (optional)"}
+                },
+                "required": ["cve_id"]
+            },
+            "trigger_remediation": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID"},
+                    "vm_name": {"type": "string", "description": "VM name"},
+                    "subscription_id": {"type": "string", "description": "Subscription ID"},
+                    "resource_group": {"type": "string", "description": "Resource group"},
+                    "dry_run": {"type": "boolean", "description": "Preview only (default true)"},
+                    "confirmed": {"type": "boolean", "description": "Execute remediation (requires confirmation)"}
+                },
+                "required": ["cve_id", "vm_name", "subscription_id", "resource_group"]
+            }
+        }
+        return schemas.get(tool_name, {"type": "object"})
 
     async def _run_via_sre_sub_agent(
         self,
