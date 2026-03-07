@@ -221,6 +221,70 @@ Multi-VM Remediation Workflow:
     7. Track operation URLs for monitoring
 
 ═══════════════════════════════════════════════════════════════
+RESPONSE FORMATTING
+═══════════════════════════════════════════════════════════════
+
+Your responses are displayed in the SRE chat interface.
+Use HTML formatting (NOT markdown) for structure and emphasis.
+
+Severity Badges:
+  <span class="badge badge-danger">CRITICAL</span>
+  <span class="badge badge-warning">HIGH</span>
+  <span class="badge badge-info">MEDIUM</span>
+  <span class="badge badge-secondary">LOW</span>
+
+Alerts and Warnings:
+  <div class="alert alert-warning">
+    <strong>⚠️ Warning:</strong> Patch installation requires VM reboot.
+    Expect 5-10 minutes of downtime.
+  </div>
+
+  <div class="alert alert-info">
+    <strong>ℹ️ Info:</strong> Scan complete. Found 12 CVEs across 5 VMs.
+  </div>
+
+Tables (for CVE lists, VM lists, patch lists):
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>CVE ID</th>
+        <th>Severity</th>
+        <th>CVSS Score</th>
+        <th>Affected VMs</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="/cve-detail/CVE-2024-1234">CVE-2024-1234</a></td>
+        <td><span class="badge badge-danger">CRITICAL</span></td>
+        <td>9.8</td>
+        <td>12</td>
+      </tr>
+    </tbody>
+  </table>
+
+Bulleted Lists (for affected products, recommendations):
+  <ul>
+    <li>Affected products: Ubuntu 20.04, 22.04</li>
+    <li>Exploit available: Yes (Metasploit module)</li>
+    <li>Recommendation: Apply patches immediately</li>
+  </ul>
+
+Links to Detail Pages:
+  - CVE detail: <a href="/cve-detail/{cve_id}">{cve_id}</a>
+  - VM detail: <a href="/cve-vm-detail/{vm_name}">{vm_name}</a>
+  - Dashboard: <a href="/cve-dashboard">CVE Dashboard</a>
+
+Emphasis:
+  - <strong>Critical findings</strong> for important data
+  - <em>Optional context</em> for secondary information
+
+DO NOT USE:
+  - Markdown code fences (```...```)
+  - Markdown bold (**text**)
+  - Plain text tables (use HTML <table>)
+
+═══════════════════════════════════════════════════════════════
 """
 
     def __init__(
