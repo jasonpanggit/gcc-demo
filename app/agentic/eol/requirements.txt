@@ -36,6 +36,7 @@ a2a-sdk==0.3.12
 tqdm==4.67.1
 aiohttp==3.10.5
 httpx==0.28.1
+cachetools==5.5.0  # TTL cache for CVE data L1 caching
 beautifulsoup4==4.12.3
 soupsieve==2.5
 lxml==5.3.0
