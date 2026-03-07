@@ -652,6 +652,32 @@ async def cve_alert_config_page(request: Request):
     )
 
 
+@router.get("/cve-alert-history", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_alert_history_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_alert_history_page(request: Request):
+    """
+    CVE Alert History page.
+
+    Display historical CVE alerts with filtering, acknowledge, and dismiss operations.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTMLResponse with rendered cve_alert_history.html template.
+    """
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(
+        request,
+        "cve_alert_history.html",
+        {"asset_version": asset_version},
+    )
+
 
 @router.get("/vm-vulnerability", response_class=HTMLResponse)
 @with_timeout_and_stats(
