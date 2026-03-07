@@ -178,6 +178,9 @@ async function loadResourcesPage() {
     const start = currentPage.total === 0 ? 0 : currentPage.offset + 1;
     const end = Math.min(currentPage.offset + currentResources.length, currentPage.total);
     setStatus(`Found ${currentPage.total} resources${dur}. Showing ${start}-${end}.`, 'success');
+
+    // Load CVE counts for VMs
+    await onResourcesLoaded();
 }
 
 function updatePaginationControls() {
@@ -434,6 +437,122 @@ async function startRefresh() {
     setTimeout(() => {
         bootstrap.Modal.getInstance(document.getElementById('refreshModal'))?.hide();
     }, 2000);
+}
+
+// ---------------------------------------------------------------------------
+// CVE Count Loading (for VMs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load CVE counts for displayed VMs
+ * @param {Array} vmIds - Array of VM resource IDs to check
+ */
+async function loadCVECounts(vmIds) {
+    if (!vmIds || vmIds.length === 0) return;
+
+    try {
+        // Get latest scan result
+        const response = await fetch('/api/cve/scan/recent?limit=1');
+        if (!response.ok) {
+            console.warn('Failed to load CVE scan data');
+            updateCVEBadgesError(vmIds);
+            return;
+        }
+
+        const result = await response.json();
+        if (!result.success || !result.data || result.data.length === 0) {
+            console.warn('No scan data available');
+            updateCVEBadgesError(vmIds);
+            return;
+        }
+
+        const latestScan = result.data[0];
+        if (latestScan.status !== 'completed') {
+            console.warn('Latest scan not completed');
+            updateCVEBadgesError(vmIds);
+            return;
+        }
+
+        // Count CVEs per VM and track severity
+        const vmCVEData = {};
+        latestScan.matches.forEach(match => {
+            if (!vmCVEData[match.vm_id]) {
+                vmCVEData[match.vm_id] = {
+                    count: 0,
+                    hasCritical: false,
+                    hasHigh: false,
+                };
+            }
+            vmCVEData[match.vm_id].count++;
+            if (match.severity === 'CRITICAL') {
+                vmCVEData[match.vm_id].hasCritical = true;
+            } else if (match.severity === 'HIGH') {
+                vmCVEData[match.vm_id].hasHigh = true;
+            }
+        });
+
+        // Update badges with counts and colors
+        vmIds.forEach(vmId => {
+            const badge = document.getElementById(`cve-count-${vmId}`);
+            if (!badge) return;
+
+            const data = vmCVEData[vmId];
+            const count = data ? data.count : 0;
+            badge.textContent = count;
+
+            // Color-code by severity
+            if (count > 0 && data) {
+                if (data.hasCritical) {
+                    badge.className = 'badge bg-danger';
+                } else if (data.hasHigh) {
+                    badge.className = 'badge bg-warning';
+                } else {
+                    badge.className = 'badge bg-info';
+                }
+            } else {
+                badge.className = 'badge bg-success';
+            }
+        });
+
+    } catch (error) {
+        console.error('Error loading CVE counts:', error);
+        updateCVEBadgesError(vmIds);
+    }
+}
+
+/**
+ * Update CVE badges to show error state
+ * @param {Array} vmIds - Array of VM resource IDs
+ */
+function updateCVEBadgesError(vmIds) {
+    vmIds.forEach(vmId => {
+        const badge = document.getElementById(`cve-count-${vmId}`);
+        if (badge) {
+            badge.textContent = '-';
+            badge.className = 'badge bg-secondary';
+        }
+    });
+}
+
+/**
+ * Extract VM IDs from current resource display
+ * @returns {Array} Array of VM resource IDs
+ */
+function getDisplayedVMIds() {
+    return currentResources
+        .filter(r => (r.resource_type || '').toLowerCase() === 'microsoft.compute/virtualmachines')
+        .map(r => r.resource_id)
+        .filter(id => id);  // Remove any null/undefined IDs
+}
+
+/**
+ * Called after resources are loaded and rendered
+ */
+async function onResourcesLoaded() {
+    const vmIds = getDisplayedVMIds();
+    if (vmIds.length > 0) {
+        await loadCVECounts(vmIds);
+    }
 }
 
 // ---------------------------------------------------------------------------
