@@ -603,6 +603,7 @@ _cve_patch_mapper = None
 _cve_vm_service = None
 _cve_analytics = None
 _cve_monitoring_scheduler = None
+_cve_mcp_client = None
 
 
 async def get_cve_service():
@@ -733,10 +734,27 @@ async def get_cve_analytics():
     return _cve_analytics
 
 
+async def get_cve_mcp_client():
+    """Get or create CVE MCP client singleton (Phase 10)."""
+    global _cve_mcp_client
+    if _cve_mcp_client is None:
+        from utils.cve_mcp_client import CVEMCPClient
+        _cve_mcp_client = CVEMCPClient()
+        await _cve_mcp_client.initialize()
+        logger.info("✅ CVE MCP client singleton initialized")
+    return _cve_mcp_client
+
+
 async def _startup_cve_system():
     """Initialize CVE data system on startup."""
     try:
         logger.info("Initializing CVE Data System...")
+
+        if mock_mode_enabled():
+            await get_cve_service()
+            logger.info("🧪 Mock mode: skipping Cosmos-backed CVE scanner and scheduler startup")
+            logger.info("✅ CVE Data System initialized")
+            return
 
         # Initialize Cosmos DB container for CVE data
         try:
@@ -777,6 +795,13 @@ async def _startup_cve_system():
             await get_cve_service()
         except Exception as e:
             logger.warning(f"⚠️ CVE service initialization warning: {e}")
+
+        # Initialize CVE MCP client (Phase 10)
+        try:
+            await get_cve_mcp_client()
+            logger.info("✅ CVE MCP client ready")
+        except Exception as e:
+            logger.warning(f"⚠️ CVE MCP client initialization warning: {e}")
 
         # Start CVE scheduler
         try:
@@ -906,25 +931,31 @@ async def _run_startup_tasks():
             logger.warning(f"⚠️ Playwright pool initialization skipped: {e}")
 
         # Initialize Azure MCP client (stdio mode via npx)
-        try:
-            logger.info("🔧 Initializing Azure MCP Server via stdio...")
-            from utils.azure_mcp_client import get_azure_mcp_client
+        if mock_mode_enabled():
+            logger.info("🧪 Mock mode: skipping Azure MCP client initialization")
+        else:
+            try:
+                logger.info("🔧 Initializing Azure MCP Server via stdio...")
+                from utils.azure_mcp_client import get_azure_mcp_client
 
-            await get_azure_mcp_client()
-            logger.info("✅ Azure MCP Server client initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ Azure MCP Server not available: {e}")
-            logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
+                await get_azure_mcp_client()
+                logger.info("✅ Azure MCP Server client initialized")
+            except Exception as e:
+                logger.warning(f"⚠️ Azure MCP Server not available: {e}")
+                logger.info("   Ensure Node.js/npx is available to run @azure/mcp")
 
         # Pre-initialize MCPHost from declarative config (warm-up — non-blocking)
-        try:
-            logger.info("🔧 Pre-initializing MCPHost from declarative config...")
-            from utils.mcp_host import MCPHost as _MCPHost
-            await _MCPHost.from_config()
-            logger.info("✅ MCPHost pre-initialized from config/mcp_servers.yaml")
-        except Exception as e:
-            logger.warning("⚠️ MCPHost pre-initialization skipped: %s", e)
-            logger.info("   MCPHost will initialize lazily on first request")
+        if mock_mode_enabled():
+            logger.info("🧪 Mock mode: skipping MCPHost pre-initialization")
+        else:
+            try:
+                logger.info("🔧 Pre-initializing MCPHost from declarative config...")
+                from utils.mcp_host import MCPHost as _MCPHost
+                await _MCPHost.from_config()
+                logger.info("✅ MCPHost pre-initialized from config/mcp_servers.yaml")
+            except Exception as e:
+                logger.warning("⚠️ MCPHost pre-initialization skipped: %s", e)
+                logger.info("   MCPHost will initialize lazily on first request")
 
         # Initialize SRE Orchestrator System (agents + tools)
         try:
