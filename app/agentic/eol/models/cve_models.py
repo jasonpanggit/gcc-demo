@@ -255,6 +255,55 @@ class CVEPatchRequest(BaseModel):
     include_installed: bool = False  # Include already-installed patches
 
 
+# ============================================================================
+# Inventory Vulnerability Models (Phase 7)
+# ============================================================================
+
+class VMCVEDetail(BaseModel):
+    """Enriched CVE details for VM view."""
+    cve_id: str
+    severity: str  # CRITICAL, HIGH, MEDIUM, LOW
+    cvss_score: Optional[float] = None
+    published_date: Optional[str] = None
+    description: str
+    match_reason: str  # Why this CVE affects this VM
+    patches_available: int = 0  # Count of patches that fix this CVE
+
+
+class VMVulnerabilityResponse(BaseModel):
+    """Response for GET /api/cve/inventory/{vm_id}."""
+    vm_id: str
+    vm_name: str
+    scan_id: str
+    scan_date: str
+    total_cves: int
+    cves_by_severity: Dict[str, int]  # {"CRITICAL": 5, "HIGH": 12, ...}
+    cve_details: List[VMCVEDetail]
+
+
+class AffectedVMDetail(BaseModel):
+    """VM affected by a CVE."""
+    vm_id: str
+    vm_name: str
+    resource_group: str
+    subscription_id: str
+    os_type: str  # "Linux" or "Windows"
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    location: str
+    match_reason: str
+    patch_status: Optional[str] = None  # "available", "installed", "pending"
+
+
+class CVEAffectedVMsResponse(BaseModel):
+    """Response for GET /api/cve/{cve_id}/affected-vms."""
+    cve_id: str
+    scan_id: str
+    scan_date: str
+    total_vms: int
+    affected_vms: List[AffectedVMDetail]
+
+
 # Export all models
 __all__ = [
     "CVSSScore",
@@ -272,5 +321,9 @@ __all__ = [
     "CVEScanStatusResponse",
     "ApplicablePatch",
     "CVEPatchMapping",
-    "CVEPatchRequest"
+    "CVEPatchRequest",
+    "VMCVEDetail",
+    "VMVulnerabilityResponse",
+    "AffectedVMDetail",
+    "CVEAffectedVMsResponse"
 ]
