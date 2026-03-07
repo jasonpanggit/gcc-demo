@@ -51,8 +51,61 @@ async def search_cve(
 
     Returns CVE summaries with ID, severity, CVSS, description.
     """
-    # Implementation will be added in task 2
-    pass
+    try:
+        from utils.cve_service import get_cve_service
+
+        cve_service = await get_cve_service()
+
+        # If cve_id provided, do direct lookup
+        if cve_id:
+            cve = await cve_service.get_cve(cve_id)
+            if not cve:
+                return TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "success": False,
+                        "error": f"CVE {cve_id} not found",
+                        "tool_name": "search_cve"
+                    }, indent=2)
+                )
+            results = [cve.dict()]
+        else:
+            # Build search filters
+            filters = {}
+            if keyword:
+                filters["keyword"] = keyword
+            if severity:
+                filters["severity"] = severity.upper()
+            if cvss_min is not None:
+                filters["cvss_min"] = cvss_min
+            if cvss_max is not None:
+                filters["cvss_max"] = cvss_max
+            if published_after:
+                filters["published_after"] = published_after
+            if published_before:
+                filters["published_before"] = published_before
+
+            cves = await cve_service.search_cves(filters, limit=limit, offset=0)
+            results = [cve.dict() for cve in cves]
+
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "count": len(results),
+                "cves": results,
+                "tool_name": "search_cve"
+            }, indent=2)
+        )
+    except Exception as e:
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False,
+                "error": str(e),
+                "tool_name": "search_cve"
+            }, indent=2)
+        )
 
 
 @mcp.tool()
