@@ -66,6 +66,7 @@ from api.cve_scan import router as cve_scan_router
 from api.cve_patches import router as cve_patches_router
 from api.cve_inventory import router as cve_inventory_router
 from api.cve_dashboard import router as cve_dashboard_router
+from api.cve_alerts import router as cve_alerts_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -183,6 +184,7 @@ app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
 app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
 app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard"])  # CVE analytics dashboard (Phase 8)
+app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules (Phase 9)
 
 
 # ============================================================================
