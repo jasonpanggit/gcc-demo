@@ -153,6 +153,18 @@
             </div>
 
             <div class="nav-section">
+                <div class="nav-section-title">Security</div>
+                <a href="/cve-search" class="nav-item {% if '/cve-search' in request.path or '/cve-detail' in request.path %}active{% endif %}">
+                    <i class="fas fa-shield-virus"></i>
+                    <span class="nav-text">CVE Search</span>
+                </a>
+                <a href="#" class="nav-item disabled" title="Coming in Phase 8">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">CVE Dashboard</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
                 <div class="nav-section-title">Management</div>
                 <a href="/docs" class="nav-item {% if request.path == '/docs' %}active{% endif %}" target="_blank" rel="noopener noreferrer">
                     <i class="fas fa-book"></i>

@@ -520,3 +520,63 @@ async def routing_analytics_ui(request: Request):
         HTMLResponse with rendered routing-analytics.html template.
     """
     return templates.TemplateResponse(request, "routing-analytics.html")
+
+
+@router.get("/cve-search", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_search_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_search_ui(request: Request):
+    """
+    CVE Search page.
+
+    Provides interface for searching and filtering Common Vulnerabilities and Exposures (CVEs).
+    Supports multiple filter types:
+    - CVE ID or keyword search
+    - Severity filtering (Critical, High, Medium, Low)
+    - CVSS score range
+    - Date range (published after/before)
+    - Vendor/product filtering
+    - Data source filtering
+
+    Results displayed in sortable grid with pagination.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve-search.html template.
+    """
+    return templates.TemplateResponse(request, "cve-search.html")
+
+
+@router.get("/cve-detail/{cve_id}", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_detail_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_detail_ui(request: Request, cve_id: str):
+    """
+    CVE Detail page.
+
+    Displays comprehensive information for a specific CVE:
+    - CVSS v2/v3 scores with radar/bar chart visualizations
+    - Affected products (vendor/product/version/CPE)
+    - External references grouped by tag
+    - CWE classification
+    - Related CVEs (same product family)
+    - Applicable patches (Phase 6)
+
+    Args:
+        request: FastAPI Request object
+        cve_id: CVE identifier (e.g., CVE-2024-1234)
+
+    Returns:
+        HTMLResponse with rendered cve-detail.html template.
+    """
+    return templates.TemplateResponse(request, "cve-detail.html", {"cve_id": cve_id})
