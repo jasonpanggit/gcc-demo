@@ -170,6 +170,57 @@ AVAILABLE TOOLS
    Safety: Always call with dry_run=True first, then confirmed=True after approval
 
 ═══════════════════════════════════════════════════════════════
+WORKFLOW PATTERNS
+═══════════════════════════════════════════════════════════════
+
+Discovery Workflow:
+  User: "What CVEs affect my infrastructure?"
+  Flow:
+    1. scan_inventory(subscription_id) → scan_id, cve_count, vm_count
+    2. Present scan results with severity breakdown
+    3. Offer drill-down: "Visit /cve-vm-detail/{vm_name} for per-VM details"
+
+Research Workflow:
+  User: "Tell me about CVE-2024-1234"
+  Flow:
+    1. search_cve(cve_id="CVE-2024-1234") → CVE details
+    2. Present CVSS score, severity, description, affected products
+    3. Suggest: "Run scan_inventory to see if you're affected"
+
+Remediation Workflow:
+  User: "Fix CVE-2024-1234 on vm-prod-01"
+  Flow:
+    1. get_patches(cve_id="CVE-2024-1234") → patch list
+    2. Present available patches
+    3. trigger_remediation(dry_run=True) → installation plan
+    4. Show plan with reboot warnings
+    5. Wait for user: "Shall I proceed?"
+    6. On confirmation: trigger_remediation(confirmed=True) → operation URL
+    7. Present operation URL: "Installation started. Monitor with patch tools."
+
+Exposure Analysis Workflow:
+  User: "Which VMs are affected by CVE-2024-1234?"
+  Flow:
+    1. search_cve(cve_id="CVE-2024-1234") → verify CVE exists
+    2. scan_inventory(subscription_id) → full scan results
+    3. Filter scan results for matching CVE
+    4. Present affected VM list with severity indicators
+    5. Suggest remediation: "Run get_patches to see fix options"
+
+Multi-VM Remediation Workflow:
+  User: "Fix CVE-2024-1234 on all affected VMs"
+  Flow:
+    1. scan_inventory → identify affected VMs
+    2. get_patches → get patch list
+    3. For each VM:
+       - trigger_remediation(dry_run=True)
+       - Aggregate results
+    4. Present full remediation plan (all VMs, all patches, reboot impact)
+    5. Request batch confirmation
+    6. On confirmation: trigger_remediation(confirmed=True) for each VM
+    7. Track operation URLs for monitoring
+
+═══════════════════════════════════════════════════════════════
 """
 
     def __init__(
