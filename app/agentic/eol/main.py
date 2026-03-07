@@ -184,6 +184,56 @@ app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # C
 app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
 app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard"])  # CVE analytics dashboard (Phase 8)
 
+
+# ============================================================================
+# CVE Monitoring Endpoints (Phase 9)
+# ============================================================================
+
+@app.get("/api/cve/monitoring/status")
+async def get_cve_monitoring_status():
+    """Get CVE monitoring scheduler status and statistics."""
+    global _cve_monitoring_scheduler
+
+    if _cve_monitoring_scheduler is None:
+        return StandardResponse(
+            status="error",
+            message="CVE monitoring scheduler not initialized",
+            data={
+                "scheduler_running": False,
+                "monitoring_enabled": config.cve_monitoring.enable_cve_monitoring
+            }
+        )
+
+    status = _cve_monitoring_scheduler.get_status()
+    return StandardResponse(
+        status="success",
+        message="CVE monitoring status retrieved",
+        data=status
+    )
+
+
+@app.post("/api/cve/monitoring/trigger")
+async def trigger_cve_monitoring_scan():
+    """Manually trigger CVE scan and alert check."""
+    global _cve_monitoring_scheduler
+
+    if _cve_monitoring_scheduler is None:
+        return StandardResponse(
+            status="error",
+            message="CVE monitoring scheduler not initialized"
+        )
+
+    # Trigger scan in background
+    import asyncio
+    asyncio.create_task(_cve_monitoring_scheduler._execute_scan_and_alert())
+
+    return StandardResponse(
+        status="success",
+        message="Manual CVE scan triggered",
+        data={"triggered_at": datetime.now(timezone.utc).isoformat()}
+    )
+
+
 # Configure logging to prevent duplicate log messages
 import logging
 
@@ -548,6 +598,7 @@ _cve_scanner = None
 _cve_patch_mapper = None
 _cve_vm_service = None
 _cve_analytics = None
+_cve_monitoring_scheduler = None
 
 
 async def get_cve_service():
@@ -731,6 +782,31 @@ async def _startup_cve_system():
             logger.info(f"✅ CVE scheduler started (cron: {config.cve_sync.full_sync_schedule_cron})")
         except Exception as e:
             logger.warning(f"⚠️ CVE scheduler start warning: {e}")
+
+        # Initialize and start CVE monitoring scheduler (Phase 9)
+        try:
+            global _cve_monitoring_scheduler
+            if config.cve_monitoring.enable_cve_monitoring:
+                from utils.cve_monitoring_scheduler import CVEMonitoringScheduler
+
+                # Get dependencies
+                cve_scanner = await get_cve_scanner()
+                cve_service = await get_cve_service()
+                patch_mapper = await get_cve_patch_mapper()
+
+                # Create and start monitoring scheduler
+                _cve_monitoring_scheduler = CVEMonitoringScheduler(
+                    cve_scanner=cve_scanner,
+                    cve_service=cve_service,
+                    patch_mapper=patch_mapper
+                )
+                _cve_monitoring_scheduler.start()
+
+                logger.info(f"✅ CVE monitoring scheduler started (cron: {config.cve_monitoring.scan_schedule_cron})")
+            else:
+                logger.info("CVE monitoring scheduler disabled via config")
+        except Exception as e:
+            logger.warning(f"⚠️ CVE monitoring scheduler start warning: {e}")
 
         logger.info("✅ CVE Data System initialized")
 
@@ -954,6 +1030,18 @@ async def _run_shutdown_tasks():
             logger.debug("CVE scheduler cleanup cancelled")
         except Exception as e:
             logger.debug(f"CVE scheduler cleanup: {e}")
+
+        # Stop CVE monitoring scheduler (Phase 9)
+        try:
+            global _cve_monitoring_scheduler
+            if _cve_monitoring_scheduler is not None:
+                _cve_monitoring_scheduler.shutdown()
+                _cve_monitoring_scheduler = None
+                logger.info("✅ CVE monitoring scheduler stopped")
+        except asyncio.CancelledError:
+            logger.debug("CVE monitoring scheduler cleanup cancelled")
+        except Exception as e:
+            logger.debug(f"CVE monitoring scheduler cleanup: {e}")
 
         # Cleanup CVE service aggregator clients
         try:
