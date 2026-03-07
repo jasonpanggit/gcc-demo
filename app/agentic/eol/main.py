@@ -64,6 +64,7 @@ from api.cve_sync import router as cve_sync_router
 from api.cve import router as cve_router
 from api.cve_scan import router as cve_scan_router
 from api.cve_patches import router as cve_patches_router
+from api.cve_inventory import router as cve_inventory_router
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -179,6 +180,7 @@ app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE syn
 app.include_router(cve_router, prefix="/api", tags=["CVE"])  # CVE search and detail
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
+app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
 
 # Configure logging to prevent duplicate log messages
 import logging
@@ -542,6 +544,7 @@ def get_inventory_discovery_status() -> Dict[str, Any]:
 _cve_service = None
 _cve_scanner = None
 _cve_patch_mapper = None
+_cve_vm_service = None
 
 
 async def get_cve_service():
@@ -549,10 +552,8 @@ async def get_cve_service():
     global _cve_service
     if _cve_service is None:
         from utils.cve_cache import CVECache
-        from utils.cve_cosmos_repository import CVECosmosRepository
         from utils.cve_data_aggregator import create_aggregator
         from utils.cve_service import CVEService
-        from utils.cosmos_cache import base_cosmos
 
         # Create components
         cache = CVECache(
@@ -560,11 +561,21 @@ async def get_cve_service():
             ttl=config.cve_data.l1_cache_ttl_seconds
         )
 
-        repository = CVECosmosRepository(
-            cosmos_client=base_cosmos.cosmos_client,
-            database_name=config.azure.cosmos_database,
-            container_name=config.cve_data.cosmos_container_name
-        )
+        if mock_mode_enabled():
+            from utils.cve_in_memory_repository import CVEInMemoryRepository
+
+            repository = CVEInMemoryRepository()
+            logger.info("🧪 CVE service using in-memory repository (mock mode)")
+        else:
+            from utils.cve_cosmos_repository import CVECosmosRepository
+            from utils.cosmos_cache import base_cosmos
+
+            repository = CVECosmosRepository(
+                cosmos_client=base_cosmos.cosmos_client,
+                database_name=config.azure.cosmos_database,
+                container_name=config.cve_data.cosmos_container_name
+            )
+            logger.info("✅ CVE service using Cosmos repository")
 
         aggregator = await create_aggregator(config)
 
@@ -628,6 +639,23 @@ async def get_cve_patch_mapper():
         logger.info("✅ CVE patch mapper singleton initialized")
 
     return _cve_patch_mapper
+
+
+async def get_cve_vm_service():
+    """Get or create CVE VM service singleton (Phase 7)."""
+    global _cve_vm_service
+    if _cve_vm_service is None:
+        from utils.cve_vm_service import CVEVMService
+
+        # Create CVE VM service
+        _cve_vm_service = CVEVMService(
+            cve_service=await get_cve_service(),
+            patch_mapper=await get_cve_patch_mapper(),
+            cve_scanner=await get_cve_scanner()
+        )
+        logger.info("✅ CVE VM service singleton initialized")
+
+    return _cve_vm_service
 
 
 async def _startup_cve_system():
