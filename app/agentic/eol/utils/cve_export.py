@@ -9,10 +9,19 @@ import io
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi.responses import StreamingResponse
+from jinja2 import Environment, FileSystemLoader
 from utils.cve_scanner import CVEScanner
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# WeasyPrint import with fallback
+try:
+    from weasyprint import HTML
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+    logger.warning("WeasyPrint not available - PDF export will fail. Install system dependencies and weasyprint.")
 
 
 async def generate_csv_export(
@@ -120,4 +129,81 @@ async def generate_csv_export(
 
     except Exception as e:
         logger.error(f"CSV export failed: {e}", exc_info=True)
+        raise
+
+
+async def generate_pdf_export(
+    dashboard_data: dict,
+    chart_images: dict,
+    time_range_days: int,
+    severity_filter: Optional[str] = None
+) -> StreamingResponse:
+    """
+    Generate PDF report with charts and summary tables.
+
+    Content includes:
+    - Cover page with summary metrics
+    - Severity breakdown chart (as PNG image)
+    - Trending chart (as PNG image)
+    - Aging distribution chart (as PNG image)
+    - Top 10 CVEs table
+    - VM posture table
+    - Footer with timestamp and filters
+
+    Args:
+        dashboard_data: Dashboard metrics from API
+        chart_images: Dict of chart base64 images {'donut': 'data:image/png;base64,...', ...}
+        time_range_days: Days to look back
+        severity_filter: Optional severity filter
+
+    Returns:
+        StreamingResponse with PDF content
+    """
+    try:
+        logger.info(f"Generating PDF export: time_range={time_range_days}, severity={severity_filter}")
+
+        # Check WeasyPrint availability
+        if not WEASYPRINT_AVAILABLE:
+            raise RuntimeError(
+                "PDF export unavailable - WeasyPrint not installed. "
+                "Install system dependencies (cairo, pango) and weasyprint package."
+            )
+
+        # Load Jinja2 template
+        env = Environment(loader=FileSystemLoader('templates/pdf'))
+        template = env.get_template('cve-dashboard-report.html')
+
+        # Render HTML with data
+        html_content = template.render(
+            summary=dashboard_data['summary'],
+            top_cves=dashboard_data['top_cves'],
+            vm_posture=dashboard_data['vm_posture'],
+            aging=dashboard_data['aging'],
+            chart_donut=chart_images.get('donut', ''),
+            chart_line=chart_images.get('line', ''),
+            chart_aging=chart_images.get('aging', ''),
+            timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+            time_range_days=time_range_days,
+            severity_filter=severity_filter or 'All'
+        )
+
+        # Generate PDF with WeasyPrint
+        pdf_bytes = HTML(string=html_content).write_pdf()
+
+        # Generate filename
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        severity_suffix = f"-{severity_filter}" if severity_filter else ""
+        filename = f"CVE-Dashboard-{timestamp}-Last{time_range_days}Days{severity_suffix}.pdf"
+
+        # Return streaming response
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"PDF export failed: {e}", exc_info=True)
         raise
