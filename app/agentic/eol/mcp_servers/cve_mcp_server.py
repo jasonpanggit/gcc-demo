@@ -272,5 +272,86 @@ async def trigger_remediation(
 
     Returns installation plan (dry_run) or operation URL (confirmed).
     """
-    # Implementation will be added in task 5
-    pass
+    try:
+        # Lazy imports to avoid circular dependency
+        from main import get_cve_patch_mapper
+        from utils.patch_mcp_client import get_patch_mcp_client
+
+        # Get patches for CVE
+        patch_mapper = await get_cve_patch_mapper()
+        mapping = await patch_mapper.get_patches_for_cve(cve_id, [subscription_id])
+
+        if not mapping.patches:
+            return TextContent(
+                type="text",
+                text=json.dumps({
+                    "success": False,
+                    "error": f"No patches found for {cve_id}",
+                    "tool_name": "trigger_remediation"
+                }, indent=2)
+            )
+
+        # Dry run mode: return plan
+        if dry_run or not confirmed:
+            patches = [
+                {
+                    "kb_number": p.kb_number,
+                    "package_name": p.package_name,
+                    "title": p.title,
+                    "priority": p.priority
+                }
+                for p in mapping.patches
+            ]
+
+            return TextContent(
+                type="text",
+                text=json.dumps({
+                    "success": True,
+                    "mode": "dry_run",
+                    "cve_id": cve_id,
+                    "vm_name": vm_name,
+                    "patches": patches,
+                    "message": "Installation plan ready. Call with confirmed=True to execute.",
+                    "warning": "Patch installation may require VM reboot.",
+                    "tool_name": "trigger_remediation"
+                }, indent=2)
+            )
+
+        # Confirmed mode: trigger installation
+        patch_client = await get_patch_mcp_client()
+
+        # Get KB numbers to install
+        kb_numbers = [p.kb_number for p in mapping.patches if p.kb_number]
+
+        # Trigger patch installation
+        result = await patch_client.install_vm_patches(
+            machine_name=vm_name,
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            classifications=["Critical", "Security"],
+            kb_numbers_to_include=kb_numbers,
+            reboot_setting="IfRequired"
+        )
+
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "mode": "confirmed",
+                "cve_id": cve_id,
+                "vm_name": vm_name,
+                "operation_url": result.get("operation_url"),
+                "status": result.get("status", "started"),
+                "message": "Patch installation started. Monitor with get_install_status.",
+                "tool_name": "trigger_remediation"
+            }, indent=2)
+        )
+    except Exception as e:
+        return TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False,
+                "error": str(e),
+                "tool_name": "trigger_remediation"
+            }, indent=2)
+        )
