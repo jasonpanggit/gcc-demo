@@ -567,3 +567,85 @@ class CVEScanner:
 
         # Convert sets to counts
         return {cve_id: len(vm_set) for cve_id, vm_set in exposure.items()}
+
+    # ========================================================================
+    # Query Helper Methods (Phase 7)
+    # ========================================================================
+
+    async def get_latest_scan_result(self) -> Optional[ScanResult]:
+        """Get latest completed scan result.
+
+        Public method to query the most recent completed scan.
+        Used by CVEVMService and other components needing scan data.
+
+        Returns:
+            Latest completed ScanResult or None if no scans found
+        """
+        try:
+            # Query latest completed scan ordered by completion time
+            query = """
+            SELECT * FROM c
+            WHERE c.status = 'completed'
+            ORDER BY c.completed_at DESC
+            OFFSET 0 LIMIT 1
+            """
+            items = await self.scan_repository.query(query)
+
+            if items:
+                return ScanResult(**items[0])
+
+            logger.debug("No completed scans found")
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get latest scan result: {e}")
+            return None
+
+    async def get_vm_cve_matches(self, vm_id: str) -> List[CVEMatch]:
+        """Get all CVE matches for a specific VM.
+
+        Args:
+            vm_id: VM identifier
+
+        Returns:
+            List of CVEMatch models for this VM, empty list if none found
+        """
+        try:
+            scan = await self.get_latest_scan_result()
+            if not scan:
+                logger.debug(f"No scan data available for VM {vm_id}")
+                return []
+
+            # Filter matches for this VM
+            matches = [m for m in scan.matches if m.vm_id == vm_id]
+            logger.debug(f"Found {len(matches)} CVE matches for VM {vm_id}")
+            return matches
+
+        except Exception as e:
+            logger.error(f"Failed to get CVE matches for VM {vm_id}: {e}")
+            return []
+
+    async def get_cve_vm_matches(self, cve_id: str) -> List[CVEMatch]:
+        """Get all VM matches for a specific CVE.
+
+        Args:
+            cve_id: CVE identifier
+
+        Returns:
+            List of CVEMatch models for this CVE, empty list if none found
+        """
+        try:
+            cve_id = cve_id.upper()
+            scan = await self.get_latest_scan_result()
+            if not scan:
+                logger.debug(f"No scan data available for CVE {cve_id}")
+                return []
+
+            # Filter matches for this CVE
+            matches = [m for m in scan.matches if m.cve_id == cve_id]
+            logger.debug(f"Found {len(matches)} VM matches for CVE {cve_id}")
+            return matches
+
+        except Exception as e:
+            logger.error(f"Failed to get VM matches for CVE {cve_id}: {e}")
+            return []
