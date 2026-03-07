@@ -9,13 +9,15 @@ from typing import Dict, List, Any
 from datetime import datetime, timezone
 
 try:
-    from models.cve_alert_models import CVEDelta, CVEAlertItem
+    from models.cve_alert_models import CVEDelta, CVEAlertItem, CVEAlertHistoryRecord
     from utils.alert_manager import alert_manager, AlertConfiguration, NotificationRecord
+    from utils.cve_alert_history_manager import get_cve_alert_history_manager
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
-    from app.agentic.eol.models.cve_alert_models import CVEDelta, CVEAlertItem
+    from app.agentic.eol.models.cve_alert_models import CVEDelta, CVEAlertItem, CVEAlertHistoryRecord
     from app.agentic.eol.utils.alert_manager import alert_manager, AlertConfiguration, NotificationRecord
+    from app.agentic.eol.utils.cve_alert_history_manager import get_cve_alert_history_manager
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
 
@@ -89,8 +91,12 @@ class CVEAlertDispatcher:
                 "email_success": True,
                 "teams_success": True,
                 "cves_alerted": [],
-                "notification_records": []
+                "notification_records": [],
+                "history_records": []
             }
+
+            # Get history manager
+            history_manager = get_cve_alert_history_manager()
 
             for severity, cves in cves_by_severity.items():
                 if not cves:
@@ -114,18 +120,62 @@ class CVEAlertDispatcher:
                     )
 
                     # Track results
-                    if send_result.get("email", {}).get("sent"):
+                    email_sent = send_result.get("email", {}).get("sent", False)
+                    teams_sent = send_result.get("teams", {}).get("sent", False)
+
+                    if email_sent:
                         results["alerts_sent"] += 1
                     else:
                         results["email_success"] = False
 
-                    if not send_result.get("teams", {}).get("sent"):
+                    if not teams_sent:
                         results["teams_success"] = False
 
                     # Add CVE IDs to alerted list
                     results["cves_alerted"].extend([cve.cve_id for cve in cves])
 
-                    # Create notification record
+                    # Create history record
+                    channels_sent = []
+                    if email_sent:
+                        channels_sent.append("email")
+                    if teams_sent:
+                        channels_sent.append("teams")
+
+                    delivery_status = "success" if (email_sent or teams_sent) else "failed"
+                    if email_sent and not teams_sent:
+                        delivery_status = "partial"
+                    elif teams_sent and not email_sent:
+                        delivery_status = "partial"
+
+                    # Aggregate affected VMs
+                    all_vms = set()
+                    all_vm_names = set()
+                    for cve in cves:
+                        all_vms.update(cve.affected_vms)
+                        all_vm_names.update(cve.affected_vm_names)
+
+                    history_record = CVEAlertHistoryRecord(
+                        alert_rule_id=None,  # No rule for automatic alerts
+                        alert_type=severity.lower(),
+                        cve_ids=[cve.cve_id for cve in cves],
+                        cve_count=len(cves),
+                        affected_vm_count=len(all_vms),
+                        affected_vms=list(all_vms),
+                        affected_vm_names=list(all_vm_names),
+                        severity_breakdown={severity: len(cves)},
+                        recipients=alert_config.email_recipients if hasattr(alert_config, 'email_recipients') else [],
+                        channels_sent=channels_sent,
+                        status=delivery_status,
+                        error_message=send_result.get("error") if delivery_status == "failed" else None,
+                        scan_id=delta.current_scan_id,
+                        timestamp=datetime.now(timezone.utc).isoformat()
+                    )
+
+                    # Persist history record
+                    created_record = await history_manager.create_record(history_record)
+                    results["history_records"].append(created_record.to_dict())
+
+                    # Create notification record (existing functionality)
                     notification = await self._create_notification_record(
                         cves=cves,
                         severity=severity,
@@ -134,7 +184,7 @@ class CVEAlertDispatcher:
                     )
                     results["notification_records"].append(notification)
 
-                    logger.info(f"Alert sent for {len(cves)} {severity} CVEs")
+                    logger.info(f"Alert sent for {len(cves)} {severity} CVEs (history ID: {created_record.id})")
 
                 except Exception as e:
                     logger.error(f"Failed to send {severity} CVE alerts: {e}", exc_info=True)
@@ -151,6 +201,7 @@ class CVEAlertDispatcher:
                 "teams_success": False,
                 "cves_alerted": [],
                 "notification_records": [],
+                "history_records": [],
                 "error": str(e)
             }
 
