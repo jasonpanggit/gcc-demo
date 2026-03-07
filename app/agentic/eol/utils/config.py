@@ -194,6 +194,37 @@ class CVEDataConfig:
     })
 
 
+@dataclass
+class CVESyncConfig:
+    """CVE synchronization scheduler configuration.
+
+    Controls periodic CVE database refresh jobs using APScheduler.
+    """
+
+    # Feature flag
+    enable_cve_sync: bool = field(
+        default_factory=lambda: os.getenv("CVE_SYNC_ENABLED", "true").lower() == "true"
+    )
+
+    # Sync schedules
+    full_sync_schedule_cron: str = field(
+        default_factory=lambda: os.getenv("CVE_SYNC_CRON", "0 2 * * *")  # Daily at 2 AM
+    )
+    incremental_sync_interval_hours: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_INTERVAL_HOURS", "6"))
+    )
+
+    # Sync behavior
+    sync_lookback_days: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_LOOKBACK_DAYS", "7"))
+    )
+
+    # Job limits
+    max_cves_per_sync: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_MAX_CVES", "10000"))
+    )
+
+
 # ============================================================================
 # Phase 2 Day 6: Centralized Timeout Configuration
 # ============================================================================
@@ -269,6 +300,7 @@ class ConfigManager:
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
+        self._cve_sync_config: Optional[CVESyncConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -418,6 +450,13 @@ class ConfigManager:
 
             self._inventory_config = inv
         return self._inventory_config
+
+    @property
+    def cve_sync(self) -> CVESyncConfig:
+        """Get CVE sync scheduler configuration"""
+        if self._cve_sync_config is None:
+            self._cve_sync_config = CVESyncConfig()
+        return self._cve_sync_config
 
     @property
     def timeouts(self) -> TimeoutConfig:
