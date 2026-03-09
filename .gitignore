@@ -96,33 +96,29 @@ appsettings*.json
 !appsettings.json.example
 
 # litellm
-litellm/
+litellm/**
 
 # machine-specific duplicate filenames
 *-Jason Pang Mac Mini*
 *-Jason’s MacBook Air*
 
 # claude code related files - ignore all .claude directories
-.claude/
+.claude/**
 **/.claude/
-
-# EXCEPT: Track MCP tool selection project documentation
-!.claude/docs/TESTING-GUIDE.md
-!.claude/docs/PHASE-0-COMPLETION-REPORT.md
-!.claude/docs/PHASE-1-BASELINE-REPORT.md
-!.claude/docs/MANIFEST-AUTHORING-GUIDE.md
-
 .planning/**
 **/.planning/
 CLAUDE.md
 tasks/
 
 # github - ignore all .github directories
-.github/
+.github/**
 **/.github/
 
 # EXCEPT: Track CI workflow for MCP tool selection tests
 !.github/workflows/test-tool-selection.yml
 
 # playwright
-.playwright-mcp/
+.playwright-mcp/**
+
+# errors
+errors/** 

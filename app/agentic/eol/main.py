@@ -7,10 +7,42 @@ import json
 import os
 import sys
 import time
+import types
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+
+def _register_legacy_package_aliases() -> None:
+    """Expose the app.agentic.eol namespace when running from /app in containers.
+
+    The deployed image copies the EOL app contents directly into /app rather than
+    preserving the repository root package layout. Some modules still reference
+    legacy absolute imports under app.agentic.eol, so register lightweight package
+    aliases that point back at the current application root.
+    """
+    app_root = os.path.dirname(__file__)
+
+    def ensure_package(name: str, path: Optional[str] = None):
+        module = sys.modules.get(name)
+        if module is None:
+            module = types.ModuleType(name)
+            sys.modules[name] = module
+        if path is not None:
+            module.__path__ = [path]
+        return module
+
+    app_pkg = ensure_package("app")
+    agentic_pkg = ensure_package("app.agentic")
+    eol_pkg = ensure_package("app.agentic.eol", app_root)
+
+    app_pkg.agentic = agentic_pkg
+    agentic_pkg.eol = eol_pkg
+    sys.modules.setdefault("app.agentic.eol.main", sys.modules[__name__])
+
+
+_register_legacy_package_aliases()
 
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +51,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from azure.identity import DefaultAzureCredential
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 # Import utilities and configuration
 from utils import get_logger, config
@@ -85,6 +118,7 @@ app = FastAPI(
 )
 
 # Attach middleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.add_middleware(RequestTrackingMiddleware)
 
 # Attach authentication middleware (controls via AUTH_MODE env var)
@@ -180,13 +214,13 @@ app.include_router(patch_management_router)  # Arc VM patch assessment
 app.include_router(routing_analytics_router)  # Routing telemetry analytics
 app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE sync jobs
-app.include_router(cve_router, prefix="/api", tags=["CVE"])  # CVE search and detail
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
 app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
 app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard"])  # CVE analytics dashboard (Phase 8)
-app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules (Phase 9)
 app.include_router(cve_alert_history_router, prefix="/api/cve", tags=["CVE Alert History"])  # CVE alert history (Phase 9)
+app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules must come after /api/cve/alerts/history routes
+app.include_router(cve_router, prefix="/api", tags=["CVE"])  # Generic CVE search/detail routes must come after specific /api/cve/* routes
 
 
 # ============================================================================
@@ -200,17 +234,18 @@ async def get_cve_monitoring_status():
 
     if _cve_monitoring_scheduler is None:
         return StandardResponse(
-            status="error",
+            success=False,
             message="CVE monitoring scheduler not initialized",
             data={
                 "scheduler_running": False,
                 "monitoring_enabled": config.cve_monitoring.enable_cve_monitoring
-            }
+            },
+            error="CVE monitoring scheduler not initialized"
         )
 
     status = _cve_monitoring_scheduler.get_status()
     return StandardResponse(
-        status="success",
+        success=True,
         message="CVE monitoring status retrieved",
         data=status
     )
@@ -223,8 +258,9 @@ async def trigger_cve_monitoring_scan():
 
     if _cve_monitoring_scheduler is None:
         return StandardResponse(
-            status="error",
-            message="CVE monitoring scheduler not initialized"
+            success=False,
+            message="CVE monitoring scheduler not initialized",
+            error="CVE monitoring scheduler not initialized"
         )
 
     # Trigger scan in background
@@ -232,7 +268,7 @@ async def trigger_cve_monitoring_scan():
     asyncio.create_task(_cve_monitoring_scheduler._execute_scan_and_alert())
 
     return StandardResponse(
-        status="success",
+        success=True,
         message="Manual CVE scan triggered",
         data={"triggered_at": datetime.now(timezone.utc).isoformat()}
     )
@@ -604,6 +640,8 @@ _cve_vm_service = None
 _cve_analytics = None
 _cve_monitoring_scheduler = None
 _cve_mcp_client = None
+_patch_install_history_repository = None
+_kb_cve_edge_repository = None
 
 
 async def get_cve_service():
@@ -638,10 +676,40 @@ async def get_cve_service():
 
         aggregator = await create_aggregator(config)
 
-        _cve_service = CVEService(cache, repository, aggregator)
+        _cve_service = CVEService(
+            cache,
+            repository,
+            aggregator,
+            kb_cve_edge_repository=await get_kb_cve_edge_repository(),
+        )
         logger.info("✅ CVE service singleton initialized")
 
     return _cve_service
+
+
+async def get_kb_cve_edge_repository():
+    """Get or create KB-to-CVE edge repository singleton."""
+    global _kb_cve_edge_repository
+    if _kb_cve_edge_repository is None:
+        if mock_mode_enabled():
+            from utils.kb_cve_edge_repository import InMemoryKBCVEEdgeRepository
+
+            _kb_cve_edge_repository = InMemoryKBCVEEdgeRepository()
+            await _kb_cve_edge_repository.initialize()
+            logger.info("🧪 KB-to-CVE edge repository using in-memory storage (mock mode)")
+        else:
+            from utils.cosmos_cache import base_cosmos
+            from utils.kb_cve_edge_repository import KBCVEEdgeRepository
+
+            _kb_cve_edge_repository = KBCVEEdgeRepository(
+                cosmos_client=base_cosmos.cosmos_client,
+                database_name=config.azure.cosmos_database,
+                container_name=config.cve_data.cosmos_kb_edge_container_name,
+            )
+            await _kb_cve_edge_repository.initialize()
+            logger.info("✅ KB-to-CVE edge repository initialized")
+
+    return _kb_cve_edge_repository
 
 
 async def get_cve_scanner():
@@ -684,20 +752,47 @@ async def get_cve_patch_mapper():
     global _cve_patch_mapper
     if _cve_patch_mapper is None:
         from utils.cve_patch_mapper import CVEPatchMapper
-        from utils.patch_mcp_client import PatchMCPClient
+        from utils.patch_mcp_client import get_patch_mcp_client
 
-        # Create patch client
-        patch_client = PatchMCPClient()
+        # Use the shared MCP client factory so the Patch MCP server is initialized
+        patch_client = await get_patch_mcp_client()
 
         # Create patch mapper
         _cve_patch_mapper = CVEPatchMapper(
             cve_service=await get_cve_service(),
             cve_scanner=await get_cve_scanner(),
-            patch_mcp_client=patch_client
+            patch_mcp_client=patch_client,
+            patch_install_history_repository=await get_patch_install_history_repository(),
+            kb_cve_edge_repository=await get_kb_cve_edge_repository(),
         )
         logger.info("✅ CVE patch mapper singleton initialized")
 
     return _cve_patch_mapper
+
+
+async def get_patch_install_history_repository():
+    """Get or create patch install history repository singleton."""
+    global _patch_install_history_repository
+    if _patch_install_history_repository is None:
+        if mock_mode_enabled():
+            from utils.patch_install_history_repository import InMemoryPatchInstallHistoryRepository
+
+            _patch_install_history_repository = InMemoryPatchInstallHistoryRepository()
+            await _patch_install_history_repository.initialize()
+            logger.info("🧪 Patch install history using in-memory repository (mock mode)")
+        else:
+            from utils.cosmos_cache import base_cosmos
+            from utils.patch_install_history_repository import PatchInstallHistoryRepository
+
+            _patch_install_history_repository = PatchInstallHistoryRepository(
+                cosmos_client=base_cosmos.cosmos_client,
+                database_name=config.azure.cosmos_database,
+                container_name=config.cve_scanner.cosmos_patch_install_container_name,
+            )
+            await _patch_install_history_repository.initialize()
+            logger.info("✅ Patch install history repository initialized")
+
+    return _patch_install_history_repository
 
 
 async def get_cve_vm_service():
@@ -759,22 +854,15 @@ async def _startup_cve_system():
         # Initialize Cosmos DB container for CVE data
         try:
             from azure.cosmos import PartitionKey
+            from utils.cve_cosmos_repository import CVE_DATA_INDEXING_POLICY
             from utils.cosmos_cache import base_cosmos
 
             database = base_cosmos.cosmos_client.get_database_client(config.azure.cosmos_database)
-            await database.create_container_if_not_exists(
+            await asyncio.to_thread(
+                database.create_container_if_not_exists,
                 id=config.cve_data.cosmos_container_name,
                 partition_key=PartitionKey(path="/cve_id"),
-                indexing_policy={
-                    "indexingMode": "consistent",
-                    "automatic": True,
-                    "includedPaths": [
-                        {"path": "/cvss_v3/base_severity/*"},
-                        {"path": "/published_date/*"},
-                        {"path": "/last_modified_date/*"},
-                        {"path": "/sources/*"}
-                    ]
-                }
+                indexing_policy=CVE_DATA_INDEXING_POLICY,
             )
             logger.info(f"✅ CVE data container '{config.cve_data.cosmos_container_name}' initialized")
         except Exception as e:
@@ -782,13 +870,34 @@ async def _startup_cve_system():
 
         # Initialize Cosmos DB container for CVE scan results (Phase 5)
         try:
-            await database.create_container_if_not_exists(
+            await asyncio.to_thread(
+                database.create_container_if_not_exists,
                 id=config.cve_scanner.cosmos_scan_container_name,
                 partition_key=PartitionKey(path="/scan_id")
             )
             logger.info(f"✅ CVE scan container '{config.cve_scanner.cosmos_scan_container_name}' initialized")
         except Exception as e:
             logger.warning(f"⚠️ CVE scan container initialization failed: {e}")
+
+        try:
+            await asyncio.to_thread(
+                database.create_container_if_not_exists,
+                id=config.cve_data.cosmos_kb_edge_container_name,
+                partition_key=PartitionKey(path="/kb_number")
+            )
+            logger.info(f"✅ KB-to-CVE edge container '{config.cve_data.cosmos_kb_edge_container_name}' initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ KB-to-CVE edge container initialization failed: {e}")
+
+        try:
+            await asyncio.to_thread(
+                database.create_container_if_not_exists,
+                id=config.cve_scanner.cosmos_patch_install_container_name,
+                partition_key=PartitionKey(path="/subscription_id")
+            )
+            logger.info(f"✅ Patch install history container '{config.cve_scanner.cosmos_patch_install_container_name}' initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ Patch install history container initialization failed: {e}")
 
         # Initialize CVE service
         try:

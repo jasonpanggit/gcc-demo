@@ -15,7 +15,7 @@ try:
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
     from utils.cve_export import generate_csv_export, generate_pdf_export
-except ImportError:
+except ModuleNotFoundError:
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
@@ -61,7 +61,7 @@ def _set_cached_data(cache_key: str, data: dict):
 
 
 @router.get("/dashboard")
-@readonly_endpoint(agent_name="cve_dashboard", timeout_seconds=30)
+@readonly_endpoint(agent_name="cve_dashboard", timeout_seconds=90)
 async def get_dashboard_metrics(
     time_range: int = Query(30, description="Days to look back (30, 90, or 365)"),
     severity: Optional[str] = Query(None, description="Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)")
@@ -125,7 +125,7 @@ async def get_dashboard_metrics(
                 analytics.get_top_cves_by_exposure(severity, limit=10),
                 analytics.get_vm_vulnerability_posture(severity),
                 analytics.get_aging_distribution(severity),
-                analytics.calculate_mttp(time_range),
+                asyncio.wait_for(analytics.calculate_mttp(time_range), timeout=5),
                 return_exceptions=True  # Don't fail entire request if one query fails
             )
 
@@ -158,7 +158,7 @@ async def get_dashboard_metrics(
 
             if isinstance(mttp, Exception):
                 logger.error(f"MTTP calculation failed: {mttp}")
-                mttp = 0.0
+                mttp = None
                 errors.append("mttp")
 
         except Exception as e:
@@ -182,6 +182,7 @@ async def get_dashboard_metrics(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "time_range_days": time_range,
                 "severity_filter": severity,
+                "mttp_available": mttp is not None,
                 "partial_errors": errors if errors else None
             }
         }

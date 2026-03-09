@@ -291,8 +291,8 @@ window.eolUtils = window.eolUtils || {};
      * @param {number} duration - Duration in milliseconds
      */
     eolUtils.showToast = function(message, type = 'info', duration = 3000) {
-        // Create toast container if it doesn't exist
-        let container = document.getElementById('toast-container');
+        // Reuse the shared toast container from base.html when available.
+        let container = document.getElementById('toast-container') || document.getElementById('toastContainer');
         if (!container) {
             container = document.createElement('div');
             container.id = 'toast-container';

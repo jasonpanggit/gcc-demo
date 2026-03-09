@@ -166,7 +166,7 @@ class CVEDataConfig:
     nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
     redhat_base_url: str = "https://access.redhat.com/hydra/rest/securitydata"
     ubuntu_base_url: str = "https://ubuntu.com/security"
-    msrc_base_url: str = "https://api.msrc.microsoft.com/cvrf/v2.0"
+    msrc_base_url: str = "https://api.msrc.microsoft.com/cvrf/v3.0"
     github_graphql_url: str = "https://api.github.com/graphql"
 
     # API keys (optional for some sources)
@@ -184,6 +184,9 @@ class CVEDataConfig:
     l1_cache_size: int = 1000  # Max CVEs in memory
     l1_cache_ttl_seconds: int = 3600  # 1 hour
     cosmos_container_name: str = "cve_data"
+    cosmos_kb_edge_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_KB_EDGE_COSMOS_CONTAINER", "cve_kb_edges")
+    )
 
     # Source priority for conflict resolution (lower number = higher priority)
     source_priority: Dict[str, int] = field(default_factory=lambda: {
@@ -255,6 +258,9 @@ class CVEScannerConfig:
     # Persistence
     cosmos_scan_container_name: str = field(
         default_factory=lambda: os.getenv("CVE_SCAN_COSMOS_CONTAINER", "cve_scans")
+    )
+    cosmos_patch_install_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_PATCH_INSTALL_COSMOS_CONTAINER", "cve_patch_installs")
     )
 
 

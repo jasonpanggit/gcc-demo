@@ -20,12 +20,14 @@ except ImportError:
     APSCHEDULER_AVAILABLE = False
 
 try:
+    from models.cve_models import CVEScanRequest
     from models.cve_alert_models import CVEMonitoringStats
     from utils.cve_delta_analyzer import CVEDeltaAnalyzer
     from utils.cve_alert_dispatcher import CVEAlertDispatcher
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
+    from app.agentic.eol.models.cve_models import CVEScanRequest
     from app.agentic.eol.models.cve_alert_models import CVEMonitoringStats
     from app.agentic.eol.utils.cve_delta_analyzer import CVEDeltaAnalyzer
     from app.agentic.eol.utils.cve_alert_dispatcher import CVEAlertDispatcher
@@ -156,8 +158,11 @@ class CVEMonitoringScheduler:
 
         try:
             # 1. Trigger scan
-            scan_response = await self.scanner.scan()
-            scan_id = scan_response.scan_id
+            scan_request = CVEScanRequest(
+                subscription_ids=[self.scanner.subscription_id] if getattr(self.scanner, "subscription_id", None) else None,
+                include_arc=True,
+            )
+            scan_id = await self.scanner.start_scan(scan_request)
             logger.info(f"Scan triggered: {scan_id}")
 
             # 2. Wait for completion (poll every 5 seconds, 10 min timeout)
@@ -256,14 +261,19 @@ class CVEMonitoringScheduler:
             try:
                 # Get scan status
                 status_response = await self.scanner.get_scan_status(scan_id)
-                status = status_response.get("status")
+                if status_response is None:
+                    logger.warning(f"Scan {scan_id} status not yet available")
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                status = status_response.status
 
                 if status == "completed":
                     logger.info(f"Scan {scan_id} completed")
-                    return await self.scanner.get_scan_results(scan_id)
+                    return status_response
 
                 if status == "failed":
-                    error_msg = status_response.get("error", "Unknown error")
+                    error_msg = status_response.error or "Unknown error"
                     raise RuntimeError(f"Scan {scan_id} failed: {error_msg}")
 
                 # Still running - wait before next poll

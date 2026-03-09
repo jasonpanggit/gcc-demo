@@ -3,6 +3,8 @@ CVE API Router
 
 Provides endpoints for CVE search and detail retrieval.
 """
+import asyncio
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path
@@ -12,7 +14,7 @@ try:
     from utils.response_models import StandardResponse
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
-except ImportError:
+except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
@@ -23,22 +25,125 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+def _format_os_display_name(normalized_name: str, fallback_key: Optional[str] = None) -> str:
+    normalized_name = str(normalized_name or "").strip()
+    if normalized_name == "windows server":
+        return "Windows Server"
+    if normalized_name == "windows":
+        return "Windows"
+    if normalized_name == "ubuntu":
+        return "Ubuntu"
+    if normalized_name == "rhel":
+        return "RHEL"
+    if normalized_name == "centos":
+        return "CentOS"
+    if normalized_name == "debian":
+        return "Debian"
+    if normalized_name:
+        return " ".join(part.capitalize() for part in normalized_name.split())
+
+    key = str(fallback_key or "").strip()
+    if "::" in key:
+        name_part, _ = key.split("::", 1)
+        return " ".join(part.capitalize() for part in name_part.split())
+    return key or "Unknown OS"
+
+
+def _build_inventory_cached_filters(identity: dict) -> dict:
+    normalized_name = str(identity.get("normalized_name") or "").strip().lower()
+    normalized_version = str(identity.get("normalized_version") or "").strip()
+
+    keyword_parts = [part for part in [normalized_name, normalized_version] if part]
+    filters = {"keyword": " ".join(keyword_parts).strip()}
+
+    vendor_map = {
+        "ubuntu": "ubuntu",
+        "windows server": "microsoft",
+        "windows": "microsoft",
+        "rhel": "redhat",
+        "centos": "centos",
+        "debian": "debian",
+    }
+    vendor = vendor_map.get(normalized_name)
+    if vendor:
+        filters["vendor"] = vendor
+    return filters
+
+
 @router.get("/cve/stats")
 @readonly_endpoint(agent_name="cve_stats", timeout_seconds=15)
 async def get_cve_stats() -> StandardResponse:
     """Get cached CVE statistics for the UI."""
     try:
-        from main import get_cve_service
+        from main import get_cve_scanner, get_cve_service, get_eol_orchestrator
+        from utils.cve_inventory_sync import CVEInventorySyncStateStore, discover_inventory_os_identities
 
         cve_service = await get_cve_service()
         cached_count = await cve_service.count_cves({})
+        inventory_state = await CVEInventorySyncStateStore().load()
+        discovered_identities = await discover_inventory_os_identities(
+            eol_orchestrator=get_eol_orchestrator(),
+            cve_scanner=await get_cve_scanner(),
+        )
+
+        state_entries = {
+            str(entry.get("key") or "").strip(): entry
+            for entry in inventory_state.get("os_entries") or []
+            if str(entry.get("key") or "").strip()
+        }
+
+        identities = []
+        seen_keys = set()
+        for identity in discovered_identities:
+            key = str(identity.get("key") or "").strip()
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            merged = {**state_entries.get(key, {}), **identity}
+            identities.append(merged)
+
+        for key, entry in state_entries.items():
+            if key in seen_keys:
+                continue
+            identities.append(dict(entry))
+
+        semaphore = asyncio.Semaphore(6)
+
+        async def build_os_count(identity: dict) -> dict:
+            async with semaphore:
+                filters = _build_inventory_cached_filters(identity)
+                match_count = await cve_service.count_cves(filters) if filters.get("keyword") else 0
+                key = str(identity.get("key") or "").strip()
+                normalized_name = str(identity.get("normalized_name") or "").strip()
+                normalized_version = str(identity.get("normalized_version") or "").strip()
+                state_entry = state_entries.get(key, {})
+
+                return {
+                    "key": key,
+                    "display_name": _format_os_display_name(normalized_name, fallback_key=key),
+                    "version": normalized_version or None,
+                    "match_count": int(match_count),
+                    "query_mode": state_entry.get("query_mode"),
+                    "synced_at": state_entry.get("synced_at"),
+                }
+
+        inventory_os_counts = await asyncio.gather(
+            *(build_os_count(identity) for identity in identities),
+            return_exceptions=False,
+        )
+
+        inventory_os_counts.sort(
+            key=lambda item: (-item["match_count"], item["display_name"].lower(), str(item.get("version") or ""))
+        )
 
         return StandardResponse(
             success=True,
             message="CVE stats retrieved",
             data={
                 "cached_count": cached_count,
-                "l1_cache": cve_service.get_cache_stats()
+                "l1_cache": cve_service.get_cache_stats(),
+                "inventory_os_counts": inventory_os_counts,
+                "inventory_os_last_synced_at": inventory_state.get("last_synced_at"),
             }
         )
     except Exception as e:
@@ -144,7 +249,9 @@ async def search_cves(request: CVESearchRequest) -> StandardResponse:
         results = await cve_service.search_cves(
             filters=filters,
             limit=request.limit,
-            offset=request.offset
+            offset=request.offset,
+            sort_by=request.sort_by,
+            sort_order=request.sort_order,
         )
 
         total_count = await cve_service.count_cves(filters)
@@ -159,7 +266,14 @@ async def search_cves(request: CVESearchRequest) -> StandardResponse:
             has_more=has_more
         )
 
-        logger.info(f"CVE search: {len(results)} results (filters={len(filters)}, offset={request.offset})")
+        logger.info(
+            "CVE search: %d results (filters=%d, offset=%d, sort=%s %s)",
+            len(results),
+            len(filters),
+            request.offset,
+            request.sort_by,
+            request.sort_order,
+        )
 
         return StandardResponse(
             success=True,

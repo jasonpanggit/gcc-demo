@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% block title %}OS Normalization Rules{% endblock %}
+
+{% block content %}
+<div class="hero-section fade-in">
+    <div class="hero-content">
+        <div class="hero-row">
+            <div class="hero-copy">
+                <h1 class="hero-title">
+                    <span class="hero-icon me-3"><i class="fas fa-sliders"></i></span>OS Normalization Rules
+                </h1>
+                <p class="hero-subtitle">
+                    Centralized regex rules for deriving canonical OS family and version across EOL inventory, OS inventory, Azure resource inventory, and patch management.
+                </p>
+            </div>
+            <div class="hero-action">
+                <button id="refreshRulesBtn" class="btn hero-action-button">
+                    <i class="fas fa-rotate me-2"></i>Reload Rules
+                </button>
+                <a href="/eol-inventory" class="btn btn-outline-primary">
+                    <i class="fas fa-table me-2"></i>Open EOL Database
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid px-0">
+    <div class="content-container">
+        <div class="modern-card fade-in mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-magic me-2"></i>Rule Editor</h5>
+                <span class="badge bg-info" id="ruleCountBadge">0 rules</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label for="ruleNameInput" class="form-label">Rule Name</label>
+                        <input id="ruleNameInput" type="text" class="form-control" placeholder="Windows Server release">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="rulePatternInput" class="form-label">Regex Pattern</label>
+                        <input id="rulePatternInput" type="text" class="form-control" placeholder="(?P<name>windows server)\s+(?P<version>20\d{2})">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="ruleSourceScope" class="form-label">Source</label>
+                        <select id="ruleSourceScope" class="form-select">
+                            <option value="combined">OS name + version</option>
+                            <option value="os_name">OS name only</option>
+                            <option value="version">Version only</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1">
+                        <label for="rulePriorityInput" class="form-label">Priority</label>
+                        <input id="rulePriorityInput" type="number" class="form-control" value="100">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button id="saveRuleBtn" class="btn btn-primary w-100"><i class="fas fa-plus me-2"></i><span id="saveRuleBtnText">Add Rule</span></button>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label for="ruleNameTemplateInput" class="form-label">Derived OS Name</label>
+                        <input id="ruleNameTemplateInput" type="text" class="form-control" value="{name}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="ruleVersionTemplateInput" class="form-label">Derived Version</label>
+                        <input id="ruleVersionTemplateInput" type="text" class="form-control" value="{version}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="ruleNotesInput" class="form-label">Notes</label>
+                        <input id="ruleNotesInput" type="text" class="form-control" placeholder="Optional operator note">
+                    </div>
+                    <div class="col-md-1">
+                        <label for="ruleEnabledInput" class="form-label">Enabled</label>
+                        <div class="form-check mt-2">
+                            <input id="ruleEnabledInput" type="checkbox" class="form-check-input" checked>
+                        </div>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button id="cancelRuleEditBtn" class="btn btn-outline-secondary w-100" style="display:none;"><i class="fas fa-xmark me-2"></i>Cancel Edit</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Pattern</th>
+                                <th>Source</th>
+                                <th>Derived Name</th>
+                                <th>Derived Version</th>
+                                <th>Priority</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ruleTableBody">
+                            <tr><td colspan="8" class="text-center text-muted py-3">No rules available.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="modern-card fade-in">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-vial me-2"></i>Derivation Preview</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label for="testRawNameInput" class="form-label">Preview Raw OS Name</label>
+                        <input id="testRawNameInput" type="text" class="form-control" placeholder="Microsoft Windows Server 2025 Datacenter">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="testRawVersionInput" class="form-label">Preview Raw Version</label>
+                        <input id="testRawVersionInput" type="text" class="form-control" placeholder="10.0">
+                    </div>
+                    <div class="col-md-2">
+                        <button id="testRuleBtn" class="btn btn-outline-primary w-100"><i class="fas fa-vial me-2"></i>Test</button>
+                    </div>
+                    <div class="col-md-3">
+                        <div id="ruleTestResult" class="small text-muted">Preview a raw OS string to see derived name, version, and rule.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modern-card fade-in mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-database me-2"></i>Cached Cosmos Re-Normalization</h5>
+                <div class="d-flex gap-2">
+                    <button id="previewCachedRulesBtn" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-play me-2"></i>Preview Cached Items
+                    </button>
+                    <button id="applyCachedRulesBtn" class="btn btn-primary btn-sm">
+                        <i class="fas fa-save me-2"></i>Apply to Cosmos
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Re-run the current rule set against cached OS EOL rows in Cosmos. Preview shows proposed normalized values and whether a record needs to move to a new canonical key. Apply writes the normalized name, version, derivation metadata, and any required key migration back to Cosmos.
+                </p>
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-3">
+                        <label for="cachedPreviewLimitInput" class="form-label">Preview rows</label>
+                        <input id="cachedPreviewLimitInput" type="number" min="1" max="500" value="100" class="form-control">
+                    </div>
+                    <div class="col-md-9">
+                        <div id="cachedRulesStatus" class="small text-muted">No cached preview has been run yet.</div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Raw Input</th>
+                                <th>Current Normalized</th>
+                                <th>Proposed Normalized</th>
+                                <th>Rule</th>
+                                <th>Rekey</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cachedRulesTableBody">
+                            <tr><td colspan="5" class="text-center text-muted py-3">Run a preview to inspect cached OS rows.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+    const ruleTableBody = document.getElementById('ruleTableBody');
+    const ruleCountBadge = document.getElementById('ruleCountBadge');
+    const ruleNameInput = document.getElementById('ruleNameInput');
+    const rulePatternInput = document.getElementById('rulePatternInput');
+    const ruleSourceScope = document.getElementById('ruleSourceScope');
+    const ruleNameTemplateInput = document.getElementById('ruleNameTemplateInput');
+    const ruleVersionTemplateInput = document.getElementById('ruleVersionTemplateInput');
+    const rulePriorityInput = document.getElementById('rulePriorityInput');
+    const ruleNotesInput = document.getElementById('ruleNotesInput');
+    const ruleEnabledInput = document.getElementById('ruleEnabledInput');
+    const saveRuleBtn = document.getElementById('saveRuleBtn');
+    const saveRuleBtnText = document.getElementById('saveRuleBtnText');
+    const cancelRuleEditBtn = document.getElementById('cancelRuleEditBtn');
+    const refreshRulesBtn = document.getElementById('refreshRulesBtn');
+    const testRuleBtn = document.getElementById('testRuleBtn');
+    const testRawNameInput = document.getElementById('testRawNameInput');
+    const testRawVersionInput = document.getElementById('testRawVersionInput');
+    const ruleTestResult = document.getElementById('ruleTestResult');
+    const previewCachedRulesBtn = document.getElementById('previewCachedRulesBtn');
+    const applyCachedRulesBtn = document.getElementById('applyCachedRulesBtn');
+    const cachedPreviewLimitInput = document.getElementById('cachedPreviewLimitInput');
+    const cachedRulesStatus = document.getElementById('cachedRulesStatus');
+    const cachedRulesTableBody = document.getElementById('cachedRulesTableBody');
+
+    let currentRules = [];
+    let editingRuleId = null;
+
+    async function loadRules() {
+        try {
+            const response = await fetch('/api/os-extraction-rules');
+            const payload = await response.json();
+            currentRules = payload.data || [];
+            renderRules();
+        } catch (err) {
+            console.error('Error loading OS extraction rules', err);
+            currentRules = [];
+            renderRules();
+        }
+    }
+
+    function renderRules() {
+        ruleCountBadge.textContent = `${currentRules.length} rule${currentRules.length === 1 ? '' : 's'}`;
+        if (!currentRules.length) {
+            ruleTableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No rules available.</td></tr>';
+            return;
+        }
+        ruleTableBody.innerHTML = currentRules.map((rule) => `
+            <tr>
+                <td>${escapeHtml(rule.name || '')}</td>
+                <td>${renderRuleType(rule)}</td>
+                <td><code>${escapeHtml(rule.pattern || '')}</code></td>
+                <td>${escapeHtml(rule.source_scope || 'combined')}</td>
+                <td>${escapeHtml(rule.derived_name_template || '')}</td>
+                <td>${escapeHtml(rule.derived_version_template || '')}</td>
+                <td>${escapeHtml(String(rule.priority ?? ''))}</td>
+                <td>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-primary" onclick="window.editExtractionRule('${escapeHtml(rule.id || '')}')">Edit</button>
+                        <button class="btn btn-outline-danger" onclick="window.deleteExtractionRule('${escapeHtml(rule.id || '')}')">${rule.is_default ? 'Reset' : 'Delete'}</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function renderRuleType(rule) {
+        if (rule.is_default && rule.is_overridden) {
+            return '<span class="badge bg-warning text-dark">Default override</span>';
+        }
+        if (rule.is_default) {
+            return '<span class="badge bg-secondary">Seeded default</span>';
+        }
+        return '<span class="badge bg-primary">Custom</span>';
+    }
+
+    function resetRuleForm() {
+        editingRuleId = null;
+        ruleNameInput.value = '';
+        rulePatternInput.value = '';
+        ruleSourceScope.value = 'combined';
+        ruleNameTemplateInput.value = '{name}';
+        ruleVersionTemplateInput.value = '{version}';
+        rulePriorityInput.value = '100';
+        ruleNotesInput.value = '';
+        ruleEnabledInput.checked = true;
+        saveRuleBtnText.textContent = 'Add Rule';
+        saveRuleBtn.classList.remove('btn-warning');
+        saveRuleBtn.classList.add('btn-primary');
+        cancelRuleEditBtn.style.display = 'none';
+    }
+
+    function loadRuleIntoForm(rule) {
+        if (!rule) return;
+        editingRuleId = rule.id || null;
+        ruleNameInput.value = rule.name || '';
+        rulePatternInput.value = rule.pattern || '';
+        ruleSourceScope.value = rule.source_scope || 'combined';
+        ruleNameTemplateInput.value = rule.derived_name_template || '{name}';
+        ruleVersionTemplateInput.value = rule.derived_version_template || '{version}';
+        rulePriorityInput.value = String(rule.priority ?? 100);
+        ruleNotesInput.value = rule.notes || '';
+        ruleEnabledInput.checked = rule.enabled !== false;
+        saveRuleBtnText.textContent = 'Update Rule';
+        saveRuleBtn.classList.remove('btn-primary');
+        saveRuleBtn.classList.add('btn-warning');
+        cancelRuleEditBtn.style.display = 'block';
+        ruleNameInput.focus();
+    }
+
+    async function saveRule() {
+        const payload = {
+            name: ruleNameInput.value.trim(),
+            pattern: rulePatternInput.value.trim(),
+            source_scope: ruleSourceScope.value,
+            derived_name_template: ruleNameTemplateInput.value.trim() || '{name}',
+            derived_version_template: ruleVersionTemplateInput.value.trim() || '{version}',
+            priority: parseInt(rulePriorityInput.value, 10) || 100,
+            notes: ruleNotesInput.value.trim() || null,
+            enabled: !!ruleEnabledInput.checked,
+            flags: 'IGNORECASE'
+        };
+        if (!payload.name || !payload.pattern) {
+            alert('Rule name and pattern are required.');
+            return;
+        }
+        const isEditing = !!editingRuleId;
+        const url = isEditing
+            ? `/api/os-extraction-rules/${encodeURIComponent(editingRuleId)}`
+            : '/api/os-extraction-rules';
+        const response = await fetch(url, {
+            method: isEditing ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!result.success) {
+            alert(result.error || `Failed to ${isEditing ? 'update' : 'save'} OS extraction rule.`);
+            return;
+        }
+        resetRuleForm();
+        await loadRules();
+    }
+
+    async function testRuleExtraction() {
+        const rawName = testRawNameInput.value.trim();
+        const rawVersion = testRawVersionInput.value.trim();
+        if (!rawName) {
+            ruleTestResult.textContent = 'Enter a raw OS name to preview derivation.';
+            return;
+        }
+        const response = await fetch('/api/os-extraction-rules/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw_name: rawName, raw_version: rawVersion || null })
+        });
+        const result = await response.json();
+        const item = (result.data || [])[0];
+        if (!result.success || !item) {
+            ruleTestResult.textContent = result.error || 'No derivation result available.';
+            return;
+        }
+        ruleTestResult.textContent = `${item.normalized_name || 'n/a'} ${item.normalized_version || ''} via ${item.strategy || 'unknown'}${item.rule_name ? ` (${item.rule_name})` : ''}`.trim();
+    }
+
+    function renderCachedRuleResults(items) {
+        if (!Array.isArray(items) || !items.length) {
+            cachedRulesTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No cached OS rows need changes.</td></tr>';
+            return;
+        }
+
+        cachedRulesTableBody.innerHTML = items.map((item) => `
+            <tr>
+                <td><small class="text-muted">${escapeHtml(item.raw_software_name || '')}${item.raw_version ? `<br><span>${escapeHtml(item.raw_version)}</span>` : ''}</small></td>
+                <td>${escapeHtml(item.current?.normalized_software_name || item.current?.software_name || '—')}${item.current?.normalized_version ? `<br><small class="text-muted">${escapeHtml(item.current.normalized_version)}</small>` : ''}</td>
+                <td>${escapeHtml(item.proposed?.normalized_software_name || item.proposed?.software_name || '—')}${item.proposed?.normalized_version ? `<br><small class="text-muted">${escapeHtml(item.proposed.normalized_version)}</small>` : ''}</td>
+                <td><small>${escapeHtml(item.proposed?.derivation_rule_id || item.proposed?.derivation_strategy || '—')}</small></td>
+                <td>${item.requires_rekey ? '<span class="badge bg-warning text-dark">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function runCachedRuleReapply(applyChanges) {
+        const previewLimit = Math.max(1, Math.min(500, parseInt(cachedPreviewLimitInput.value, 10) || 100));
+        cachedRulesStatus.textContent = applyChanges ? 'Applying rule results to Cosmos...' : 'Running cached preview against Cosmos rows...';
+        previewCachedRulesBtn.disabled = true;
+        applyCachedRulesBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/os-extraction-rules/reapply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apply_changes: applyChanges, preview_limit: previewLimit })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                cachedRulesStatus.textContent = result.error || 'Failed to run cached normalization.';
+                return;
+            }
+
+            const metadata = result.metadata || {};
+            const errors = Array.isArray(metadata.errors) ? metadata.errors : [];
+            const suffix = errors.length ? ` ${errors.length} error(s).` : '';
+            cachedRulesStatus.textContent = `${applyChanges ? 'Applied' : 'Previewed'} ${metadata.changed || 0} changed row(s) out of ${metadata.scanned || 0} scanned.${applyChanges ? ` Updated ${metadata.updated || 0}.` : ''}${suffix}`;
+            renderCachedRuleResults(result.data || []);
+        } catch (error) {
+            console.error('Cached normalization run failed', error);
+            cachedRulesStatus.textContent = 'Failed to run cached normalization. Check console for details.';
+        } finally {
+            previewCachedRulesBtn.disabled = false;
+            applyCachedRulesBtn.disabled = false;
+        }
+    }
+
+    function escapeHtml(value) {
+        if (!value) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    window.deleteExtractionRule = async function(ruleId) {
+        if (!ruleId) return;
+        const rule = currentRules.find((item) => item.id === ruleId);
+        const promptText = rule && rule.is_default
+            ? 'Reset this seeded default rule back to its baseline definition?'
+            : 'Delete this custom rule?';
+        if (!window.confirm(promptText)) {
+            return;
+        }
+        const response = await fetch(`/api/os-extraction-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (!result.success) {
+            alert(result.error || 'Failed to delete OS extraction rule.');
+            return;
+        }
+        if (editingRuleId === ruleId) {
+            resetRuleForm();
+        }
+        await loadRules();
+    };
+
+    window.editExtractionRule = function(ruleId) {
+        const rule = currentRules.find((item) => item.id === ruleId);
+        if (!rule) {
+            alert('Rule not found. Reload the table and try again.');
+            return;
+        }
+        loadRuleIntoForm(rule);
+    };
+
+    saveRuleBtn.addEventListener('click', saveRule);
+    cancelRuleEditBtn.addEventListener('click', resetRuleForm);
+    refreshRulesBtn.addEventListener('click', loadRules);
+    testRuleBtn.addEventListener('click', testRuleExtraction);
+    previewCachedRulesBtn.addEventListener('click', () => runCachedRuleReapply(false));
+    applyCachedRulesBtn.addEventListener('click', () => {
+        if (!window.confirm('Apply the currently matched normalized values back to cached Cosmos OS rows?')) {
+            return;
+        }
+        runCachedRuleReapply(true);
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        resetRuleForm();
+        loadRules();
+    });
+})();
+</script>
+{% endblock %}

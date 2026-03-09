@@ -13,6 +13,7 @@ Key capabilities:
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
@@ -26,6 +27,7 @@ try:
     )
     from utils.cve_service import CVEService
     from utils.logging_config import get_logger
+    from utils.normalization import normalize_os_name_version
 except ModuleNotFoundError:
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest
@@ -35,8 +37,28 @@ except ModuleNotFoundError:
     )
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.logging_config import get_logger
+    from app.agentic.eol.utils.normalization import normalize_os_name_version
 
 logger = get_logger(__name__)
+
+
+def _normalize_text(value: Optional[str]) -> str:
+    if not value:
+        return ""
+
+    normalized = value.lower().strip()
+    normalized = normalized.replace("_", " ").replace("-", " ")
+    normalized = normalized.replace("microsoft ", "")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
+def _extract_release_year(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+
+    match = re.search(r"(20\d{2}|19\d{2})", value)
+    return match.group(1) if match else None
 
 
 class CVEScanRepository:
@@ -365,6 +387,76 @@ class CVEScanner:
             logger.error(f"VM discovery failed: {e}")
             return []
 
+    async def get_vm_targets(
+        self,
+        subscription_ids: Optional[List[str]] = None,
+        resource_groups: Optional[List[str]] = None,
+        include_arc: bool = True,
+    ) -> List[VMScanTarget]:
+        """Public wrapper for VM discovery used by downstream services."""
+        return await self._discover_vms(subscription_ids, resource_groups, include_arc)
+
+    async def get_vm_targets_by_ids(self, vm_ids: List[str]) -> Dict[str, VMScanTarget]:
+        """Return current VM inventory metadata for a set of resource IDs."""
+        if not vm_ids:
+            return {}
+
+        normalized_vm_ids = []
+        seen_ids = set()
+        for vm_id in vm_ids:
+            if not vm_id:
+                continue
+            vm_id_lower = vm_id.lower()
+            if vm_id_lower in seen_ids:
+                continue
+            seen_ids.add(vm_id_lower)
+            normalized_vm_ids.append(vm_id)
+
+        if not normalized_vm_ids:
+            return {}
+
+        escaped_ids = ", ".join("'{}'".format(vm_id.replace("'", "''")) for vm_id in normalized_vm_ids)
+        query = f"""
+        Resources
+        | where id in~ ({escaped_ids})
+        | project id, name, resourceGroup, subscriptionId, location, properties, tags, type
+        """
+
+        subscriptions = sorted({
+            parts[2]
+            for vm_id in normalized_vm_ids
+            for parts in [vm_id.split("/")]
+            if len(parts) > 2 and parts[1].lower() == "subscriptions"
+        }) or [self.subscription_id]
+
+        try:
+            query_request = QueryRequest(
+                subscriptions=subscriptions,
+                query=query,
+            )
+            response = await asyncio.to_thread(
+                self.resource_graph_client.resources,
+                query_request,
+            )
+
+            inventory: Dict[str, VMScanTarget] = {}
+            for vm_data in response.data:
+                try:
+                    vm = await self._extract_vm_details(vm_data)
+                    inventory[vm.vm_id.lower()] = vm
+                except Exception as e:
+                    logger.warning(f"Failed to enrich VM inventory for {vm_data.get('id', 'unknown')}: {e}")
+
+            return inventory
+
+        except Exception as e:
+            logger.error(f"VM lookup by ID failed: {e}")
+            return {}
+
+    def is_vm_affected_by_cve(self, vm: VMScanTarget, cve: UnifiedCVE) -> bool:
+        """Public wrapper for normalized CVE-to-VM matching."""
+        return self._is_vm_affected(vm, cve)
+
     async def _extract_vm_details(self, vm_data: Dict[str, Any]) -> VMScanTarget:
         """Extract VM details from Resource Graph result.
 
@@ -388,6 +480,11 @@ class CVEScanner:
             image_ref = storage_profile.get("imageReference", {})
             os_name = image_ref.get("offer") or None
             os_version = image_ref.get("sku") or None
+
+            if os_name and os_name.lower() == "windowsserver":
+                release_year = _extract_release_year(os_version)
+                os_name = "Windows Server"
+                os_version = release_year or os_version
         else:
             # Arc VM
             os_name = properties.get("osName") or None
@@ -406,10 +503,113 @@ class CVEScanner:
             os_name=os_name,
             os_version=os_version,
             installed_packages=installed_packages,
-            tags=vm_data.get("tags", {}),
+            tags=vm_data.get("tags") or {},
             location=vm_data["location"],
             vm_type=vm_type
         )
+
+    def _get_vm_os_identity(self, vm: VMScanTarget) -> tuple[str, Optional[str]]:
+        """Return normalized OS family and version for VM matching."""
+        raw_name = vm.os_name or vm.os_type or ""
+        raw_version = vm.os_version
+
+        if raw_name.lower() == "windowsserver":
+            release_year = _extract_release_year(raw_version)
+            raw_name = "Windows Server"
+            raw_version = release_year or raw_version
+
+        normalized_name, normalized_version = normalize_os_name_version(raw_name, raw_version)
+        normalized_name = _normalize_text(normalized_name)
+        normalized_version = _extract_release_year(normalized_version) or normalized_version
+        return normalized_name, normalized_version
+
+    def _get_product_identity(self, product_name: Optional[str], product_version: Optional[str]) -> tuple[str, Optional[str]]:
+        """Return normalized product family and version for CVE product matching."""
+        normalized_product_name = _normalize_text(product_name)
+        normalized_product_version = _normalize_text(product_version)
+
+        normalized_name, normalized_version = normalize_os_name_version(
+            normalized_product_name,
+            normalized_product_version or None
+        )
+        normalized_name = _normalize_text(normalized_name)
+
+        release_year = (
+            _extract_release_year(product_name)
+            or _extract_release_year(product_version)
+            or _extract_release_year(normalized_version)
+        )
+
+        if normalized_name == "windowsserver":
+            normalized_name = "windows server"
+
+        return normalized_name, release_year or normalized_version or None
+
+    def _versions_match(self, vm_version: Optional[str], product_version: Optional[str]) -> bool:
+        if not vm_version or not product_version:
+            return True
+
+        vm_normalized = _normalize_text(vm_version)
+        product_normalized = _normalize_text(product_version)
+
+        vm_year = _extract_release_year(vm_normalized)
+        product_year = _extract_release_year(product_normalized)
+        if vm_year and product_year:
+            return vm_year == product_year
+
+        return (
+            vm_normalized == product_normalized
+            or vm_normalized in product_normalized
+            or product_normalized in vm_normalized
+        )
+
+    def _product_matches_vm(self, vm: VMScanTarget, product_name: Optional[str], product_version: Optional[str]) -> bool:
+        vm_name, vm_version = self._get_vm_os_identity(vm)
+        product_family, normalized_product_version = self._get_product_identity(product_name, product_version)
+
+        if not vm_name or not product_family:
+            return False
+
+        same_family = (
+            vm_name == product_family
+            or vm_name in product_family
+            or product_family in vm_name
+        )
+
+        if not same_family:
+            return False
+
+        return self._versions_match(vm_version, normalized_product_version)
+
+    def _build_cve_search_filters(self, vm: VMScanTarget, cve_filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Build search filters that can hit both cache and live keyword search paths."""
+        filters: Dict[str, Any] = {}
+        if cve_filters:
+            filters.update(cve_filters)
+
+        normalized_name, normalized_version = self._get_vm_os_identity(vm)
+        if not normalized_name:
+            return filters
+
+        vendor_map = {
+            "ubuntu": "ubuntu",
+            "windows server": "microsoft",
+            "windows": "microsoft",
+            "rhel": "redhat",
+            "centos": "centos",
+            "debian": "debian",
+        }
+
+        vendor = vendor_map.get(normalized_name)
+        if vendor:
+            filters["vendor"] = vendor
+
+        keyword_parts = [normalized_name]
+        if normalized_version:
+            keyword_parts.append(normalized_version)
+        filters["keyword"] = " ".join(keyword_parts)
+
+        return filters
 
     async def _extract_packages(self, vm_data: Dict[str, Any]) -> List[str]:
         """Extract installed packages from VM.
@@ -447,26 +647,7 @@ class CVEScanner:
         matches = []
 
         try:
-            # Build search filters
-            filters = {}
-            if cve_filters:
-                filters.update(cve_filters)
-
-            # Search for CVEs with OS/product matching
-            # For efficiency, filter by vendor or product if we know OS
-            if vm.os_name:
-                # Try to map OS name to vendor
-                vendor_map = {
-                    "Ubuntu": "ubuntu",
-                    "WindowsServer": "microsoft",
-                    "RedHat": "redhat",
-                    "CentOS": "centos",
-                    "Debian": "debian"
-                }
-                for os_name_part, vendor in vendor_map.items():
-                    if os_name_part.lower() in (vm.os_name or "").lower():
-                        filters["vendor"] = vendor
-                        break
+            filters = self._build_cve_search_filters(vm, cve_filters)
 
             # Search CVEs (limit to reduce processing time)
             cves = await self.cve_service.search_cves(
@@ -506,21 +687,13 @@ class CVEScanner:
         """
         # Check OS-level match
         for product in cve.affected_products:
-            # Match OS name
-            if vm.os_name and product.product.lower() in vm.os_name.lower():
-                # Check version if available
-                if vm.os_version:
-                    # Simple version matching (exact or prefix)
-                    if vm.os_version in product.version or product.version in vm.os_version:
-                        return True
-                else:
-                    # No version info, assume affected if OS name matches
-                    return True
+            if self._product_matches_vm(vm, product.product, product.version):
+                return True
 
         # Check package-level match
         for package in vm.installed_packages:
             for product in cve.affected_products:
-                if package.lower() in product.product.lower():
+                if _normalize_text(package) in _normalize_text(product.product):
                     return True
 
         return False
@@ -537,13 +710,13 @@ class CVEScanner:
         """
         # Find the product that matched
         for product in cve.affected_products:
-            if vm.os_name and product.product.lower() in vm.os_name.lower():
+            if self._product_matches_vm(vm, product.product, product.version):
                 version_part = f" {vm.os_version}" if vm.os_version else ""
                 return f"OS {vm.os_name}{version_part} affected"
 
         for package in vm.installed_packages:
             for product in cve.affected_products:
-                if package.lower() in product.product.lower():
+                if _normalize_text(package) in _normalize_text(product.product):
                     return f"Package {package} affected"
 
         return "Matched by product"

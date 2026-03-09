@@ -186,8 +186,9 @@ class CVEDataAggregator:
     async def search_and_merge_cves(
         self,
         query: Optional[str] = None,
-        limit: int = 100,
-        source: Optional[str] = None
+        limit: Optional[int] = 100,
+        source: Optional[str] = None,
+        nvd_filters: Optional[Dict[str, Any]] = None,
     ) -> List[UnifiedCVE]:
         """Run live CVE search and merge source results.
 
@@ -196,20 +197,23 @@ class CVEDataAggregator:
         there is no keyword query (CVE.org API does not support text search).
         """
         requested_source = (source or "").strip().lower()
+        nvd_filters = dict(nvd_filters or {})
 
         source_results: Dict[str, List[Dict[str, Any]]] = {}
 
         if requested_source in ("", "nvd"):
             nvd_results = await self.nvd_client.search_cves(
                 query=query,
-                resultsPerPage=min(limit, 2000)
+                limit=limit,
+                **nvd_filters,
             )
             source_results["nvd"] = nvd_results
 
-        if requested_source == "cve_org" and not query:
+        if requested_source == "cve_org" and not query and not nvd_filters:
+            cve_org_page_size = min(limit or 2000, 2000)
             cve_org_results = await self.cve_org_client.search_cves(
                 state="PUBLISHED",
-                resultsPerPage=min(limit, 2000)
+                resultsPerPage=cve_org_page_size,
             )
             source_results["cve_org"] = cve_org_results
 
@@ -229,7 +233,9 @@ class CVEDataAggregator:
                 logger.warning("Failed to merge live CVE %s: %s", cve_id, e)
 
         merged.sort(key=lambda c: c.last_modified_date, reverse=True)
-        return merged[:limit]
+        if limit is not None:
+            return merged[:limit]
+        return merged
 
     def merge_cve_data(self, cve_data_list: List[Dict[str, Any]]) -> UnifiedCVE:
         """Merge CVE data from multiple sources with conflict resolution.

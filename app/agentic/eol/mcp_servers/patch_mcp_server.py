@@ -20,6 +20,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 try:
+    from utils.normalization import normalize_os_record
+except ImportError:
+    from app.agentic.eol.utils.normalization import normalize_os_record
+
+try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
@@ -321,11 +326,21 @@ async def list_azure_vms(
                     continue
 
                 vm_name = vm.get("resource_name") or vm.get("name")
+                normalized_os = normalize_os_record(
+                    sp.get("os_image") or sp.get("os_type") or vm.get("os_name"),
+                    vm.get("os_version"),
+                    sp.get("os_type") or vm.get("os_type"),
+                )
                 machines.append({
                     "computer": vm_name,
                     "name": vm_name,
-                    "os_name": sp.get("os_image") or sp.get("os_type") or vm.get("os_name"),
-                    "os_type": sp.get("os_type") or vm.get("os_type"),
+                    "os_name": normalized_os["os_name"],
+                    "os_version": normalized_os.get("os_version"),
+                    "os_type": normalized_os.get("os_type"),
+                    "raw_os_name": normalized_os.get("raw_os_name"),
+                    "raw_os_version": normalized_os.get("raw_os_version"),
+                    "normalized_os_name": normalized_os.get("normalized_os_name"),
+                    "normalized_os_version": normalized_os.get("normalized_os_version"),
                     "resource_id": vm.get("resource_id") or vm.get("id"),
                     "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or subscription_id,
                     "resource_group": rg,

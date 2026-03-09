@@ -65,7 +65,7 @@ EXPECTED_DASHBOARD_RESPONSE = {
             "high": 0,        # int
             "medium": 0,      # int
             "low": 0,         # int
-            "mttp_days": 0.0  # float
+            "mttp_days": None  # float | null when install history is unavailable
         },
         "trending": [
             # List of {"date": "YYYY-MM-DD", "count": int}
@@ -103,6 +103,7 @@ EXPECTED_DASHBOARD_RESPONSE = {
             "timestamp": "2026-03-07T15:30:00Z",
             "time_range_days": 30,
             "severity_filter": None,  # or "CRITICAL", etc.
+            "mttp_available": False,  # True when MTTP was computed from install history
             "partial_errors": None    # or list of failed query names
         }
     },

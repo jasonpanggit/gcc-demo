@@ -3,11 +3,12 @@
 Provides REST API endpoints for VM vulnerability queries.
 
 Endpoints:
-    GET /api/cve/inventory/{vm_id} - Get CVEs affecting a VM
+    GET /api/cve/inventory/{vm_id:path} - Get CVEs affecting a VM
     GET /api/cve/{cve_id}/affected-vms - Get VMs affected by a CVE
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,10 +27,103 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Inventory"])
 
 
-def _get_cve_vm_service():
+async def _get_cve_vm_service():
     """Lazy import to avoid circular dependency."""
     from main import get_cve_vm_service
-    return get_cve_vm_service
+    return await get_cve_vm_service()
+
+
+async def _build_vm_vulnerability_response(
+    vm_id: str,
+    severity_filter: Optional[str],
+    min_cvss: Optional[float],
+    sort_by: str,
+    sort_order: str,
+):
+    """Build the VM vulnerability response payload for either route shape."""
+    service = await _get_cve_vm_service()
+    result = await service.get_vm_vulnerabilities(vm_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=503,
+            detail="No scan data available. Trigger a scan at /api/cve/scan"
+        )
+
+    try:
+        try:
+            from api.patch_management import list_machines
+        except ModuleNotFoundError:
+            from app.agentic.eol.api.patch_management import list_machines
+
+        machine_result = await list_machines(days=90)
+        machines = machine_result.get("data", []) if isinstance(machine_result, dict) else []
+        machine = next((item for item in machines if str(item.get("resource_id") or "") == vm_id), None)
+        if machine:
+            result.resource_group = machine.get("resource_group")
+            result.subscription_id = machine.get("subscription_id")
+            result.os_type = machine.get("os_type")
+            result.os_name = machine.get("os_name")
+            result.os_version = machine.get("os_version")
+            result.location = machine.get("location")
+            if not result.vm_name or result.vm_name == vm_id:
+                result.vm_name = machine.get("computer") or machine.get("name") or result.vm_name
+    except Exception as metadata_error:
+        logger.warning(f"Failed to enrich VM {vm_id} metadata: {metadata_error}")
+
+    cve_details = result.cve_details
+
+    if severity_filter:
+        severity_filter = severity_filter.upper()
+        cve_details = [c for c in cve_details if c.severity == severity_filter]
+
+    if min_cvss is not None:
+        cve_details = [c for c in cve_details if c.cvss_score and c.cvss_score >= min_cvss]
+
+    reverse = (sort_order.lower() == "desc")
+
+    if sort_by == "cvss_score":
+        cve_details.sort(key=lambda x: x.cvss_score or 0.0, reverse=reverse)
+    elif sort_by == "published_date":
+        cve_details.sort(
+            key=lambda x: x.published_date or "",
+            reverse=reverse
+        )
+    elif sort_by == "severity":
+        severity_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
+        cve_details.sort(
+            key=lambda x: severity_order.get(x.severity, 0),
+            reverse=reverse
+        )
+
+    result.cve_details = cve_details
+    result.total_cves = len(cve_details)
+
+    severity_counts = {}
+    for cve in cve_details:
+        severity = cve.severity
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+    result.cves_by_severity = severity_counts
+
+    logger.info(
+        f"Retrieved {len(cve_details)} CVEs for VM {vm_id} "
+        f"(filters: severity={severity_filter}, min_cvss={min_cvss})"
+    )
+
+    return StandardResponse.success_response(
+        data=[result.dict()],
+        metadata={
+            "vm_id": vm_id,
+            "filters_applied": {
+                "severity": severity_filter,
+                "min_cvss": min_cvss
+            },
+            "sort": {
+                "by": sort_by,
+                "order": sort_order
+            }
+        }
+    )
 
 
 def _normalize_vm_source(vm_type: Optional[str]) -> str:
@@ -99,6 +193,38 @@ async def get_vm_vulnerability_overview(
                 else:
                     vm_bucket["low"] += 1
 
+        zero_match_ids = [
+            resource_id
+            for resource_id in (str(machine.get("resource_id") or "") for machine in machines)
+            if resource_id and not match_counts.get(resource_id)
+        ]
+        fallback_summaries: Dict[str, Dict[str, Any]] = {}
+
+        if zero_match_ids:
+            semaphore = asyncio.Semaphore(8)
+
+            async def load_fallback_summary(resource_id: str) -> tuple[str, Optional[Dict[str, Any]]]:
+                async with semaphore:
+                    try:
+                        summary = await service.get_vm_vulnerability_summary(
+                            resource_id,
+                            allow_live_cve_fallback=False,
+                        )
+                    except Exception as fallback_error:
+                        logger.warning("Failed inventory-backed summary fallback for VM %s: %s", resource_id, fallback_error)
+                        summary = None
+                    return resource_id, summary
+
+            fallback_results = await asyncio.gather(
+                *(load_fallback_summary(resource_id) for resource_id in zero_match_ids),
+                return_exceptions=False,
+            )
+            fallback_summaries = {
+                resource_id: summary
+                for resource_id, summary in fallback_results
+                if summary
+            }
+
         overview_rows: List[Dict[str, Any]] = []
 
         for machine in machines:
@@ -112,6 +238,18 @@ async def get_vm_vulnerability_overview(
                 "medium": 0,
                 "low": 0,
             }
+
+            if counts["total_cves"] == 0 and resource_id:
+                fallback = fallback_summaries.get(resource_id)
+                if fallback and int(fallback.get("total_cves", 0)) > 0:
+                    counts = {
+                        **counts,
+                        "total_cves": int(fallback.get("total_cves", 0)),
+                        "critical": int(fallback.get("critical", 0)),
+                        "high": int(fallback.get("high", 0)),
+                        "medium": int(fallback.get("medium", 0)),
+                        "low": int(fallback.get("low", 0)),
+                    }
 
             risk_level = _calculate_risk_level(
                 counts["total_cves"],
@@ -190,7 +328,7 @@ async def get_vm_vulnerability_overview(
             "total_vms": len(overview_rows),
             "vulnerable_vms": vulnerable_vms,
             "healthy_vms": len(overview_rows) - vulnerable_vms,
-            "total_cves": total_matches,
+            "total_cves": sum(int(item.get("total_cves", 0)) for item in overview_rows),
             "arc_count": sum(1 for item in overview_rows if item.get("vm_type") == "arc"),
             "azure_vm_count": sum(1 for item in overview_rows if item.get("vm_type") == "azure-vm"),
         }
@@ -207,8 +345,30 @@ async def get_vm_vulnerability_overview(
         )
 
 
-@router.get("/cve/inventory/{vm_id}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=30)
+@router.get("/vm-vulnerability-detail", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
+async def get_vm_vulnerabilities_by_query(
+    vm_id: str = Query(..., description="Full VM resource ID"),
+    severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
+    min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
+    sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+):
+    """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
+    try:
+        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get vulnerabilities for VM {vm_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve VM vulnerabilities: {str(e)}"
+        )
+
+
+@router.get("/cve/inventory/{vm_id:path}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
 async def get_vm_vulnerabilities(
     vm_id: str,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
@@ -240,94 +400,7 @@ async def get_vm_vulnerabilities(
         HTTPException: 404 if VM not found, 503 if no scan data available
     """
     try:
-        service = await _get_cve_vm_service()
-        result = await service.get_vm_vulnerabilities(vm_id)
-
-        if not result:
-            raise HTTPException(
-                status_code=503,
-                detail="No scan data available. Trigger a scan at /api/cve/scan"
-            )
-
-        try:
-            try:
-                from api.patch_management import list_machines
-            except ModuleNotFoundError:
-                from app.agentic.eol.api.patch_management import list_machines
-
-            machine_result = await list_machines(days=90)
-            machines = machine_result.get("data", []) if isinstance(machine_result, dict) else []
-            machine = next((item for item in machines if str(item.get("resource_id") or "") == vm_id), None)
-            if machine:
-                result.resource_group = machine.get("resource_group")
-                result.subscription_id = machine.get("subscription_id")
-                result.os_type = machine.get("os_type")
-                result.os_name = machine.get("os_name")
-                result.os_version = machine.get("os_version")
-                result.location = machine.get("location")
-                if not result.vm_name or result.vm_name == vm_id:
-                    result.vm_name = machine.get("computer") or machine.get("name") or result.vm_name
-        except Exception as metadata_error:
-            logger.warning(f"Failed to enrich VM {vm_id} metadata: {metadata_error}")
-
-        # Apply filters
-        cve_details = result.cve_details
-
-        if severity_filter:
-            severity_filter = severity_filter.upper()
-            cve_details = [c for c in cve_details if c.severity == severity_filter]
-
-        if min_cvss is not None:
-            cve_details = [c for c in cve_details if c.cvss_score and c.cvss_score >= min_cvss]
-
-        # Apply sorting
-        reverse = (sort_order.lower() == "desc")
-
-        if sort_by == "cvss_score":
-            cve_details.sort(key=lambda x: x.cvss_score or 0.0, reverse=reverse)
-        elif sort_by == "published_date":
-            cve_details.sort(
-                key=lambda x: x.published_date or "",
-                reverse=reverse
-            )
-        elif sort_by == "severity":
-            # Sort by severity priority: CRITICAL > HIGH > MEDIUM > LOW
-            severity_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
-            cve_details.sort(
-                key=lambda x: severity_order.get(x.severity, 0),
-                reverse=reverse
-            )
-
-        # Update result with filtered/sorted data
-        result.cve_details = cve_details
-        result.total_cves = len(cve_details)
-
-        # Recalculate severity breakdown after filtering
-        severity_counts = {}
-        for cve in cve_details:
-            severity = cve.severity
-            severity_counts[severity] = severity_counts.get(severity, 0) + 1
-        result.cves_by_severity = severity_counts
-
-        logger.info(
-            f"Retrieved {len(cve_details)} CVEs for VM {vm_id} "
-            f"(filters: severity={severity_filter}, min_cvss={min_cvss})"
-        )
-
-        return StandardResponse.success_response(
-            data=[result.dict()],
-            metadata={
-                "vm_id": vm_id,
-                "filters_applied": {
-                    "severity": severity_filter,
-                    "min_cvss": min_cvss
-                },
-                "sort": {
-                    "by": sort_by,
-                    "order": sort_order
-                }
-            }
-        )
+        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order)
 
     except HTTPException:
         raise
@@ -340,7 +413,7 @@ async def get_vm_vulnerabilities(
 
 
 @router.get("/cve/{cve_id}/affected-vms", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=30)
+@readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
     cve_id: str,
     subscription_filter: Optional[str] = Query(None, description="Filter by subscription ID"),

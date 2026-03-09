@@ -5,6 +5,7 @@ Handles CRUD operations for UnifiedCVE models in Cosmos DB.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -24,6 +25,50 @@ except ModuleNotFoundError:
 
 
 logger = get_logger(__name__)
+
+
+CVE_DATA_INDEXING_POLICY: Dict[str, Any] = {
+    "indexingMode": "consistent",
+    "automatic": True,
+    "includedPaths": [{"path": "/*"}],
+    "excludedPaths": [{"path": "/\"_etag\"/?"}],
+    "compositeIndexes": [
+        [
+            {"path": "/published_date", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/published_date", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/last_modified_date", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/last_modified_date", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_score", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_score", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_severity", "order": "ascending"},
+            {"path": "/cvss_v3/base_score", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_severity", "order": "descending"},
+            {"path": "/cvss_v3/base_score", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+    ],
+}
 
 
 class CVECosmosRepository:
@@ -72,7 +117,7 @@ class CVECosmosRepository:
         doc["last_synced"] = cve.last_synced.isoformat()
 
         try:
-            await container.upsert_item(doc)
+            await asyncio.to_thread(container.upsert_item, doc)
             logger.debug(f"Upserted CVE {cve.cve_id} to Cosmos DB")
         except cosmos_exceptions.CosmosHttpResponseError as e:
             logger.error(f"Failed to upsert CVE {cve.cve_id}: {e}")
@@ -91,7 +136,8 @@ class CVECosmosRepository:
         cve_id = cve_id.upper()
 
         try:
-            response = await container.read_item(
+            response = await asyncio.to_thread(
+                container.read_item,
                 item=cve_id,
                 partition_key=cve_id
             )
@@ -110,7 +156,9 @@ class CVECosmosRepository:
         self,
         filters: Dict[str, Any],
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = "published_date",
+        sort_order: str = "desc",
     ) -> List[UnifiedCVE]:
         """Query CVEs with filters.
 
@@ -133,32 +181,39 @@ class CVECosmosRepository:
 
         query_parts, parameters = self._build_where_clause(filters)
 
-        # Add ordering and pagination
-        query_parts.append("ORDER BY c.last_modified_date DESC")
-        query_parts.append(f"OFFSET {offset} LIMIT {limit}")
-
-        query = " ".join(query_parts)
+        ordered_query_parts = list(query_parts)
+        ordered_query_parts.append(self._build_order_by_clause(sort_by, sort_order))
+        ordered_query_parts.append(f"OFFSET {offset} LIMIT {limit}")
+        ordered_query = " ".join(ordered_query_parts)
 
         try:
-            items = container.query_items(
-                query=query,
+            items = await self._execute_query(
+                container=container,
+                query=ordered_query,
                 parameters=parameters,
-                enable_cross_partition_query=True
+            )
+            return self._parse_items(items)
+        except Exception as e:
+            if not self._is_missing_composite_index_error(e):
+                logger.error(f"Failed to query CVEs: {e}")
+                return []
+
+            logger.warning(
+                "CVE query missing composite index; retrying without ORDER BY and sorting client-side: %s",
+                e,
             )
 
-            cves = []
-            async for item in items:
-                try:
-                    cve = self._doc_to_model(item)
-                    cves.append(cve)
-                except Exception as e:
-                    logger.warning(f"Failed to parse CVE {item.get('id')}: {e}")
-
-            return cves
-
-        except Exception as e:
-            logger.error(f"Failed to query CVEs: {e}")
-            return []
+            try:
+                items = await self._execute_query(
+                    container=container,
+                    query=" ".join(query_parts),
+                    parameters=parameters,
+                )
+                sorted_cves = self._sort_cves(self._parse_items(items), sort_by=sort_by, sort_order=sort_order)
+                return sorted_cves[offset:offset + limit]
+            except Exception as retry_error:
+                logger.error(f"Failed to query CVEs after composite-index fallback: {retry_error}")
+                return []
 
     async def count_cves(self, filters: Dict[str, Any]) -> int:
         """Count cached CVEs matching the supplied filters."""
@@ -167,19 +222,99 @@ class CVECosmosRepository:
         query = " ".join(query_parts)
 
         try:
-            items = container.query_items(
-                query=query,
-                parameters=parameters,
-                enable_cross_partition_query=True
+            items = await asyncio.to_thread(
+                lambda: list(
+                    container.query_items(
+                        query=query,
+                        parameters=parameters,
+                        enable_cross_partition_query=True
+                    )
+                )
             )
 
-            async for item in items:
+            for item in items:
                 return int(item)
 
             return 0
         except Exception as e:
             logger.error(f"Failed to count CVEs: {e}")
             return 0
+
+    async def _execute_query(
+        self,
+        *,
+        container: Any,
+        query: str,
+        parameters: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(
+            lambda: list(
+                container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+        )
+
+    def _parse_items(self, items: List[Dict[str, Any]]) -> List[UnifiedCVE]:
+        cves = []
+        for item in items:
+            try:
+                cve = self._doc_to_model(item)
+                cves.append(cve)
+            except Exception as e:
+                logger.warning(f"Failed to parse CVE {item.get('id')}: {e}")
+        return cves
+
+    @staticmethod
+    def _is_missing_composite_index_error(exc: Exception) -> bool:
+        text = str(exc or "").lower()
+        return "composite index" in text and "order by" in text
+
+    def _sort_cves(
+        self,
+        cves: List[UnifiedCVE],
+        sort_by: str,
+        sort_order: str,
+    ) -> List[UnifiedCVE]:
+        reverse = str(sort_order).lower() != "asc"
+        field = (sort_by or "published_date").lower()
+
+        severity_rank = {
+            "UNKNOWN": 0,
+            "LOW": 1,
+            "MEDIUM": 2,
+            "HIGH": 3,
+            "CRITICAL": 4,
+        }
+
+        def score_for(cve: UnifiedCVE) -> float:
+            if cve.cvss_v3 and cve.cvss_v3.base_score is not None:
+                return cve.cvss_v3.base_score
+            if cve.cvss_v2 and cve.cvss_v2.base_score is not None:
+                return cve.cvss_v2.base_score
+            return -1.0
+
+        def severity_for(cve: UnifiedCVE) -> str:
+            if cve.cvss_v3 and cve.cvss_v3.base_severity:
+                return cve.cvss_v3.base_severity.upper()
+            if cve.cvss_v2 and cve.cvss_v2.base_severity:
+                return cve.cvss_v2.base_severity.upper()
+            return "UNKNOWN"
+
+        if field == "cve_id":
+            key_fn = lambda cve: cve.cve_id
+        elif field == "severity":
+            key_fn = lambda cve: (severity_rank.get(severity_for(cve), 0), score_for(cve), cve.cve_id)
+        elif field == "cvss_score":
+            key_fn = lambda cve: (score_for(cve), cve.cve_id)
+        elif field == "last_modified_date":
+            key_fn = lambda cve: (cve.last_modified_date, cve.cve_id)
+        else:
+            key_fn = lambda cve: (cve.published_date, cve.cve_id)
+
+        return sorted(cves, key=key_fn, reverse=reverse)
 
     async def get_cves_modified_since(self, since_date: datetime) -> List[UnifiedCVE]:
         """Get CVEs modified since given date for incremental sync.
@@ -253,7 +388,7 @@ class CVECosmosRepository:
 
         if "keyword" in filters:
             query_parts.append(
-                "AND (CONTAINS(LOWER(c.description), LOWER(@keyword)) OR CONTAINS(LOWER(c.cve_id), LOWER(@keyword)))"
+                "AND (CONTAINS(LOWER(c.description), LOWER(@keyword)) OR CONTAINS(LOWER(c.cve_id), LOWER(@keyword)) OR EXISTS(SELECT VALUE p FROM p IN c.affected_products WHERE CONTAINS(LOWER(REPLACE(REPLACE(CONCAT(p.vendor, ' ', p.product, ' ', p.version), '_', ' '), '-', ' ')), LOWER(@keyword))))"
             )
             parameters.append({"name": "@keyword", "value": filters["keyword"]})
 
@@ -274,3 +409,33 @@ class CVECosmosRepository:
             parameters.append({"name": "@product", "value": filters["product"]})
 
         return query_parts, parameters
+
+    def _build_order_by_clause(self, sort_by: str, sort_order: str) -> str:
+        direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
+        field = (sort_by or "published_date").lower()
+
+        if field == "cve_id":
+            return f"ORDER BY c.cve_id {direction}"
+        if field == "cvss_score":
+            return f"ORDER BY c.cvss_v3.base_score {direction}, c.cve_id {direction}"
+        if field == "severity":
+            if direction == "ASC":
+                return (
+                    "ORDER BY "
+                    "IIF(c.cvss_v3.base_severity = 'CRITICAL', 4, "
+                    "IIF(c.cvss_v3.base_severity = 'HIGH', 3, "
+                    "IIF(c.cvss_v3.base_severity = 'MEDIUM', 2, "
+                    "IIF(c.cvss_v3.base_severity = 'LOW', 1, 0)))) ASC, "
+                    "c.cvss_v3.base_score ASC, c.cve_id ASC"
+                )
+            return (
+                "ORDER BY "
+                "IIF(c.cvss_v3.base_severity = 'CRITICAL', 4, "
+                "IIF(c.cvss_v3.base_severity = 'HIGH', 3, "
+                "IIF(c.cvss_v3.base_severity = 'MEDIUM', 2, "
+                "IIF(c.cvss_v3.base_severity = 'LOW', 1, 0)))) DESC, "
+                "c.cvss_v3.base_score DESC, c.cve_id DESC"
+            )
+        if field == "last_modified_date":
+            return f"ORDER BY c.last_modified_date {direction}, c.cve_id {direction}"
+        return f"ORDER BY c.published_date {direction}, c.cve_id {direction}"

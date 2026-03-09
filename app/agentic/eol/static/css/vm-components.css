@@ -90,6 +90,20 @@
     transition: all 0.2s;
 }
 
+html.light-mode .sort-btn.btn-outline-secondary,
+html:not(.dark-mode) .sort-btn.btn-outline-secondary {
+    background-color: #ffffff;
+    border-color: #cbd5e1;
+    color: #334155;
+}
+
+html.light-mode .sort-btn.btn-outline-secondary:hover,
+html:not(.dark-mode) .sort-btn.btn-outline-secondary:hover {
+    background-color: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+
 .sort-btn.active {
     background-color: var(--primary);
     color: white;

@@ -19,20 +19,20 @@
     }
   },
   "ServicePrincipal": {
-    "_comment": "SPN for Azure CLI execution",
+    "_comment": "SPN for Azure CLI execution. Grant Contributor permission (at your own disgression) for full read/write capabilities.",
     "ClientId": "your-service-principal-client-id",
     "ClientSecret": "your-service-principal-secret",
     "UseServicePrincipal": true
   },
 
   "ManagedIdentity": {
-    "_comment": "System Assigned Managed Identity for the Container App",
+    "_comment": "System Assigned Managed Identity for the Container App. Grant permissions to respective Azure resources e.g. Cosmos DB, OpenAI, etc.",
     "ClientId": "your-managed-identity-client-id"
   },
   "AzureServices": {
     "OpenAI": {
       "Endpoint": "https://your-openai.openai.azure.com/",
-      "Deployment": "gpt-4o-mini",
+      "Deployment": "gpt-5o-mini",
       "ApiVersion": "2024-08-01-preview",
       "EmbeddingDeployment": "text-embedding-3-small"
     },

@@ -41,6 +41,8 @@ from utils.endpoint_decorators import (
     with_timeout_and_stats
 )
 from utils.eol_inventory import eol_inventory
+from utils.normalization import derive_os_name_version
+from utils.os_extraction_rules import os_extraction_rules_store
 from utils.vendor_url_inventory import vendor_url_inventory
 from agents.eol_orchestrator import DEFAULT_VENDOR_ROUTING
 
@@ -127,6 +129,16 @@ class UpdateEolRecordRequest(BaseModel):
     source: Optional[str] = None
     source_url: Optional[str] = None
     agent_used: Optional[str] = None
+    raw_software_name: Optional[str] = None
+    raw_version: Optional[str] = None
+    normalized_software_name: Optional[str] = None
+    normalized_version: Optional[str] = None
+    derivation_strategy: Optional[str] = None
+    derivation_rule_id: Optional[str] = None
+    derivation_rule_name: Optional[str] = None
+    derivation_source_scope: Optional[str] = None
+    derivation_pattern: Optional[str] = None
+    derivation_notes: Optional[str] = None
 
 
 class BulkDeleteItem(BaseModel):
@@ -136,6 +148,87 @@ class BulkDeleteItem(BaseModel):
 
 class BulkDeleteRequest(BaseModel):
     items: List[BulkDeleteItem]
+
+
+class OSExtractionRuleRequest(BaseModel):
+    name: str
+    pattern: str
+    source_scope: str = "combined"
+    derived_name_template: str = "{name}"
+    derived_version_template: str = "{version}"
+    priority: int = 100
+    enabled: bool = True
+    notes: Optional[str] = None
+    flags: str = "IGNORECASE"
+
+
+class OSExtractionTestRequest(BaseModel):
+    raw_name: str
+    raw_version: Optional[str] = None
+
+
+class OSExtractionReapplyRequest(BaseModel):
+    apply_changes: bool = False
+    preview_limit: int = 100
+
+
+@router.get("/api/os-extraction-rules", response_model=StandardResponse)
+@readonly_endpoint(agent_name="os_extraction_rules_list", timeout_seconds=15)
+async def list_os_extraction_rules():
+    rules = os_extraction_rules_store.get_rules()
+    return StandardResponse.success_response(data=rules, metadata={"count": len(rules)}).to_dict()
+
+
+@router.post("/api/os-extraction-rules", response_model=StandardResponse)
+@write_endpoint(agent_name="os_extraction_rules_add", timeout_seconds=20)
+async def add_os_extraction_rule(request: OSExtractionRuleRequest):
+    rule = await os_extraction_rules_store.add_rule(request.dict())
+    return StandardResponse.success_response(data=[rule], message="OS extraction rule saved").to_dict()
+
+
+@router.put("/api/os-extraction-rules/{rule_id}", response_model=StandardResponse)
+@write_endpoint(agent_name="os_extraction_rules_update", timeout_seconds=20)
+async def update_os_extraction_rule(rule_id: str, request: OSExtractionRuleRequest):
+    rule = await os_extraction_rules_store.update_rule(rule_id, request.dict())
+    if not rule:
+        return StandardResponse.error_response("Rule not found").to_dict()
+    return StandardResponse.success_response(data=[rule], message="OS extraction rule updated").to_dict()
+
+
+@router.delete("/api/os-extraction-rules/{rule_id}", response_model=StandardResponse)
+@write_endpoint(agent_name="os_extraction_rules_delete", timeout_seconds=20)
+async def delete_os_extraction_rule(rule_id: str):
+    deleted = await os_extraction_rules_store.delete_rule(rule_id)
+    if not deleted:
+        return StandardResponse.error_response("Rule not found").to_dict()
+    return StandardResponse.success_response(data=[], message="OS extraction rule deleted").to_dict()
+
+
+@router.post("/api/os-extraction-rules/test", response_model=StandardResponse)
+@readonly_endpoint(agent_name="os_extraction_rules_test", timeout_seconds=15)
+async def test_os_extraction_rule(request: OSExtractionTestRequest):
+    derived = derive_os_name_version(request.raw_name, request.raw_version)
+    return StandardResponse.success_response(data=[derived]).to_dict()
+
+
+@router.post("/api/os-extraction-rules/reapply", response_model=StandardResponse)
+@write_endpoint(agent_name="os_extraction_rules_reapply", timeout_seconds=120)
+async def reapply_os_extraction_rules(request: OSExtractionReapplyRequest):
+    result = await eol_inventory.reapply_os_normalization(
+        apply_changes=request.apply_changes,
+        preview_limit=request.preview_limit,
+    )
+    return StandardResponse.success_response(
+        data=result.get("items", []),
+        metadata={
+            "scanned": result.get("scanned", 0),
+            "changed": result.get("changed", 0),
+            "updated": result.get("updated", 0),
+            "errors": result.get("errors", []),
+            "apply_changes": request.apply_changes,
+        },
+        message="Cached OS normalization updated" if request.apply_changes else "Cached OS normalization preview generated",
+    ).to_dict()
 
 
 # ============================================================================

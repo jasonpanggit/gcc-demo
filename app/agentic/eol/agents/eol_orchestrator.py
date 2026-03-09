@@ -1118,11 +1118,18 @@ class EOLOrchestratorAgent:
                     best_result.setdefault("cached", False)
                     # Capture locals for the closure before spawning
                     _nn, _nv, _res = normalized_name, normalized_version, best_result
-                    _sn, _sv = software_name, version
+                    _sn, _sv, _it = software_name, version, item_type
 
-                    async def _do_upsert(_nn=_nn, _nv=_nv, _res=_res, _sn=_sn, _sv=_sv):
+                    async def _do_upsert(_nn=_nn, _nv=_nv, _res=_res, _sn=_sn, _sv=_sv, _it=_it):
                         try:
-                            upsert_ok = await eol_inventory.upsert(_nn, _nv, _res)
+                            upsert_ok = await eol_inventory.upsert(
+                                _nn,
+                                _nv,
+                                _res,
+                                raw_software_name=_sn,
+                                raw_version=_sv,
+                                item_type=_it,
+                            )
                             if not upsert_ok:
                                 logger.warning(
                                     "⚠️ EOL inventory upsert skipped or failed for %s %s (normalized: %s %s, container ready: %s)",

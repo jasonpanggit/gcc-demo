@@ -26,6 +26,7 @@ class TestCVEAnalytics:
         """Create mock CVE scanner."""
         scanner = AsyncMock()
         scanner.get_latest_scan_results = AsyncMock()
+        scanner.list_recent_scans = AsyncMock(return_value=[])
         return scanner
 
     @pytest.fixture
@@ -40,6 +41,8 @@ class TestCVEAnalytics:
         """Create mock patch mapper."""
         mapper = AsyncMock()
         mapper.get_patches_for_cve = AsyncMock()
+        mapper.get_install_history_for_cve = AsyncMock(return_value=[])
+        mapper.supports_install_history = True
         return mapper
 
     @pytest.fixture
@@ -101,34 +104,18 @@ class TestCVEAnalytics:
             (cve for cve in cves if cve.cve_id == cve_id), None
         )
 
-        # Mock patch mappings with installed patches
+        # Mock install history with real completion timestamps
         patch_dates = [
             base_date + timedelta(days=5),   # Patched after 5 days
             base_date + timedelta(days=10),  # Patched after 10 days
             base_date + timedelta(days=15)   # Patched after 15 days
         ]
 
-        def mock_patch_mapping(cve_id):
+        def mock_install_history(cve_id, _time_range_days):
             idx = int(cve_id.split('-')[-1]) - 1
-            return CVEPatchMapping(
-                cve_id=cve_id,
-                patches=[
-                    ApplicablePatch(
-                        patch_id=f"KB{idx}",
-                        patch_name=f"Patch {idx}",
-                        vendor="microsoft",
-                        severity="CRITICAL",
-                        release_date=patch_dates[idx].isoformat(),
-                        affected_vm_count=0,
-                        installation_status="installed"
-                    )
-                ],
-                priority_score=90.0,
-                total_affected_vms=0,
-                recommendation="Patch installed"
-            )
+            return [{"completed_at": patch_dates[idx].isoformat()}]
 
-        mock_patch_mapper.get_patches_for_cve.side_effect = mock_patch_mapping
+        mock_patch_mapper.get_install_history_for_cve.side_effect = mock_install_history
 
         # Act
         mttp = await analytics.calculate_mttp(30)
@@ -164,43 +151,40 @@ class TestCVEAnalytics:
             (cve for cve in cves if cve.cve_id == cve_id), None
         )
 
-        # Only 2 have patches installed
-        def mock_patch_mapping(cve_id):
+        # Only 2 have install history records
+        def mock_install_history(cve_id, _time_range_days):
             idx = int(cve_id.split('-')[-1])
             if idx in [1, 2]:
-                return CVEPatchMapping(
-                    cve_id=cve_id,
-                    patches=[
-                        ApplicablePatch(
-                            patch_id=f"KB{idx}",
-                            patch_name=f"Patch {idx}",
-                            vendor="microsoft",
-                            severity="HIGH",
-                            release_date=(base_date + timedelta(days=idx * 5)).isoformat(),
-                            affected_vm_count=0,
-                            installation_status="installed"
-                        )
-                    ],
-                    priority_score=80.0,
-                    total_affected_vms=0,
-                    recommendation="Patch installed"
-                )
-            else:
-                return CVEPatchMapping(
-                    cve_id=cve_id,
-                    patches=[],
-                    priority_score=50.0,
-                    total_affected_vms=1,
-                    recommendation="No patch available"
-                )
+                return [{"completed_at": (base_date + timedelta(days=idx * 5)).isoformat()}]
+            return []
 
-        mock_patch_mapper.get_patches_for_cve.side_effect = mock_patch_mapping
+        mock_patch_mapper.get_install_history_for_cve.side_effect = mock_install_history
 
         # Act
         mttp = await analytics.calculate_mttp(30)
 
         # Assert: Only 2 patched CVEs counted: (5 + 10) / 2 = 7.5 days
         assert mttp == 7.5
+
+    @pytest.mark.asyncio
+    async def test_calculate_mttp_returns_none_without_install_history(
+        self,
+        analytics,
+        mock_scanner,
+        mock_patch_mapper
+    ):
+        """MTTP should be unavailable when the patch layer cannot provide install history."""
+        mock_scanner.get_latest_scan_results.return_value = {
+            "matches": [
+                {"cve_id": "CVE-2026-0001", "vm_id": "vm-1", "severity": "HIGH", "cvss_score": 7.0}
+            ]
+        }
+        mock_patch_mapper.supports_install_history = False
+
+        mttp = await analytics.calculate_mttp(30)
+
+        assert mttp is None
+        mock_patch_mapper.get_install_history_for_cve.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_trending_data_daily_buckets(
@@ -310,6 +294,41 @@ class TestCVEAnalytics:
         assert top_cves[2]["affected_vms"] == 3
 
     @pytest.mark.asyncio
+    async def test_get_trending_data_prefers_scan_history(
+        self,
+        analytics,
+        mock_scanner,
+    ):
+        """Trending should reflect scan detection dates when recent scan history exists."""
+        now = datetime.now(timezone.utc)
+
+        recent_scans = [
+            {
+                "status": "completed",
+                "started_at": now.isoformat(),
+                "matches": [
+                    {"cve_id": "CVE-2026-0001", "severity": "HIGH"},
+                    {"cve_id": "CVE-2026-0001", "severity": "HIGH"},
+                    {"cve_id": "CVE-2026-0002", "severity": "CRITICAL"},
+                ],
+            },
+            {
+                "status": "completed",
+                "started_at": (now - timedelta(days=8)).isoformat(),
+                "matches": [
+                    {"cve_id": "CVE-2026-0003", "severity": "HIGH"},
+                ],
+            },
+        ]
+        mock_scanner.list_recent_scans.return_value = recent_scans
+
+        trending = await analytics.get_trending_data(30, None)
+
+        assert sum(bucket["count"] for bucket in trending) == 3
+        assert any(bucket["count"] == 2 for bucket in trending)
+        assert any(bucket["count"] == 1 for bucket in trending)
+
+    @pytest.mark.asyncio
     async def test_vm_posture_sorted_by_severity_then_count(
         self,
         analytics,
@@ -397,35 +416,66 @@ class TestCVEAnalytics:
     async def test_summary_stats_with_severity_filter(
         self,
         analytics,
-        mock_scanner
+        mock_service
     ):
-        """Test summary stats with severity filter."""
-        mock_scanner.get_latest_scan_results.return_value = {
-            "matches": [
-                {"cve_id": "CVE-2026-0001", "vm_id": "vm-1", "severity": "CRITICAL", "cvss_score": 9.0},
-                {"cve_id": "CVE-2026-0002", "vm_id": "vm-1", "severity": "CRITICAL", "cvss_score": 9.5},
-                {"cve_id": "CVE-2026-0003", "vm_id": "vm-1", "severity": "HIGH", "cvss_score": 7.0},
-                {"cve_id": "CVE-2026-0004", "vm_id": "vm-1", "severity": "MEDIUM", "cvss_score": 5.0}
-            ]
-        }
+        """Summary stats should use cache-backed counts for the selected severity."""
+        mock_service.count_cves = AsyncMock(return_value=27)
 
         # Act
         stats = await analytics.get_summary_stats(30, "CRITICAL")
 
-        # Assert: Only CRITICAL CVEs counted
-        assert stats["total_cves"] == 2
-        assert stats["critical"] == 2
+        # Assert: Only the selected severity bucket is populated
+        assert stats["total_cves"] == 27
+        assert stats["critical"] == 27
         assert stats["high"] == 0
         assert stats["medium"] == 0
+        assert stats["low"] == 0
+        mock_service.count_cves.assert_awaited_once()
+        filters = mock_service.count_cves.await_args.args[0]
+        assert filters["severity"] == "CRITICAL"
+        assert "published_after" in filters
+
+    @pytest.mark.asyncio
+    async def test_summary_stats_without_severity_uses_cache_counts(
+        self,
+        analytics,
+        mock_service
+    ):
+        """Summary stats should aggregate per-severity counts from cached CVEs."""
+        async def count_side_effect(filters):
+            mapping = {
+                "CRITICAL": 5,
+                "HIGH": 47,
+                "MEDIUM": 20,
+                "LOW": 8,
+            }
+            return mapping[filters["severity"]]
+
+        mock_service.count_cves = AsyncMock(side_effect=count_side_effect)
+
+        stats = await analytics.get_summary_stats(365, None)
+
+        assert stats == {
+            "total_cves": 80,
+            "critical": 5,
+            "high": 47,
+            "medium": 20,
+            "low": 8,
+        }
+        assert mock_service.count_cves.await_count == 4
+        for call in mock_service.count_cves.await_args_list:
+            assert "published_after" in call.args[0]
 
     @pytest.mark.asyncio
     async def test_empty_scan_results_returns_zeros(
         self,
         analytics,
-        mock_scanner
+        mock_scanner,
+        mock_service
     ):
         """Test all functions return zero values gracefully when no scan results."""
         mock_scanner.get_latest_scan_results.return_value = None
+        mock_service.count_cves = AsyncMock(return_value=0)
 
         # Act
         mttp = await analytics.calculate_mttp(30)

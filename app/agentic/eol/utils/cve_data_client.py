@@ -158,7 +158,13 @@ class BaseCVEClient(ABC):
             result = await retried_request()
             return result
         except Exception as e:
-            logger.error(f"Request failed after {self.max_retries} retries: {url} - {e}")
+            logger.error(
+                "Request failed after %s retries: %s - %s: %r",
+                self.max_retries,
+                url,
+                type(e).__name__,
+                e,
+            )
             raise
 
     @abstractmethod

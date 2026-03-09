@@ -6,6 +6,7 @@ Provides high-level CVE operations with L1/L2 caching.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Optional, List, Dict, Any
 
 try:
@@ -23,6 +24,15 @@ except ModuleNotFoundError:
 
 
 logger = get_logger(__name__)
+
+
+def _affected_product_keyword_haystack(cve: UnifiedCVE) -> str:
+    parts: List[str] = []
+    for product in cve.affected_products:
+        parts.append(re.sub(r"[_-]+", " ", str(product.vendor or "")))
+        parts.append(re.sub(r"[_-]+", " ", str(product.product or "")))
+        parts.append(re.sub(r"[_-]+", " ", str(product.version or "")))
+    return " ".join(parts).lower()
 
 
 def _iso_to_datetime(value: Any) -> Optional[datetime]:
@@ -47,6 +57,17 @@ def _iso_to_datetime(value: Any) -> Optional[datetime]:
         return None
 
 
+def _extract_live_nvd_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
+    """Map service filters to NVD live-search parameters when supported."""
+    nvd_filters: Dict[str, Any] = {}
+
+    cpe_name = (filters.get("cpe_name") or filters.get("cpeName") or "").strip()
+    if cpe_name:
+        nvd_filters["cpeName"] = cpe_name
+
+    return nvd_filters
+
+
 class CVEService:
     """High-level CVE service with L1/L2 caching.
 
@@ -63,12 +84,20 @@ class CVEService:
         self,
         cache: CVECache,
         repository: CVECosmosRepository,
-        aggregator: CVEDataAggregator
+        aggregator: CVEDataAggregator,
+        kb_cve_edge_repository=None,
     ):
         self.cache = cache
         self.repository = repository
         self.aggregator = aggregator
+        self.kb_cve_edge_repository = kb_cve_edge_repository
         logger.info("CVEService initialized with L1/L2 caching")
+
+    async def _persist_cve(self, cve: UnifiedCVE) -> None:
+        """Persist a CVE and its reverse KB edges when configured."""
+        await self.repository.upsert_cve(cve)
+        if self.kb_cve_edge_repository is not None:
+            await self.kb_cve_edge_repository.sync_cve_edges(cve)
 
     async def get_cve(
         self,
@@ -113,7 +142,7 @@ class CVEService:
 
         if cve:
             # Write to L2 (Cosmos DB) for durability
-            await self.repository.upsert_cve(cve)
+            await self._persist_cve(cve)
 
             # Write to L1 (memory) for fast subsequent reads
             self.cache.set(cve_id, cve)
@@ -126,7 +155,10 @@ class CVEService:
         self,
         filters: Dict[str, Any],
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = "published_date",
+        sort_order: str = "desc",
+        allow_live_fallback: bool = True,
     ) -> List[UnifiedCVE]:
         """Search CVEs with filters.
 
@@ -143,7 +175,13 @@ class CVEService:
         """
         logger.debug(f"Searching CVEs with filters: {filters}")
         try:
-            cached_results = await self.repository.query_cves(filters, limit, offset)
+            cached_results = await self.repository.query_cves(
+                filters,
+                limit,
+                offset,
+                sort_by=sort_by,
+                sort_order=sort_order,
+            )
         except Exception as e:
             logger.debug("CVE repository query unavailable, continuing with live fallback: %s", e)
             cached_results = []
@@ -152,15 +190,25 @@ class CVEService:
             return cached_results
 
         # Live fallback path for mock mode and cold-start environments.
-        keyword = (filters.get("keyword") or "").strip()
-        if not keyword:
+        if not allow_live_fallback:
             return cached_results
 
-        logger.info("CVE search cache miss; fetching live results for keyword '%s'", keyword)
-        live_results = await self.aggregator.search_and_merge_cves(
-            query=keyword,
+        keyword = (filters.get("keyword") or "").strip()
+        live_nvd_filters = _extract_live_nvd_filters(filters)
+        if not keyword and not live_nvd_filters:
+            return cached_results
+
+        if keyword:
+            logger.info("CVE search cache miss; fetching live results for keyword '%s'", keyword)
+        else:
+            logger.info("CVE search cache miss; fetching live results for NVD filters %s", live_nvd_filters)
+
+        live_results = await self.sync_live_cves(
+            query=keyword or None,
             limit=limit,
-            source=filters.get("source")
+            source=filters.get("source"),
+            nvd_filters=live_nvd_filters,
+            populate_l1=True,
         )
 
         # Apply local filter checks to keep behavior close to repository query semantics.
@@ -169,17 +217,42 @@ class CVEService:
             if self._matches_filters(cve, filters)
         ]
 
-        # Persist to L2 when available and always populate L1 cache.
-        for cve in filtered_live_results:
+        filtered_live_results = self._sort_cves(filtered_live_results, sort_by, sort_order)
+
+        if offset < 0:
+            offset = 0
+        if limit < 0:
+            limit = 0
+
+        return filtered_live_results[offset:offset + limit]
+
+    async def sync_live_cves(
+        self,
+        *,
+        query: Optional[str] = None,
+        limit: Optional[int] = 100,
+        source: Optional[str] = None,
+        nvd_filters: Optional[Dict[str, Any]] = None,
+        populate_l1: bool = False,
+    ) -> List[UnifiedCVE]:
+        """Fetch live CVEs from upstream sources and persist them to L2 cache."""
+        live_results = await self.aggregator.search_and_merge_cves(
+            query=query,
+            limit=limit,
+            source=source,
+            nvd_filters=nvd_filters,
+        )
+
+        for cve in live_results:
             try:
-                await self.repository.upsert_cve(cve)
+                await self._persist_cve(cve)
             except Exception as e:
-                # In mock mode Cosmos may be unavailable; still return live data.
-                logger.debug("CVE live fallback upsert skipped for %s: %s", cve.cve_id, e)
+                logger.debug("CVE live sync upsert skipped for %s: %s", cve.cve_id, e)
 
-            self.cache.set(cve.cve_id, cve)
+            if populate_l1:
+                self.cache.set(cve.cve_id, cve)
 
-        return filtered_live_results[:limit]
+        return live_results
 
     async def count_cves(self, filters: Dict[str, Any]) -> int:
         """Count cached CVEs matching the supplied filters."""
@@ -233,11 +306,55 @@ class CVEService:
 
         keyword = (filters.get("keyword") or "").strip().lower()
         if keyword:
-            haystack = f"{cve.cve_id} {cve.description}".lower()
+            haystack = f"{cve.cve_id} {cve.description} {_affected_product_keyword_haystack(cve)}".lower()
             if keyword not in haystack:
                 return False
 
         return True
+
+    def _sort_cves(
+        self,
+        cves: List[UnifiedCVE],
+        sort_by: str,
+        sort_order: str,
+    ) -> List[UnifiedCVE]:
+        reverse = str(sort_order).lower() != "asc"
+        field = (sort_by or "published_date").lower()
+
+        severity_rank = {
+            "UNKNOWN": 0,
+            "LOW": 1,
+            "MEDIUM": 2,
+            "HIGH": 3,
+            "CRITICAL": 4,
+        }
+
+        def score_for(cve: UnifiedCVE) -> float:
+            if cve.cvss_v3 and cve.cvss_v3.base_score is not None:
+                return cve.cvss_v3.base_score
+            if cve.cvss_v2 and cve.cvss_v2.base_score is not None:
+                return cve.cvss_v2.base_score
+            return -1.0
+
+        def severity_for(cve: UnifiedCVE) -> str:
+            if cve.cvss_v3 and cve.cvss_v3.base_severity:
+                return cve.cvss_v3.base_severity.upper()
+            if cve.cvss_v2 and cve.cvss_v2.base_severity:
+                return cve.cvss_v2.base_severity.upper()
+            return "UNKNOWN"
+
+        if field == "cve_id":
+            key_fn = lambda cve: cve.cve_id
+        elif field == "severity":
+            key_fn = lambda cve: (severity_rank.get(severity_for(cve), 0), score_for(cve), cve.cve_id)
+        elif field == "cvss_score":
+            key_fn = lambda cve: (score_for(cve), cve.cve_id)
+        elif field == "last_modified_date":
+            key_fn = lambda cve: (cve.last_modified_date, cve.cve_id)
+        else:
+            key_fn = lambda cve: (cve.published_date, cve.cve_id)
+
+        return sorted(cves, key=key_fn, reverse=reverse)
 
     async def sync_cve(self, cve_id: str) -> Optional[UnifiedCVE]:
         """Force sync CVE from external sources.
@@ -277,7 +394,7 @@ class CVEService:
         synced_count = 0
         for cve in cves:
             try:
-                await self.repository.upsert_cve(cve)
+                await self._persist_cve(cve)
                 synced_count += 1
             except Exception as e:
                 logger.error(f"Failed to upsert CVE {cve.cve_id}: {e}")

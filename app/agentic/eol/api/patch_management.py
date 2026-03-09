@@ -26,6 +26,7 @@ from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from utils.config import config
+from utils.normalization import normalize_os_record
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 
@@ -310,6 +311,26 @@ def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     return "arc"
 
 
+def _normalize_machine_os_fields(machine: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply centralized OS normalization to a machine inventory row."""
+    if not isinstance(machine, dict):
+        return machine
+
+    normalized = normalize_os_record(
+        machine.get("os_name"),
+        machine.get("os_version"),
+        machine.get("os_type"),
+    )
+    machine.setdefault("raw_os_name", normalized.get("raw_os_name"))
+    machine.setdefault("raw_os_version", normalized.get("raw_os_version"))
+    machine["os_name"] = normalized["os_name"]
+    machine["os_version"] = normalized.get("os_version")
+    machine["normalized_os_name"] = normalized.get("normalized_os_name")
+    machine["normalized_os_version"] = normalized.get("normalized_os_version")
+    machine["os_type"] = normalized.get("os_type") or machine.get("os_type")
+    return machine
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -338,7 +359,7 @@ async def list_machines(
                 str(item.get("computer_type", "")).lower() == "arc-enabled server"
                 or "/microsoft.hybridcompute/machines/" in str(item.get("resource_id", "")).lower()
             ):
-                machines.append({**item, "vm_type": "arc"})
+                machines.append(_normalize_machine_os_fields({**item, "vm_type": "arc"}))
     except Exception as exc:
         logger.warning("Failed to fetch OS inventory for Arc VMs: %s", exc)
 
@@ -372,14 +393,23 @@ async def list_machines(
             if not rid or rid in arc_rid_set:
                 continue
             vm_name = vm.get("resource_name") or vm.get("name")
-            os_name = sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or ""
+            normalized_os = normalize_os_record(
+                sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
+                vm.get("os_version"),
+                sp.get("os_type") or vm.get("os_type"),
+            )
 
             # Build base VM record
             vm_record = {
                 "computer":        vm_name,
                 "name":            vm_name,
-                "os_name":         os_name,
-                "os_type":         sp.get("os_type") or vm.get("os_type"),
+                "os_name":         normalized_os["os_name"],
+                "os_version":      normalized_os.get("os_version"),
+                "os_type":         normalized_os.get("os_type"),
+                "raw_os_name":     normalized_os.get("raw_os_name"),
+                "raw_os_version":  normalized_os.get("raw_os_version"),
+                "normalized_os_name": normalized_os.get("normalized_os_name"),
+                "normalized_os_version": normalized_os.get("normalized_os_version"),
                 "resource_id":     vm.get("resource_id") or vm.get("id"),
                 "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or config.azure.subscription_id,
                 "resource_group":  vm.get("resource_group") or vm.get("resourceGroup"),
@@ -389,13 +419,11 @@ async def list_machines(
             }
 
             # Enrich with EOL data if available
-            if eol_orchestrator and os_name:
+            if eol_orchestrator and normalized_os.get("os_name"):
                 try:
-                    # Extract OS name and version from os_name string
-                    # Examples: "Windows Server 2019", "Ubuntu 20.04", "RHEL 8.5"
                     eol_result = await eol_orchestrator.get_eol_data(
-                        software_name=os_name,
-                        version=None  # Let the orchestrator parse version from the string
+                        software_name=normalized_os["os_name"],
+                        version=normalized_os.get("os_version"),
                     )
                     if eol_result and eol_result.get("success"):
                         eol_data = eol_result.get("data", {})
@@ -406,7 +434,7 @@ async def list_machines(
                 except Exception as e:
                     logger.debug(f"Failed to enrich Azure VM {vm_name} with EOL data: {e}")
 
-            machines.append(vm_record)
+            machines.append(_normalize_machine_os_fields(vm_record))
     except Exception as exc:
         logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
 
@@ -844,11 +872,28 @@ async def install_patches(request: Request):
             if resp.status == 200:
                 # Synchronous / immediate completion (rare)
                 result_body = await resp.json(content_type=None)
+                from main import get_patch_install_history_repository
+
+                history_repo = await get_patch_install_history_repository()
+                sync_result = _extract_install_result(result_body)
+                pending_record = await history_repo.upsert_pending({
+                    "operation_url": install_url,
+                    "machine_name": machine_name,
+                    "subscription_id": sub_id,
+                    "resource_group": rg,
+                    "vm_type": vm_type,
+                    "os_type": os_type,
+                    "classifications": classifications,
+                    "requested_patch_ids": (body.kb_numbers_to_include or []) + (body.kb_numbers_to_exclude or []),
+                    "status": "Completed",
+                    "start_date_time": sync_result.get("start_date_time"),
+                })
+                await history_repo.mark_completed(pending_record["operation_url"], sync_result)
                 return {
                     "success": True,
                     "machine": machine_name,
                     "status": "Completed",
-                    "data": _extract_install_result(result_body),
+                    "data": sync_result,
                 }
 
             if resp.status != 202:
@@ -873,6 +918,21 @@ async def install_patches(request: Request):
                 )
 
     logger.info("Install operation started for %s: %s", machine_name, operation_url)
+
+    from main import get_patch_install_history_repository
+
+    history_repo = await get_patch_install_history_repository()
+    await history_repo.upsert_pending({
+        "operation_url": operation_url,
+        "machine_name": machine_name,
+        "subscription_id": sub_id,
+        "resource_group": rg,
+        "vm_type": vm_type,
+        "os_type": os_type,
+        "classifications": classifications,
+        "requested_patch_ids": (body.kb_numbers_to_include or []) + (body.kb_numbers_to_exclude or []),
+        "status": "InProgress",
+    })
 
     return {
         "success":       True,
@@ -920,6 +980,13 @@ async def get_install_status(operation_url: str = Query(..., description="Azure-
         "data":       _extract_install_result(body) if is_done else None,
         "error":      body.get("error"),
     }
+
+    if is_done and result["data"]:
+        from main import get_patch_install_history_repository
+
+        history_repo = await get_patch_install_history_repository()
+        await history_repo.mark_completed(operation_url, result["data"])
+
     return result
 
 

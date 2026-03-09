@@ -7,8 +7,8 @@
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', path='/css/cve-components.css') }}?v={{ asset_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='/css/cve-alert-history.css') }}?v={{ asset_version }}">
+<link rel="stylesheet" href="/static/css/cve-components.css?v={{ asset_version }}">
+<link rel="stylesheet" href="/static/css/cve-alert-history.css?v={{ asset_version }}">
 {% endblock %}
 
 {% block content %}
@@ -212,5 +212,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', path='/js/cve-alert-history.js') }}"></script>
+<script src="/static/js/cve-alert-history.js"></script>
 {% endblock %}

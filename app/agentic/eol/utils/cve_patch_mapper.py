@@ -13,20 +13,28 @@ Key capabilities:
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
+from cachetools import TTLCache
 
 try:
     from models.cve_models import ApplicablePatch, CVEPatchMapping, UnifiedCVE
     from utils.cve_service import CVEService
     from utils.cve_scanner import CVEScanner
     from utils.patch_mcp_client import PatchMCPClient
+    from utils.vendor_feed_client import VendorFeedClient
+    from utils.config import config
     from utils.logging_config import get_logger
+    from utils.normalization import extract_kb_ids, normalize_kb_id
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import ApplicablePatch, CVEPatchMapping, UnifiedCVE
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.cve_scanner import CVEScanner
     from app.agentic.eol.utils.patch_mcp_client import PatchMCPClient
+    from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
+    from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.logging_config import get_logger
+    from app.agentic.eol.utils.normalization import extract_kb_ids, normalize_kb_id
 
 logger = get_logger(__name__)
 
@@ -38,12 +46,220 @@ class CVEPatchMapper:
         self,
         cve_service: CVEService,
         cve_scanner: CVEScanner,
-        patch_mcp_client: PatchMCPClient
+        patch_mcp_client: PatchMCPClient,
+        patch_install_history_repository=None,
+        kb_cve_edge_repository=None,
     ):
         self.cve_service = cve_service
         self.cve_scanner = cve_scanner
         self.patch_mcp_client = patch_mcp_client
+        self.patch_install_history_repository = patch_install_history_repository
+        self.kb_cve_edge_repository = kb_cve_edge_repository
+        self.supports_install_history = patch_install_history_repository is not None
+        self._mapping_cache: TTLCache = TTLCache(maxsize=256, ttl=300)
+        self._available_patches_cache: TTLCache = TTLCache(maxsize=32, ttl=300)
+        self._exposure_summary_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
+        self._reverse_lookup_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)
+        self._vendor_feed_client: Optional[VendorFeedClient] = None
         logger.info("CVEPatchMapper initialized")
+
+    def _get_vendor_feed_client(self) -> VendorFeedClient:
+        if self._vendor_feed_client is None:
+            self._vendor_feed_client = VendorFeedClient(
+                redhat_base_url=config.cve_data.redhat_base_url,
+                ubuntu_base_url=config.cve_data.ubuntu_base_url,
+                msrc_base_url=config.cve_data.msrc_base_url,
+                msrc_api_key=config.cve_data.msrc_api_key,
+                request_timeout=config.cve_data.request_timeout,
+                max_retries=config.cve_data.max_retries,
+            )
+        return self._vendor_feed_client
+
+    def _infer_msrc_update_id_from_patch(self, patch: Dict[str, Any]) -> Optional[str]:
+        patch_name = str(patch.get("patchName") or patch.get("patch_name") or "").strip()
+        published_date = str(patch.get("publishedDate") or patch.get("published_date") or "").strip()
+
+        if patch_name:
+            match = re.search(r"\b(20\d{2})[-/](0[1-9]|1[0-2])\b", patch_name)
+            if match:
+                month_abbrev = {
+                    "01": "Jan",
+                    "02": "Feb",
+                    "03": "Mar",
+                    "04": "Apr",
+                    "05": "May",
+                    "06": "Jun",
+                    "07": "Jul",
+                    "08": "Aug",
+                    "09": "Sep",
+                    "10": "Oct",
+                    "11": "Nov",
+                    "12": "Dec",
+                }[match.group(2)]
+                return f"{match.group(1)}-{month_abbrev}"
+
+        if published_date:
+            try:
+                published = datetime.fromisoformat(published_date.replace("Z", "+00:00"))
+                return published.strftime("%Y-%b")
+            except ValueError:
+                return None
+
+        return None
+
+    async def _hydrate_reverse_edges(self, cve_ids: List[str]) -> None:
+        if not self.kb_cve_edge_repository:
+            return
+
+        for cve_id in cve_ids:
+            cve = await self.cve_service.get_cve(cve_id)
+            if cve:
+                await self.kb_cve_edge_repository.sync_cve_edges(cve)
+
+    async def _get_vendor_cve_ids_for_patch(self, patch: Dict[str, Any], kb_number: str) -> List[str]:
+        update_id = self._infer_msrc_update_id_from_patch(patch)
+        cache_key = f"{kb_number}:{update_id or ''}"
+        cached = self._reverse_lookup_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        vendor_client = self._get_vendor_feed_client()
+        cve_ids = await vendor_client.fetch_microsoft_cves_for_kb(
+            kb_number,
+            update_id=update_id,
+            patch_name=patch.get("patchName") or patch.get("patch_name"),
+            published_date=patch.get("publishedDate") or patch.get("published_date"),
+        )
+        resolved = sorted(set(cve_ids))
+        if resolved:
+            await self._hydrate_reverse_edges(resolved)
+
+        self._reverse_lookup_cache[cache_key] = resolved
+        return resolved
+
+    def _normalize_subscription_ids(self, subscription_ids: Optional[List[str]]) -> List[str]:
+        normalized = [sub for sub in (subscription_ids or []) if sub]
+        if normalized:
+            return sorted(normalized)
+
+        default_subscription = getattr(self.cve_scanner, "subscription_id", None)
+        return [default_subscription] if default_subscription else []
+
+    def _extract_patch_identifiers(self, patch: Dict[str, Any]) -> set[str]:
+        identifiers = set()
+        for key in ("patchName", "patch_name", "kbId", "kb_id", "name", "patchId", "patch_id"):
+            value = patch.get(key)
+            if value:
+                text = str(value).strip()
+                identifiers.add(text)
+                identifiers.add(text.upper())
+                normalized_kb = normalize_kb_id(text)
+                if normalized_kb:
+                    identifiers.add(normalized_kb)
+        return identifiers
+
+    def _append_machine_context(self, collected_patches: List[Dict[str, Any]], machine: Dict[str, Any], patch: Dict[str, Any]) -> None:
+        normalized_patch = dict(patch)
+        normalized_patch.setdefault("classification", ", ".join(patch.get("classifications") or []))
+        normalized_patch.setdefault("affectedMachines", [])
+        normalized_patch["affectedMachines"].append({
+            "machineName": machine.get("machine_name"),
+            "resourceGroup": machine.get("resource_group"),
+            "subscriptionId": machine.get("subscription_id"),
+            "vmType": machine.get("vm_type"),
+        })
+        collected_patches.append(normalized_patch)
+
+    def _extract_cve_kb_numbers(self, cve: UnifiedCVE) -> set[str]:
+        kb_numbers: set[str] = set()
+
+        for ref in cve.references:
+            kb_numbers.update(extract_kb_ids(ref.url))
+
+        for vendor_meta in cve.vendor_metadata:
+            advisory_id = normalize_kb_id(vendor_meta.advisory_id)
+            if advisory_id:
+                kb_numbers.add(advisory_id)
+
+            kb_numbers.update(extract_kb_ids(vendor_meta.kb_numbers, allow_bare_numeric=True))
+
+            metadata = vendor_meta.metadata or {}
+            for field in ("kbArticles", "kb_numbers", "kbNumbers"):
+                kb_numbers.update(extract_kb_ids(metadata.get(field), allow_bare_numeric=True))
+
+        return kb_numbers
+
+    def extract_cve_kb_numbers(self, cve: UnifiedCVE) -> set[str]:
+        return self._extract_cve_kb_numbers(cve)
+
+    def extract_cve_package_names(self, cve: UnifiedCVE) -> set[str]:
+        return {
+            str(pkg.get("package_name", "")).strip().lower()
+            for vendor_meta in cve.vendor_metadata
+            for pkg in vendor_meta.affected_packages
+            if pkg.get("package_name")
+        }
+
+    async def get_install_history_for_cve(
+        self,
+        cve_id: str,
+        time_range_days: int,
+    ) -> List[Dict[str, Any]]:
+        if not self.patch_install_history_repository:
+            return []
+
+        cve = await self.cve_service.get_cve(cve_id)
+        if not cve:
+            return []
+
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=time_range_days)
+        install_records = await self.patch_install_history_repository.list_completed_since(cutoff_date.isoformat())
+        matched_records: List[Dict[str, Any]] = []
+
+        kb_numbers = self._extract_cve_kb_numbers(cve)
+
+        vendor_packages = self.extract_cve_package_names(cve)
+
+        for record in install_records:
+            for patch in record.get("patches") or []:
+                identifiers = self._extract_patch_identifiers(patch)
+                if kb_numbers and any(kb in identifiers for kb in kb_numbers):
+                    matched_records.append(record)
+                    break
+
+                patch_name = str(patch.get("patchName") or patch.get("patch_name") or "").lower()
+                if patch_name and any(pkg in patch_name for pkg in vendor_packages):
+                    matched_records.append(record)
+                    break
+
+        return matched_records
+
+    async def get_cve_ids_for_kb(self, kb_number: str) -> List[str]:
+        """Return cached CVE IDs mapped to a KB article when reverse edges are available."""
+        if not self.kb_cve_edge_repository:
+            return []
+        return await self.kb_cve_edge_repository.get_cve_ids_for_kb(kb_number)
+
+    async def get_cve_ids_for_patch(self, patch: Dict[str, Any]) -> List[str]:
+        """Return cached CVE IDs mapped to a patch payload via normalized KB identifiers."""
+        cve_ids = set()
+        normalized_kbs = set()
+        for identifier in self._extract_patch_identifiers(patch):
+            kb_number = normalize_kb_id(identifier)
+            if not kb_number:
+                continue
+
+            normalized_kbs.add(kb_number)
+            if self.kb_cve_edge_repository:
+                cve_ids.update(await self.kb_cve_edge_repository.get_cve_ids_for_kb(kb_number))
+
+        if cve_ids:
+            return sorted(cve_ids)
+
+        for kb_number in normalized_kbs:
+            cve_ids.update(await self._get_vendor_cve_ids_for_patch(patch, kb_number))
+
+        return sorted(cve_ids)
 
     async def get_patches_for_cve(
         self,
@@ -59,6 +275,13 @@ class CVEPatchMapper:
         Returns:
             CVEPatchMapping with ranked patches and recommendations
         """
+        normalized_subscriptions = self._normalize_subscription_ids(subscription_ids)
+        cache_key = f"{cve_id.upper()}::{','.join(normalized_subscriptions)}"
+        cached_mapping = self._mapping_cache.get(cache_key)
+        if cached_mapping is not None:
+            logger.debug("Patch mapping cache hit for %s", cve_id)
+            return cached_mapping
+
         # Get CVE data
         cve = await self.cve_service.get_cve(cve_id)
         if not cve:
@@ -72,7 +295,7 @@ class CVEPatchMapper:
             )
 
         # Query available patches
-        patches = await self._query_available_patches(subscription_ids)
+        patches = await self._query_available_patches(normalized_subscriptions)
 
         # Match patches to CVE
         matched_patches = await self._match_patches_to_cve(cve, patches)
@@ -87,13 +310,15 @@ class CVEPatchMapper:
         severity = cve.cvss_v3.base_severity if cve.cvss_v3 else (cve.cvss_v2.base_severity if cve.cvss_v2 else "UNKNOWN")
         recommendation = await self._get_recommendation(priority_score, severity)
 
-        return CVEPatchMapping(
+        mapping = CVEPatchMapping(
             cve_id=cve_id,
             patches=matched_patches,
             priority_score=priority_score,
             total_affected_vms=exposure_count,
             recommendation=recommendation
         )
+        self._mapping_cache[cache_key] = mapping
+        return mapping
 
     async def _query_available_patches(
         self,
@@ -108,18 +333,40 @@ class CVEPatchMapper:
             List of patch data dictionaries
         """
         try:
-            # Use patch MCP client to query assessments
-            # Note: This calls the query_patch_assessments tool
-            result = await self.patch_mcp_client.query_patch_assessments(
-                subscription_ids=subscription_ids,
-                classification="All"
-            )
+            subscriptions = self._normalize_subscription_ids(subscription_ids)
+            cache_key = ",".join(subscriptions)
+            cached_patches = self._available_patches_cache.get(cache_key)
+            if cached_patches is not None:
+                logger.debug("Available patches cache hit for subscriptions %s", cache_key)
+                return cached_patches
 
-            if result.get("success"):
-                return result.get("patches", [])
-            else:
-                logger.warning(f"Patch query failed: {result.get('error')}")
-                return []
+            collected_patches: List[Dict[str, Any]] = []
+
+            for subscription_id in subscriptions:
+                for vm_type in ("arc", "azure-vm"):
+                    result = await self.patch_mcp_client.query_patch_assessments(
+                        subscription_id=subscription_id,
+                        vm_type=vm_type,
+                    )
+
+                    if not result.get("success"):
+                        logger.warning(
+                            "Patch query failed for subscription %s vm_type %s: %s",
+                            subscription_id,
+                            vm_type,
+                            result.get("error")
+                        )
+                        continue
+
+                    for machine in result.get("data", []):
+                        patch_info = machine.get("patches") or {}
+                        available_patches = patch_info.get("available_patches") or []
+
+                        for patch in available_patches:
+                            self._append_machine_context(collected_patches, machine, patch)
+
+            self._available_patches_cache[cache_key] = collected_patches
+            return collected_patches
 
         except Exception as e:
             logger.error(f"Failed to query patches: {e}")
@@ -142,25 +389,21 @@ class CVEPatchMapper:
         matched = []
 
         # Extract KB numbers from CVE references (Microsoft patches)
-        kb_numbers = set()
-        for ref in cve.references:
-            # Look for KB numbers in URLs
-            kb_match = re.search(r'KB\d+', ref.url, re.IGNORECASE)
-            if kb_match:
-                kb_numbers.add(kb_match.group().upper())
+        kb_numbers = self._extract_cve_kb_numbers(cve)
 
         logger.debug(f"Extracted KB numbers for {cve.cve_id}: {kb_numbers}")
 
         # Match patches by KB number
         for patch in patches:
             patch_name = patch.get("patchName", "")
+            patch_identifiers = self._extract_patch_identifiers(patch)
 
             # Check KB number match
             if kb_numbers:
                 for kb in kb_numbers:
-                    if kb in patch_name.upper():
+                    if kb in patch_identifiers or kb in patch_name.upper():
                         matched.append(ApplicablePatch(
-                            patch_id=patch.get("patchId", patch_name),
+                            patch_id=patch.get("patchId") or patch.get("kbId") or patch_name,
                             patch_name=patch_name,
                             vendor="microsoft",
                             severity=patch.get("classification", "Unknown"),
@@ -180,7 +423,7 @@ class CVEPatchMapper:
                     patch_name = patch.get("patchName", "")
                     if pkg_name.lower() in patch_name.lower():
                         matched.append(ApplicablePatch(
-                            patch_id=patch.get("patchId", patch_name),
+                            patch_id=patch.get("patchId") or patch.get("kbId") or patch_name,
                             patch_name=patch_name,
                             vendor=vendor_meta.source,
                             severity=patch.get("classification", "Unknown"),
@@ -213,15 +456,26 @@ class CVEPatchMapper:
             Number of vulnerable VMs (0 if no scan data)
         """
         try:
-            # Get most recent completed scan
-            scans = await self.cve_scanner.list_recent_scans(limit=10)
+            cache_key = "latest_completed_scan_exposure_counts"
+            exposure_counts = self._exposure_summary_cache.get(cache_key)
 
-            for scan in scans:
-                if scan.status == "completed":
-                    # Count VMs affected by this CVE
-                    count = sum(1 for match in scan.matches if match.cve_id == cve_id)
-                    if count > 0:
-                        return count
+            if exposure_counts is None:
+                exposure_counts = {}
+                scans = await self.cve_scanner.list_recent_scans(limit=10)
+
+                for scan in scans:
+                    if scan.status != "completed":
+                        continue
+
+                    for match in scan.matches:
+                        exposure_counts[match.cve_id] = exposure_counts.get(match.cve_id, 0) + 1
+                    break
+
+                self._exposure_summary_cache[cache_key] = exposure_counts
+
+            count = exposure_counts.get(cve_id, 0)
+            if count > 0:
+                return count
 
             logger.debug(f"No exposure data found for {cve_id}")
             return 0
@@ -308,7 +562,7 @@ async def get_cve_patch_mapper() -> 'CVEPatchMapper':
         _cve_patch_mapper_instance = CVEPatchMapper(
             cve_service=cve_service,
             cve_scanner=cve_scanner,
-            patch_client=patch_client
+            patch_mcp_client=patch_client
         )
         logger.info("CVE patch mapper singleton initialized")
 

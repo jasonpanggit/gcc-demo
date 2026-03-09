@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Azure Agentic Platform{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%230078d4'/%3E%3Cstop offset='100%25' stop-color='%2350a7ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Cpath d='M18 36c0-6.1 4.9-11 11-11 1.7 0 3.3.4 4.8 1.1C35.8 21.8 40.4 19 45.7 19 53 19 59 25 59 32.3 59 39.3 53.6 45 46.8 45H22.5C17.8 45 14 41.2 14 36.5 14 32.4 16.9 29 20.8 28.2c-1.8 2-2.8 4.7-2.8 7.8z' fill='white' fill-opacity='.96'/%3E%3C/svg%3E">
 
     <!-- Performance optimization: DNS prefetch and preconnect -->
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
@@ -143,6 +144,10 @@
                     <i class="fas fa-table"></i>
                     <span class="nav-text">EOL Dates Database</span>
                 </a>
+                <a href="/os-normalization-rules" class="nav-item {% if '/os-normalization-rules' in request.path %}active{% endif %}">
+                    <i class="fas fa-sliders"></i>
+                    <span class="nav-text">OS Normalization Rules</span>
+                </a>
                 <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
                     <i class="fas fa-chart-line"></i>
                     <span class="nav-text">OS EOL Tracker</span>
@@ -161,7 +166,7 @@
                 </a>
                 <a href="/cve-search" class="nav-item {% if '/cve-search' in request.path or '/cve-detail' in request.path %}active{% endif %}">
                     <i class="fas fa-search"></i>
-                    <span class="nav-text">Search CVEs</span>
+                    <span class="nav-text">CVE Database</span>
                 </a>
                 <a href="/cve-alert-config" class="nav-item {% if '/cve-alert-config' in request.path %}active{% endif %}">
                     <i class="fas fa-bell text-warning"></i>
@@ -318,6 +323,7 @@
     </script>
 
     {% block extra_scripts %}{% endblock %}
+    {% block extra_js %}{% endblock %}
 </body>
 
 </html>

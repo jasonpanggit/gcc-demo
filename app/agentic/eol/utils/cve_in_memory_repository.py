@@ -7,6 +7,7 @@ persist sync/search results without Cosmos DB.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from threading import RLock
 from typing import Optional, List, Dict, Any
 
@@ -19,6 +20,15 @@ except ModuleNotFoundError:
 
 
 logger = get_logger(__name__)
+
+
+def _affected_product_keyword_haystack(cve: UnifiedCVE) -> str:
+    parts: List[str] = []
+    for product in cve.affected_products:
+        parts.append(re.sub(r"[_-]+", " ", str(product.vendor or "")))
+        parts.append(re.sub(r"[_-]+", " ", str(product.product or "")))
+        parts.append(re.sub(r"[_-]+", " ", str(product.version or "")))
+    return " ".join(parts).lower()
 
 
 class CVEInMemoryRepository:
@@ -42,13 +52,15 @@ class CVEInMemoryRepository:
         self,
         filters: Dict[str, Any],
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = "published_date",
+        sort_order: str = "desc",
     ) -> List[UnifiedCVE]:
         with self._lock:
             rows = list(self._items.values())
 
         rows = self._apply_filters(rows, filters)
-        rows.sort(key=lambda r: r.last_modified_date, reverse=True)
+        rows = self._sort_rows(rows, sort_by, sort_order)
 
         if offset < 0:
             offset = 0
@@ -56,6 +68,49 @@ class CVEInMemoryRepository:
             limit = 0
 
         return rows[offset:offset + limit]
+
+    def _sort_rows(
+        self,
+        rows: List[UnifiedCVE],
+        sort_by: str,
+        sort_order: str,
+    ) -> List[UnifiedCVE]:
+        reverse = str(sort_order).lower() != "asc"
+        field = (sort_by or "published_date").lower()
+        severity_rank = {
+            "UNKNOWN": 0,
+            "LOW": 1,
+            "MEDIUM": 2,
+            "HIGH": 3,
+            "CRITICAL": 4,
+        }
+
+        def score_for(cve: UnifiedCVE) -> float:
+            if cve.cvss_v3 and cve.cvss_v3.base_score is not None:
+                return cve.cvss_v3.base_score
+            if cve.cvss_v2 and cve.cvss_v2.base_score is not None:
+                return cve.cvss_v2.base_score
+            return -1.0
+
+        def severity_for(cve: UnifiedCVE) -> str:
+            if cve.cvss_v3 and cve.cvss_v3.base_severity:
+                return cve.cvss_v3.base_severity.upper()
+            if cve.cvss_v2 and cve.cvss_v2.base_severity:
+                return cve.cvss_v2.base_severity.upper()
+            return "UNKNOWN"
+
+        if field == "cve_id":
+            key_fn = lambda cve: cve.cve_id
+        elif field == "severity":
+            key_fn = lambda cve: (severity_rank.get(severity_for(cve), 0), score_for(cve), cve.cve_id)
+        elif field == "cvss_score":
+            key_fn = lambda cve: (score_for(cve), cve.cve_id)
+        elif field == "last_modified_date":
+            key_fn = lambda cve: (cve.last_modified_date, cve.cve_id)
+        else:
+            key_fn = lambda cve: (cve.published_date, cve.cve_id)
+
+        return sorted(rows, key=key_fn, reverse=reverse)
 
     async def count_cves(self, filters: Dict[str, Any]) -> int:
         with self._lock:
@@ -107,7 +162,9 @@ class CVEInMemoryRepository:
         if keyword:
             rows = [
                 r for r in rows
-                if keyword in (r.description or "").lower() or keyword in r.cve_id.lower()
+                if keyword in (r.description or "").lower()
+                or keyword in r.cve_id.lower()
+                or keyword in _affected_product_keyword_haystack(r)
             ]
 
         source = (filters.get("source") or "").strip()

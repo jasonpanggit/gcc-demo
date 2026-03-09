@@ -39,9 +39,11 @@ except ImportError:
 try:
     from utils.logging_config import get_logger
     from utils.config import config
+    from utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
 except ImportError:
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
+    from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
 
 
 logger = get_logger(__name__)
@@ -70,6 +72,9 @@ _job_stats: Dict[str, Dict[str, Any]] = {
         "cve_count_updated": 0,
         "cve_count_new": 0,
         "cve_count_errors": 0,
+        "inventory_os_discovered": 0,
+        "inventory_os_new": 0,
+        "inventory_os_processed": 0,
     },
     "incremental_sync": {
         "last_run": None,
@@ -82,11 +87,11 @@ _job_stats: Dict[str, Dict[str, Any]] = {
         "cve_count_updated": 0,
         "cve_count_new": 0,
         "cve_count_errors": 0,
+        "inventory_os_discovered": 0,
+        "inventory_os_new": 0,
+        "inventory_os_processed": 0,
     },
 }
-
-# Track last sync timestamp for incremental sync
-_last_full_sync_time: Optional[datetime] = None
 
 
 def get_scheduler_stats() -> Dict[str, Any]:
@@ -104,38 +109,56 @@ async def full_sync_job() -> None:
     Fetches CVEs modified in the last N days (from config.cve_sync.sync_lookback_days)
     and updates the Cosmos DB repository.
     """
-    global _last_full_sync_time
-
     stats = _job_stats["full_sync"]
     stats["last_run"] = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
 
     try:
         # Import here to avoid circular dependency
+        from main import get_cve_scanner, get_eol_orchestrator
         from utils.cve_service import get_cve_service
 
         cve_service = await get_cve_service()
+        cve_scanner = await get_cve_scanner()
+        eol_orchestrator = get_eol_orchestrator()
         sync_config = config.cve_sync
+
+        inventory_sync = await run_inventory_bootstrap_sync(
+            cve_service=cve_service,
+            cve_scanner=cve_scanner,
+            eol_orchestrator=eol_orchestrator,
+            limit_per_os=None,
+            force_resync=False,
+        )
+        stats["inventory_os_discovered"] = inventory_sync.get("discovered_os_count", 0)
+        stats["inventory_os_new"] = inventory_sync.get("new_os_count", 0)
+        stats["inventory_os_processed"] = inventory_sync.get("processed_os_count", 0)
 
         # Calculate lookback date
         lookback_date = datetime.now(timezone.utc) - timedelta(days=sync_config.sync_lookback_days)
         logger.info(f"Full CVE sync: fetching CVEs since {lookback_date.isoformat()}")
 
         # Sync CVEs from external sources
-        synced_count = await cve_service.sync_recent_cves(
+        delta_sync = await run_delta_sync(
+            cve_service=cve_service,
             since_date=lookback_date,
-            limit=sync_config.max_cves_per_sync
+            limit=sync_config.max_cves_per_sync,
         )
-
-        _last_full_sync_time = datetime.now(timezone.utc)
 
         elapsed = time.monotonic() - start
         stats["last_duration_seconds"] = round(elapsed, 2)
         stats["total_runs"] += 1
-        stats["cve_count_processed"] = synced_count
-        stats["cve_count_new"] = synced_count  # Full sync treats all as new
+        stats["cve_count_processed"] = delta_sync["cve_count"]
+        stats["cve_count_new"] = delta_sync["cve_count"]
 
-        logger.info(f"Full CVE sync complete: {synced_count} CVEs in {elapsed:.1f}s")
+        logger.info(
+            "Full CVE sync complete: %s CVEs in %.1fs (inventory OS discovered=%s, new=%s, processed=%s)",
+            delta_sync["cve_count"],
+            elapsed,
+            stats["inventory_os_discovered"],
+            stats["inventory_os_new"],
+            stats["inventory_os_processed"],
+        )
 
     except Exception as exc:
         elapsed = time.monotonic() - start
@@ -149,40 +172,52 @@ async def full_sync_job() -> None:
 async def incremental_sync_job() -> None:
     """Execute an incremental CVE sync.
 
-    Fetches CVEs modified since the last full sync timestamp.
-    If no previous full sync, triggers a full sync instead.
+    Fetches CVEs modified since the last successful delta-style sync.
+    Also bootstraps CVEs for newly discovered OS inventory identities.
     """
     stats = _job_stats["incremental_sync"]
     stats["last_run"] = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
 
-    if _last_full_sync_time is None:
-        logger.info("Incremental CVE sync: no previous full sync — triggering full sync instead")
-        await full_sync_job()
-        return
-
     try:
-        # Import here to avoid circular dependency
+        from main import get_cve_scanner, get_eol_orchestrator
         from utils.cve_service import get_cve_service
 
         cve_service = await get_cve_service()
+        cve_scanner = await get_cve_scanner()
+        eol_orchestrator = get_eol_orchestrator()
         sync_config = config.cve_sync
 
-        # Sync CVEs modified since last full sync
-        logger.info(f"Incremental CVE sync: fetching CVEs since {_last_full_sync_time.isoformat()}")
+        inventory_sync = await run_inventory_bootstrap_sync(
+            cve_service=cve_service,
+            cve_scanner=cve_scanner,
+            eol_orchestrator=eol_orchestrator,
+            limit_per_os=None,
+            force_resync=False,
+        )
+        stats["inventory_os_discovered"] = inventory_sync.get("discovered_os_count", 0)
+        stats["inventory_os_new"] = inventory_sync.get("new_os_count", 0)
+        stats["inventory_os_processed"] = inventory_sync.get("processed_os_count", 0)
 
-        synced_count = await cve_service.sync_recent_cves(
-            since_date=_last_full_sync_time,
-            limit=sync_config.max_cves_per_sync
+        delta_sync = await run_delta_sync(
+            cve_service=cve_service,
+            lookback_days=sync_config.sync_lookback_days,
+            limit=sync_config.max_cves_per_sync,
         )
 
         elapsed = time.monotonic() - start
         stats["last_duration_seconds"] = round(elapsed, 2)
         stats["total_runs"] += 1
-        stats["cve_count_processed"] = synced_count
-        stats["cve_count_updated"] = synced_count  # Incremental treats as updates
+        stats["cve_count_processed"] = delta_sync["cve_count"]
+        stats["cve_count_updated"] = delta_sync["cve_count"]
 
-        logger.info(f"Incremental CVE sync complete: {synced_count} CVEs in {elapsed:.1f}s")
+        logger.info(
+            "Incremental CVE sync complete: %s CVEs in %.1fs (inventory OS new=%s, processed=%s)",
+            delta_sync["cve_count"],
+            elapsed,
+            stats["inventory_os_new"],
+            stats["inventory_os_processed"],
+        )
 
     except Exception as exc:
         elapsed = time.monotonic() - start

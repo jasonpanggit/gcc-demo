@@ -249,6 +249,50 @@ Guidelines:
                 conversation_id=conversation_id,
             )
 
+            if self._should_use_eol_lookup_fast_path(user_message, agent_grounding):
+                response_text = self._build_eol_lookup_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "eol_lookup"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
+            if self._should_use_software_inventory_fast_path(user_message, agent_grounding):
+                response_text = self._build_software_inventory_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "software_inventory_summary"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
             if self._should_use_os_inventory_fast_path(user_message, agent_grounding):
                 response_text = self._build_os_inventory_fast_path_response(agent_grounding)
                 if response_text:
@@ -1621,6 +1665,274 @@ Guidelines:
         )
         return any(phrase in normalized for phrase in direct_os_phrases)
 
+    def _should_use_eol_lookup_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not (intent.get("is_eol_query") or intent.get("is_approaching_eol_query")):
+            return False
+
+        eol_lookup = metadata.get("eol_lookup")
+        if not isinstance(eol_lookup, dict) or not eol_lookup.get("software"):
+            return False
+
+        normalized = user_message.lower()
+        broad_inventory_terms = (
+            "inventory",
+            "across my environment",
+            "across the environment",
+            "across my estate",
+            "show me all",
+            "list all",
+            "which servers",
+            "which computers",
+            "which machines",
+        )
+        if any(term in normalized for term in broad_inventory_terms):
+            return False
+
+        software_name, _ = self._extract_target_software(user_message)
+        if not software_name:
+            return False
+
+        direct_eol_phrases = (
+            "what is the eol date",
+            "what's the eol date",
+            "what is the end of life",
+            "what's the end of life",
+            "when is",
+            "when does",
+            "end of life date",
+            "support end date",
+        )
+        return any(phrase in normalized for phrase in direct_eol_phrases)
+
+    def _should_use_software_inventory_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not intent.get("is_software_inventory_query") and not intent.get("is_inventory_query"):
+            return False
+        if intent.get("is_os_inventory_query"):
+            return False
+        if intent.get("is_eol_query") or intent.get("is_approaching_eol_query"):
+            return False
+
+        normalized = user_message.lower()
+        direct_software_phrases = (
+            "what software do i have",
+            "what software is in inventory",
+            "show me software inventory",
+            "list installed software",
+            "show installed software",
+            "what applications do i have",
+            "what is installed",
+        )
+        return any(phrase in normalized for phrase in direct_software_phrases)
+
+    def _build_software_inventory_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_inventory_summary = metadata.get("inventory_summary")
+        inventory_summary: Dict[str, Any] = raw_inventory_summary if isinstance(raw_inventory_summary, dict) else {}
+        software_summary = inventory_summary.get("software") if isinstance(inventory_summary.get("software"), dict) else {}
+        raw_software_inventory_meta = metadata.get("software_inventory")
+        software_inventory_meta: Dict[str, Any] = raw_software_inventory_meta if isinstance(raw_software_inventory_meta, dict) else {}
+
+        target_computer = software_inventory_meta.get("target_computer")
+        raw_target_rows = software_inventory_meta.get("target_rows")
+        target_rows = [row for row in raw_target_rows if isinstance(row, list)] if isinstance(raw_target_rows, list) else []
+        top_software = software_inventory_meta.get("top_software") if isinstance(software_inventory_meta.get("top_software"), list) else []
+
+        if not software_summary and not target_rows and not top_software:
+            return ""
+
+        total_items = software_summary.get("total_software", software_inventory_meta.get("count", 0))
+        total_computers = software_summary.get("total_computers", 0)
+        from_cache = bool(software_inventory_meta.get("from_cache"))
+        source_label = "inventory cache" if from_cache else "live inventory query"
+
+        heading = f"Installed Software on {self._sanitize_cell(target_computer)}" if target_computer else "Software Inventory"
+        sections: List[str] = [f"<section><h2>{heading}</h2>"]
+
+        if target_computer:
+            target_results = software_inventory_meta.get("target_results", len(target_rows))
+            sections.append(
+                "<p>"
+                f"Found <strong>{self._sanitize_cell(target_results)}</strong> software entries for "
+                f"<strong>{self._sanitize_cell(target_computer)}</strong>. Source: {self._sanitize_cell(source_label)}."
+                "</p>"
+            )
+        else:
+            sections.append(
+                "<p>"
+                f"Current inventory (last 90 days): <strong>{self._sanitize_cell(total_items)}</strong> software items "
+                f"across <strong>{self._sanitize_cell(total_computers)}</strong> computers. "
+                f"Source: {self._sanitize_cell(source_label)}."
+                "</p>"
+            )
+
+        if target_rows:
+            page_size_value = software_inventory_meta.get("target_page_size")
+            page_size = int(page_size_value) if isinstance(page_size_value, int) and page_size_value > 0 else 50
+            total_rows = len(target_rows)
+            total_pages_value = software_inventory_meta.get("target_total_pages")
+            total_pages = int(total_pages_value) if isinstance(total_pages_value, int) and total_pages_value > 0 else max(1, math.ceil(total_rows / page_size) if page_size else 1)
+
+            base_notes: List[str] = []
+            stored_parts = software_inventory_meta.get("target_footnote_parts")
+            if isinstance(stored_parts, list):
+                base_notes.extend([part for part in stored_parts if part])
+
+            for page_index in range(total_pages):
+                start = page_index * page_size if page_size else 0
+                end = min(start + page_size, total_rows) if page_size else total_rows
+                chunk = target_rows[start:end] if page_size else target_rows
+                if not chunk:
+                    continue
+                footnotes = [f"Rows {start + 1}-{end} of {total_rows}"]
+                for part in base_notes:
+                    if part not in footnotes:
+                        footnotes.append(part)
+                table = self._render_html_table(
+                    ["Software", "Version", "Publisher", "Last Seen"],
+                    chunk,
+                    caption=f"Software Inventory (Page {page_index + 1} of {total_pages})",
+                    footnote=" • ".join(footnotes) if footnotes else None,
+                    highlight_first_column=True,
+                )
+                if table:
+                    sections.append(table)
+        elif top_software:
+            table = self._render_html_table(
+                ["Software", "Installations", "Computers"],
+                top_software,
+                footnote=(
+                    f"Source rows: {software_inventory_meta.get('count')} • Showing top {len(top_software)} entries."
+                    + (" • Retrieved from cache." if from_cache else "")
+                ),
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Installed Software</h3>{table}</div>")
+
+        top_publishers = software_summary.get("top_publishers") if isinstance(software_summary.get("top_publishers"), list) else []
+        if top_publishers:
+            publisher_rows = [
+                [item.get("publisher", "Unknown"), str(item.get("installations", 0))]
+                for item in top_publishers[:5]
+            ]
+            table = self._render_html_table(
+                ["Publisher", "Installations"],
+                publisher_rows,
+                footnote=f"Showing top {min(len(top_publishers), 5)} publishers.",
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Publishers</h3>{table}</div>")
+
+        top_categories = software_summary.get("top_categories") if isinstance(software_summary.get("top_categories"), list) else []
+        if top_categories:
+            category_rows = [
+                [item.get("category", "Unknown"), str(item.get("installations", 0))]
+                for item in top_categories[:5]
+            ]
+            table = self._render_html_table(
+                ["Category", "Installations"],
+                category_rows,
+                footnote=f"Showing top {min(len(top_categories), 5)} categories.",
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Categories</h3>{table}</div>")
+
+        sections.append("</section>")
+        return "".join(sections)
+
+    def _build_eol_lookup_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_eol_lookup = metadata.get("eol_lookup")
+        eol_lookup: Dict[str, Any] = raw_eol_lookup if isinstance(raw_eol_lookup, dict) else {}
+        if not eol_lookup:
+            return ""
+
+        software = eol_lookup.get("software") or "Requested software"
+        version = eol_lookup.get("version")
+        display_name = f"{software} {version}" if version else str(software)
+        heading = f"End of Life Date for {self._sanitize_cell(display_name)}"
+
+        sections: List[str] = [f"<section><h2>{heading}</h2>"]
+
+        if eol_lookup.get("success"):
+            eol_date = eol_lookup.get("eol_date") or "Unknown"
+            status = eol_lookup.get("status") or "Unknown"
+            support_status = eol_lookup.get("support_status") or "Unknown"
+            sections.append(
+                "<p>"
+                f"<strong>{self._sanitize_cell(display_name)}</strong> reaches end of life on "
+                f"<strong>{self._sanitize_cell(eol_date)}</strong>. "
+                f"Current status: <strong>{self._sanitize_cell(status)}</strong>."
+                "</p>"
+            )
+
+            footnote_parts: List[str] = []
+            if eol_lookup.get("days_until_eol") is not None:
+                footnote_parts.append(f"Days until EOL: {eol_lookup.get('days_until_eol')}")
+            if eol_lookup.get("confidence") is not None:
+                footnote_parts.append(f"Confidence: {eol_lookup.get('confidence')}")
+
+            table = self._render_html_table(
+                ["Product", "EOL Date", "Status", "Support", "Risk", "Agent"],
+                [[
+                    display_name,
+                    eol_date,
+                    status,
+                    support_status,
+                    eol_lookup.get("risk_level") or "unknown",
+                    eol_lookup.get("agent_used") or "orchestrator",
+                ]],
+                footnote=" • ".join(footnote_parts) if footnote_parts else None,
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(table)
+        else:
+            error_text = eol_lookup.get("error") or "No EOL data available"
+            sections.append(
+                "<p>"
+                f"I could not find a lifecycle date for <strong>{self._sanitize_cell(display_name)}</strong>. "
+                f"{self._sanitize_cell(error_text)}"
+                "</p>"
+            )
+
+        sections.append("</section>")
+        return "".join(sections)
+
     def _build_os_inventory_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
         metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
         if not isinstance(metadata, dict):
@@ -1686,7 +1998,13 @@ Guidelines:
 
         if not any(
             intent.get(flag)
-            for flag in ("is_inventory_query", "is_os_inventory_query", "is_eol_query", "is_approaching_eol_query")
+            for flag in (
+                "is_inventory_query",
+                "is_software_inventory_query",
+                "is_os_inventory_query",
+                "is_eol_query",
+                "is_approaching_eol_query",
+            )
         ):
             return {"insights": "", "metadata": {}, "agents_called": []}
 

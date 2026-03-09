@@ -73,7 +73,7 @@ async def query_alert_history(
         records = await history_manager.query_history(filters, limit, offset)
 
         return StandardResponse(
-            status="success",
+            success=True,
             message=f"Retrieved {len(records)} alert history records",
             data={
                 "records": [r.to_dict() for r in records],
@@ -87,7 +87,7 @@ async def query_alert_history(
     except Exception as e:
         logger.error(f"Failed to query alert history: {e}", exc_info=True)
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Failed to query alert history: {str(e)}"
         )
 
@@ -109,12 +109,12 @@ async def get_alert_details(record_id: str) -> StandardResponse:
 
         if not record:
             return StandardResponse(
-                status="error",
+                success=False,
                 message=f"Alert {record_id} not found"
             )
 
         return StandardResponse(
-            status="success",
+            success=True,
             message="Alert details retrieved",
             data={"record": record.to_dict()}
         )
@@ -122,7 +122,7 @@ async def get_alert_details(record_id: str) -> StandardResponse:
     except Exception as e:
         logger.error(f"Failed to get alert details {record_id}: {e}", exc_info=True)
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Failed to get alert details: {str(e)}"
         )
 
@@ -150,7 +150,7 @@ async def acknowledge_alert(
         user = body.get("user")
         if not user:
             return StandardResponse(
-                status="error",
+                success=False,
                 message="User is required for acknowledgment"
             )
 
@@ -161,14 +161,14 @@ async def acknowledge_alert(
 
         if not success:
             return StandardResponse(
-                status="error",
+                success=False,
                 message=f"Alert {record_id} not found or already acknowledged"
             )
 
         logger.info(f"Alert {record_id} acknowledged by {user}")
 
         return StandardResponse(
-            status="success",
+            success=True,
             message="Alert acknowledged successfully",
             data={
                 "record_id": record_id,
@@ -180,7 +180,7 @@ async def acknowledge_alert(
     except Exception as e:
         logger.error(f"Failed to acknowledge alert {record_id}: {e}", exc_info=True)
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Failed to acknowledge alert: {str(e)}"
         )
 
@@ -207,7 +207,7 @@ async def dismiss_alert(
         reason = body.get("reason")
         if not reason:
             return StandardResponse(
-                status="error",
+                success=False,
                 message="Dismissal reason is required"
             )
 
@@ -216,14 +216,14 @@ async def dismiss_alert(
 
         if not success:
             return StandardResponse(
-                status="error",
+                success=False,
                 message=f"Alert {record_id} not found or already dismissed"
             )
 
         logger.info(f"Alert {record_id} dismissed: {reason}")
 
         return StandardResponse(
-            status="success",
+            success=True,
             message="Alert dismissed successfully",
             data={
                 "record_id": record_id,
@@ -234,6 +234,6 @@ async def dismiss_alert(
     except Exception as e:
         logger.error(f"Failed to dismiss alert {record_id}: {e}", exc_info=True)
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Failed to dismiss alert: {str(e)}"
         )

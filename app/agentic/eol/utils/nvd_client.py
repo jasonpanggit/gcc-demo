@@ -22,6 +22,10 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 
+DEFAULT_PAGE_SIZE = 500
+MAX_PAGE_SIZE = 2000
+
+
 class NVDClient(BaseCVEClient):
     """Client for NVD API 2.0.
 
@@ -157,8 +161,7 @@ class NVDClient(BaseCVEClient):
             "lastModStartDate": date_str,
             "lastModEndDate": end_date_str,
         }
-        if limit:
-            filters["resultsPerPage"] = min(limit, 2000)  # NVD max
+        filters["resultsPerPage"] = self._resolve_page_size(limit)
 
         return await self.search_cves(**filters)
 
@@ -181,48 +184,98 @@ class NVDClient(BaseCVEClient):
         Returns:
             List of CVE data dicts
         """
-        url = f"{self.base_url}/cves/2.0"
-
-        # Build query parameters
         params = {}
         if query:
             params["keywordSearch"] = query
         params.update(filters)
+        requested_limit = self._coerce_positive_int(params.pop("limit", None))
+        page_size = self._resolve_page_size(self._coerce_positive_int(params.get("resultsPerPage")))
+        explicit_start_index = self._coerce_non_negative_int(params.get("startIndex"))
+        paginate = explicit_start_index is None
+        start_index = explicit_start_index or 0
+        collected: List[Dict[str, Any]] = []
+        total_results: Optional[int] = None
 
-        if params:
-            url += "?" + urlencode(params)
+        while True:
+            page_params = dict(params)
+            page_params["resultsPerPage"] = page_size
+            page_params["startIndex"] = start_index
+            url = self._build_search_url(page_params)
 
-        try:
-            kwargs = self._add_api_key_header({})
-            data = await self._request("GET", url, **kwargs)
-
-            if data is None or not isinstance(data, dict):
+            try:
+                kwargs = self._add_api_key_header({})
+                data = await self._request("GET", url, **kwargs)
+            except Exception as e:
+                if collected:
+                    logger.warning(
+                        "Failed to fetch NVD page at startIndex=%s after collecting %s CVEs; returning partial results: %s: %r",
+                        start_index,
+                        len(collected),
+                        type(e).__name__,
+                        e,
+                    )
+                    break
+                logger.error(f"Failed to search CVEs from NVD: {e}")
                 return []
 
-            vulnerabilities = data.get("vulnerabilities", [])
-            normalized = []
+            if data is None or not isinstance(data, dict):
+                break
 
+            vulnerabilities = data.get("vulnerabilities", [])
+            page_results = []
             for vuln in vulnerabilities:
                 cve_data = vuln.get("cve", {})
                 if cve_data:
-                    normalized.append(self._normalize_cve(cve_data))
+                    page_results.append(self._normalize_cve(cve_data))
 
-            # Handle pagination
-            total = data.get("totalResults", 0)
-            results_per_page = filters.get("resultsPerPage", 2000)
+            collected.extend(page_results)
+            total_results = data.get("totalResults", len(collected))
 
-            if total > results_per_page:
-                logger.warning(
-                    f"NVD search returned {total} total results, "
-                    f"but only fetched {results_per_page}. "
-                    f"Use startIndex parameter for pagination."
-                )
+            if not paginate:
+                break
 
-            return normalized
+            if requested_limit is not None and len(collected) >= requested_limit:
+                break
 
-        except Exception as e:
-            logger.error(f"Failed to search CVEs from NVD: {e}")
-            return []
+            fetched_count = len(vulnerabilities)
+            if fetched_count == 0:
+                break
+
+            start_index += fetched_count
+            if total_results is not None and start_index >= total_results:
+                break
+
+        if requested_limit is not None:
+            return collected[:requested_limit]
+
+        return collected
+
+    def _build_search_url(self, params: Dict[str, Any]) -> str:
+        url = f"{self.base_url}/cves/2.0"
+        if params:
+            url += "?" + urlencode(params)
+        return url
+
+    def _resolve_page_size(self, requested: Optional[int]) -> int:
+        if requested is None:
+            return DEFAULT_PAGE_SIZE
+        return max(1, min(requested, MAX_PAGE_SIZE))
+
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> Optional[int]:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    @staticmethod
+    def _coerce_non_negative_int(value: Any) -> Optional[int]:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
 
     def _normalize_cve(self, cve_data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize NVD format to internal format.

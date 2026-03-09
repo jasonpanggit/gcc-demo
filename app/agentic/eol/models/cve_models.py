@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, model_validator
+
+
+KB_PATTERN = re.compile(r"\bKB\d{6,8}\b", re.IGNORECASE)
 
 
 class CVSSScore(BaseModel):
@@ -64,7 +68,70 @@ class CVEVendorMetadata(BaseModel):
     fix_available: bool = False
     fix_version: Optional[str] = None
     advisory_id: Optional[str] = None  # RHSA-2024-001, USN-1234-1, KB5001234, GHSA-xxxx
+    kb_numbers: List[str] = Field(default_factory=list)
+    severity: Optional[str] = None
+    impact: Optional[str] = None
+    exploitability: Optional[str] = None
+    title: Optional[str] = None
+    document_title: Optional[str] = None
+    update_id: Optional[str] = None
+    cvrf_url: Optional[str] = None
+    notes: Dict[str, str] = Field(default_factory=dict)
+    format: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)  # Arbitrary vendor-specific fields
+
+    @model_validator(mode="after")
+    def _hydrate_microsoft_fields(self) -> "CVEVendorMetadata":
+        """Backfill Microsoft fields from legacy metadata-only records."""
+        if self.source != "microsoft":
+            return self
+
+        metadata = self.metadata or {}
+
+        if not self.update_id:
+            self.update_id = metadata.get("ID") or metadata.get("Alias")
+        if not self.advisory_id:
+            self.advisory_id = self.update_id
+        if not self.document_title:
+            self.document_title = metadata.get("DocumentTitle")
+        if not self.cvrf_url:
+            self.cvrf_url = metadata.get("CvrfUrl") or metadata.get("cvrfUrl")
+        if not self.severity:
+            self.severity = metadata.get("Severity") or metadata.get("severity")
+        if not self.kb_numbers:
+            self.kb_numbers = self._extract_kb_numbers(metadata)
+        if not self.fix_available and self.kb_numbers:
+            self.fix_available = True
+
+        return self
+
+    @staticmethod
+    def _extract_kb_numbers(metadata: Dict[str, Any]) -> List[str]:
+        """Extract KB numbers from common Microsoft metadata fields."""
+        values: List[str] = []
+
+        for field in ("kbArticles", "kb_numbers", "kbNumbers"):
+            raw_value = metadata.get(field)
+            if isinstance(raw_value, list):
+                values.extend(str(item) for item in raw_value)
+            elif raw_value:
+                values.append(str(raw_value))
+
+        raw_text = metadata.get("raw_xml") or metadata.get("RawXml")
+        if raw_text:
+            values.append(str(raw_text))
+
+        kb_numbers: List[str] = []
+        seen = set()
+        for value in values:
+            for match in KB_PATTERN.findall(value):
+                kb_number = match.upper()
+                if kb_number in seen:
+                    continue
+                seen.add(kb_number)
+                kb_numbers.append(kb_number)
+
+        return kb_numbers
 
 
 class UnifiedCVE(BaseModel):
@@ -99,6 +166,20 @@ class UnifiedCVE(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+
+class KBCVEEdge(BaseModel):
+    """Canonical reverse mapping between a KB article and a CVE."""
+    id: str
+    kb_number: str
+    cve_id: str
+    source: str = "microsoft"
+    advisory_id: Optional[str] = None
+    update_id: Optional[str] = None
+    document_title: Optional[str] = None
+    cvrf_url: Optional[str] = None
+    severity: Optional[str] = None
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
 
 
 # ============================================================================
@@ -268,6 +349,44 @@ class VMCVEDetail(BaseModel):
     description: str
     match_reason: str  # Why this CVE affects this VM
     patches_available: int = 0  # Count of patches that fix this CVE
+    patch_status: str = "unknown"  # installed, available, none, unknown
+    installed_patches: int = 0  # Count of matching installed patches observed via inventory
+    installed_patch_ids: List[str] = Field(default_factory=list)
+    available_patch_ids: List[str] = Field(default_factory=list)
+
+
+class VMPatchInventoryItem(BaseModel):
+    """Patch evidence shown on the VM vulnerability detail page."""
+    patch_id: str
+    patch_name: str
+    status: str  # installed, available
+    kb_ids: List[str] = Field(default_factory=list)
+    cve_ids: List[str] = Field(default_factory=list)
+    classification: Optional[str] = None
+    published_date: Optional[str] = None
+
+
+class PatchCoverageSummary(BaseModel):
+    """Comparison of affecting CVEs versus installed patch evidence for a VM."""
+    installed_patch_inventory_available: bool = False
+    available_patch_assessment_available: bool = False
+    installed_patch_count: int = 0
+    installed_patch_identifier_count: int = 0
+    available_patch_identifier_count: int = 0
+    available_patch_count: int = 0
+    covered_cves: int = 0
+    not_patched_cves: int = 0
+    patchable_unpatched_cves: int = 0
+    no_patch_evidence_cves: int = 0
+    unknown_patch_status_cves: int = 0
+    patch_derived_cves: int = 0
+    patch_derived_missing_cves: int = 0
+    covered_cve_ids: List[str] = Field(default_factory=list)
+    not_patched_cve_ids: List[str] = Field(default_factory=list)
+    patch_derived_cve_ids: List[str] = Field(default_factory=list)
+    patch_derived_missing_cve_ids: List[str] = Field(default_factory=list)
+    installed_patch_entries: List[VMPatchInventoryItem] = Field(default_factory=list)
+    available_patch_entries: List[VMPatchInventoryItem] = Field(default_factory=list)
 
 
 class VMVulnerabilityResponse(BaseModel):
@@ -285,6 +404,7 @@ class VMVulnerabilityResponse(BaseModel):
     total_cves: int
     cves_by_severity: Dict[str, int]  # {"CRITICAL": 5, "HIGH": 12, ...}
     cve_details: List[VMCVEDetail]
+    patch_coverage: PatchCoverageSummary = Field(default_factory=PatchCoverageSummary)
 
 
 class AffectedVMDetail(BaseModel):
@@ -298,7 +418,7 @@ class AffectedVMDetail(BaseModel):
     os_version: Optional[str] = None
     location: str
     match_reason: str
-    patch_status: Optional[str] = None  # "available", "installed", "pending"
+    patch_status: str = "unknown"  # available, installed, pending, none, unknown
 
 
 class CVEAffectedVMsResponse(BaseModel):
@@ -317,6 +437,7 @@ __all__ = [
     "CVEReference",
     "CVEVendorMetadata",
     "UnifiedCVE",
+    "KBCVEEdge",
     "CVESearchRequest",
     "CVESearchResponse",
     "CVEDetailResponse",
@@ -329,6 +450,8 @@ __all__ = [
     "CVEPatchMapping",
     "CVEPatchRequest",
     "VMCVEDetail",
+    "VMPatchInventoryItem",
+    "PatchCoverageSummary",
     "VMVulnerabilityResponse",
     "AffectedVMDetail",
     "CVEAffectedVMsResponse"

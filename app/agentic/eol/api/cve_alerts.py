@@ -36,7 +36,7 @@ async def list_alert_rules(enabled_only: bool = Query(False)) -> StandardRespons
     rules = await rule_manager.list_rules(enabled_only=enabled_only)
 
     return StandardResponse(
-        status="success",
+        success=True,
         message=f"Retrieved {len(rules)} alert rules",
         data={
             "rules": [rule.to_dict() for rule in rules],
@@ -71,7 +71,7 @@ async def create_alert_rule(rule_data: Dict[str, Any]) -> StandardResponse:
         # Validate required fields
         if "name" not in rule_data or not rule_data["name"]:
             return StandardResponse(
-                status="error",
+                success=False,
                 message="Rule name is required"
             )
 
@@ -83,20 +83,20 @@ async def create_alert_rule(rule_data: Dict[str, Any]) -> StandardResponse:
         created_rule = await rule_manager.create_rule(rule)
 
         return StandardResponse(
-            status="success",
+            success=True,
             message=f"Alert rule '{created_rule.name}' created",
             data={"rule": created_rule.to_dict()}
         )
 
     except ValueError as e:
         return StandardResponse(
-            status="error",
+            success=False,
             message=str(e)
         )
     except Exception as e:
         logger.error(f"Failed to create alert rule: {e}")
         return StandardResponse(
-            status="error",
+            success=False,
             message="Failed to create alert rule"
         )
 
@@ -109,12 +109,12 @@ async def get_alert_rule(rule_id: str) -> StandardResponse:
 
     if not rule:
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Alert rule {rule_id} not found"
         )
 
     return StandardResponse(
-        status="success",
+        success=True,
         message="Alert rule retrieved",
         data={"rule": rule.to_dict()}
     )
@@ -134,7 +134,7 @@ async def update_alert_rule(rule_id: str, rule_data: Dict[str, Any]) -> Standard
         existing = await rule_manager.get_rule(rule_id)
         if not existing:
             return StandardResponse(
-                status="error",
+                success=False,
                 message=f"Alert rule {rule_id} not found"
             )
 
@@ -147,20 +147,20 @@ async def update_alert_rule(rule_id: str, rule_data: Dict[str, Any]) -> Standard
         updated_rule = await rule_manager.update_rule(existing)
 
         return StandardResponse(
-            status="success",
+            success=True,
             message=f"Alert rule '{updated_rule.name}' updated",
             data={"rule": updated_rule.to_dict()}
         )
 
     except ValueError as e:
         return StandardResponse(
-            status="error",
+            success=False,
             message=str(e)
         )
     except Exception as e:
         logger.error(f"Failed to update alert rule: {e}")
         return StandardResponse(
-            status="error",
+            success=False,
             message="Failed to update alert rule"
         )
 
@@ -173,12 +173,12 @@ async def delete_alert_rule(rule_id: str) -> StandardResponse:
 
     if not success:
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Alert rule {rule_id} not found"
         )
 
     return StandardResponse(
-        status="success",
+        success=True,
         message="Alert rule deleted"
     )
 
@@ -196,7 +196,7 @@ async def test_alert_rule(rule_id: str) -> StandardResponse:
 
         if not rule:
             return StandardResponse(
-                status="error",
+                success=False,
                 message=f"Alert rule {rule_id} not found"
             )
 
@@ -229,7 +229,7 @@ async def test_alert_rule(rule_id: str) -> StandardResponse:
         )
 
         return StandardResponse(
-            status="success",
+            success=True,
             message="Test alert sent",
             data={"result": result}
         )
@@ -237,6 +237,6 @@ async def test_alert_rule(rule_id: str) -> StandardResponse:
     except Exception as e:
         logger.error(f"Failed to send test alert: {e}")
         return StandardResponse(
-            status="error",
+            success=False,
             message=f"Failed to send test alert: {str(e)}"
         )

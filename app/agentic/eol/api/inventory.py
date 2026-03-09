@@ -26,12 +26,13 @@ Author: GitHub Copilot
 Date: October 2025
 """
 
-import re
+import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 import logging
 
 from utils.config import config
+from utils.normalization import normalize_os_record
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
@@ -44,6 +45,32 @@ logger = logging.getLogger(__name__)
 
 # Create router for inventory endpoints
 router = APIRouter(tags=["Inventory Management"])
+
+
+def _apply_os_inventory_normalization(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize OS identity fields on an inventory row in place."""
+    if not isinstance(item, dict):
+        return item
+
+    normalized = normalize_os_record(
+        item.get("os_name") or item.get("name"),
+        item.get("os_version") or item.get("version"),
+        item.get("os_type"),
+    )
+
+    item.setdefault("raw_os_name", normalized.get("raw_os_name"))
+    item.setdefault("raw_os_version", normalized.get("raw_os_version"))
+    item["os_name"] = normalized["os_name"]
+    item["os_version"] = normalized.get("os_version")
+    item["normalized_os_name"] = normalized.get("normalized_os_name")
+    item["normalized_os_version"] = normalized.get("normalized_os_version")
+    item["os_type"] = normalized.get("os_type") or item.get("os_type")
+    if item.get("software_type") == "operating system":
+        if "name" in item:
+            item["name"] = normalized["os_name"]
+        if "version" in item:
+            item["version"] = normalized.get("os_version")
+    return item
 
 
 def _get_eol_orchestrator():
@@ -89,18 +116,24 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
             if not vm_name or vm_name.lower() in existing_computer_names:
                 continue
 
-            os_name = selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown"
-            match = re.search(r"\b(20\d{2}|19\d{2})\b", str(os_name))
-            inferred_version = match.group(1) if match else ""
+            normalized_os = normalize_os_record(
+                selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown",
+                vm.get("os_version"),
+                selected.get("os_type") or vm.get("os_type"),
+            )
 
             os_items.append({
                 "computer_name": vm_name,
                 "computer": vm_name,
-                "os_name": os_name,
-                "name": os_name,
-                "os_version": vm.get("os_version") or inferred_version,
-                "version": vm.get("os_version") or inferred_version,
-                "os_type": selected.get("os_type") or vm.get("os_type") or "Unknown",
+                "os_name": normalized_os["os_name"],
+                "name": normalized_os["os_name"],
+                "os_version": normalized_os.get("os_version"),
+                "version": normalized_os.get("os_version"),
+                "os_type": normalized_os.get("os_type") or "Unknown",
+                "raw_os_name": normalized_os.get("raw_os_name"),
+                "raw_os_version": normalized_os.get("raw_os_version"),
+                "normalized_os_name": normalized_os.get("normalized_os_name"),
+                "normalized_os_version": normalized_os.get("normalized_os_version"),
                 "vendor": "Unknown",
                 "computer_environment": "Azure",
                 "computer_type": "Azure VM",
@@ -117,6 +150,57 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
         logger.warning("Failed to merge Azure VMs into OS inventory: %s", exc)
 
     return os_items
+
+
+async def _enrich_missing_os_eol(items: List[Dict[str, Any]]) -> None:
+    """Populate EOL fields only for OS rows that were added without enrichment."""
+    if not isinstance(items, list) or not items:
+        return
+
+    candidates = [
+        item for item in items
+        if isinstance(item, dict)
+        and not item.get("eol_date")
+        and item.get("source") == "resource_inventory"
+    ]
+
+    if not candidates:
+        return
+
+    orchestrator = _get_eol_orchestrator()
+    semaphore = asyncio.Semaphore(4)
+
+    async def enrich_item(item: Dict[str, Any]) -> None:
+        lookup_name = item.get("os_name") or item.get("name") or ""
+        lookup_version = item.get("os_version") or item.get("version")
+        if not lookup_name:
+            return
+
+        async with semaphore:
+            try:
+                eol_result = await orchestrator.get_autonomous_eol_data(
+                    lookup_name,
+                    lookup_version,
+                    item_type="os",
+                )
+            except Exception:
+                return
+
+        if not eol_result or not eol_result.get("success"):
+            return
+
+        data_block = eol_result.get("data") if isinstance(eol_result, dict) else None
+        if not isinstance(data_block, dict):
+            return
+
+        if data_block.get("eol_date"):
+            item["eol_date"] = data_block.get("eol_date")
+        if data_block.get("support_end_date") or data_block.get("support"):
+            item["support_end_date"] = data_block.get("support_end_date") or data_block.get("support")
+        item["eol_source"] = data_block.get("source") or data_block.get("agent_used")
+        item["eol_confidence"] = data_block.get("confidence")
+
+    await asyncio.gather(*(enrich_item(item) for item in candidates), return_exceptions=True)
 
 
 @router.get("/api/inventory", response_model=StandardResponse)
@@ -245,35 +329,9 @@ async def get_os(days: int = 90):
     result = await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
     if result.get("success") and isinstance(result.get("data"), list):
         try:
+            result["data"] = [_apply_os_inventory_normalization(item) for item in result["data"]]
             result["data"] = await _merge_azure_vm_os_inventory(result["data"])
-
-            orchestrator = _get_eol_orchestrator()
-            for item in result["data"]:
-                if item.get("eol_date"):
-                    continue
-
-                lookup_name = item.get("os_name") or item.get("name") or ""
-                lookup_version = item.get("os_version") or item.get("version")
-
-                eol_result = await orchestrator.get_autonomous_eol_data(
-                    lookup_name,
-                    lookup_version,
-                    item_type="os",
-                )
-   
-                if not eol_result or not eol_result.get("success"):
-                    continue
-
-                data_block = eol_result.get("data") if isinstance(eol_result, dict) else None
-                if not isinstance(data_block, dict):
-                    continue
-
-                if data_block.get("eol_date"):
-                    item["eol_date"] = data_block.get("eol_date")
-                if data_block.get("support_end_date") or data_block.get("support"):
-                    item["support_end_date"] = data_block.get("support_end_date") or data_block.get("support")
-                item["eol_source"] = data_block.get("source") or data_block.get("agent_used")
-                item["eol_confidence"] = data_block.get("confidence")
+            await _enrich_missing_os_eol(result["data"])
             result["count"] = len(result["data"])
         except Exception:
             pass

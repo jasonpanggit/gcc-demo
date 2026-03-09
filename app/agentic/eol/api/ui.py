@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import TemplateNotFound
 
@@ -170,6 +170,18 @@ async def eol_searches_ui(request: Request):
 async def eol_inventory_ui(request: Request):
     """EOL Cosmos inventory browser page."""
     return templates.TemplateResponse(request, "eol-inventory.html")
+
+
+@router.get("/os-normalization-rules", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="os_normalization_rules_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def os_normalization_rules_ui(request: Request):
+    """Centralized OS normalization rule management page."""
+    return templates.TemplateResponse(request, "os-normalization-rules.html")
 
 
 @router.get("/eol-management", response_class=HTMLResponse)
@@ -550,7 +562,12 @@ async def cve_search_ui(request: Request):
     Returns:
         HTMLResponse with rendered cve-search.html template.
     """
-    return templates.TemplateResponse(request, "cve-search.html")
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(
+        request,
+        "cve-search.html",
+        {"asset_version": asset_version},
+    )
 
 
 @router.get("/cve-detail/{cve_id}", response_class=HTMLResponse)
@@ -580,6 +597,24 @@ async def cve_detail_ui(request: Request, cve_id: str):
         HTMLResponse with rendered cve-detail.html template.
     """
     return templates.TemplateResponse(request, "cve-detail.html", {"cve_id": cve_id})
+
+
+@router.get("/cve-detail", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_detail_query_redirect",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_detail_query_redirect(request: Request, cve_id: Optional[str] = None):
+    """Redirect legacy query-param detail URLs to the canonical path-based route."""
+    if not cve_id:
+        return RedirectResponse(url="/cve-search", status_code=307)
+
+    return RedirectResponse(
+        url=f"/cve-detail/{cve_id}?from=dashboard",
+        status_code=307,
+    )
 
 
 @router.get("/cve-dashboard", response_class=HTMLResponse)

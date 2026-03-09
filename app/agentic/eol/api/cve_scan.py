@@ -8,10 +8,10 @@ Endpoints:
     GET /api/cve/scan/recent - List recent scans
     DELETE /api/cve/scan/{scan_id} - Delete scan result
 """
-from __future__ import annotations
 
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import ValidationError
 
 try:
     from models.cve_models import CVEScanRequest, CVEScanStatusResponse, ScanResult
@@ -30,21 +30,21 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Scanning"])
 
 
-def _get_cve_scanner():
+async def _get_cve_scanner():
     """Lazy import to avoid circular dependency."""
     from main import get_cve_scanner
-    return get_cve_scanner
+    return await get_cve_scanner()
 
 
 @router.post("/cve/scan", response_model=StandardResponse)
 @write_endpoint(agent_name="cve_scan_trigger", timeout_seconds=10)
-async def trigger_cve_scan(request: CVEScanRequest):
+async def trigger_cve_scan(request: Request):
     """Trigger async CVE inventory scan.
 
     Returns scan_id immediately. Poll /api/cve/scan/{scan_id}/status for progress.
 
     Args:
-        request: Scan configuration (subscriptions, resource groups, CVE filters)
+        request: FastAPI request containing scan configuration JSON
 
     Returns:
         StandardResponse with scan_id and status
@@ -59,17 +59,26 @@ async def trigger_cve_scan(request: CVEScanRequest):
         )
 
     try:
+        payload = await request.json()
+        scan_request = CVEScanRequest.model_validate(payload)
+
         scanner = await _get_cve_scanner()
-        scan_id = await scanner.start_scan(request)
+        scan_id = await scanner.start_scan(scan_request)
 
         logger.info(f"CVE scan triggered: {scan_id}")
 
-        return StandardResponse.success({
-            "scan_id": scan_id,
-            "status": "pending",
-            "message": f"Scan initiated. Check status at /api/cve/scan/{scan_id}/status"
-        })
+        return StandardResponse(
+            success=True,
+            data={
+                "scan_id": scan_id,
+                "status": "pending",
+                "message": f"Scan initiated. Check status at /api/cve/scan/{scan_id}/status"
+            },
+            message="CVE scan initiated"
+        )
 
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
     except Exception as e:
         logger.error(f"Failed to trigger CVE scan: {e}")
         raise HTTPException(status_code=500, detail=f"Scan failed to start: {str(e)}")
@@ -113,7 +122,11 @@ async def get_scan_status(scan_id: str):
             error=result.error
         )
 
-        return StandardResponse.success(response.dict())
+        return StandardResponse(
+            success=True,
+            data=response.dict(),
+            message=f"Retrieved status for scan {scan_id}"
+        )
 
     except HTTPException:
         raise
@@ -137,10 +150,14 @@ async def list_recent_scans(limit: int = Query(default=10, le=100, ge=1)):
         scanner = await _get_cve_scanner()
         scans = await scanner.list_recent_scans(limit=limit)
 
-        return StandardResponse.success({
-            "scans": [scan.dict() for scan in scans],
-            "count": len(scans)
-        })
+        return StandardResponse(
+            success=True,
+            data={
+                "scans": [scan.dict() for scan in scans],
+                "count": len(scans)
+            },
+            message="Recent CVE scans retrieved"
+        )
 
     except Exception as e:
         logger.error(f"Failed to list recent scans: {e}")
@@ -170,9 +187,13 @@ async def delete_scan(scan_id: str):
 
         logger.info(f"Deleted scan: {scan_id}")
 
-        return StandardResponse.success({
-            "message": f"Scan {scan_id} deleted successfully"
-        })
+        return StandardResponse(
+            success=True,
+            data={
+                "message": f"Scan {scan_id} deleted successfully"
+            },
+            message=f"Deleted scan {scan_id}"
+        )
 
     except HTTPException:
         raise

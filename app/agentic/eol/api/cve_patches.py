@@ -25,14 +25,14 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Patches"])
 
 
-def _get_cve_patch_mapper():
+async def _get_cve_patch_mapper():
     """Lazy import to avoid circular dependency."""
     from main import get_cve_patch_mapper
-    return get_cve_patch_mapper
+    return await get_cve_patch_mapper()
 
 
 @router.get("/cve/patches/{cve_id}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_patches", timeout_seconds=15)
+@readonly_endpoint(agent_name="cve_patches", timeout_seconds=30)
 async def get_cve_patches(
     cve_id: str,
     subscription_ids: Optional[str] = Query(None, description="Comma-separated subscription IDs")
@@ -68,7 +68,11 @@ async def get_cve_patches(
 
         logger.info(f"Retrieved {len(mapping.patches)} patches for {cve_id}")
 
-        return StandardResponse.success(mapping.dict())
+        return StandardResponse(
+            success=True,
+            data=mapping.dict(),
+            message=f"Retrieved {len(mapping.patches)} patches for {cve_id}"
+        )
 
     except Exception as e:
         logger.error(f"Failed to get patches for {cve_id}: {e}")

@@ -9,7 +9,8 @@ try:
         CVEAffectedProduct,
         CVEReference,
         CVEVendorMetadata,
-        UnifiedCVE
+        UnifiedCVE,
+        KBCVEEdge
     )
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import (
@@ -26,5 +27,6 @@ __all__ = [
     "CVEAffectedProduct",
     "CVEReference",
     "CVEVendorMetadata",
-    "UnifiedCVE"
+    "UnifiedCVE",
+    "KBCVEEdge"
 ]

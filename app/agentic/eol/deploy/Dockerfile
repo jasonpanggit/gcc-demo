@@ -81,6 +81,7 @@ ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 # Copy application code from parent directory
 COPY api ./api
 COPY agents ./agents
+COPY models ./models
 COPY utils ./utils
 COPY mcp_servers ./mcp_servers
 COPY config ./config
