@@ -281,6 +281,7 @@ class ScanResult(BaseModel):
     scanned_vms: int
     total_matches: int
     matches: List[CVEMatch] = Field(default_factory=list)
+    vm_match_summaries: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     error: Optional[str] = None
 
 

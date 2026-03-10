@@ -37,9 +37,11 @@ reference.
 | `--unit` | `-m unit` | Pure unit tests (orchestrators, utilities) |
 | `--integration` | `-m integration` | API endpoint tests via ASGI client |
 | `--mcp` | `-m mcp` | All MCP server tool tests |
-| `--mcp-server NAME` | `-m mcp_<name>` | Single MCP server (see names below) |
+| `--mcp-server NAME` | `-m mcp_<name>` | Single MCP server for the marker-backed suites (see names below) |
 
-Valid MCP server names: `sre`, `inventory`, `monitor`, `os_eol`, `azure_cli`, `azure`
+Marker-backed MCP server names: `sre`, `inventory`, `monitor`, `os_eol`, `azure_cli`, `azure`
+
+Newer MCP-focused coverage such as CVE flows is currently run by targeting the test files directly, for example `./run_tests.sh tests/test_cve_mcp_server.py`.
 
 ### Coverage flags
 
@@ -96,7 +98,10 @@ Valid MCP server names: `sre`, `inventory`, `monitor`, `os_eol`, `azure_cli`, `a
 | `test_agent_endpoints.py` | integration, api | Agent lifecycle, health, and configuration endpoints |
 | `test_cosmos_endpoints.py` | integration, api | Cosmos DB cache write/read/invalidation endpoints |
 | `test_communication_endpoints.py` | integration, api | Email notification history and channel endpoints |
-| `test_ui_endpoints.py` | integration, ui | HTML routes: `/`, `/azure-mcp`, `/azure-ai-sre`, `/inventory-assistant` |
+| `test_ui_endpoints.py` | integration, ui | HTML routes: `/`, `/azure-mcp`, `/azure-ai-sre`, `/inventory-assistant`, CVE views |
+| `test_cve_mcp_server.py` | unit | CVE MCP search, scan, patch lookup, and remediation trigger flows |
+| `test_cve_patch_mapper.py` | unit | KB-to-CVE mapping and patch recommendation behavior |
+| `test_cve_inventory_sync.py` | unit | Inventory-driven CVE sync and OS identity matching |
 | `test_azure_mcp_endpoints.py` | integration, api, mcp_azure | Azure MCP REST surfaces |
 | `test_inventory_asst_endpoints.py` | integration, api, inventory_asst | Agent Framework inventory assistant orchestration |
 | `test_mcp_orchestrator.py` | unit, mcp | `MCPOrchestratorAgent` — dependency injection, tool dispatch, `aclose` |

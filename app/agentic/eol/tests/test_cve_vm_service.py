@@ -332,6 +332,125 @@ async def test_get_vm_vulnerability_summary_uses_cached_inventory_only(
 
 
 @pytest.mark.asyncio
+async def test_get_vm_vulnerability_summaries_batches_inventory_lookup_by_shared_os(
+    vm_service,
+    mock_scanner,
+    mock_cve_service,
+):
+    vm_id_1 = "/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/testvm1"
+    vm_id_2 = "/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/testvm2"
+    mock_scanner.get_latest_scan_result.return_value = ScanResult(
+        scan_id="scan-empty",
+        started_at="2026-03-08T00:00:00+00:00",
+        completed_at="2026-03-08T00:05:00+00:00",
+        status="completed",
+        total_vms=2,
+        scanned_vms=2,
+        total_matches=0,
+        matches=[],
+    )
+    mock_scanner.get_vm_targets_by_ids.return_value = {
+        vm_id_1.lower(): VMScanTarget(
+            vm_id=vm_id_1,
+            name="testvm1",
+            resource_group="rg-prod",
+            subscription_id="sub-123",
+            os_type="Windows",
+            os_name="WindowsServer",
+            os_version="2019-datacenter-gensecond",
+            installed_packages=[],
+            tags={},
+            location="eastus",
+            vm_type="azure",
+        ),
+        vm_id_2.lower(): VMScanTarget(
+            vm_id=vm_id_2,
+            name="testvm2",
+            resource_group="rg-prod",
+            subscription_id="sub-123",
+            os_type="Windows",
+            os_name="WindowsServer",
+            os_version="2019-datacenter-gensecond",
+            installed_packages=[],
+            tags={},
+            location="eastus2",
+            vm_type="azure",
+        ),
+    }
+    mock_scanner.is_vm_affected_by_cve.return_value = True
+    mock_cve_service.search_cves = AsyncMock(return_value=[_build_cve()])
+
+    result = await vm_service.get_vm_vulnerability_summaries(
+        [vm_id_1, vm_id_2],
+        allow_live_cve_fallback=False,
+    )
+
+    assert sorted(result.keys()) == [vm_id_1.lower(), vm_id_2.lower()]
+    assert result[vm_id_1.lower()]["total_cves"] == 1
+    assert result[vm_id_2.lower()]["high"] == 1
+    mock_scanner.get_vm_targets_by_ids.assert_awaited_once_with([vm_id_1, vm_id_2])
+    mock_cve_service.search_cves.assert_awaited_once_with(
+        filters={"keyword": "windows server 2019", "vendor": "microsoft"},
+        limit=10000,
+        offset=0,
+        allow_live_fallback=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_vm_vulnerability_summary_uses_scan_vm_summary_when_raw_matches_not_persisted(
+    vm_service,
+    mock_scanner,
+    mock_cve_service,
+):
+    vm_id = "/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.HybridCompute/machines/WIN-P30D2Q85TKG"
+    mock_scanner.get_latest_scan_result.return_value = ScanResult(
+        scan_id="scan-summary",
+        started_at="2026-03-08T00:00:00+00:00",
+        completed_at="2026-03-08T00:05:00+00:00",
+        status="completed",
+        total_vms=1,
+        scanned_vms=1,
+        total_matches=973,
+        matches=[],
+        vm_match_summaries={
+            vm_id.lower(): {
+                "vm_id": vm_id,
+                "vm_name": "WIN-P30D2Q85TKG",
+                "total_cves": 973,
+                "critical": 11,
+                "high": 660,
+                "medium": 200,
+                "low": 102,
+            }
+        },
+    )
+    mock_scanner.get_vm_targets_by_ids.return_value = {
+        vm_id.lower(): VMScanTarget(
+            vm_id=vm_id,
+            name="WIN-P30D2Q85TKG",
+            resource_group="rg-prod",
+            subscription_id="sub-123",
+            os_type="Windows",
+            os_name="Windows Server 2025",
+            os_version="10.0",
+            installed_packages=[],
+            tags={},
+            location="southeastasia",
+            vm_type="arc",
+        )
+    }
+
+    result = await vm_service.get_vm_vulnerability_summary(vm_id, allow_live_cve_fallback=False)
+
+    assert result is not None
+    assert result["total_cves"] == 973
+    assert result["critical"] == 11
+    assert result["high"] == 660
+    mock_cve_service.search_cves.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_get_cve_affected_vms_falls_back_to_inventory_matching(vm_service, mock_scanner):
     mock_scanner.get_latest_scan_result.return_value = ScanResult(
         scan_id="scan-2",

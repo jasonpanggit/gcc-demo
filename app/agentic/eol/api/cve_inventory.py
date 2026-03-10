@@ -8,7 +8,6 @@ Endpoints:
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
@@ -147,19 +146,19 @@ def _calculate_risk_level(total_cves: int, critical: int, high: int, medium: int
 
 
 @router.get("/cve/inventory/overview", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=30)
+@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=60)
 async def get_vm_vulnerability_overview(
     days: int = Query(default=90, ge=1, le=365, description="Look-back window for Arc VM inventory")
 ):
     """Return vulnerability counts for all Azure VMs and Arc-enabled servers."""
     try:
         try:
-            from api.patch_management import list_machines
+            from api.patch_management import _list_machines_inventory
         except ModuleNotFoundError:
-            from app.agentic.eol.api.patch_management import list_machines
+            from app.agentic.eol.api.patch_management import _list_machines_inventory
 
         service = await _get_cve_vm_service()
-        machine_result = await list_machines(days=days)
+        machine_result = await _list_machines_inventory(days=days, include_eol=False)
         machines: List[Dict[str, Any]] = machine_result.get("data", []) if isinstance(machine_result, dict) else []
         scan = await service.get_latest_scan()
 
@@ -167,69 +166,68 @@ async def get_vm_vulnerability_overview(
         total_matches = 0
 
         if scan:
-            for match in scan.matches:
-                vm_bucket = match_counts.setdefault(
-                    match.vm_id,
-                    {
-                        "vm_id": match.vm_id,
-                        "vm_name": match.vm_name or match.vm_id,
-                        "total_cves": 0,
-                        "critical": 0,
-                        "high": 0,
-                        "medium": 0,
-                        "low": 0,
+            scan_summaries = getattr(scan, "vm_match_summaries", {}) or {}
+            if scan_summaries:
+                for vm_id, summary in scan_summaries.items():
+                    match_counts[vm_id] = {
+                        "vm_id": vm_id,
+                        "vm_name": summary.get("vm_name") or vm_id,
+                        "total_cves": int(summary.get("total_cves", 0)),
+                        "critical": int(summary.get("critical", 0)),
+                        "high": int(summary.get("high", 0)),
+                        "medium": int(summary.get("medium", 0)),
+                        "low": int(summary.get("low", 0)),
                     }
-                )
-                vm_bucket["total_cves"] += 1
-                total_matches += 1
+                total_matches = sum(int(summary.get("total_cves", 0)) for summary in scan_summaries.values())
+            else:
+                for match in scan.matches:
+                    vm_bucket = match_counts.setdefault(
+                        match.vm_id,
+                        {
+                            "vm_id": match.vm_id,
+                            "vm_name": match.vm_name or match.vm_id,
+                            "total_cves": 0,
+                            "critical": 0,
+                            "high": 0,
+                            "medium": 0,
+                            "low": 0,
+                        }
+                    )
+                    vm_bucket["total_cves"] += 1
+                    total_matches += 1
 
-                severity = str(match.severity or "UNKNOWN").upper()
-                if severity == "CRITICAL":
-                    vm_bucket["critical"] += 1
-                elif severity == "HIGH":
-                    vm_bucket["high"] += 1
-                elif severity == "MEDIUM":
-                    vm_bucket["medium"] += 1
-                else:
-                    vm_bucket["low"] += 1
+                    severity = str(match.severity or "UNKNOWN").upper()
+                    if severity == "CRITICAL":
+                        vm_bucket["critical"] += 1
+                    elif severity == "HIGH":
+                        vm_bucket["high"] += 1
+                    elif severity == "MEDIUM":
+                        vm_bucket["medium"] += 1
+                    else:
+                        vm_bucket["low"] += 1
 
         zero_match_ids = [
             resource_id
             for resource_id in (str(machine.get("resource_id") or "") for machine in machines)
-            if resource_id and not match_counts.get(resource_id)
+            if resource_id and not (match_counts.get(resource_id) or match_counts.get(resource_id.lower()))
         ]
         fallback_summaries: Dict[str, Dict[str, Any]] = {}
 
         if zero_match_ids:
-            semaphore = asyncio.Semaphore(8)
-
-            async def load_fallback_summary(resource_id: str) -> tuple[str, Optional[Dict[str, Any]]]:
-                async with semaphore:
-                    try:
-                        summary = await service.get_vm_vulnerability_summary(
-                            resource_id,
-                            allow_live_cve_fallback=False,
-                        )
-                    except Exception as fallback_error:
-                        logger.warning("Failed inventory-backed summary fallback for VM %s: %s", resource_id, fallback_error)
-                        summary = None
-                    return resource_id, summary
-
-            fallback_results = await asyncio.gather(
-                *(load_fallback_summary(resource_id) for resource_id in zero_match_ids),
-                return_exceptions=False,
-            )
-            fallback_summaries = {
-                resource_id: summary
-                for resource_id, summary in fallback_results
-                if summary
-            }
+            try:
+                fallback_summaries = await service.get_vm_vulnerability_summaries(
+                    zero_match_ids,
+                    allow_live_cve_fallback=False,
+                )
+            except Exception as fallback_error:
+                logger.warning("Failed batched inventory-backed summaries for overview: %s", fallback_error)
+                fallback_summaries = {}
 
         overview_rows: List[Dict[str, Any]] = []
 
         for machine in machines:
             resource_id = str(machine.get("resource_id") or "")
-            counts = match_counts.pop(resource_id, None) or {
+            counts = match_counts.pop(resource_id, None) or match_counts.pop(resource_id.lower(), None) or {
                 "vm_id": resource_id,
                 "vm_name": machine.get("computer") or machine.get("name") or resource_id,
                 "total_cves": 0,
@@ -240,7 +238,7 @@ async def get_vm_vulnerability_overview(
             }
 
             if counts["total_cves"] == 0 and resource_id:
-                fallback = fallback_summaries.get(resource_id)
+                fallback = fallback_summaries.get(resource_id.lower()) or fallback_summaries.get(resource_id)
                 if fallback and int(fallback.get("total_cves", 0)) > 0:
                     counts = {
                         **counts,

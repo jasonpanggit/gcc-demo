@@ -335,11 +335,7 @@ def _normalize_machine_os_fields(machine: Dict[str, Any]) -> Dict[str, Any]:
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/machines", response_model=StandardResponse)
-@readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
-async def list_machines(
-    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
-):
+async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Dict[str, Any]:
     """
     Return a unified list of both Azure VMs (from Resource Inventory) and
     Arc-enabled servers (from OS Inventory), each tagged with vm_type.
@@ -375,13 +371,14 @@ async def list_machines(
             str(m.get("resource_id", "")).lower()
             for m in machines
         }
-        # Get EOL orchestrator for enrichment
+        # Get EOL orchestrator for enrichment only when the caller needs it.
         eol_orchestrator = None
-        try:
-            from main import get_eol_orchestrator
-            eol_orchestrator = get_eol_orchestrator()
-        except Exception:
-            logger.debug("EOL orchestrator not available for Azure VM enrichment")
+        if include_eol:
+            try:
+                from main import get_eol_orchestrator
+                eol_orchestrator = get_eol_orchestrator()
+            except Exception:
+                logger.debug("EOL orchestrator not available for Azure VM enrichment")
 
         for vm in azure_vms:
             # _to_documents() normalises field names:
@@ -449,6 +446,14 @@ async def list_machines(
         "arc_count":     arc_count,
         "azure_vm_count": avm_count,
     }
+
+
+@router.get("/machines", response_model=StandardResponse)
+@readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
+async def list_machines(
+    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
+):
+    return await _list_machines_inventory(days=days, include_eol=True)
 
 
 @router.get("/arc-vms", response_model=StandardResponse)

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from models.cve_models import CVEAffectedProduct, CVSSScore, UnifiedCVE, VMScanTarget
+from models.cve_models import CVEAffectedProduct, CVEScanRequest, CVSSScore, ScanResult, UnifiedCVE, VMScanTarget
 from utils.cve_scanner import CVEScanner
 
 
@@ -98,3 +98,170 @@ def test_is_vm_affected_handles_normalized_windows_products():
 
     assert scanner._is_vm_affected(vm, matching_cve) is True
     assert scanner._is_vm_affected(vm, non_matching_cve) is False
+
+
+@pytest.mark.asyncio
+async def test_match_cves_to_vm_paginates_beyond_first_page():
+    scanner = _build_scanner()
+    vm = VMScanTarget(
+        vm_id="vm-1",
+        name="vm-1",
+        resource_group="rg",
+        subscription_id="sub-123",
+        os_type="Windows",
+        os_name="WindowsServer",
+        os_version="2025-datacenter-g2",
+        installed_packages=[],
+        tags={},
+        location="eastus",
+        vm_type="azure",
+    )
+
+    first_page = [_build_cve("windows_server_2025") for _ in range(1000)]
+    second_page = [_build_cve("windows_server_2025") for _ in range(37)]
+    scanner.cve_service.search_cves = AsyncMock(side_effect=[first_page, second_page])
+
+    matches = await scanner._match_cves_to_vm(vm)
+
+    assert len(matches) == 1037
+    assert scanner.cve_service.search_cves.await_count == 2
+    assert scanner.cve_service.search_cves.await_args_list[0].kwargs["offset"] == 0
+    assert scanner.cve_service.search_cves.await_args_list[0].kwargs["limit"] == 1000
+    assert scanner.cve_service.search_cves.await_args_list[0].kwargs["allow_live_fallback"] is False
+    assert scanner.cve_service.search_cves.await_args_list[1].kwargs["offset"] == 1000
+
+
+@pytest.mark.asyncio
+async def test_extract_vm_details_prefers_arc_os_sku():
+    scanner = _build_scanner()
+
+    vm = await scanner._extract_vm_details({
+        "id": "/subscriptions/sub-123/resourceGroups/rg/providers/Microsoft.HybridCompute/machines/WIN-P3OD2Q85TKG",
+        "name": "WIN-P3OD2Q85TKG",
+        "resourceGroup": "rg",
+        "subscriptionId": "sub-123",
+        "location": "southeastasia",
+        "type": "microsoft.hybridcompute/machines",
+        "properties": {
+            "osName": "windows",
+            "osSku": "Windows Server 2025 Standard",
+            "osVersion": "10.0.26100.4946",
+            "osType": "windows",
+        },
+        "tags": {},
+    })
+
+    assert vm.vm_type == "arc"
+    assert vm.os_name == "Windows Server 2025 Standard"
+    assert vm.os_version == "10.0.26100.4946"
+
+
+@pytest.mark.asyncio
+async def test_get_scan_status_summary_prefers_in_memory_cache_for_active_scans():
+    repository = AsyncMock()
+    repository.get_status_summary = AsyncMock(side_effect=AssertionError("repository fallback should not be used"))
+    scanner = CVEScanner(
+        cve_service=AsyncMock(),
+        resource_graph_client=MagicMock(),
+        scan_repository=repository,
+        subscription_id="sub-123",
+    )
+
+    scanner._scan_status_cache["scan-123"] = {
+        "scan_id": "scan-123",
+        "started_at": "2026-03-10T00:00:00+00:00",
+        "completed_at": None,
+        "status": "running",
+        "total_vms": 8,
+        "scanned_vms": 0,
+        "total_matches": 0,
+        "error": None,
+    }
+
+    summary = await scanner.get_scan_status_summary("scan-123")
+
+    assert summary is not None
+    assert summary["status"] == "running"
+    assert summary["scan_id"] == "scan-123"
+    repository.get_status_summary.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_scan_status_summary_falls_back_to_repository_when_not_cached():
+    repository = AsyncMock()
+    repository.get_status_summary = AsyncMock(return_value={
+        "scan_id": "scan-456",
+        "started_at": "2026-03-10T00:00:00+00:00",
+        "completed_at": "2026-03-10T00:05:00+00:00",
+        "status": "completed",
+        "total_vms": 8,
+        "scanned_vms": 8,
+        "total_matches": 3000,
+        "error": None,
+    })
+    scanner = CVEScanner(
+        cve_service=AsyncMock(),
+        resource_graph_client=MagicMock(),
+        scan_repository=repository,
+        subscription_id="sub-123",
+    )
+
+    summary = await scanner.get_scan_status_summary("scan-456")
+
+    assert summary is not None
+    assert summary["status"] == "completed"
+    repository.get_status_summary.assert_awaited_once_with("scan-456")
+
+
+@pytest.mark.asyncio
+async def test_execute_scan_updates_progress_for_small_scans():
+    repository = AsyncMock()
+    initial_scan = ScanResult(
+        scan_id="scan-small",
+        started_at="2026-03-10T00:00:00+00:00",
+        status="pending",
+        total_vms=0,
+        scanned_vms=0,
+        total_matches=0,
+        matches=[],
+    )
+    repository.get = AsyncMock(return_value=initial_scan)
+
+    saved_states = []
+
+    async def capture_save(scan_result):
+        saved_states.append((scan_result.status, scan_result.scanned_vms, scan_result.total_vms))
+
+    repository.save = AsyncMock(side_effect=capture_save)
+
+    scanner = CVEScanner(
+        cve_service=AsyncMock(),
+        resource_graph_client=MagicMock(),
+        scan_repository=repository,
+        subscription_id="sub-123",
+    )
+    vms = [
+        VMScanTarget(
+            vm_id=f"vm-{index}",
+            name=f"vm-{index}",
+            resource_group="rg",
+            subscription_id="sub-123",
+            os_type="Windows",
+            os_name="WindowsServer",
+            os_version="2025-datacenter-g2",
+            installed_packages=[],
+            tags={},
+            location="eastus",
+            vm_type="azure",
+        )
+        for index in range(8)
+    ]
+    scanner._discover_vms = AsyncMock(return_value=vms)
+    scanner._match_cves_to_vm = AsyncMock(return_value=[])
+
+    await scanner._execute_scan("scan-small", CVEScanRequest(subscription_ids=["sub-123"], include_arc=True))
+
+    progress_states = [state for state in saved_states if state[0] == "running" and state[1] > 0]
+    assert progress_states, "expected intermediate running progress saves"
+    assert progress_states[0] == ("running", 1, 8)
+    assert progress_states[-1] == ("running", 8, 8)

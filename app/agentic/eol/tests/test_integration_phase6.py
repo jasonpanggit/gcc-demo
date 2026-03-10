@@ -6,7 +6,7 @@ Covers Phase 5 + 6 cross-component contracts without Azure connections:
 
   1. MCPHost.from_config() with all servers disabled → valid empty host
   2. MCPConfigLoader env-var toggle excludes the correct server
-  3. MCPConfigLoader.get_all_servers() always returns all 10 (ignores enabled)
+    3. MCPConfigLoader.get_all_servers() always returns all 11 (ignores enabled)
   4. UnifiedRouter.route() produces a valid RoutingPlan for a plain query
   5. MCPHost.from_config() with one server enabled doesn't raise
 
@@ -32,7 +32,7 @@ from utils.unified_router import get_unified_router
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# All 10 environment variable toggle keys from config/mcp_servers.yaml
+# All 11 environment variable toggle keys from config/mcp_servers.yaml
 ALL_DISABLED_KEYS = [
     "AZURE_MCP_ENABLED",
     "SRE_ENABLED",
@@ -41,6 +41,7 @@ ALL_DISABLED_KEYS = [
     "STORAGE_MCP_ENABLED",
     "MONITOR_MCP_ENABLED",
     "PATCH_MCP_ENABLED",
+    "CVE_MCP_ENABLED",
     "OS_EOL_MCP_ENABLED",
     "INVENTORY_MCP_ENABLED",
     "AZURE_CLI_EXECUTOR_ENABLED",
@@ -116,16 +117,16 @@ async def test_mcp_config_loader_env_toggle():
             f"Expected 'sre' to be excluded when SRE_ENABLED=false, but found in: {enabled_labels}"
         )
 
-        # Verify we have exactly 9 enabled servers (10 total - 1 disabled)
-        assert len(enabled_servers) == 9, (
-            f"Expected 9 enabled servers (10 - 1 disabled), got {len(enabled_servers)}"
+        # Verify we have exactly 10 enabled servers (11 total - 1 disabled)
+        assert len(enabled_servers) == 10, (
+            f"Expected 10 enabled servers (11 - 1 disabled), got {len(enabled_servers)}"
         )
 
         # Verify other servers are still enabled
-        # Should have: azure, network, compute, storage, monitor, patch, os_eol, inventory, azure_cli_executor
+        # Should have: azure, network, compute, storage, monitor, patch, cve, os_eol, inventory, azure_cli_executor
         expected_enabled = {
             "azure", "network", "compute", "storage", "monitor",
-            "patch", "os_eol", "inventory", "azure_cli_executor"
+            "patch", "cve", "os_eol", "inventory", "azure_cli_executor"
         }
         assert set(enabled_labels) == expected_enabled, (
             f"Expected enabled servers {expected_enabled}, got {set(enabled_labels)}"
@@ -140,13 +141,13 @@ async def test_mcp_config_loader_env_toggle():
 
 
 # ---------------------------------------------------------------------------
-# Test 3: MCPConfigLoader.get_all_servers() always returns all 10
+# Test 3: MCPConfigLoader.get_all_servers() always returns all 11
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_mcp_config_loader_all_servers_always_10():
-    """MCPConfigLoader.get_all_servers() returns all 10 servers regardless of enabled flag."""
+    """MCPConfigLoader.get_all_servers() returns all 11 servers regardless of enabled flag."""
     # Save original environment
     original_sre_enabled = os.environ.get("SRE_ENABLED")
 
@@ -158,16 +159,16 @@ async def test_mcp_config_loader_all_servers_always_10():
         loader = MCPConfigLoader()
         all_servers = loader.get_all_servers()
 
-        # Verify we get exactly 10 servers regardless of enabled state
-        assert len(all_servers) == 10, (
-            f"Expected get_all_servers() to return all 10 servers, got {len(all_servers)}"
+        # Verify we get exactly 11 servers regardless of enabled state
+        assert len(all_servers) == 11, (
+            f"Expected get_all_servers() to return all 11 servers, got {len(all_servers)}"
         )
 
         # Verify all expected server labels are present
         all_labels = [s.label for s in all_servers]
         expected_labels = {
             "azure", "sre", "network", "compute", "storage",
-            "monitor", "patch", "os_eol", "inventory", "azure_cli_executor"
+            "monitor", "patch", "cve", "os_eol", "inventory", "azure_cli_executor"
         }
         assert set(all_labels) == expected_labels, (
             f"Expected server labels {expected_labels}, got {set(all_labels)}"

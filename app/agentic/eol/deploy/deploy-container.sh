@@ -57,14 +57,21 @@ FORCE_REBUILD=${POSITIONAL_ARGS[2]:-false}
 cd "$(dirname "$0")/.."
 APP_DIR=$(pwd)
 
-# Determine version/tag (use CLI argument, git commit, or timestamp)
-DEFAULT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)
-if [[ -z "$REQUESTED_VERSION" ]]; then
-    VERSION="$DEFAULT_VERSION"
-    VERSION_SOURCE="auto"
-else
+# Determine version/tag (use CLI argument, git commit, or a dirty-worktree timestamp)
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
+GIT_STATUS=$(git status --porcelain --untracked-files=normal 2>/dev/null || true)
+TIMESTAMP_VERSION=$(date +%Y%m%d%H%M%S)
+
+if [[ -n "$REQUESTED_VERSION" ]]; then
     VERSION="$REQUESTED_VERSION"
     VERSION_SOURCE="manual"
+elif [[ -n "$GIT_STATUS" ]]; then
+    VERSION="${GIT_COMMIT:-local}-${TIMESTAMP_VERSION}"
+    VERSION_SOURCE="dirty-worktree"
+    echo "⚠️ Git worktree has uncommitted changes; using unique image tag $VERSION instead of reusing commit tag."
+else
+    VERSION="${GIT_COMMIT:-$TIMESTAMP_VERSION}"
+    VERSION_SOURCE="git-commit"
 fi
 DEPLOYMENT_DIR="$APP_DIR/deploy"
 if [[ "$APPSETTINGS_INPUT" = /* ]]; then

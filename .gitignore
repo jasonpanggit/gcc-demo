@@ -117,8 +117,9 @@ tasks/
 # EXCEPT: Track CI workflow for MCP tool selection tests
 !.github/workflows/test-tool-selection.yml
 
-# playwright
+# playwright/firecrawl
 .playwright-mcp/**
+.firecrawl/**
 
 # errors
 errors/** 

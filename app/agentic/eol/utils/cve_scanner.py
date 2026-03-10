@@ -41,6 +41,9 @@ except ModuleNotFoundError:
 
 logger = get_logger(__name__)
 
+SCAN_CVE_PAGE_SIZE = 1000
+SCAN_CVE_MAX_RESULTS = 10000
+
 
 def _normalize_text(value: Optional[str]) -> str:
     if not value:
@@ -107,12 +110,13 @@ class CVEScanRepository:
             logger.debug(f"Scan {scan_id} not found: {e}")
             return None
 
-    async def query(self, query: str) -> List[Dict[str, Any]]:
+    async def query(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """Execute Cosmos SQL query."""
         try:
             items = await asyncio.to_thread(
                 lambda: list(self.container.query_items(
                     query=query,
+                    parameters=parameters,
                     enable_cross_partition_query=True
                 ))
             )
@@ -120,6 +124,47 @@ class CVEScanRepository:
         except Exception as e:
             logger.error(f"Query failed: {e}")
             return []
+
+    async def get_status_summary(self, scan_id: str) -> Optional[Dict[str, Any]]:
+        """Get a lightweight status projection for a scan using a point read."""
+        try:
+            item = await asyncio.to_thread(
+                self.container.read_item,
+                item=scan_id,
+                partition_key=scan_id,
+            )
+        except Exception as e:
+            logger.debug(f"Scan status summary for {scan_id} not found: {e}")
+            return None
+
+        return {
+            "scan_id": item.get("scan_id", scan_id),
+            "started_at": item.get("started_at"),
+            "completed_at": item.get("completed_at"),
+            "status": item.get("status", "pending"),
+            "total_vms": int(item.get("total_vms", 0) or 0),
+            "scanned_vms": int(item.get("scanned_vms", 0) or 0),
+            "total_matches": int(item.get("total_matches", 0) or 0),
+            "error": item.get("error"),
+        }
+
+    async def list_status_summaries(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """List recent scans using a lightweight status projection."""
+        query = f"""
+        SELECT TOP {limit} VALUE {{
+            "scan_id": c.scan_id,
+            "started_at": c.started_at,
+            "completed_at": c.completed_at,
+            "status": c.status,
+            "total_vms": c.total_vms,
+            "scanned_vms": c.scanned_vms,
+            "total_matches": c.total_matches,
+            "error": c.error
+        }}
+        FROM c
+        ORDER BY c.started_at DESC
+        """
+        return await self.query(query)
 
     async def delete(self, scan_id: str) -> bool:
         """Delete scan result."""
@@ -159,7 +204,33 @@ class CVEScanner:
         self.max_vms = max_vms
         self.scan_timeout_minutes = scan_timeout_minutes
         self._active_scans: Dict[str, asyncio.Task] = {}
+        self._scan_status_cache: Dict[str, Dict[str, Any]] = {}
         logger.info("CVEScanner initialized")
+
+    def _build_status_summary(self, scan_result: ScanResult) -> Dict[str, Any]:
+        return {
+            "scan_id": scan_result.scan_id,
+            "started_at": scan_result.started_at,
+            "completed_at": scan_result.completed_at,
+            "status": scan_result.status,
+            "total_vms": int(scan_result.total_vms or 0),
+            "scanned_vms": int(scan_result.scanned_vms or 0),
+            "total_matches": int(scan_result.total_matches or 0),
+            "error": scan_result.error,
+        }
+
+    def _cache_status_summary(self, scan_result: ScanResult) -> Dict[str, Any]:
+        summary = self._build_status_summary(scan_result)
+        self._scan_status_cache[scan_result.scan_id] = summary
+        return summary
+
+    def _get_progress_update_interval(self, total_vms: int) -> int:
+        """Choose a progress update cadence that stays responsive for small scans."""
+        if total_vms <= 10:
+            return 1
+        if total_vms <= 50:
+            return 5
+        return 10
 
     async def start_scan(self, request: CVEScanRequest) -> str:
         """Start async CVE scan and return scan_id immediately.
@@ -183,6 +254,7 @@ class CVEScanner:
             total_matches=0
         )
         await self.scan_repository.save(scan_result)
+        self._cache_status_summary(scan_result)
 
         # Start background scan task
         task = asyncio.create_task(self._execute_scan(scan_id, request))
@@ -201,6 +273,13 @@ class CVEScanner:
         """
         return await self.scan_repository.get(scan_id)
 
+    async def get_scan_status_summary(self, scan_id: str) -> Optional[Dict[str, Any]]:
+        """Get a lightweight scan status summary for polling endpoints."""
+        cached = self._scan_status_cache.get(scan_id)
+        if cached is not None:
+            return dict(cached)
+        return await self.scan_repository.get_status_summary(scan_id)
+
     async def list_recent_scans(self, limit: int = 10) -> List[ScanResult]:
         """List recent scans ordered by start time.
 
@@ -210,8 +289,7 @@ class CVEScanner:
         Returns:
             List of ScanResult models
         """
-        query = f"SELECT TOP {limit} * FROM c ORDER BY c.started_at DESC"
-        items = await self.scan_repository.query(query)
+        items = await self.scan_repository.list_status_summaries(limit=limit)
         return [ScanResult(**item) for item in items]
 
     async def delete_scan(self, scan_id: str) -> bool:
@@ -261,6 +339,7 @@ class CVEScanner:
 
             scan_result.status = "running"
             await self.scan_repository.save(scan_result)
+            self._cache_status_summary(scan_result)
 
             # Discover VMs
             logger.info(f"Scan {scan_id}: Discovering VMs...")
@@ -272,21 +351,27 @@ class CVEScanner:
 
             scan_result.total_vms = len(vms)
             await self.scan_repository.save(scan_result)
+            self._cache_status_summary(scan_result)
             logger.info(f"Scan {scan_id}: Found {len(vms)} VMs")
 
             # Match CVEs to VMs
             all_matches = []
+            vm_match_summaries: Dict[str, Dict[str, Any]] = {}
+            progress_update_interval = self._get_progress_update_interval(len(vms))
             for i, vm in enumerate(vms):
                 try:
                     matches = await self._match_cves_to_vm(vm, request.cve_filters)
                     all_matches.extend(matches)
+                    vm_match_summaries[vm.vm_id.lower()] = self._build_vm_match_summary(vm, matches)
 
-                    # Update progress every 10 VMs
-                    if (i + 1) % 10 == 0 or (i + 1) == len(vms):
+                    # Keep small scans responsive while limiting write frequency for larger scans.
+                    if (i + 1) % progress_update_interval == 0 or (i + 1) == len(vms):
                         scan_result.scanned_vms = i + 1
                         scan_result.total_matches = len(all_matches)
                         scan_result.matches = all_matches[:1000]  # Limit to avoid doc size
+                        scan_result.vm_match_summaries = vm_match_summaries
                         await self.scan_repository.save(scan_result)
+                        self._cache_status_summary(scan_result)
                         logger.info(f"Scan {scan_id}: Progress {i + 1}/{len(vms)}, {len(all_matches)} matches")
 
                 except Exception as e:
@@ -299,7 +384,9 @@ class CVEScanner:
             scan_result.scanned_vms = len(vms)
             scan_result.total_matches = len(all_matches)
             scan_result.matches = all_matches[:1000]  # Limit stored matches
+            scan_result.vm_match_summaries = vm_match_summaries
             await self.scan_repository.save(scan_result)
+            self._cache_status_summary(scan_result)
 
             logger.info(f"Scan {scan_id}: Complete. {len(all_matches)} CVE matches found")
 
@@ -313,6 +400,7 @@ class CVEScanner:
                     scan_result.error = str(e)
                     scan_result.completed_at = datetime.now(timezone.utc).isoformat()
                     await self.scan_repository.save(scan_result)
+                    self._cache_status_summary(scan_result)
             except Exception as save_error:
                 logger.error(f"Failed to save error state: {save_error}")
 
@@ -486,8 +574,9 @@ class CVEScanner:
                 os_name = "Windows Server"
                 os_version = release_year or os_version
         else:
-            # Arc VM
-            os_name = properties.get("osName") or None
+            # Arc VM payloads often expose a generic osName (for example "windows")
+            # but a specific osSku (for example "Windows Server 2025 Standard").
+            os_name = properties.get("osSku") or properties.get("osName") or None
             os_version = properties.get("osVersion") or None
             os_type = properties.get("osType", "Unknown")
 
@@ -649,12 +738,23 @@ class CVEScanner:
         try:
             filters = self._build_cve_search_filters(vm, cve_filters)
 
-            # Search CVEs (limit to reduce processing time)
-            cves = await self.cve_service.search_cves(
-                filters=filters,
-                limit=500,  # Process top 500 CVEs
-                offset=0
-            )
+            cves: List[UnifiedCVE] = []
+            offset = 0
+            while offset < SCAN_CVE_MAX_RESULTS:
+                page = await self.cve_service.search_cves(
+                    filters=filters,
+                    limit=SCAN_CVE_PAGE_SIZE,
+                    offset=offset,
+                    allow_live_fallback=False,
+                )
+                if not page:
+                    break
+
+                cves.extend(page)
+                if len(page) < SCAN_CVE_PAGE_SIZE:
+                    break
+
+                offset += len(page)
 
             # Match each CVE to VM
             for cve in cves:
@@ -674,6 +774,31 @@ class CVEScanner:
             logger.error(f"CVE matching failed for VM {vm.name}: {e}")
 
         return matches
+
+    def _build_vm_match_summary(self, vm: VMScanTarget, matches: List[CVEMatch]) -> Dict[str, Any]:
+        """Build a compact per-VM summary that survives raw match truncation."""
+        summary = {
+            "vm_id": vm.vm_id,
+            "vm_name": vm.name,
+            "total_cves": len(matches),
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+        }
+
+        for match in matches:
+            severity = str(match.severity or "UNKNOWN").upper()
+            if severity == "CRITICAL":
+                summary["critical"] += 1
+            elif severity == "HIGH":
+                summary["high"] += 1
+            elif severity == "MEDIUM":
+                summary["medium"] += 1
+            else:
+                summary["low"] += 1
+
+        return summary
 
     def _is_vm_affected(self, vm: VMScanTarget, cve: UnifiedCVE) -> bool:
         """Check if VM is affected by CVE.

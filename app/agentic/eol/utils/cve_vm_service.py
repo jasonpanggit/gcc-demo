@@ -265,60 +265,176 @@ class CVEVMService:
 
             vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
             vm_inventory = vm_inventory_by_id.get(vm_id.lower())
+            summary_match = self._get_scan_summary_for_vm(scan, vm_id)
             vm_matches = [match for match in scan.matches if match.vm_id == vm_id]
 
-            severity_counts = {
-                "CRITICAL": 0,
-                "HIGH": 0,
-                "MEDIUM": 0,
-                "LOW": 0,
-            }
-
-            if vm_matches:
-                for match in vm_matches:
-                    severity = str(match.severity or "UNKNOWN").upper()
-                    if severity in severity_counts:
-                        severity_counts[severity] += 1
-                    else:
-                        severity_counts["LOW"] += 1
+            if summary_match and int(summary_match.get("total_cves", 0)) > 0:
+                severity_counts = {
+                    "CRITICAL": int(summary_match.get("critical", 0)),
+                    "HIGH": int(summary_match.get("high", 0)),
+                    "MEDIUM": int(summary_match.get("medium", 0)),
+                    "LOW": int(summary_match.get("low", 0)),
+                }
+            elif vm_matches:
+                severity_counts = self._count_matches_by_severity(vm_matches)
             elif vm_inventory:
                 inventory_matches = await self._build_inventory_fallback_matches(
                     vm_inventory,
                     allow_live_cve_fallback=allow_live_cve_fallback,
                 )
-                for match in inventory_matches:
-                    severity = str(match.severity or "UNKNOWN").upper()
-                    if severity in severity_counts:
-                        severity_counts[severity] += 1
-                    else:
-                        severity_counts["LOW"] += 1
-
-            total_cves = sum(severity_counts.values())
-            if vm_inventory:
-                os_name, os_version = self._normalize_os_fields(vm_inventory.os_name, vm_inventory.os_version)
+                severity_counts = self._count_matches_by_severity(inventory_matches)
             else:
-                os_name, os_version = None, None
+                severity_counts = self._empty_severity_counts()
 
-            return {
-                "vm_id": vm_id,
-                "vm_name": getattr(vm_inventory, "name", None) or vm_id,
-                "resource_group": getattr(vm_inventory, "resource_group", None),
-                "subscription_id": getattr(vm_inventory, "subscription_id", None),
-                "os_type": getattr(vm_inventory, "os_type", None),
-                "os_name": os_name,
-                "os_version": os_version,
-                "location": getattr(vm_inventory, "location", None),
-                "total_cves": total_cves,
-                "critical": severity_counts["CRITICAL"],
-                "high": severity_counts["HIGH"],
-                "medium": severity_counts["MEDIUM"],
-                "low": severity_counts["LOW"],
-                "scan_id": scan.scan_id,
-                "scan_date": scan.completed_at or scan.started_at,
-            }
+            return self._build_vm_vulnerability_summary_payload(
+                vm_id=vm_id,
+                vm_inventory=vm_inventory,
+                severity_counts=severity_counts,
+                scan=scan,
+            )
         except Exception as e:
             logger.error("Failed to build vulnerability summary for VM %s: %s", vm_id, e)
             raise
+
+    async def get_vm_vulnerability_summaries(
+        self,
+        vm_ids: List[str],
+        *,
+        allow_live_cve_fallback: bool = False,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return lightweight vulnerability summaries for many VMs with shared inventory/CVE lookups."""
+        if not vm_ids:
+            return {}
+
+        normalized_vm_ids: List[str] = []
+        seen_vm_ids = set()
+        for vm_id in vm_ids:
+            if not vm_id:
+                continue
+            vm_id_lower = vm_id.lower()
+            if vm_id_lower in seen_vm_ids:
+                continue
+            seen_vm_ids.add(vm_id_lower)
+            normalized_vm_ids.append(vm_id)
+
+        if not normalized_vm_ids:
+            return {}
+
+        scan = await self._get_latest_scan()
+        if not scan:
+            logger.warning("No scan results available")
+            return {}
+
+        vm_inventory_by_id = await self._get_vm_inventory_by_ids(normalized_vm_ids)
+        if not vm_inventory_by_id:
+            return {}
+
+        vm_ids_with_matches = {
+            vm_id.lower()
+            for vm_id, summary in (getattr(scan, "vm_match_summaries", {}) or {}).items()
+            if int(summary.get("total_cves", 0)) > 0
+        }
+        if not vm_ids_with_matches:
+            vm_ids_with_matches = {match.vm_id.lower() for match in scan.matches if match.vm_id}
+        zero_match_vm_ids = [
+            vm_id for vm_id in normalized_vm_ids
+            if vm_id.lower() not in vm_ids_with_matches and vm_id.lower() in vm_inventory_by_id
+        ]
+        if not zero_match_vm_ids:
+            return {}
+
+        inventory_groups: Dict[tuple[tuple[str, Any], ...], Dict[str, Any]] = {}
+        for vm_id in zero_match_vm_ids:
+            vm_inventory = vm_inventory_by_id.get(vm_id.lower())
+            if not vm_inventory:
+                continue
+
+            filters = self._build_inventory_search_filters(vm_inventory)
+            if not filters:
+                continue
+
+            filter_key = tuple(sorted(filters.items()))
+            group = inventory_groups.setdefault(
+                filter_key,
+                {
+                    "filters": filters,
+                    "vms": [],
+                },
+            )
+            group["vms"].append(vm_inventory)
+
+        if not inventory_groups:
+            return {}
+
+        semaphore = asyncio.Semaphore(8)
+
+        async def load_group_summaries(group: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+            async with semaphore:
+                try:
+                    cached_cves = await self.cve_service.search_cves(
+                        filters=group["filters"],
+                        limit=10000,
+                        offset=0,
+                        allow_live_fallback=allow_live_cve_fallback,
+                    )
+                except Exception as e:
+                    logger.warning("Inventory-backed CVE lookup failed for filters %s: %s", group["filters"], e)
+                    return {}
+
+                group_summaries: Dict[str, Dict[str, Any]] = {}
+                for vm_inventory in group["vms"]:
+                    inventory_matches: List[CVEMatch] = []
+                    for cve in cached_cves:
+                        try:
+                            if not self.cve_scanner.is_vm_affected_by_cve(vm_inventory, cve):
+                                continue
+                        except Exception as e:
+                            logger.warning(
+                                "Inventory fallback match failed for VM %s against CVE %s: %s",
+                                getattr(vm_inventory, "name", "unknown"),
+                                getattr(cve, "cve_id", "unknown"),
+                                e,
+                            )
+                            continue
+
+                        os_name, os_version = self._normalize_os_fields(vm_inventory.os_name, vm_inventory.os_version)
+                        version_part = f" {os_version}" if os_version else ""
+                        inventory_matches.append(
+                            CVEMatch(
+                                cve_id=cve.cve_id,
+                                vm_id=vm_inventory.vm_id,
+                                vm_name=vm_inventory.name,
+                                match_reason=f"OS {os_name or vm_inventory.os_type}{version_part} affected",
+                                cvss_score=(
+                                    cve.cvss_v3.base_score if cve.cvss_v3
+                                    else (cve.cvss_v2.base_score if cve.cvss_v2 else None)
+                                ),
+                                severity=(
+                                    cve.cvss_v3.base_severity if cve.cvss_v3
+                                    else (cve.cvss_v2.base_severity if cve.cvss_v2 else None)
+                                ),
+                                published_date=cve.published_date.isoformat() if cve.published_date else None,
+                            )
+                        )
+
+                    group_summaries[vm_inventory.vm_id.lower()] = self._build_vm_vulnerability_summary_payload(
+                        vm_id=vm_inventory.vm_id,
+                        vm_inventory=vm_inventory,
+                        severity_counts=self._count_matches_by_severity(inventory_matches),
+                        scan=scan,
+                    )
+
+                return group_summaries
+
+        grouped_results = await asyncio.gather(
+            *(load_group_summaries(group) for group in inventory_groups.values()),
+            return_exceptions=False,
+        )
+
+        summaries: Dict[str, Dict[str, Any]] = {}
+        for group_result in grouped_results:
+            summaries.update(group_result)
+        return summaries
 
     async def _build_inventory_fallback_matches(
         self,
@@ -404,6 +520,60 @@ class CVEVMService:
         if vendor:
             filters["vendor"] = vendor
         return filters
+
+    def _empty_severity_counts(self) -> Dict[str, int]:
+        return {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0,
+        }
+
+    def _get_scan_summary_for_vm(self, scan: ScanResult, vm_id: str) -> Optional[Dict[str, Any]]:
+        summaries = getattr(scan, "vm_match_summaries", {}) or {}
+        return summaries.get(vm_id.lower()) or summaries.get(vm_id)
+
+    def _count_matches_by_severity(self, matches: List[CVEMatch]) -> Dict[str, int]:
+        severity_counts = self._empty_severity_counts()
+        for match in matches:
+            severity = str(match.severity or "UNKNOWN").upper()
+            if severity in severity_counts:
+                severity_counts[severity] += 1
+            else:
+                severity_counts["LOW"] += 1
+        return severity_counts
+
+    def _build_vm_vulnerability_summary_payload(
+        self,
+        *,
+        vm_id: str,
+        vm_inventory: Optional[Any],
+        severity_counts: Dict[str, int],
+        scan: ScanResult,
+    ) -> Dict[str, Any]:
+        total_cves = sum(severity_counts.values())
+        if vm_inventory:
+            os_name, os_version = self._normalize_os_fields(vm_inventory.os_name, vm_inventory.os_version)
+        else:
+            os_name, os_version = None, None
+
+        return {
+            "vm_id": vm_id,
+            "vm_name": getattr(vm_inventory, "name", None) or vm_id,
+            "resource_group": getattr(vm_inventory, "resource_group", None),
+            "subscription_id": getattr(vm_inventory, "subscription_id", None),
+            "os_type": getattr(vm_inventory, "os_type", None),
+            "os_name": os_name,
+            "os_version": os_version,
+            "location": getattr(vm_inventory, "location", None),
+            "total_cves": total_cves,
+            "critical": severity_counts["CRITICAL"],
+            "high": severity_counts["HIGH"],
+            "medium": severity_counts["MEDIUM"],
+            "low": severity_counts["LOW"],
+            "scan_id": scan.scan_id,
+            "scan_date": scan.completed_at or scan.started_at,
+        }
 
     async def get_cve_affected_vms(self, cve_id: str) -> Optional[CVEAffectedVMsResponse]:
         """Get VMs affected by a specific CVE.

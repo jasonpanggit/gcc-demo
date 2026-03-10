@@ -100,26 +100,26 @@ async def get_scan_status(scan_id: str):
     """
     try:
         scanner = await _get_cve_scanner()
-        result = await scanner.get_scan_status(scan_id)
+        result = await scanner.get_scan_status_summary(scan_id)
 
         if not result:
             raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
 
         # Calculate progress percentage
         progress = 0
-        if result.total_vms > 0:
-            progress = int((result.scanned_vms / result.total_vms) * 100)
+        if result["total_vms"] > 0:
+            progress = int((result["scanned_vms"] / result["total_vms"]) * 100)
 
         response = CVEScanStatusResponse(
-            scan_id=result.scan_id,
-            status=result.status,
+            scan_id=result["scan_id"],
+            status=result["status"],
             progress=progress,
-            total_vms=result.total_vms,
-            scanned_vms=result.scanned_vms,
-            matches_found=result.total_matches,
-            started_at=result.started_at,
-            completed_at=result.completed_at,
-            error=result.error
+            total_vms=result["total_vms"],
+            scanned_vms=result["scanned_vms"],
+            matches_found=result["total_matches"],
+            started_at=result["started_at"],
+            completed_at=result.get("completed_at"),
+            error=result.get("error")
         )
 
         return StandardResponse(
@@ -153,7 +153,7 @@ async def list_recent_scans(limit: int = Query(default=10, le=100, ge=1)):
         return StandardResponse(
             success=True,
             data={
-                "scans": [scan.dict() for scan in scans],
+                "scans": [scan.dict(exclude={"matches", "vm_match_summaries"}) for scan in scans],
                 "count": len(scans)
             },
             message="Recent CVE scans retrieved"
