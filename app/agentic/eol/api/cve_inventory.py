@@ -8,6 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
@@ -32,6 +33,107 @@ async def _get_cve_vm_service():
     return await get_cve_vm_service()
 
 
+async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, Any]]:
+    """Fetch single VM metadata without scanning entire inventory.
+
+    Args:
+        vm_id: The resource ID of the VM to fetch
+        days: Look-back window for Arc VM inventory
+
+    Returns:
+        Machine metadata dict if found, None otherwise
+    """
+    try:
+        from main import get_eol_orchestrator
+        from utils.resource_inventory_client import get_resource_inventory_client
+        from utils.config import config
+
+        vm_id_lower = vm_id.lower()
+
+        # Parallelize Arc and Azure VM lookups
+        async def check_arc_inventory():
+            """Check Arc-enabled servers from OS inventory."""
+            try:
+                orchestrator = get_eol_orchestrator()
+                os_result = await orchestrator.agents["os_inventory"].get_os_inventory(days=days)
+                all_os: List[Dict[str, Any]] = (
+                    os_result.get("data", []) if isinstance(os_result, dict) else []
+                )
+                for item in all_os:
+                    if str(item.get("resource_id", "")).lower() == vm_id_lower:
+                        if (
+                            str(item.get("computer_type", "")).lower() == "arc-enabled server"
+                            or "/microsoft.hybridcompute/machines/" in vm_id_lower
+                        ):
+                            # Import _normalize_machine_os_fields from patch_management
+                            try:
+                                from api.patch_management import _normalize_machine_os_fields
+                            except ModuleNotFoundError:
+                                from app.agentic.eol.api.patch_management import _normalize_machine_os_fields
+                            return _normalize_machine_os_fields({**item, "vm_type": "arc"})
+            except Exception as exc:
+                logger.debug("Failed to check Arc inventory for VM %s: %s", vm_id, exc)
+            return None
+
+        async def check_azure_inventory():
+            """Check Azure VMs from Resource Inventory."""
+            try:
+                inv_client = get_resource_inventory_client()
+                azure_vms = await inv_client.get_resources(
+                    "Microsoft.Compute/virtualMachines",
+                    subscription_id=config.azure.subscription_id,
+                )
+                for vm in azure_vms:
+                    rid = str(vm.get("resource_id") or vm.get("id") or "").lower()
+                    if rid == vm_id_lower:
+                        # Import required functions
+                        try:
+                            from api.patch_management import normalize_os_record
+                        except ModuleNotFoundError:
+                            from app.agentic.eol.api.patch_management import normalize_os_record
+
+                        sp = vm.get("selected_properties") or {}
+                        vm_name = vm.get("resource_name") or vm.get("name")
+                        normalized_os = normalize_os_record(
+                            sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
+                            vm.get("os_version"),
+                            sp.get("os_type") or vm.get("os_type"),
+                        )
+
+                        return {
+                            "resource_id": vm.get("resource_id") or vm.get("id"),
+                            "computer": vm_name,
+                            "name": vm_name,
+                            "resource_group": vm.get("resource_group"),
+                            "subscription_id": vm.get("subscription_id"),
+                            "location": vm.get("location"),
+                            "os_type": normalized_os.get("os_type"),
+                            "os_name": normalized_os.get("os_name"),
+                            "os_version": normalized_os.get("os_version"),
+                            "vm_type": "azure",
+                        }
+            except Exception as exc:
+                logger.debug("Failed to check Azure inventory for VM %s: %s", vm_id, exc)
+            return None
+
+        # Run both lookups in parallel
+        arc_result, azure_result = await asyncio.gather(
+            check_arc_inventory(),
+            check_azure_inventory(),
+            return_exceptions=True
+        )
+
+        # Return first non-None, non-exception result
+        for result in [arc_result, azure_result]:
+            if result and not isinstance(result, Exception):
+                return result
+
+        return None
+    except Exception as exc:
+        logger.warning("Failed to fetch machine %s: %s", vm_id, exc)
+        return None
+
+
 async def _build_vm_vulnerability_response(
     vm_id: str,
     severity_filter: Optional[str],
@@ -41,7 +143,12 @@ async def _build_vm_vulnerability_response(
 ):
     """Build the VM vulnerability response payload for either route shape."""
     service = await _get_cve_vm_service()
-    result = await service.get_vm_vulnerabilities(vm_id)
+
+    # Parallelize independent API calls
+    result, machine = await asyncio.gather(
+        service.get_vm_vulnerabilities(vm_id),
+        _get_machine_by_id(vm_id, days=90)
+    )
 
     if not result:
         raise HTTPException(
@@ -50,14 +157,6 @@ async def _build_vm_vulnerability_response(
         )
 
     try:
-        try:
-            from api.patch_management import list_machines
-        except ModuleNotFoundError:
-            from app.agentic.eol.api.patch_management import list_machines
-
-        machine_result = await list_machines(days=90)
-        machines = machine_result.get("data", []) if isinstance(machine_result, dict) else []
-        machine = next((item for item in machines if str(item.get("resource_id") or "") == vm_id), None)
         if machine:
             result.resource_group = machine.get("resource_group")
             result.subscription_id = machine.get("subscription_id")
@@ -158,9 +257,13 @@ async def get_vm_vulnerability_overview(
             from app.agentic.eol.api.patch_management import _list_machines_inventory
 
         service = await _get_cve_vm_service()
-        machine_result = await _list_machines_inventory(days=days, include_eol=False)
+
+        # Parallelize independent API calls
+        machine_result, scan = await asyncio.gather(
+            _list_machines_inventory(days=days, include_eol=False),
+            service.get_latest_scan()
+        )
         machines: List[Dict[str, Any]] = machine_result.get("data", []) if isinstance(machine_result, dict) else []
-        scan = await service.get_latest_scan()
 
         match_counts: Dict[str, Dict[str, Any]] = {}
         total_matches = 0
@@ -218,6 +321,7 @@ async def get_vm_vulnerability_overview(
                 fallback_summaries = await service.get_vm_vulnerability_summaries(
                     zero_match_ids,
                     allow_live_cve_fallback=False,
+                    scan=scan,
                 )
             except Exception as fallback_error:
                 logger.warning("Failed batched inventory-backed summaries for overview: %s", fallback_error)

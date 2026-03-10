@@ -427,13 +427,19 @@ async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Di
                 "vm_size":         sp.get("vm_size") or vm.get("vm_size"),
                 "vm_type":         "azure-vm",
             }
+            machines.append(_normalize_machine_os_fields(vm_record))
 
-            # Enrich with EOL data if available
-            if eol_orchestrator and normalized_os.get("os_name"):
+        # Parallelize EOL enrichment for all Azure VMs
+        if eol_orchestrator and machines:
+            async def enrich_vm_with_eol(vm_record):
+                """Enrich a single VM with EOL data."""
+                normalized_os_name = vm_record.get("os_name")
+                if not normalized_os_name:
+                    return vm_record
                 try:
                     eol_result = await eol_orchestrator.get_eol_data(
-                        software_name=normalized_os["os_name"],
-                        version=normalized_os.get("os_version"),
+                        software_name=normalized_os_name,
+                        version=vm_record.get("os_version"),
                     )
                     if eol_result and eol_result.get("success"):
                         eol_data = eol_result.get("data", {})
@@ -442,9 +448,25 @@ async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Di
                         vm_record["support_status"] = eol_data.get("support_status")
                         vm_record["lts"] = eol_data.get("lts")
                 except Exception as e:
-                    logger.debug(f"Failed to enrich Azure VM {vm_name} with EOL data: {e}")
+                    logger.debug(f"Failed to enrich VM {vm_record.get('computer')} with EOL data: {e}")
+                return vm_record
 
-            machines.append(_normalize_machine_os_fields(vm_record))
+            # Only enrich Azure VMs (Arc VMs are already processed)
+            azure_vm_indices = [i for i, m in enumerate(machines) if m.get("vm_type") == "azure-vm"]
+            if azure_vm_indices:
+                try:
+                    enrichment_tasks = [enrich_vm_with_eol(machines[i]) for i in azure_vm_indices]
+                    enriched_vms = await asyncio.gather(*enrichment_tasks, return_exceptions=True)
+
+                    # Update machines list with enriched data
+                    for idx, enriched_vm in zip(azure_vm_indices, enriched_vms):
+                        if not isinstance(enriched_vm, Exception):
+                            machines[idx] = enriched_vm
+                        else:
+                            logger.debug(f"EOL enrichment failed for VM at index {idx}: {enriched_vm}")
+                except Exception as e:
+                    logger.warning(f"Failed to parallelize EOL enrichment: {e}")
+
     except Exception as exc:
         logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
 

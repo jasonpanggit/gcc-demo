@@ -470,7 +470,7 @@ async def resource_inventory_ui(request: Request):
     Returns:
         HTMLResponse with rendered resource-inventory.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "resource-inventory.html",
@@ -562,7 +562,7 @@ async def cve_search_ui(request: Request):
     Returns:
         HTMLResponse with rendered cve-search.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "cve-search.html",
@@ -645,7 +645,7 @@ async def cve_dashboard_page(request: Request):
     Returns:
         HTMLResponse with rendered cve-dashboard.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "cve-dashboard.html",
@@ -679,7 +679,7 @@ async def cve_alert_config_page(request: Request):
     Returns:
         HTMLResponse with rendered cve_alert_config.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "cve_alert_config.html",
@@ -706,40 +706,12 @@ async def cve_alert_history_page(request: Request):
     Returns:
         HTMLResponse with rendered cve_alert_history.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "cve_alert_history.html",
         {"asset_version": asset_version},
     )
-
-
-@router.get("/patch-gap", response_class=HTMLResponse)
-@with_timeout_and_stats(
-    agent_name="patch_gap_page",
-    timeout_seconds=5,
-    track_cache=False,
-    auto_wrap_response=False
-)
-async def patch_gap_page(request: Request):
-    """
-    Patch Gap Analysis page.
-
-    Fleet-wide view of CVE remediation status: which KBs/advisories are
-    outstanding, which CVEs have a fix available, and which VMs have gaps.
-
-    Args:
-        request: FastAPI Request object
-
-    Returns:
-        HTMLResponse with rendered patch-gap.html template.
-    """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    return templates.TemplateResponse(request, "patch-gap.html", {
-        "page_title": "Patch Gap Analysis",
-        "active_nav": "patch-gap",
-        "asset_version": asset_version,
-    })
 
 
 @router.get("/vm-vulnerability", response_class=HTMLResponse)
@@ -766,7 +738,7 @@ async def vm_vulnerability_page(request: Request):
     Returns:
         HTMLResponse with rendered vm-vulnerability.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "vm-vulnerability.html",

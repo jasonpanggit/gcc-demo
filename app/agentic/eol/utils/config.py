@@ -3,6 +3,7 @@ Centralized configuration management for the EOL Multi-Agent App
 """
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ class AppConfig:
     log_level: str = "INFO"
     debug_mode: bool = False
     base_url: str = field(default_factory=lambda: os.getenv("APP_BASE_URL", "http://localhost:8000"))
+    asset_version: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
 
 
 @dataclass
@@ -249,6 +251,9 @@ class CVEScannerConfig:
     max_vms_per_scan: int = field(
         default_factory=lambda: int(os.getenv("CVE_SCAN_MAX_VMS", "1000"))
     )
+    vm_scan_concurrency: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_VM_CONCURRENCY", "6"))
+    )
 
     # Package extraction
     package_extraction_timeout_seconds: int = field(
@@ -261,9 +266,6 @@ class CVEScannerConfig:
     )
     cosmos_patch_install_container_name: str = field(
         default_factory=lambda: os.getenv("CVE_PATCH_INSTALL_COSMOS_CONTAINER", "cve_patch_installs")
-    )
-    cosmos_patch_gap_container_name: str = field(
-        default_factory=lambda: os.getenv("CVE_PATCH_GAP_COSMOS_CONTAINER", "cve_patch_gaps")
     )
 
 

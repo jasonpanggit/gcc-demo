@@ -24,6 +24,7 @@ try:
         VMVulnerabilityResponse, VMCVEDetail, VMPatchInventoryItem, PatchCoverageSummary, CVEAffectedVMsResponse,
         AffectedVMDetail, ScanResult, CVEMatch, UnifiedCVE
     )
+    from utils.cve_id_utils import filter_valid_cve_ids, is_valid_cve_id
     from utils.cve_service import CVEService
     from utils.cve_patch_mapper import CVEPatchMapper
     from utils.cve_scanner import CVEScanner
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
         VMVulnerabilityResponse, VMCVEDetail, VMPatchInventoryItem, PatchCoverageSummary, CVEAffectedVMsResponse,
         AffectedVMDetail, ScanResult, CVEMatch, UnifiedCVE
     )
+    from app.agentic.eol.utils.cve_id_utils import filter_valid_cve_ids, is_valid_cve_id
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.cve_patch_mapper import CVEPatchMapper
     from app.agentic.eol.utils.cve_scanner import CVEScanner
@@ -301,8 +303,15 @@ class CVEVMService:
         vm_ids: List[str],
         *,
         allow_live_cve_fallback: bool = False,
+        scan: Optional[Any] = None,
     ) -> Dict[str, Dict[str, Any]]:
-        """Return lightweight vulnerability summaries for many VMs with shared inventory/CVE lookups."""
+        """Return lightweight vulnerability summaries for many VMs with shared inventory/CVE lookups.
+
+        Args:
+            vm_ids: List of VM IDs to get summaries for
+            allow_live_cve_fallback: Whether to fall back to live CVE lookup if no scan data
+            scan: Optional pre-fetched scan object to avoid duplicate fetch
+        """
         if not vm_ids:
             return {}
 
@@ -320,7 +329,9 @@ class CVEVMService:
         if not normalized_vm_ids:
             return {}
 
-        scan = await self._get_latest_scan()
+        # Use provided scan or fetch if not provided
+        if scan is None:
+            scan = await self._get_latest_scan()
         if not scan:
             logger.warning("No scan results available")
             return {}
@@ -587,6 +598,10 @@ class CVEVMService:
         try:
             cve_id = cve_id.upper()
 
+            if not is_valid_cve_id(cve_id):
+                logger.warning("Rejecting affected-VM lookup for non-standard CVE identifier %s", cve_id)
+                return None
+
             # Verify CVE exists
             cve = await self.cve_service.get_cve(cve_id)
             if not cve:
@@ -850,13 +865,14 @@ class CVEVMService:
             cve = self._cve_cache[cve_id]
         else:
             # Fetch from CVE service
-            cve = await self.cve_service.get_cve(cve_id)
+            cve = await self.cve_service.get_cve(cve_id) if is_valid_cve_id(cve_id) else None
             if cve:
                 self._cve_cache[cve_id] = cve
 
         # Get patch count
         installed_patch_ids: List[str] = []
         available_patch_ids: List[str] = []
+        fix_kb_ids: List[str] = []
         try:
             patch_mapping = await self.patch_mapper.get_patches_for_cve(cve_id)
             patch_context = await self._get_vm_patch_context(match)
@@ -866,6 +882,7 @@ class CVEVMService:
                 installed_patches,
                 installed_patch_ids,
                 available_patch_ids,
+                fix_kb_ids,
             ) = self._classify_patch_state(
                 cve=cve,
                 patch_mapping=patch_mapping,
@@ -878,6 +895,7 @@ class CVEVMService:
             patch_status = "unknown"
             installed_patch_ids = []
             available_patch_ids = []
+            fix_kb_ids = []
 
         # Build enriched detail
         if cve:
@@ -904,6 +922,7 @@ class CVEVMService:
                 installed_patches=installed_patches,
                 installed_patch_ids=installed_patch_ids,
                 available_patch_ids=available_patch_ids,
+                fix_kb_ids=fix_kb_ids,
             )
         else:
             # CVE details not available, use match data
@@ -919,6 +938,7 @@ class CVEVMService:
                 installed_patches=installed_patches,
                 installed_patch_ids=installed_patch_ids,
                 available_patch_ids=available_patch_ids,
+                fix_kb_ids=fix_kb_ids,
             )
 
     async def _get_vm_patch_context(self, match: CVEMatch) -> Dict[str, Any]:
@@ -1187,9 +1207,9 @@ class CVEVMService:
         cve: Optional[UnifiedCVE],
         patch_mapping: Any,
         patch_context: Dict[str, Any],
-    ) -> tuple[str, int, int, List[str], List[str]]:
+    ) -> tuple[str, int, int, List[str], List[str], List[str]]:
         if not cve:
-            return "unknown", 0, 0, [], []
+            return "unknown", 0, 0, [], [], []
 
         kb_numbers = self.patch_mapper.extract_cve_kb_numbers(cve)
         package_names = self.patch_mapper.extract_cve_package_names(cve)
@@ -1213,16 +1233,18 @@ class CVEVMService:
         available_matches = len(available_patch_ids)
 
         if installed_matches > 0:
-            return "installed", available_matches, installed_matches, installed_patch_ids, available_patch_ids
+            return "installed", available_matches, installed_matches, installed_patch_ids, available_patch_ids, []
         if available_matches > 0:
-            return "available", available_matches, 0, [], available_patch_ids
+            return "available", available_matches, 0, [], available_patch_ids, []
         if kb_numbers or package_names:
-            return ("none", 0, 0, [], []) if patch_checks_completed else ("unknown", 0, 0, [], [])
+            fix_kb_ids = sorted(kb_numbers) if patch_checks_completed else []
+            status = "none" if patch_checks_completed else "unknown"
+            return status, 0, 0, [], [], fix_kb_ids
         if getattr(patch_mapping, "patches", None):
-            return "available", len(patch_mapping.patches), 0, [], []
+            return "available", len(patch_mapping.patches), 0, [], [], []
         if patch_checks_completed:
-            return "none", 0, 0, [], []
-        return "unknown", 0, 0, [], []
+            return "none", 0, 0, [], [], []
+        return "unknown", 0, 0, [], [], []
 
     def _count_identifier_matches(
         self,
@@ -1264,12 +1286,12 @@ class CVEVMService:
     ) -> List[VMCVEDetail]:
         installed_entries = list(patch_context.get("installed_patch_entries") or [])
         available_entries = list(patch_context.get("available_patch_entries") or [])
-        derived_ids = sorted({
+        derived_ids = filter_valid_cve_ids(sorted({
             cve_id
             for entry in (installed_entries + available_entries)
             for cve_id in entry.cve_ids
             if cve_id not in existing_cve_ids
-        })
+        }))
         if not derived_ids:
             return []
 

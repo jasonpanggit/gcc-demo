@@ -101,9 +101,6 @@ from api.cve_inventory import router as cve_inventory_router
 from api.cve_dashboard import router as cve_dashboard_router
 from api.cve_alerts import router as cve_alerts_router
 from api.cve_alert_history import router as cve_alert_history_router
-from api.patch_gaps import router as patch_gaps_router
-from utils.patch_gap_repository import PatchGapRepository, InMemoryPatchGapRepository
-from utils.patch_gap_compute_service import PatchGapComputeService
 from utils.linux_advisory_sync_service import LinuxAdvisorySyncService
 from utils.cve_sync_operations import sync_msrc_kb_edges
 
@@ -226,7 +223,6 @@ app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard
 app.include_router(cve_alert_history_router, prefix="/api/cve", tags=["CVE Alert History"])  # CVE alert history (Phase 9)
 app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules must come after /api/cve/alerts/history routes
 app.include_router(cve_router, prefix="/api", tags=["CVE"])  # Generic CVE search/detail routes must come after specific /api/cve/* routes
-app.include_router(patch_gaps_router, prefix="/api", tags=["Patch Gaps"])  # Fleet-level patch gap analysis
 
 
 # ============================================================================
@@ -641,6 +637,7 @@ def get_inventory_discovery_status() -> Dict[str, Any]:
 # Global CVE service instance
 _cve_service = None
 _cve_scanner = None
+_cve_scan_repository = None
 _cve_patch_mapper = None
 _cve_vm_service = None
 _cve_analytics = None
@@ -724,16 +721,9 @@ async def get_cve_scanner():
     if _cve_scanner is None:
         from azure.identity import DefaultAzureCredential
         from azure.mgmt.resourcegraph import ResourceGraphClient
-        from utils.cve_scanner import CVEScanner, CVEScanRepository
-        from utils.cosmos_cache import base_cosmos
+        from utils.cve_scanner import CVEScanner
 
-        # Create scan repository
-        scan_repository = CVEScanRepository(
-            cosmos_client=base_cosmos.cosmos_client,
-            database_name=config.azure.cosmos_database,
-            container_name=config.cve_scanner.cosmos_scan_container_name
-        )
-        await scan_repository.initialize()
+        scan_repository = await get_cve_scan_repository()
 
         # Create Resource Graph client
         credential = DefaultAzureCredential()
@@ -746,11 +736,30 @@ async def get_cve_scanner():
             scan_repository=scan_repository,
             subscription_id=config.azure.subscription_id,
             max_vms=config.cve_scanner.max_vms_per_scan,
-            scan_timeout_minutes=config.cve_scanner.scan_timeout_minutes
+            scan_timeout_minutes=config.cve_scanner.scan_timeout_minutes,
+            vm_scan_concurrency=config.cve_scanner.vm_scan_concurrency,
         )
         logger.info("✅ CVE scanner singleton initialized")
 
     return _cve_scanner
+
+
+async def get_cve_scan_repository():
+    """Get or create the lightweight CVE scan repository singleton."""
+    global _cve_scan_repository
+    if _cve_scan_repository is None:
+        from utils.cve_scanner import CVEScanRepository
+        from utils.cosmos_cache import base_cosmos
+
+        _cve_scan_repository = CVEScanRepository(
+            cosmos_client=base_cosmos.cosmos_client,
+            database_name=config.azure.cosmos_database,
+            container_name=config.cve_scanner.cosmos_scan_container_name,
+        )
+        await _cve_scan_repository.initialize()
+        logger.info("✅ CVE scan repository singleton initialized")
+
+    return _cve_scan_repository
 
 
 async def get_cve_patch_mapper():
@@ -952,33 +961,11 @@ async def _startup_cve_system():
         except Exception as e:
             logger.warning(f"⚠️ CVE monitoring scheduler start warning: {e}")
 
-        # Initialize Patch Gap Analysis services (Phase 11)
+        # Wire Linux advisory sync into the scanner.
         try:
-            from utils.cosmos_cache import base_cosmos
-
-            if mock_mode_enabled():
-                patch_gap_repo = InMemoryPatchGapRepository()
-            else:
-                patch_gap_repo = PatchGapRepository(
-                    cosmos_client=base_cosmos.cosmos_client,
-                    database_name=config.azure.cosmos_database,
-                    container_name=config.cve_scanner.cosmos_patch_gap_container_name,
-                )
-            await patch_gap_repo.initialize()
-            app.state.patch_gap_repo = patch_gap_repo
-            logger.info("✅ Patch gap repository initialized")
-
-            # Wire PatchGapComputeService into CVEScanner
             cve_scanner = await get_cve_scanner()
             kb_cve_repo = await get_kb_cve_edge_repository()
-            patch_gap_compute = PatchGapComputeService(
-                kb_cve_repo=kb_cve_repo,
-                patch_gap_repo=patch_gap_repo,
-            )
-            cve_scanner.patch_gap_compute_service = patch_gap_compute
-            logger.info("✅ PatchGapComputeService wired into CVEScanner")
 
-            # Wire LinuxAdvisorySyncService into CVEScanner
             cve_service = await get_cve_service()
             vendor_feed_client = cve_service.aggregator.vendor_feed_client
             linux_advisory_sync = LinuxAdvisorySyncService(
@@ -988,7 +975,7 @@ async def _startup_cve_system():
             cve_scanner.linux_advisory_sync = linux_advisory_sync
             logger.info("✅ LinuxAdvisorySyncService wired into CVEScanner")
         except Exception as e:
-            logger.warning(f"⚠️ Patch gap services initialization warning: {e}")
+            logger.warning(f"⚠️ Linux advisory sync initialization warning: {e}")
 
         logger.info("✅ CVE Data System initialized")
 
@@ -1137,6 +1124,40 @@ async def _run_shutdown_tasks():
     """Cleanup services on shutdown"""
     try:
         logger.info("🛑 Shutting down application...")
+
+        # Suppress benign MCP stdio cleanup errors during shutdown
+        # These occur when async generators are closed across task boundaries
+        loop = asyncio.get_event_loop()
+        old_exception_handler = loop.get_exception_handler()
+
+        def shutdown_exception_handler(loop, context):
+            """Filter out benign MCP cleanup errors during shutdown."""
+            exception = context.get("exception")
+            message = context.get("message", "")
+
+            # Suppress MCP stdio cancel scope errors
+            if isinstance(exception, RuntimeError) and "cancel scope" in str(exception):
+                logger.debug(f"Suppressed benign shutdown error: {exception}")
+                return
+
+            # Suppress unclosed client session warnings during shutdown
+            if "Unclosed client session" in message:
+                logger.debug(f"Suppressed benign shutdown warning: {message}")
+                return
+
+            # Suppress target closed errors (Playwright cleanup)
+            if "Target page, context or browser has been closed" in message:
+                logger.debug(f"Suppressed benign Playwright cleanup: {message}")
+                return
+
+            # For other errors, use the original handler or default logging
+            if old_exception_handler:
+                old_exception_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        loop.set_exception_handler(shutdown_exception_handler)
+
         global orchestrator
         
         # Cleanup Azure MCP client
