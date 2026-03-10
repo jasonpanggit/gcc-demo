@@ -5,7 +5,7 @@ Pydantic models for representing CVE data from multiple sources with deduplicati
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import re
 from pydantic import BaseModel, Field, model_validator
@@ -315,23 +315,23 @@ class ScanResult(BaseModel):
     truncated: bool = False
     total_matches_before_truncation: Optional[int] = None
     error: Optional[str] = None
-    # NEW: True when per-VM match docs are stored separately (new storage format)
+    # True when per-VM CVE match documents are stored separately (see VMCVEMatchDocument)
     matches_stored_separately: bool = False
 
 
 class VMCVEMatchDocument(BaseModel):
     """Per-VM CVE match document stored separately in Cosmos DB.
 
-    Document ID format: "{scan_id}--{vm_name_suffix}"
+    Document ID format: "{scan_id}--{vm_name}"
     Partition key: scan_id (same partition as main scan document)
     """
-    id: str           # "{scan_id}--{vm_name_suffix}"
+    id: str           # "{scan_id}--{vm_name}"
     scan_id: str      # Partition key
     vm_id: str
     vm_name: str
     total_matches: int
-    matches: List[CVEMatch]   # Lightweight CVEMatch objects
-    created_at: str
+    matches: List[CVEMatch] = Field(default_factory=list)   # Lightweight CVEMatch objects
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class CVEScanRequest(BaseModel):

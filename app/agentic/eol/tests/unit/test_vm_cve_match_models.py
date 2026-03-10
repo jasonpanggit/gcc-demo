@@ -1,5 +1,4 @@
 """Tests for VM CVE match storage models."""
-import pytest
 from models.cve_models import VMCVEMatchDocument, ScanResult, VMCVEDetail
 
 
