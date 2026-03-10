@@ -400,6 +400,7 @@ async def get_vm_vulnerability_overview(
                     "low": counts["low"],
                     "risk_level": risk_level,
                     "has_scan_data": scan is not None,
+                    "last_synced": (scan.completed_at or scan.started_at) if scan else None,
                 }
             )
 
@@ -430,6 +431,7 @@ async def get_vm_vulnerability_overview(
                     "low": unmatched["low"],
                     "risk_level": risk_level,
                     "has_scan_data": True,
+                    "last_synced": (scan.completed_at or scan.started_at) if scan else None,
                 }
             )
 
