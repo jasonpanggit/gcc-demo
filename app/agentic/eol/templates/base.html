@@ -180,6 +180,10 @@
                     <i class="fas fa-shield-virus"></i>
                     <span class="nav-text">Patch Management</span>
                 </a>
+                <a href="/patch-gap" class="nav-item {% if active_nav == 'patch-gap' %}active{% endif %}">
+                    <i class="fas fa-shield-halved text-danger"></i>
+                    <span class="nav-text">Patch Gap Analysis</span>
+                </a>
                 <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
                     <i class="fas fa-bell"></i>
                     <span class="nav-text">Alerts</span>

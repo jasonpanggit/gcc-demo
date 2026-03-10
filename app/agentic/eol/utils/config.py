@@ -262,6 +262,9 @@ class CVEScannerConfig:
     cosmos_patch_install_container_name: str = field(
         default_factory=lambda: os.getenv("CVE_PATCH_INSTALL_COSMOS_CONTAINER", "cve_patch_installs")
     )
+    cosmos_patch_gap_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_PATCH_GAP_COSMOS_CONTAINER", "cve_patch_gaps")
+    )
 
 
 @dataclass

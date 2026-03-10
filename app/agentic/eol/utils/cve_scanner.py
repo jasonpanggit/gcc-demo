@@ -205,6 +205,9 @@ class CVEScanner:
         self.scan_timeout_minutes = scan_timeout_minutes
         self._active_scans: Dict[str, asyncio.Task] = {}
         self._scan_status_cache: Dict[str, Dict[str, Any]] = {}
+        self.linux_advisory_sync = None   # LinuxAdvisorySyncService, injected in main.py
+        self.patch_gap_compute_service = None  # PatchGapComputeService, injected in main.py
+        self.on_scan_complete_hooks: List[Any] = []  # extensible hook registry
         logger.info("CVEScanner initialized")
 
     def _build_status_summary(self, scan_result: ScanResult) -> Dict[str, Any]:
@@ -364,6 +367,16 @@ class CVEScanner:
                     all_matches.extend(matches)
                     vm_match_summaries[vm.vm_id.lower()] = self._build_vm_match_summary(vm, matches)
 
+                    # Per-VM OS family + package enrichment
+                    os_family = self._get_os_family(vm.os_name)
+                    scan_result.vm_os_family[vm.vm_id] = os_family
+
+                    if vm.os_type == "Windows":
+                        pass  # KB extraction handled by cve_patch_mapper / kb_cve_edge_repo
+                    elif vm.os_type == "Linux":
+                        packages = await self._extract_packages(vm.vm_id, vm.subscription_id, os_family)
+                        scan_result.vm_installed_packages[vm.vm_id] = packages
+
                     # Keep small scans responsive while limiting write frequency for larger scans.
                     if (i + 1) % progress_update_interval == 0 or (i + 1) == len(vms):
                         scan_result.scanned_vms = i + 1
@@ -390,6 +403,26 @@ class CVEScanner:
 
             logger.info(f"Scan {scan_id}: Complete. {len(all_matches)} CVE matches found")
 
+            # Fire scan completion hooks
+            for hook in self.on_scan_complete_hooks:
+                asyncio.create_task(self._supervised_task(hook(scan_result)))
+
+            # Linux advisory sync hook
+            if self.linux_advisory_sync is not None:
+                asyncio.create_task(
+                    self._supervised_task(
+                        self.linux_advisory_sync.sync_for_scan_result(scan_result)
+                    )
+                )
+
+            # Patch gap compute hook
+            if self.patch_gap_compute_service is not None:
+                asyncio.create_task(
+                    self._supervised_task(
+                        self.patch_gap_compute_service.compute_and_store(scan_result)
+                    )
+                )
+
         except Exception as e:
             logger.error(f"Scan {scan_id} failed: {e}")
             # Mark scan as failed
@@ -408,6 +441,13 @@ class CVEScanner:
             # Remove from active scans
             if scan_id in self._active_scans:
                 del self._active_scans[scan_id]
+
+    async def _supervised_task(self, coro) -> None:
+        """Wrapper for fire-and-forget tasks that logs exceptions instead of silently swallowing."""
+        try:
+            await coro
+        except Exception as e:
+            logger.error("Supervised background task failed: %s", e, exc_info=True)
 
     async def _discover_vms(
         self,
@@ -581,7 +621,9 @@ class CVEScanner:
             os_type = properties.get("osType", "Unknown")
 
         # Extract packages (best-effort)
-        installed_packages = await self._extract_packages(vm_data)
+        raw_os_name = os_name if vm_type == "azure" else properties.get("osSku") or properties.get("osName") or os_name
+        os_family = self._get_os_family(raw_os_name)
+        installed_packages = await self._extract_packages(vm_data["id"], vm_data["subscriptionId"], os_family)
 
         return VMScanTarget(
             vm_id=vm_data["id"],
@@ -700,24 +742,73 @@ class CVEScanner:
 
         return filters
 
-    async def _extract_packages(self, vm_data: Dict[str, Any]) -> List[str]:
-        """Extract installed packages from VM.
+    def _get_os_family(self, os_name: Optional[str]) -> str:
+        """Normalize os_name to os_family string."""
+        if not os_name:
+            return "linux"
+        name = os_name.lower()
+        if "ubuntu" in name:
+            return "ubuntu"
+        if "red hat" in name or "rhel" in name:
+            return "rhel"
+        if "centos" in name:
+            return "centos"
+        if "debian" in name:
+            return "debian"
+        if "windows" in name:
+            return "windows"
+        return "linux"
 
-        Best-effort extraction from VM extensions or Arc policies.
-        Falls back to empty list if unavailable.
+    async def _extract_packages(self, vm_id: str, subscription_id: str, os_family: str) -> List[str]:
+        """Extract installed Linux package names from ARG patchassessmentresources.
 
-        Args:
-            vm_data: Raw VM data from Resource Graph
-
-        Returns:
-            List of package names/versions
+        Uses same ARG table as Windows KB extraction:
+        - filter: osType=Linux, kbId=null/empty, patchName non-empty
+        - returns: list of package names (e.g. ["openssl", "curl", "libc6"])
         """
-        # TODO: Implement package extraction from:
-        # - Log Analytics ConfigurationData table (OMS agent)
-        # - Arc Guest Configuration extension
-        # - Azure Monitor metrics
-        # For now, return empty list (OS-only CVE matching)
-        return []
+        vm_id_lower = vm_id.lower()
+        # Azure VM type
+        azure_query = f"""
+            patchassessmentresources
+            | where type =~ 'microsoft.compute/virtualmachines/patchassessmentresults/softwarepatches'
+            | where tolower(id) startswith tolower('{vm_id_lower}')
+            | where properties.osType =~ 'Linux'
+            | where isnull(properties.kbId) or tostring(properties.kbId) == ''
+            | where tostring(properties.patchName) != ''
+            | project patchName = tostring(properties.patchName)
+            | distinct patchName
+        """
+        # Arc VM type
+        arc_query = f"""
+            patchassessmentresources
+            | where type =~ 'microsoft.hybridcompute/machines/patchassessmentresults/softwarepatches'
+            | where tolower(id) startswith tolower('{vm_id_lower}')
+            | where properties.osType =~ 'Linux'
+            | where isnull(properties.kbId) or tostring(properties.kbId) == ''
+            | where tostring(properties.patchName) != ''
+            | project patchName = tostring(properties.patchName)
+            | distinct patchName
+        """
+
+        packages: set = set()
+        for query in [azure_query, arc_query]:
+            try:
+                query_request = QueryRequest(
+                    subscriptions=[subscription_id],
+                    query=query,
+                )
+                response = await asyncio.to_thread(
+                    self.resource_graph_client.resources,
+                    query_request,
+                )
+                for r in (response.data or []):
+                    pkg = (r.get("patchName") or "").strip()
+                    if pkg:
+                        packages.add(pkg)
+            except Exception as e:
+                logger.debug("ARG package query failed for %s: %s", vm_id, e)
+
+        return sorted(packages)
 
     async def _match_cves_to_vm(
         self,

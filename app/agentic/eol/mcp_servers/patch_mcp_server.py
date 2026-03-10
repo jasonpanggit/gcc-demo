@@ -709,14 +709,20 @@ async def install_vm_patches(
     classifications: Annotated[List[str], "Patch classifications to install"] = ["Critical", "Security"],
     vm_type: Annotated[str, "'arc' or 'azure-vm'"] = "arc",
     resource_id: Annotated[Optional[str], "Full ARM resource ID (overrides other params)"] = None,
-    kb_numbers_to_include: Annotated[List[str], "Specific KB IDs to include"] = [],
-    kb_numbers_to_exclude: Annotated[List[str], "KB IDs to exclude"] = [],
+    kb_numbers_to_include: Annotated[List[str], "Specific KB IDs to include (Windows)"] = [],
+    kb_numbers_to_exclude: Annotated[List[str], "KB IDs to exclude (Windows)"] = [],
     reboot_setting: Annotated[str, "Reboot behavior: IfRequired | NeverReboot | AlwaysReboot"] = "IfRequired",
     maximum_duration: Annotated[str, "ISO 8601 duration (e.g., PT2H)"] = "PT2H",
     os_type: Annotated[Optional[str], "Force OS type: Windows | Linux"] = None,
+    package_names: Annotated[Optional[List[str]], "Linux package name masks to install (e.g. ['openssl', 'curl*'])"] = None,
+    os_family: Annotated[Optional[str], "Linux OS family hint: 'ubuntu' | 'rhel' | 'centos'"] = None,
 ) -> Dict[str, Any]:
     """
     Trigger patch installation on an Azure VM or Arc server.
+
+    For Windows VMs, pass os_type='Windows' and use kb_numbers_to_include/kb_numbers_to_exclude.
+    For Linux VMs, pass os_type='Linux' and package_names instead of kb_numbers.
+    os_family ('ubuntu', 'rhel', 'centos') is an optional hint for Linux targets.
 
     Returns immediately with operation_url for status polling.
     Installation can take 10-30+ minutes depending on patch count and reboot requirements.
@@ -749,11 +755,14 @@ async def install_vm_patches(
 
         # Build OS-specific parameters
         if resolved_os_type.lower() == "linux":
+            # Prefer package_names (Linux-native); fall back to kb_numbers_to_include
+            pkg_include = package_names or kb_numbers_to_include or []
+            pkg_exclude = kb_numbers_to_exclude
             os_params = {
                 "linuxParameters": {
                     "classificationsToInclude": classifications,
-                    "packageNameMasksToInclude": kb_numbers_to_include,
-                    "packageNameMasksToExclude": kb_numbers_to_exclude,
+                    "packageNameMasksToInclude": pkg_include,
+                    "packageNameMasksToExclude": pkg_exclude,
                 }
             }
         else:

@@ -101,6 +101,11 @@ from api.cve_inventory import router as cve_inventory_router
 from api.cve_dashboard import router as cve_dashboard_router
 from api.cve_alerts import router as cve_alerts_router
 from api.cve_alert_history import router as cve_alert_history_router
+from api.patch_gaps import router as patch_gaps_router
+from utils.patch_gap_repository import PatchGapRepository, InMemoryPatchGapRepository
+from utils.patch_gap_compute_service import PatchGapComputeService
+from utils.linux_advisory_sync_service import LinuxAdvisorySyncService
+from utils.cve_sync_operations import sync_msrc_kb_edges
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -221,6 +226,7 @@ app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard
 app.include_router(cve_alert_history_router, prefix="/api/cve", tags=["CVE Alert History"])  # CVE alert history (Phase 9)
 app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules must come after /api/cve/alerts/history routes
 app.include_router(cve_router, prefix="/api", tags=["CVE"])  # Generic CVE search/detail routes must come after specific /api/cve/* routes
+app.include_router(patch_gaps_router, prefix="/api", tags=["Patch Gaps"])  # Fleet-level patch gap analysis
 
 
 # ============================================================================
@@ -945,6 +951,44 @@ async def _startup_cve_system():
                 logger.info("CVE monitoring scheduler disabled via config")
         except Exception as e:
             logger.warning(f"⚠️ CVE monitoring scheduler start warning: {e}")
+
+        # Initialize Patch Gap Analysis services (Phase 11)
+        try:
+            from utils.cosmos_cache import base_cosmos
+
+            if mock_mode_enabled():
+                patch_gap_repo = InMemoryPatchGapRepository()
+            else:
+                patch_gap_repo = PatchGapRepository(
+                    cosmos_client=base_cosmos.cosmos_client,
+                    database_name=config.azure.cosmos_database,
+                    container_name=config.cve_scanner.cosmos_patch_gap_container_name,
+                )
+            await patch_gap_repo.initialize()
+            app.state.patch_gap_repo = patch_gap_repo
+            logger.info("✅ Patch gap repository initialized")
+
+            # Wire PatchGapComputeService into CVEScanner
+            cve_scanner = await get_cve_scanner()
+            kb_cve_repo = await get_kb_cve_edge_repository()
+            patch_gap_compute = PatchGapComputeService(
+                kb_cve_repo=kb_cve_repo,
+                patch_gap_repo=patch_gap_repo,
+            )
+            cve_scanner.patch_gap_compute_service = patch_gap_compute
+            logger.info("✅ PatchGapComputeService wired into CVEScanner")
+
+            # Wire LinuxAdvisorySyncService into CVEScanner
+            cve_service = await get_cve_service()
+            vendor_feed_client = cve_service.aggregator.vendor_feed_client
+            linux_advisory_sync = LinuxAdvisorySyncService(
+                vendor_feed_client=vendor_feed_client,
+                edge_repo=kb_cve_repo,
+            )
+            cve_scanner.linux_advisory_sync = linux_advisory_sync
+            logger.info("✅ LinuxAdvisorySyncService wired into CVEScanner")
+        except Exception as e:
+            logger.warning(f"⚠️ Patch gap services initialization warning: {e}")
 
         logger.info("✅ CVE Data System initialized")
 

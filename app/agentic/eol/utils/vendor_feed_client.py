@@ -17,10 +17,12 @@ try:
     from utils.cve_data_client import BaseCVEClient
     from utils.logging_config import get_logger
     from utils.config import get_config
+    from utils.msrc_sug_client import MsrcSugClient
 except ModuleNotFoundError:
     from app.agentic.eol.utils.cve_data_client import BaseCVEClient
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import get_config
+    from app.agentic.eol.utils.msrc_sug_client import MsrcSugClient
 
 
 logger = get_logger(__name__)
@@ -74,6 +76,7 @@ class VendorFeedClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._msrc_update_cache: Dict[str, Dict[str, Any]] = {}
         self._msrc_cvrf_cache: Dict[str, str] = {}
+        self._sug_client: Optional[MsrcSugClient] = MsrcSugClient(api_key=msrc_api_key)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
@@ -127,21 +130,73 @@ class VendorFeedClient:
             return None
 
     async def fetch_ubuntu_cve(self, cve_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch CVE metadata from Ubuntu Security Notices.
+        """Fetch CVE metadata from Ubuntu Security API.
 
-        Note: Ubuntu API requires USN ID, not CVE ID. This method is a placeholder
-        for future implementation that would:
-        1. Scrape USN RSS feed for CVE-to-USN mappings
-        2. Fetch USN details by USN ID
+        Uses Ubuntu Security REST API:
+          GET https://ubuntu.com/security/cves.json?q={cve_id}
+          GET https://ubuntu.com/security/notices/{usn_id}.json  (for each USN)
 
-        Args:
-            cve_id: CVE identifier
-
-        Returns:
-            None (not implemented - requires RSS scraping)
+        Returns normalized dict with USN notices + affected packages, or None.
         """
-        logger.debug(f"Ubuntu CVE lookup not implemented (requires USN mapping): {cve_id}")
-        return None
+        cve_id = cve_id.upper()
+        cve_url = f"{self.ubuntu_base_url}/security/cves.json?q={cve_id}"
+
+        try:
+            session = await self._get_session()
+
+            # Step 1: CVE → USN notice list
+            async with session.get(cve_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                if response.status == 404:
+                    return None
+                if response.status != 200:
+                    logger.debug("Ubuntu CVE API returned %s for %s", response.status, cve_id)
+                    return None
+                data = await response.json(content_type=None)
+
+            cves = data.get("cves", [])
+            if not cves:
+                return None
+
+            cve_record = cves[0]
+            notices = cve_record.get("notices", [])
+            if not notices:
+                # No USN notices yet — CVE known but no advisory published
+                return {
+                    "cve_id": cve_id,
+                    "source": "ubuntu",
+                    "notices": [],
+                    "status": cve_record.get("status", ""),
+                }
+
+            # Step 2: Fetch package details for each USN (cap at 5)
+            enriched_notices = []
+            for notice in notices[:5]:
+                usn_id = notice.get("id") or notice.get("notice_id", "")
+                if not usn_id:
+                    continue
+                usn_url = f"{self.ubuntu_base_url}/security/notices/{usn_id}.json"
+                try:
+                    async with session.get(
+                        usn_url, timeout=aiohttp.ClientTimeout(total=10)
+                    ) as nr:
+                        if nr.status == 200:
+                            enriched_notices.append(await nr.json(content_type=None))
+                        else:
+                            enriched_notices.append(notice)
+                except Exception as e:
+                    logger.debug("Failed to fetch USN %s: %s", usn_id, e)
+                    enriched_notices.append(notice)
+
+            return {
+                "cve_id": cve_id,
+                "source": "ubuntu",
+                "notices": enriched_notices,
+                "status": cve_record.get("status", ""),
+            }
+
+        except Exception as e:
+            logger.warning("Failed to fetch %s from Ubuntu Security API: %s", cve_id, e)
+            return None
 
     async def fetch_microsoft_cve(self, cve_id: str) -> Optional[Dict[str, Any]]:
         """Fetch CVE metadata from Microsoft Security Response Center (MSRC) API.
@@ -592,6 +647,127 @@ class VendorFeedClient:
                 seen.add(kb_number)
                 normalized.append(kb_number)
         return normalized
+
+    # -------------------------------------------------------------------------
+    # MSRC SUG (Security Update Guide) methods — direct OData API
+    # -------------------------------------------------------------------------
+
+    async def fetch_microsoft_cves_for_kb_sug(self, kb_number: str) -> List[str]:
+        """Direct KB→CVE lookup via MSRC SUG affectedProduct API.
+
+        Replaces the CVRF month-inference path — no month inference needed,
+        always resolves bare numeric KB numbers.
+        """
+        if self._sug_client is None:
+            return []
+        return await self._sug_client.fetch_kb_to_cves(kb_number)
+
+    async def fetch_microsoft_kb_cve_map_for_month(
+        self, month: str, product_family: str = "Windows"
+    ) -> Dict[str, set]:
+        """Full month KB↔CVE map for bulk edge population.
+
+        Returns {kb_number: {cve_id, ...}} with bare numeric KB keys.
+        """
+        if self._sug_client is None:
+            return {}
+        return await self._sug_client.fetch_monthly_kb_cve_map(month, product_family)
+
+    async def fetch_recent_months_kb_cve_map(
+        self, n_months: int = 3, product_family: str = "Windows"
+    ) -> Dict[str, set]:
+        """Fetch last N months of KB↔CVE mappings for bulk sync."""
+        if self._sug_client is None:
+            return {}
+        return await self._sug_client.fetch_recent_months(n_months, product_family)
+
+    # -------------------------------------------------------------------------
+    # Advisory parse helpers — convert vendor API responses → PatchAdvisoryEdge
+    # -------------------------------------------------------------------------
+
+    def parse_redhat_advisory(self, cve_id: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Convert Red Hat Security API response → list of edge dicts.
+
+        Each dict is suitable for constructing a PatchAdvisoryEdge.
+        Returns empty list if no RHSA advisories found.
+        """
+        if not data:
+            return []
+
+        edges = []
+        vendor_meta = data.get("vendor_metadata", {})
+        advisories = vendor_meta.get("advisories", [])
+        affected_packages = [p.get("name", "") for p in vendor_meta.get("affected_packages", [])]
+        # Filter to packages with a fix
+        fixed_packages = [
+            p.get("name", "")
+            for p in vendor_meta.get("affected_packages", [])
+            if p.get("fix_state") == "Fixed"
+        ]
+
+        # If no explicit RHSA IDs, use the CVE ID as a fallback advisory key
+        if not advisories:
+            advisories = [f"RHSA-{cve_id}"]
+
+        for rhsa_id in advisories:
+            if not rhsa_id:
+                continue
+            edges.append({
+                "id": f"redhat:{rhsa_id}:{cve_id.upper()}",
+                "kb_number": rhsa_id,
+                "advisory_id": rhsa_id,
+                "cve_id": cve_id.upper(),
+                "source": "redhat",
+                "os_family": "rhel",
+                "affected_packages": affected_packages or None,
+                "fixed_packages": fixed_packages or None,
+                "severity": data.get("severity"),
+                "published_date": data.get("public_date"),
+            })
+        return edges
+
+    def parse_ubuntu_advisory(self, cve_id: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Convert Ubuntu Security API response → list of edge dicts.
+
+        Each dict is suitable for constructing a PatchAdvisoryEdge.
+        Returns empty list if no USN notices found.
+        """
+        if not data:
+            return []
+
+        edges = []
+        for notice in data.get("notices", []):
+            usn_id = notice.get("id") or notice.get("notice_id", "")
+            if not usn_id:
+                continue
+
+            # packages dict: {release_name: [pkg1, pkg2]} or flat list
+            all_packages: List[str] = []
+            pkgs_data = notice.get("packages", {})
+            if isinstance(pkgs_data, dict):
+                for _release, pkgs in pkgs_data.items():
+                    if isinstance(pkgs, list):
+                        all_packages.extend(pkgs)
+                    elif isinstance(pkgs, dict):
+                        all_packages.extend(pkgs.keys())
+            elif isinstance(pkgs_data, list):
+                all_packages = pkgs_data
+
+            all_packages = sorted(set(filter(None, all_packages)))
+
+            edges.append({
+                "id": f"ubuntu:{usn_id}:{cve_id.upper()}",
+                "kb_number": usn_id,
+                "advisory_id": usn_id,
+                "cve_id": cve_id.upper(),
+                "source": "ubuntu",
+                "os_family": "ubuntu",
+                "affected_packages": all_packages or None,
+                "fixed_packages": all_packages or None,
+                "severity": notice.get("severity"),
+                "published_date": notice.get("published"),
+            })
+        return edges
 
     async def __aenter__(self):
         """Async context manager entry."""
