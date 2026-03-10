@@ -110,7 +110,7 @@ class CVEVMService:
             vm_matches = [m for m in scan.matches if m.vm_id == vm_id]
 
             if not vm_matches:
-                logger.info(f"No CVE matches found for VM {vm_id}")
+                logger.info(f"No CVE matches found for VM {vm_id} in scan results")
                 subscription_id, resource_group = self._parse_resource_id(vm_id)
                 vm_name = getattr(vm_inventory, "name", None) or vm_id
                 os_type = getattr(vm_inventory, "os_type", None)
@@ -120,11 +120,27 @@ class CVEVMService:
                 patch_coverage = PatchCoverageSummary()
                 enriched_cves: List[VMCVEDetail] = []
 
-                if vm_inventory:
+                # PERFORMANCE: Skip expensive inventory fallback matching for faster response
+                # If VM has no CVEs in scan and inventory fallback would timeout, return empty result quickly
+                skip_inventory_fallback = config.app.skip_inventory_fallback if hasattr(config.app, 'skip_inventory_fallback') else True
+
+                if vm_inventory and not skip_inventory_fallback:
                     subscription_id = vm_inventory.subscription_id or subscription_id
                     resource_group = vm_inventory.resource_group or resource_group
                     os_name, os_version = self._normalize_os_fields(vm_inventory.os_name, vm_inventory.os_version)
-                    inventory_matches = await self._build_inventory_fallback_matches(vm_inventory)
+
+                    # Add timeout to prevent blocking entire request
+                    try:
+                        inventory_matches = await asyncio.wait_for(
+                            self._build_inventory_fallback_matches(vm_inventory),
+                            timeout=15.0  # 15s max for fallback matching
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Inventory fallback matching timed out for {vm_id} - returning empty CVE list")
+                        inventory_matches = []
+                    except Exception as e:
+                        logger.warning(f"Inventory fallback matching failed for {vm_id}: {e}")
+                        inventory_matches = []
 
                     if inventory_matches:
                         patch_context = await self._get_vm_patch_context(inventory_matches[0])
