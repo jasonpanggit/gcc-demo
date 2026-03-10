@@ -95,6 +95,19 @@ class InstallRequest(BaseModel):
         None,
         description="Force OS type: Windows | Linux. Auto-detected from inventory when absent.",
     )
+    # Linux-specific fields (None for Windows)
+    package_names_to_include: Optional[List[str]] = Field(
+        None,
+        description="Linux package names to install (e.g. ['openssl', 'curl'])",
+    )
+    package_names_to_exclude: Optional[List[str]] = Field(
+        None,
+        description="Linux package name masks to exclude",
+    )
+    os_family: Optional[str] = Field(
+        None,
+        description="Linux OS family hint: 'ubuntu' | 'rhel' | 'centos'",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -814,10 +827,16 @@ async def install_patches(request: Request):
             detail="subscription_id, resource_group, and machine_name are required",
         )
 
-    # Detect OS type – try registry first, then param, then default Windows
-    os_type = body.os_type
-    if not os_type:
-        os_type = "Windows"  # sensible default for Arc-enrolled Windows servers
+    # Detect OS type – use param when supplied, otherwise default to Windows
+    os_type = body.os_type or "Windows"  # sensible default for Arc-enrolled Windows servers
+
+    # Validate Linux requirements before hitting the ARM API
+    if os_type.lower() == "linux":
+        if not body.package_names_to_include and not body.kb_numbers_to_include:
+            raise HTTPException(
+                status_code=400,
+                detail="package_names_to_include required for Linux VMs",
+            )
 
     # Route to the correct ARM provider based on vm_type
     vm_type = _resolve_vm_type(body.resource_id, body.vm_type)
@@ -839,11 +858,14 @@ async def install_patches(request: Request):
     # Build OS-specific parameters
     classifications = body.classifications or ["Critical", "Security"]
     if os_type.lower() == "linux":
+        # Prefer package_names_to_include (Linux-native); fall back to kb_numbers_to_include
+        pkg_include = body.package_names_to_include or body.kb_numbers_to_include or []
+        pkg_exclude = body.package_names_to_exclude or body.kb_numbers_to_exclude or []
         os_params = {
             "linuxParameters": {
                 "classificationsToInclude": classifications,
-                "packageNameMasksToInclude": body.kb_numbers_to_include or [],
-                "packageNameMasksToExclude": body.kb_numbers_to_exclude or [],
+                "packageNameMasksToInclude": pkg_include,
+                "packageNameMasksToExclude": pkg_exclude,
             }
         }
     else:

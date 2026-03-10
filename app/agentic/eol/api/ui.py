@@ -714,6 +714,34 @@ async def cve_alert_history_page(request: Request):
     )
 
 
+@router.get("/patch-gap", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="patch_gap_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def patch_gap_page(request: Request):
+    """
+    Patch Gap Analysis page.
+
+    Fleet-wide view of CVE remediation status: which KBs/advisories are
+    outstanding, which CVEs have a fix available, and which VMs have gaps.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered patch-gap.html template.
+    """
+    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return templates.TemplateResponse(request, "patch-gap.html", {
+        "page_title": "Patch Gap Analysis",
+        "active_nav": "patch-gap",
+        "asset_version": asset_version,
+    })
+
+
 @router.get("/vm-vulnerability", response_class=HTMLResponse)
 @with_timeout_and_stats(
     agent_name="vm_vulnerability_page",

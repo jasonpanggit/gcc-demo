@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from utils.config import config
+    from utils.logging_config import get_logger
 except ImportError:
     from app.agentic.eol.utils.config import config
+    from app.agentic.eol.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 _last_delta_sync_time: Optional[datetime] = None
@@ -88,3 +92,41 @@ async def run_delta_sync(
         "completed_at": completed_at,
         "used_fallback_window": used_fallback_window,
     }
+
+
+async def sync_msrc_kb_edges(
+    vendor_client,
+    kb_cve_repo,
+    n_months: int = 3,
+) -> int:
+    """Sync recent N months of MSRC KB-CVE edges into cve_kb_edges Cosmos container.
+
+    Called after run_delta_sync() completes. Non-blocking — errors are caught and logged.
+    Returns count of edges upserted.
+    """
+    try:
+        month_map = await vendor_client.fetch_recent_months_kb_cve_map(n_months)
+        edges: List[Any] = []
+        for kb_number, cve_ids in month_map.items():
+            for cve_id in cve_ids:
+                try:
+                    from models.cve_models import PatchAdvisoryEdge
+                except ImportError:
+                    from app.agentic.eol.models.cve_models import PatchAdvisoryEdge
+                kb_with_prefix = f"KB{kb_number}" if not kb_number.upper().startswith("KB") else kb_number
+                edges.append(PatchAdvisoryEdge(
+                    id=f"microsoft:{kb_with_prefix}:{cve_id.upper()}",
+                    kb_number=kb_with_prefix,
+                    advisory_id=kb_with_prefix,
+                    cve_id=cve_id.upper(),
+                    source="microsoft",
+                    os_family="windows",
+                ))
+        if edges:
+            count = await kb_cve_repo.bulk_upsert(edges)
+            logger.info("MSRC SUG sync: upserted %d KB-CVE edges (%d months)", count, n_months)
+            return count
+        return 0
+    except Exception as e:
+        logger.warning("MSRC SUG KB-edge sync failed (non-fatal): %s", e)
+        return 0

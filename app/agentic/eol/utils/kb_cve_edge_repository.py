@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 try:
-    from models.cve_models import KBCVEEdge, UnifiedCVE
+    from models.cve_models import KBCVEEdge, PatchAdvisoryEdge, UnifiedCVE
     from utils.logging_config import get_logger
     from utils.normalization import extract_kb_ids, normalize_kb_id
 except ModuleNotFoundError:
-    from app.agentic.eol.models.cve_models import KBCVEEdge, UnifiedCVE
+    from app.agentic.eol.models.cve_models import KBCVEEdge, PatchAdvisoryEdge, UnifiedCVE
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.normalization import extract_kb_ids, normalize_kb_id
 
@@ -144,6 +144,73 @@ class KBCVEEdgeRepository:
         edges = await self.get_edges_for_kb(kb_number)
         return sorted({edge.cve_id for edge in edges})
 
+    async def get_advisories_for_cve(
+        self,
+        cve_id: str,
+        source: Optional[str] = None,
+    ) -> List[PatchAdvisoryEdge]:
+        """Fetch all advisory edges for a CVE, optionally filtered by source.
+
+        source: None = all sources, or "microsoft" | "redhat" | "ubuntu"
+        """
+        if source:
+            query = "SELECT * FROM c WHERE c.cve_id = @cve_id AND c.source = @source"
+            params = [
+                {"name": "@cve_id", "value": cve_id.upper()},
+                {"name": "@source", "value": source},
+            ]
+        else:
+            query = "SELECT * FROM c WHERE c.cve_id = @cve_id"
+            params = [{"name": "@cve_id", "value": cve_id.upper()}]
+
+        items = await asyncio.to_thread(
+            lambda: list(
+                self.container.query_items(
+                    query=query,
+                    parameters=params,
+                    enable_cross_partition_query=True,
+                )
+            )
+        )
+        return [PatchAdvisoryEdge(**item) for item in items]
+
+    async def get_fixed_packages_for_cve(
+        self,
+        cve_id: str,
+        os_family: str,
+    ) -> Dict[str, List[str]]:
+        """Return {advisory_id: [package_names]} for a CVE + os_family."""
+        source_map = {"ubuntu": "ubuntu", "rhel": "redhat", "centos": "redhat", "debian": "debian"}
+        source = source_map.get(os_family.lower())
+        edges = await self.get_advisories_for_cve(cve_id, source=source)
+        result: Dict[str, List[str]] = {}
+        for edge in edges:
+            if edge.fixed_packages:
+                advisory = edge.advisory_id or edge.kb_number
+                result[advisory] = edge.fixed_packages
+        return result
+
+    async def get_kbs_for_cve(self, cve_id: str) -> List[str]:
+        """Return list of KB IDs (Windows) that fix a given CVE."""
+        edges = await self.get_advisories_for_cve(cve_id, source="microsoft")
+        return sorted({edge.kb_number for edge in edges})
+
+    async def upsert_linux_edges(self, edges: List[PatchAdvisoryEdge]) -> int:
+        """Batch upsert Linux advisory edges. Returns count upserted."""
+        count = 0
+        for edge in edges:
+            if not edge.id:
+                edge.id = f"{edge.source}:{edge.kb_number}:{edge.cve_id}"
+            await asyncio.to_thread(
+                self.container.upsert_item, edge.model_dump(mode="json")
+            )
+            count += 1
+        return count
+
+    async def bulk_upsert(self, edges: List[PatchAdvisoryEdge]) -> int:
+        """Batch upsert any edges (Windows or Linux). Returns count upserted."""
+        return await self.upsert_linux_edges(edges)
+
 
 class InMemoryKBCVEEdgeRepository:
     """In-memory reverse KB-to-CVE repository for tests and mock mode."""
@@ -181,3 +248,45 @@ class InMemoryKBCVEEdgeRepository:
     async def get_cve_ids_for_kb(self, kb_number: str) -> List[str]:
         edges = await self.get_edges_for_kb(kb_number)
         return sorted({edge.cve_id for edge in edges})
+
+    async def get_advisories_for_cve(
+        self,
+        cve_id: str,
+        source: Optional[str] = None,
+    ) -> List[PatchAdvisoryEdge]:
+        normalized_cve = cve_id.upper()
+        edges = [e for e in self.items.values() if e.cve_id == normalized_cve]
+        if source:
+            edges = [e for e in edges if e.source == source]
+        return edges
+
+    async def get_fixed_packages_for_cve(
+        self,
+        cve_id: str,
+        os_family: str,
+    ) -> Dict[str, List[str]]:
+        source_map = {"ubuntu": "ubuntu", "rhel": "redhat", "centos": "redhat", "debian": "debian"}
+        source = source_map.get(os_family.lower())
+        edges = await self.get_advisories_for_cve(cve_id, source=source)
+        result: Dict[str, List[str]] = {}
+        for edge in edges:
+            if edge.fixed_packages:
+                advisory = edge.advisory_id or edge.kb_number
+                result[advisory] = edge.fixed_packages
+        return result
+
+    async def get_kbs_for_cve(self, cve_id: str) -> List[str]:
+        edges = await self.get_advisories_for_cve(cve_id, source="microsoft")
+        return sorted({edge.kb_number for edge in edges})
+
+    async def upsert_linux_edges(self, edges: List[PatchAdvisoryEdge]) -> int:
+        count = 0
+        for edge in edges:
+            if not edge.id:
+                edge.id = f"{edge.source}:{edge.kb_number}:{edge.cve_id}"
+            self.items[edge.id] = edge
+            count += 1
+        return count
+
+    async def bulk_upsert(self, edges: List[PatchAdvisoryEdge]) -> int:
+        return await self.upsert_linux_edges(edges)

@@ -168,18 +168,41 @@ class UnifiedCVE(BaseModel):
         }
 
 
-class KBCVEEdge(BaseModel):
-    """Canonical reverse mapping between a KB article and a CVE."""
-    id: str
-    kb_number: str
+class PatchAdvisoryEdge(BaseModel):
+    """Unified advisory↔CVE edge for Windows and Linux.
+
+    Windows:  kb_number="KB5034441",      source="microsoft", os_family="windows"
+    RHEL:     kb_number="RHSA-2024:1234", source="redhat",    os_family="rhel"
+    Ubuntu:   kb_number="USN-6789-1",     source="ubuntu",    os_family="ubuntu"
+    """
+    id: str                                         # "{source}:{kb_number}:{cve_id}"
+    kb_number: str                                  # Windows KB / RHSA ID / USN ID
     cve_id: str
-    source: str = "microsoft"
-    advisory_id: Optional[str] = None
+    source: str = "microsoft"                       # "microsoft" | "redhat" | "ubuntu"
+    os_family: str = "windows"                      # "windows" | "rhel" | "ubuntu" | "centos"
+    advisory_id: Optional[str] = None               # Same as kb_number; explicit alias for UI
+    affected_packages: Optional[List[str]] = None   # Linux: packages fixed by this advisory
+    fixed_packages: Optional[List[str]] = None      # Linux: packages that deliver the fix
     update_id: Optional[str] = None
     document_title: Optional[str] = None
     cvrf_url: Optional[str] = None
     severity: Optional[str] = None
+    published_date: Optional[str] = None
     last_seen: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Backward-compat alias — all existing consumers of KBCVEEdge continue to work
+KBCVEEdge = PatchAdvisoryEdge
+
+
+class MsrcKbCveRecord(BaseModel):
+    """Internal record from MSRC SUG affectedProduct API — not stored, used for mapping."""
+    cve_number: str           # "CVE-2024-21413"
+    kb_article_name: str      # "5002537" (bare numeric, no KB prefix)
+    product_family: str       # "Windows" | "Azure" | "Mariner"
+    severity: str = ""        # "Critical" | "Important" | ""
+    release_number: str = ""  # "2025-Jan"
+    is_mariner: bool = False  # True = Azure Linux only, skip for Windows patch gap
 
 
 # ============================================================================
@@ -282,6 +305,15 @@ class ScanResult(BaseModel):
     total_matches: int
     matches: List[CVEMatch] = Field(default_factory=list)
     vm_match_summaries: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    # Windows: vm_id → list of installed KB IDs (e.g. ["KB5034441", "KB5050009"])
+    vm_installed_kbs: Dict[str, List[str]] = Field(default_factory=dict)
+    # Linux: vm_id → list of installed package names (e.g. ["openssl", "curl"])
+    vm_installed_packages: Dict[str, List[str]] = Field(default_factory=dict)
+    # vm_id → os_family ("windows" | "ubuntu" | "rhel" | "centos")
+    vm_os_family: Dict[str, str] = Field(default_factory=dict)
+    # Truncation metadata (when match list exceeds limit)
+    truncated: bool = False
+    total_matches_before_truncation: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -431,6 +463,93 @@ class CVEAffectedVMsResponse(BaseModel):
     affected_vms: List[AffectedVMDetail]
 
 
+# ============================================================================
+# Patch Gap Analysis Models
+# ============================================================================
+
+class PatchGapKBItem(BaseModel):
+    """One missing patch/advisory for a VM.
+
+    Windows: kb_number = "KB5034441", os_family = "windows"
+    Linux:   kb_number = "USN-6789-1" or "RHSA-2024:1234", os_family = "ubuntu"/"rhel"
+    """
+    kb_number: str                              # KB (Windows) or advisory ID (Linux)
+    advisory_id: str                            # Same as kb_number; explicit for UI
+    cve_ids: List[str] = Field(default_factory=list)
+    severity: Optional[str] = None
+    package_names: Optional[List[str]] = None  # Linux-only: packages not yet installed
+    os_family: Optional[str] = None            # "windows" | "rhel" | "ubuntu" | "centos"
+    highest_cvss: Optional[float] = None
+
+
+class PatchGapCVEItem(BaseModel):
+    """CVE entry in the patch gap view — used by fleet API aggregation."""
+    cve_id: str
+    severity: Optional[str] = None
+    cvss_score: Optional[float] = None
+    available_advisory_ids: List[str] = Field(default_factory=list)
+    vm_ids: List[str] = Field(default_factory=list)
+    vm_count: int = 0
+
+
+class PatchGapVMItem(BaseModel):
+    """VM summary row in the fleet patch gap view."""
+    vm_id: str
+    vm_name: str
+    os_type: str                    # "Windows" | "Linux"
+    os_family: Optional[str] = None # "windows" | "ubuntu" | "rhel" | "centos"
+    os_name: Optional[str] = None
+    location: Optional[str] = None
+    resource_group: Optional[str] = None
+    subscription_id: Optional[str] = None
+    unpatched_with_fix: int = 0     # CVEs that have an available patch/advisory
+    total_unpatched: int = 0
+    available_patches: int = 0      # distinct KBs/advisories available
+
+
+class PatchGapVMDoc(BaseModel):
+    """Per-VM pre-computed patch gap document stored in Cosmos cve_patch_gaps container."""
+    id: str                         # = vm_id (also partition key)
+    vm_id: str
+    vm_name: str
+    os_type: str                    # "Windows" | "Linux"
+    os_family: Optional[str] = None # "windows" | "ubuntu" | "rhel" | "centos"
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    location: Optional[str] = None
+    resource_group: Optional[str] = None
+    subscription_id: Optional[str] = None
+    scan_id: str
+    computed_at: str                # ISO datetime string
+    # KBs / advisories with CVE fixes not yet installed
+    available_kbs: List[PatchGapKBItem] = Field(default_factory=list)
+    # CVEs present with at least one fix advisory available
+    unpatched_cves: List[str] = Field(default_factory=list)
+    # Currently-installed KBs (Windows) or packages (Linux)
+    installed_identifiers: List[str] = Field(default_factory=list)
+    # Counters
+    total_available_advisories: int = 0
+    total_unpatched_cves: int = 0
+    critical_count: int = 0
+    high_count: int = 0
+
+
+class PatchGapFleetSummary(BaseModel):
+    """Singleton fleet-level summary doc, stored as _fleet_summary in cve_patch_gaps."""
+    id: str = "_fleet_summary"
+    computed_at: str
+    total_vms: int = 0
+    vms_with_gaps: int = 0
+    total_outstanding_advisories: int = 0
+    total_unpatched_cves: int = 0
+    critical_cve_count: int = 0
+    stale_vm_count: int = 0
+    # Aggregated views
+    by_kb: List[PatchGapKBItem] = Field(default_factory=list)
+    by_cve: List[PatchGapCVEItem] = Field(default_factory=list)
+    by_vm: List[PatchGapVMItem] = Field(default_factory=list)
+
+
 # Export all models
 __all__ = [
     "CVSSScore",
@@ -438,7 +557,9 @@ __all__ = [
     "CVEReference",
     "CVEVendorMetadata",
     "UnifiedCVE",
-    "KBCVEEdge",
+    "PatchAdvisoryEdge",
+    "KBCVEEdge",          # backward-compat alias for PatchAdvisoryEdge
+    "MsrcKbCveRecord",
     "CVESearchRequest",
     "CVESearchResponse",
     "CVEDetailResponse",
@@ -455,5 +576,10 @@ __all__ = [
     "PatchCoverageSummary",
     "VMVulnerabilityResponse",
     "AffectedVMDetail",
-    "CVEAffectedVMsResponse"
+    "CVEAffectedVMsResponse",
+    "PatchGapKBItem",
+    "PatchGapCVEItem",
+    "PatchGapVMItem",
+    "PatchGapVMDoc",
+    "PatchGapFleetSummary",
 ]
