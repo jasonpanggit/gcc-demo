@@ -13,6 +13,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from azure.core.exceptions import ResourceNotFoundError
+
 try:
     from models.cve_models import CVEMatch
     from utils.logging_config import get_logger
@@ -115,7 +117,7 @@ class VMCVEMatchRepository:
                 item=doc_id,
                 partition_key=scan_id,
             )
-        except Exception:
+        except ResourceNotFoundError:
             logger.debug(f"VM match document not found: {doc_id}")
             return None
 
@@ -148,7 +150,7 @@ class VMCVEMatchRepository:
         """
         query = (
             "SELECT c.id FROM c "
-            "WHERE c.scan_id = @scan_id AND CONTAINS(c.id, '--')"
+            "WHERE c.scan_id = @scan_id AND STARTSWITH(c.id, CONCAT(@scan_id, '--'))"
         )
         items = await asyncio.to_thread(
             lambda: list(
