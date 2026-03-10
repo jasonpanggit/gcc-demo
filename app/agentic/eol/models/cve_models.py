@@ -456,6 +456,7 @@ class VMVulnerabilityResponse(BaseModel):
     cves_by_severity: Dict[str, int]  # {"CRITICAL": 5, "HIGH": 12, ...}
     cve_details: List[VMCVEDetail]
     patch_coverage: PatchCoverageSummary = Field(default_factory=PatchCoverageSummary)
+    pagination: Optional[Dict[str, Any]] = None  # {offset, limit, total, has_more}
 
 
 class AffectedVMDetail(BaseModel):

@@ -70,11 +70,13 @@ class CVEVMService:
         self,
         cve_service: CVEService,
         patch_mapper: CVEPatchMapper,
-        cve_scanner: CVEScanner
+        cve_scanner: CVEScanner,
+        vm_match_repository: Optional[Any] = None,
     ):
         self.cve_service = cve_service
         self.patch_mapper = patch_mapper
         self.cve_scanner = cve_scanner
+        self.vm_match_repository = vm_match_repository
 
         # L1 caches
         self._scan_cache: TTLCache = TTLCache(maxsize=10, ttl=300)  # 5 min TTL
@@ -87,11 +89,18 @@ class CVEVMService:
         """Return the latest completed CVE scan result."""
         return await self._get_latest_scan()
 
-    async def get_vm_vulnerabilities(self, vm_id: str) -> Optional[VMVulnerabilityResponse]:
+    async def get_vm_vulnerabilities(
+        self,
+        vm_id: str,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> Optional[VMVulnerabilityResponse]:
         """Get CVEs affecting a specific VM.
 
         Args:
             vm_id: VM identifier
+            offset: Pagination offset (used with new per-VM match storage)
+            limit: Pagination limit (used with new per-VM match storage)
 
         Returns:
             VMVulnerabilityResponse with enriched CVE details or None if VM not found
@@ -102,6 +111,15 @@ class CVEVMService:
             if not scan:
                 logger.warning("No scan results available")
                 return None
+
+            # New storage format: use per-VM match repository when available
+            if self.vm_match_repository is not None and scan.matches_stored_separately:
+                return await self._get_vm_vulnerabilities_from_repository(
+                    vm_id=vm_id,
+                    scan=scan,
+                    offset=offset,
+                    limit=limit,
+                )
 
             vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
             vm_inventory = vm_inventory_by_id.get(vm_id.lower())
@@ -750,6 +768,190 @@ class CVEVMService:
         except Exception as e:
             logger.error(f"Failed to get affected VMs for CVE {cve_id}: {e}")
             raise
+
+    async def _get_vm_vulnerabilities_from_repository(
+        self,
+        vm_id: str,
+        scan: Any,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> Optional[VMVulnerabilityResponse]:
+        """Fast path: retrieve VM vulnerabilities from the per-VM match repository.
+
+        Used when scan.matches_stored_separately=True to bypass the truncated
+        scan.matches list and read directly from Cosmos per-VM documents.
+
+        Args:
+            vm_id: VM resource ID
+            scan: Latest ScanResult
+            offset: Pagination offset
+            limit: Max matches to return
+
+        Returns:
+            VMVulnerabilityResponse with pagination metadata, or None
+        """
+        vm_match_data = await self.vm_match_repository.get_vm_matches(
+            scan_id=scan.scan_id,
+            vm_id=vm_id,
+            offset=offset,
+            limit=limit,
+        )
+
+        if vm_match_data is None:
+            # Document not found — check the summary to distinguish "no CVEs" vs "missing doc"
+            summary = self._get_scan_summary_for_vm(scan, vm_id)
+            if summary and int(summary.get("total_cves", 0)) > 0:
+                logger.error(
+                    "VM %s has summary (total_cves=%s) but no match document in repository (scan %s). "
+                    "Data may be missing or still writing.",
+                    vm_id,
+                    summary.get("total_cves"),
+                    scan.scan_id,
+                )
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"Match document for VM {vm_id} is not yet available. "
+                        "The scan completed but match storage may still be in progress. "
+                        "Please retry shortly."
+                    ),
+                )
+            # VM genuinely has no CVEs for this scan
+            logger.info("No CVE match document found for VM %s in scan %s", vm_id, scan.scan_id)
+            return None
+
+        # Build CVEMatch objects from raw dicts
+        raw_matches = vm_match_data.get("matches") or []
+        vm_matches = [
+            CVEMatch(
+                cve_id=m.get("cve_id", ""),
+                vm_id=m.get("vm_id", vm_id),
+                vm_name=m.get("vm_name", vm_match_data.get("vm_name", "")),
+                match_reason=m.get("match_reason", ""),
+                cvss_score=m.get("cvss_score"),
+                severity=m.get("severity"),
+                published_date=m.get("published_date"),
+            )
+            for m in raw_matches
+        ]
+
+        # Fetch inventory metadata for enriched OS/location fields
+        vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
+        vm_inventory = vm_inventory_by_id.get(vm_id.lower())
+
+        # Build patch context using first match as anchor (same pattern as legacy path)
+        if vm_matches:
+            patch_context = await self._get_vm_patch_context(vm_matches[0])
+        else:
+            # No matches on this page — use a synthetic anchor for patch context
+            synthetic = CVEMatch(
+                cve_id="CVE-NONE",
+                vm_id=vm_id,
+                vm_name=vm_match_data.get("vm_name", vm_id),
+                match_reason="No matches on this page",
+            )
+            patch_context = await self._get_vm_patch_context(synthetic)
+
+        # Batch-fetch CVE details and patch mappings (same optimisation as legacy path)
+        cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+
+        cve_fetch_tasks = [
+            self.cve_service.get_cve(cve_id)
+            for cve_id in cve_ids
+            if cve_id not in self._cve_cache
+        ]
+        if cve_fetch_tasks:
+            logger.debug("Batch fetching %d CVE details (repository path)", len(cve_fetch_tasks))
+            fetched = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
+            for cve_id, result in zip(
+                [c for c in cve_ids if c not in self._cve_cache], fetched
+            ):
+                if result and not isinstance(result, Exception):
+                    self._cve_cache[cve_id] = result
+
+        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
+        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
+        patch_mappings = {
+            cve_id: result
+            for cve_id, result in zip(cve_ids, patch_mappings_results)
+            if result and not isinstance(result, Exception)
+        }
+
+        # Enrich each match
+        enriched_cves: List[VMCVEDetail] = []
+        severity_counts: Dict[str, int] = {}
+        semaphore = asyncio.Semaphore(16)
+
+        async def enrich_match(match: CVEMatch) -> Optional[VMCVEDetail]:
+            async with semaphore:
+                try:
+                    return await self._enrich_cve_match_with_prefetch(
+                        match,
+                        patch_context=patch_context,
+                        patch_mapping=patch_mappings.get(match.cve_id),
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to enrich CVE %s (repository path): %s", match.cve_id, exc)
+                    return None
+
+        enriched_results = await asyncio.gather(
+            *(enrich_match(m) for m in vm_matches),
+            return_exceptions=False,
+        )
+        for detail in enriched_results:
+            if not detail:
+                continue
+            enriched_cves.append(detail)
+            severity_counts[detail.severity] = severity_counts.get(detail.severity, 0) + 1
+
+        # Derive extra CVEs from patch evidence (same as legacy path)
+        derived_cves = await self._build_patch_derived_cve_details(
+            {detail.cve_id for detail in enriched_cves},
+            patch_context,
+        )
+        for detail in derived_cves:
+            enriched_cves.append(detail)
+            severity_counts[detail.severity] = severity_counts.get(detail.severity, 0) + 1
+
+        enriched_cves.sort(key=lambda x: x.cvss_score or 0.0, reverse=True)
+
+        vm_name = vm_match_data.get("vm_name") or vm_id
+        total_cves = vm_match_data.get("total_matches", len(enriched_cves))
+
+        logger.info(
+            "Retrieved %d enriched CVEs (page offset=%d, limit=%d) from repository for VM %s",
+            len(enriched_cves), offset, limit, vm_id,
+        )
+
+        return VMVulnerabilityResponse(
+            vm_id=vm_id,
+            vm_name=vm_name,
+            resource_group=getattr(vm_inventory, "resource_group", None),
+            subscription_id=getattr(vm_inventory, "subscription_id", None),
+            os_type=getattr(vm_inventory, "os_type", None),
+            os_name=self._normalize_os_fields(
+                getattr(vm_inventory, "os_name", None),
+                getattr(vm_inventory, "os_version", None),
+            )[0] if vm_inventory else None,
+            os_version=self._normalize_os_fields(
+                getattr(vm_inventory, "os_name", None),
+                getattr(vm_inventory, "os_version", None),
+            )[1] if vm_inventory else None,
+            location=getattr(vm_inventory, "location", None),
+            scan_id=scan.scan_id,
+            scan_date=scan.completed_at or scan.started_at,
+            total_cves=total_cves,
+            cves_by_severity=severity_counts,
+            cve_details=enriched_cves,
+            patch_coverage=self._build_patch_coverage_summary(enriched_cves, patch_context),
+            pagination={
+                "offset": offset,
+                "limit": limit,
+                "total": total_cves,
+                "has_more": vm_match_data.get("has_more", False),
+            },
+        )
 
     async def _get_vm_inventory_by_ids(self, vm_ids: List[str]) -> Dict[str, Any]:
         """Lookup current VM metadata by resource ID for response enrichment."""

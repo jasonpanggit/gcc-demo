@@ -839,10 +839,12 @@ async def get_cve_vm_service():
 
         # Create CVE VM service
         # TODO: wire into CVEVMService in Task 6
+        vm_match_repository = await get_vm_cve_match_repository()
         _cve_vm_service = CVEVMService(
             cve_service=await get_cve_service(),
             patch_mapper=await get_cve_patch_mapper(),
-            cve_scanner=await get_cve_scanner()
+            cve_scanner=await get_cve_scanner(),
+            vm_match_repository=vm_match_repository,
         )
         logger.info("✅ CVE VM service singleton initialized")
 
