@@ -19,6 +19,7 @@ from cachetools import TTLCache
 
 try:
     from models.cve_models import ApplicablePatch, CVEPatchMapping, UnifiedCVE
+    from utils.cve_id_utils import filter_valid_cve_ids, is_valid_cve_id
     from utils.cve_service import CVEService
     from utils.cve_scanner import CVEScanner
     from utils.patch_mcp_client import PatchMCPClient
@@ -28,6 +29,7 @@ try:
     from utils.normalization import extract_kb_ids, normalize_kb_id
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import ApplicablePatch, CVEPatchMapping, UnifiedCVE
+    from app.agentic.eol.utils.cve_id_utils import filter_valid_cve_ids, is_valid_cve_id
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.cve_scanner import CVEScanner
     from app.agentic.eol.utils.patch_mcp_client import PatchMCPClient
@@ -111,7 +113,7 @@ class CVEPatchMapper:
         if not self.kb_cve_edge_repository:
             return
 
-        for cve_id in cve_ids:
+        for cve_id in filter_valid_cve_ids(cve_ids):
             cve = await self.cve_service.get_cve(cve_id)
             if cve:
                 await self.kb_cve_edge_repository.sync_cve_edges(cve)
@@ -275,6 +277,16 @@ class CVEPatchMapper:
         Returns:
             CVEPatchMapping with ranked patches and recommendations
         """
+        if not is_valid_cve_id(cve_id):
+            logger.warning("Skipping patch lookup for non-standard CVE identifier %s", cve_id)
+            return CVEPatchMapping(
+                cve_id=cve_id,
+                patches=[],
+                priority_score=0,
+                total_affected_vms=0,
+                recommendation="Invalid CVE identifier"
+            )
+
         normalized_subscriptions = self._normalize_subscription_ids(subscription_ids)
         cache_key = f"{cve_id.upper()}::{','.join(normalized_subscriptions)}"
         cached_mapping = self._mapping_cache.get(cache_key)
@@ -443,7 +455,7 @@ class CVEPatchMapper:
         # Sort by release date (newest first)
         unique_patches.sort(key=lambda p: p.release_date or "", reverse=True)
 
-        logger.info(f"Matched {len(unique_patches)} patches for {cve.cve_id}")
+        # logger.info(f"Matched {len(unique_patches)} patches for {cve.cve_id}")
         return unique_patches
 
     async def _get_exposure_count(self, cve_id: str) -> int:

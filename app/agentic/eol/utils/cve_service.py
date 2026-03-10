@@ -14,12 +14,14 @@ try:
     from utils.cve_cache import CVECache
     from utils.cve_cosmos_repository import CVECosmosRepository
     from utils.cve_data_aggregator import CVEDataAggregator
+    from utils.cve_id_utils import is_valid_cve_id
     from utils.logging_config import get_logger
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import UnifiedCVE
     from app.agentic.eol.utils.cve_cache import CVECache
     from app.agentic.eol.utils.cve_cosmos_repository import CVECosmosRepository
     from app.agentic.eol.utils.cve_data_aggregator import CVEDataAggregator
+    from app.agentic.eol.utils.cve_id_utils import is_valid_cve_id
     from app.agentic.eol.utils.logging_config import get_logger
 
 
@@ -135,6 +137,10 @@ class CVEService:
                 # Populate L1 for subsequent reads
                 self.cache.set(cve_id, cached)
                 return cached
+
+        if not is_valid_cve_id(cve_id):
+            logger.debug("Skipping external fetch for non-standard CVE identifier %s", cve_id)
+            return None
 
         # Cache miss or force refresh: fetch from external APIs
         logger.info(f"Fetching CVE {cve_id} from external sources...")

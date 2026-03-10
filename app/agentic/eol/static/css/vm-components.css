@@ -1,10 +1,36 @@
-/* VM Vulnerability Page Styles */
+/* VM Vulnerability Page Styles
+ * ─────────────────────────────────────────────────────────────────────────────
+ * All colours and interactive states reference design-tokens.css variables.
+ * Dark mode overrides use html.dark-mode (class-toggle, not @media query)
+ * matching the rest of the app (theme-foundation.css / dark-mode.css).
+ *
+ * Token reference (design-tokens.css / dark-mode.css):
+ *   --color-primary        primary brand blue
+ *   --color-primary-dark   darker primary for hover
+ *   --bg-primary           page / card background
+ *   --bg-secondary         slightly elevated surface
+ *   --bg-tertiary          inputs, hover surfaces
+ *   --text-primary         main body text
+ *   --text-secondary       secondary / label text
+ *   --text-muted           muted / placeholder text
+ *   --border-primary       general border colour
+ *   --color-error          danger / red
+ *   --color-success        success / green
+ *   --color-info           info / teal
+ *   --color-warning        warning / amber
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VM Status Indicator
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 .vm-status-indicator {
     padding: 1rem;
 }
 
 .vm-status-indicator .status-icon {
+    font-size: 3rem;
     transition: transform 0.3s ease;
 }
 
@@ -12,7 +38,10 @@
     transform: scale(1.1);
 }
 
-/* Summary Metrics Cards */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Summary Metric Cards
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .metric-card {
     transition: transform 0.2s, box-shadow 0.2s;
 }
@@ -22,9 +51,26 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Filters Sidebar */
+/* Metric card number lines */
+.metric-card .metric-primary {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.metric-card .metric-sub {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Filters Sidebar
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .sticky-top {
     position: sticky;
+    top: 1rem;
     z-index: 100;
 }
 
@@ -45,133 +91,316 @@
 }
 
 .form-check-input:checked {
-    background-color: var(--primary);
-    border-color: var(--primary);
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
 }
 
-/* CVE Table */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CVE Table
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 #cve-table {
     font-size: 0.9rem;
 }
+
+/* Column widths — keeps the table stable as rows load */
+#cve-table th:nth-child(1) { width: 140px; }   /* CVE ID */
+#cve-table th:nth-child(2) { width: 100px; }   /* Severity */
+#cve-table th:nth-child(3) { width:  80px; }   /* CVSS */
+#cve-table th:nth-child(4) { width: 120px; }   /* Published */
+/* col 5 Description — fills remaining space */
+#cve-table th:nth-child(6) { width: 140px; }   /* Patch Status */
+#cve-table th:nth-child(7) { width: 120px; }   /* Actions */
 
 #cve-table tbody tr {
     transition: background-color 0.2s;
 }
 
 #cve-table tbody tr:hover {
-    background-color: var(--hover-bg);
+    background-color: var(--bg-tertiary);
+}
+
+html.dark-mode #cve-table tbody tr:hover {
+    background-color: var(--bg-tertiary);
 }
 
 .cve-row td {
     vertical-align: middle;
 }
 
-/* Severity Badges */
-.badge.bg-danger {
-    background-color: #dc3545 !important;
+/* ── text-bg-light badges (CVE IDs, KB IDs) in dark mode ── */
+html.dark-mode .badge.text-bg-light,
+html.dark-mode a.badge.text-bg-light {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-primary) !important;
 }
 
-.badge.bg-warning {
-    background-color: #ffc107 !important;
-    color: #000 !important;
-}
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sort Buttons
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-.badge.bg-info {
-    background-color: #0dcaf0 !important;
-    color: #000 !important;
-}
-
-.badge.bg-secondary {
-    background-color: #6c757d !important;
-}
-
-/* Sort Buttons */
 .sort-btn {
     transition: all 0.2s;
-}
-
-html.light-mode .sort-btn.btn-outline-secondary,
-html:not(.dark-mode) .sort-btn.btn-outline-secondary {
-    background-color: #ffffff;
-    border-color: #cbd5e1;
-    color: #334155;
-}
-
-html.light-mode .sort-btn.btn-outline-secondary:hover,
-html:not(.dark-mode) .sort-btn.btn-outline-secondary:hover {
-    background-color: #eff6ff;
-    border-color: #93c5fd;
-    color: #1d4ed8;
-}
-
-.sort-btn.active {
-    background-color: var(--primary);
-    color: white;
-    border-color: var(--primary);
+    background-color: var(--bg-primary);
+    border-color: var(--border-primary);
+    color: var(--text-secondary);
 }
 
 .sort-btn:hover:not(.active) {
-    background-color: var(--hover-bg);
+    background-color: var(--bg-tertiary);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
 }
 
-/* Empty States */
+.sort-btn.active {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Patch Inventory — CVE expand toggle
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.cve-expand-btn {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    line-height: 1;
+    color: var(--text-muted);
+}
+
+.cve-expand-btn:hover {
+    color: var(--color-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Patch Status Filter Pills
+   ───────────────────────────────────────────────────────────────────────────
+   All pill appearance lives here — no inline styles in HTML or JS.
+   Idle state: transparent bg, coloured border + text (works light & dark).
+   Active state: filled solid background, white text.
+   Count badge: opaque solid colour so number is always readable.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.patch-pill {
+    transition: all 0.2s;
+    border-width: 1px;
+    border-style: solid;
+    font-size: 0.8rem;
+}
+
+/* ── "All" pill ── */
+.patch-pill:not([class*="patch-pill-"]) {
+    border-color: var(--border-primary);
+    color: var(--text-secondary);
+    background-color: transparent;
+}
+
+.patch-pill:not([class*="patch-pill-"]):hover:not(.active) {
+    background-color: var(--bg-tertiary);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.patch-pill:not([class*="patch-pill-"]).active {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+/* ── Installed / Patched ── */
+.patch-pill-installed {
+    border-color: var(--color-info);
+    color: var(--color-info);
+    background-color: transparent;
+}
+
+.patch-pill-installed:hover:not(.active) {
+    background-color: rgba(8, 145, 178, 0.12);
+}
+
+.patch-pill-installed.active {
+    background-color: var(--color-info);
+    border-color: var(--color-info);
+    color: #fff;
+}
+
+/* ── Fix Available ── */
+.patch-pill-available {
+    border-color: var(--color-success);
+    color: var(--color-success);
+    background-color: transparent;
+}
+
+.patch-pill-available:hover:not(.active) {
+    background-color: rgba(25, 135, 84, 0.12);
+}
+
+.patch-pill-available.active {
+    background-color: var(--color-success);
+    border-color: var(--color-success);
+    color: #fff;
+}
+
+/* ── Not Patched ── */
+.patch-pill-unpatched {
+    border-color: var(--color-error);
+    color: var(--color-error);
+    background-color: transparent;
+}
+
+.patch-pill-unpatched:hover:not(.active) {
+    background-color: rgba(220, 53, 69, 0.12);
+}
+
+.patch-pill-unpatched.active {
+    background-color: var(--color-error);
+    border-color: var(--color-error);
+    color: #fff;
+}
+
+/* ── No Evidence ── */
+.patch-pill-none {
+    border-color: var(--border-primary);
+    color: var(--text-muted);
+    background-color: transparent;
+}
+
+.patch-pill-none:hover:not(.active) {
+    background-color: var(--bg-tertiary);
+}
+
+.patch-pill-none.active {
+    background-color: var(--text-muted);
+    border-color: var(--text-muted);
+    color: #fff;
+}
+
+/* ── Count badges — always opaque so numbers are readable ── */
+.patch-pill .patch-pill-count {
+    font-size: 0.72em;
+    font-weight: 600;
+    color: #fff !important;
+}
+
+.patch-pill:not([class*="patch-pill-"]) .patch-pill-count {
+    background-color: var(--color-primary) !important;
+}
+
+.patch-pill-installed .patch-pill-count {
+    background-color: var(--color-info) !important;
+}
+
+.patch-pill-available .patch-pill-count {
+    background-color: var(--color-success) !important;
+}
+
+.patch-pill-unpatched .patch-pill-count {
+    background-color: var(--color-error) !important;
+}
+
+.patch-pill-none .patch-pill-count {
+    background-color: var(--text-muted) !important;
+}
+
+/* Active: darken badge against filled pill background */
+.patch-pill.active .patch-pill-count {
+    background-color: rgba(0, 0, 0, 0.25) !important;
+    color: #fff !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Empty States
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .empty-state-icon {
+    font-size: 4rem;
     opacity: 0.3;
 }
 
-/* Scan Info Card */
+/* Page-level loading spinner */
+#page-loading .spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Misc Layout
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .card.border-info {
     border-width: 2px;
 }
 
-/* Export Button */
 #export-report-btn {
     min-width: 120px;
 }
 
-/* Pagination */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pagination
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .pagination {
     margin-bottom: 0;
 }
 
 .page-item.active .page-link {
-    background-color: var(--primary);
-    border-color: var(--primary);
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
 }
 
 .page-link {
-    color: var(--primary);
+    color: var(--color-primary);
+    background-color: var(--bg-primary);
+    border-color: var(--border-primary);
 }
 
 .page-link:hover {
-    color: var(--primary-dark);
-    background-color: var(--hover-bg);
+    color: var(--color-primary-dark);
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-primary);
 }
 
-/* Modals */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Modals
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .modal-content {
     border-radius: 0.5rem;
 }
 
 .modal-header {
-    border-bottom: 2px solid var(--border-color);
+    border-bottom: 2px solid var(--border-primary);
 }
 
 .modal-footer {
-    border-top: 2px solid var(--border-color);
+    border-top: 2px solid var(--border-primary);
 }
 
-/* Progress Bar */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Progress Bar
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#progressModal .progress {
+    height: 2rem;
+}
+
 .progress {
     border-radius: 0.5rem;
     overflow: hidden;
+    background-color: var(--bg-tertiary);
 }
 
 .progress-bar {
     transition: width 0.6s ease;
 }
 
-/* Responsive Adjustments */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @media (max-width: 992px) {
     .sticky-top {
         position: relative;
@@ -197,69 +426,21 @@ html:not(.dark-mode) .sort-btn.btn-outline-secondary:hover {
         padding: 0.25rem 0.5rem;
         font-size: 0.75rem;
     }
-
-    .summary-metrics .col-md-3 {
-        margin-bottom: 0.5rem;
-    }
 }
 
-/* Dark Mode */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --hover-bg: rgba(255, 255, 255, 0.05);
-        --border-color: rgba(255, 255, 255, 0.1);
-    }
+/* ═══════════════════════════════════════════════════════════════════════════
+   Page entrance animation
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-    .card {
-        background-color: #1e1e1e;
-        border-color: var(--border-color);
-    }
-
-    .table {
-        color: #e0e0e0;
-    }
-
-    .table-hover tbody tr:hover {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    .form-control,
-    .form-select,
-    .form-range {
-        background-color: #2a2a2a;
-        border-color: var(--border-color);
-        color: #e0e0e0;
-    }
-
-    .modal-content {
-        background-color: #1e1e1e;
-        color: #e0e0e0;
-    }
-
-    .page-link {
-        background-color: #2a2a2a;
-        border-color: var(--border-color);
-        color: #e0e0e0;
-    }
-
-    .page-item.active .page-link {
-        background-color: var(--primary);
-        border-color: var(--primary);
-        color: white;
-    }
-}
-
-/* Animation for loading states */
 @keyframes fadeIn {
     from { opacity: 0; }
-    to { opacity: 1; }
+    to   { opacity: 1; }
 }
 
 #main-content {
     animation: fadeIn 0.3s ease-in;
 }
 
-/* Tooltip styling */
 [title] {
     cursor: help;
 }

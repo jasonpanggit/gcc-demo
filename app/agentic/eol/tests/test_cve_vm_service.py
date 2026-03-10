@@ -597,6 +597,67 @@ async def test_enrich_cve_match_marks_cve_as_none_when_patch_checks_complete_wit
 
 
 @pytest.mark.asyncio
+async def test_enrich_cve_match_includes_fix_kb_ids_when_patch_status_is_none(vm_service, mock_patch_mapper):
+    """When a CVE has known KB numbers but none are installed/available, fix_kb_ids
+    should carry those KB IDs so the UI can show 'install these to fix'."""
+    match = CVEMatch(
+        cve_id="CVE-2018-8626",
+        vm_id="/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/testvm1",
+        vm_name="testvm1",
+        match_reason="OS Windows Server 2019 affected",
+        cvss_score=7.8,
+        severity="HIGH",
+        published_date="2018-11-14T01:29:01+00:00",
+    )
+    mock_patch_mapper.get_patches_for_cve.return_value = _PatchMapping(patches=[])
+    mock_patch_mapper.extract_cve_kb_numbers.return_value = {"KB4534273", "KB4534271"}
+    mock_patch_mapper.extract_cve_package_names.return_value = set()
+    vm_service._get_vm_patch_context = AsyncMock(return_value={
+        "installed_identifiers": set(),
+        "available_identifiers": set(),
+        "installed_patch_index": [],
+        "available_patch_index": [],
+        "software_inventory_checked": True,
+        "patch_assessment_checked": True,
+    })
+
+    detail = await vm_service._enrich_cve_match(match)
+
+    assert detail.patch_status == "none"
+    assert set(detail.fix_kb_ids) == {"KB4534273", "KB4534271"}
+
+
+@pytest.mark.asyncio
+async def test_enrich_cve_match_fix_kb_ids_empty_when_no_known_kbs(vm_service, mock_patch_mapper):
+    """When a CVE has no known KB numbers, fix_kb_ids should be empty."""
+    match = CVEMatch(
+        cve_id="CVE-2018-8626",
+        vm_id="/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/testvm1",
+        vm_name="testvm1",
+        match_reason="OS Windows Server 2019 affected",
+        cvss_score=7.8,
+        severity="HIGH",
+        published_date="2018-11-14T01:29:01+00:00",
+    )
+    mock_patch_mapper.get_patches_for_cve.return_value = _PatchMapping(patches=[])
+    mock_patch_mapper.extract_cve_kb_numbers.return_value = set()
+    mock_patch_mapper.extract_cve_package_names.return_value = set()
+    vm_service._get_vm_patch_context = AsyncMock(return_value={
+        "installed_identifiers": set(),
+        "available_identifiers": set(),
+        "installed_patch_index": [],
+        "available_patch_index": [],
+        "software_inventory_checked": True,
+        "patch_assessment_checked": True,
+    })
+
+    detail = await vm_service._enrich_cve_match(match)
+
+    assert detail.patch_status == "none"
+    assert detail.fix_kb_ids == []
+
+
+@pytest.mark.asyncio
 async def test_enrich_cve_match_keeps_unknown_when_patch_checks_fail(vm_service, mock_patch_mapper):
     match = CVEMatch(
         cve_id="CVE-2018-8626",

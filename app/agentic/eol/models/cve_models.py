@@ -202,7 +202,7 @@ class MsrcKbCveRecord(BaseModel):
     product_family: str       # "Windows" | "Azure" | "Mariner"
     severity: str = ""        # "Critical" | "Important" | ""
     release_number: str = ""  # "2025-Jan"
-    is_mariner: bool = False  # True = Azure Linux only, skip for Windows patch gap
+    is_mariner: bool = False  # True = Azure Linux only, skip for Windows-only KB handling
 
 
 # ============================================================================
@@ -386,6 +386,7 @@ class VMCVEDetail(BaseModel):
     installed_patches: int = 0  # Count of matching installed patches observed via inventory
     installed_patch_ids: List[str] = Field(default_factory=list)
     available_patch_ids: List[str] = Field(default_factory=list)
+    fix_kb_ids: List[str] = Field(default_factory=list)  # Known KBs that fix this CVE when patch_status='none'
 
 
 class VMPatchInventoryItem(BaseModel):
@@ -463,93 +464,6 @@ class CVEAffectedVMsResponse(BaseModel):
     affected_vms: List[AffectedVMDetail]
 
 
-# ============================================================================
-# Patch Gap Analysis Models
-# ============================================================================
-
-class PatchGapKBItem(BaseModel):
-    """One missing patch/advisory for a VM.
-
-    Windows: kb_number = "KB5034441", os_family = "windows"
-    Linux:   kb_number = "USN-6789-1" or "RHSA-2024:1234", os_family = "ubuntu"/"rhel"
-    """
-    kb_number: str                              # KB (Windows) or advisory ID (Linux)
-    advisory_id: str                            # Same as kb_number; explicit for UI
-    cve_ids: List[str] = Field(default_factory=list)
-    severity: Optional[str] = None
-    package_names: Optional[List[str]] = None  # Linux-only: packages not yet installed
-    os_family: Optional[str] = None            # "windows" | "rhel" | "ubuntu" | "centos"
-    highest_cvss: Optional[float] = None
-
-
-class PatchGapCVEItem(BaseModel):
-    """CVE entry in the patch gap view — used by fleet API aggregation."""
-    cve_id: str
-    severity: Optional[str] = None
-    cvss_score: Optional[float] = None
-    available_advisory_ids: List[str] = Field(default_factory=list)
-    vm_ids: List[str] = Field(default_factory=list)
-    vm_count: int = 0
-
-
-class PatchGapVMItem(BaseModel):
-    """VM summary row in the fleet patch gap view."""
-    vm_id: str
-    vm_name: str
-    os_type: str                    # "Windows" | "Linux"
-    os_family: Optional[str] = None # "windows" | "ubuntu" | "rhel" | "centos"
-    os_name: Optional[str] = None
-    location: Optional[str] = None
-    resource_group: Optional[str] = None
-    subscription_id: Optional[str] = None
-    unpatched_with_fix: int = 0     # CVEs that have an available patch/advisory
-    total_unpatched: int = 0
-    available_patches: int = 0      # distinct KBs/advisories available
-
-
-class PatchGapVMDoc(BaseModel):
-    """Per-VM pre-computed patch gap document stored in Cosmos cve_patch_gaps container."""
-    id: str                         # = vm_id (also partition key)
-    vm_id: str
-    vm_name: str
-    os_type: str                    # "Windows" | "Linux"
-    os_family: Optional[str] = None # "windows" | "ubuntu" | "rhel" | "centos"
-    os_name: Optional[str] = None
-    os_version: Optional[str] = None
-    location: Optional[str] = None
-    resource_group: Optional[str] = None
-    subscription_id: Optional[str] = None
-    scan_id: str
-    computed_at: str                # ISO datetime string
-    # KBs / advisories with CVE fixes not yet installed
-    available_kbs: List[PatchGapKBItem] = Field(default_factory=list)
-    # CVEs present with at least one fix advisory available
-    unpatched_cves: List[str] = Field(default_factory=list)
-    # Currently-installed KBs (Windows) or packages (Linux)
-    installed_identifiers: List[str] = Field(default_factory=list)
-    # Counters
-    total_available_advisories: int = 0
-    total_unpatched_cves: int = 0
-    critical_count: int = 0
-    high_count: int = 0
-
-
-class PatchGapFleetSummary(BaseModel):
-    """Singleton fleet-level summary doc, stored as _fleet_summary in cve_patch_gaps."""
-    id: str = "_fleet_summary"
-    computed_at: str
-    total_vms: int = 0
-    vms_with_gaps: int = 0
-    total_outstanding_advisories: int = 0
-    total_unpatched_cves: int = 0
-    critical_cve_count: int = 0
-    stale_vm_count: int = 0
-    # Aggregated views
-    by_kb: List[PatchGapKBItem] = Field(default_factory=list)
-    by_cve: List[PatchGapCVEItem] = Field(default_factory=list)
-    by_vm: List[PatchGapVMItem] = Field(default_factory=list)
-
-
 # Export all models
 __all__ = [
     "CVSSScore",
@@ -577,9 +491,4 @@ __all__ = [
     "VMVulnerabilityResponse",
     "AffectedVMDetail",
     "CVEAffectedVMsResponse",
-    "PatchGapKBItem",
-    "PatchGapCVEItem",
-    "PatchGapVMItem",
-    "PatchGapVMDoc",
-    "PatchGapFleetSummary",
 ]

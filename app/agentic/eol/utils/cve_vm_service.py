@@ -1102,8 +1102,27 @@ class CVEVMService:
         if cached is not None:
             return cached
 
-        installed_identifiers, software_inventory_checked, installed_patches = await self._get_installed_patch_identifiers(match.vm_name)
-        available_identifiers, patch_assessment_checked, available_patches = await self._get_available_patch_identifiers(match)
+        # PERFORMANCE: Add timeout to patch context fetching to prevent request-level timeouts
+        try:
+            installed_task = self._get_installed_patch_identifiers(match.vm_name)
+            available_task = self._get_available_patch_identifiers(match)
+
+            # Set aggressive timeout - if patch data takes >10s, skip it
+            installed_identifiers, software_inventory_checked, installed_patches = await asyncio.wait_for(
+                installed_task, timeout=10.0
+            )
+            available_identifiers, patch_assessment_checked, available_patches = await asyncio.wait_for(
+                available_task, timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Patch context fetch timed out for {match.vm_name} - using empty patch data")
+            installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
+            available_identifiers, patch_assessment_checked, available_patches = set(), False, []
+        except Exception as e:
+            logger.warning(f"Patch context fetch failed for {match.vm_name}: {e} - using empty patch data")
+            installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
+            available_identifiers, patch_assessment_checked, available_patches = set(), False, []
+
         installed_patch_entries, installed_patch_index = await self._build_patch_inventory_entries(installed_patches, "installed")
         available_patch_entries, available_patch_index = await self._build_patch_inventory_entries(available_patches, "available")
         patch_derived_cve_ids = sorted({

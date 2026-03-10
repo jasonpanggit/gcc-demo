@@ -195,7 +195,8 @@ class CVEScanner:
         scan_repository: CVEScanRepository,
         subscription_id: str,
         max_vms: int = 1000,
-        scan_timeout_minutes: int = 30
+        scan_timeout_minutes: int = 30,
+        vm_scan_concurrency: int = 6,
     ):
         self.cve_service = cve_service
         self.resource_graph_client = resource_graph_client
@@ -203,10 +204,11 @@ class CVEScanner:
         self.subscription_id = subscription_id
         self.max_vms = max_vms
         self.scan_timeout_minutes = scan_timeout_minutes
+        self.vm_scan_concurrency = max(1, vm_scan_concurrency)
+        self._vm_scan_semaphore = asyncio.Semaphore(self.vm_scan_concurrency)
         self._active_scans: Dict[str, asyncio.Task] = {}
         self._scan_status_cache: Dict[str, Dict[str, Any]] = {}
         self.linux_advisory_sync = None   # LinuxAdvisorySyncService, injected in main.py
-        self.patch_gap_compute_service = None  # PatchGapComputeService, injected in main.py
         self.on_scan_complete_hooks: List[Any] = []  # extensible hook registry
         logger.info("CVEScanner initialized")
 
@@ -361,35 +363,34 @@ class CVEScanner:
             all_matches = []
             vm_match_summaries: Dict[str, Dict[str, Any]] = {}
             progress_update_interval = self._get_progress_update_interval(len(vms))
-            for i, vm in enumerate(vms):
+            tasks = [
+                asyncio.create_task(self._scan_single_vm(vm, request.cve_filters))
+                for vm in vms
+            ]
+            completed_vms = 0
+            for task in asyncio.as_completed(tasks):
                 try:
-                    matches = await self._match_cves_to_vm(vm, request.cve_filters)
+                    vm, matches, os_family = await task
                     all_matches.extend(matches)
                     vm_match_summaries[vm.vm_id.lower()] = self._build_vm_match_summary(vm, matches)
-
-                    # Per-VM OS family + package enrichment
-                    os_family = self._get_os_family(vm.os_name)
                     scan_result.vm_os_family[vm.vm_id] = os_family
 
-                    if vm.os_type == "Windows":
-                        pass  # KB extraction handled by cve_patch_mapper / kb_cve_edge_repo
-                    elif vm.os_type == "Linux":
-                        packages = await self._extract_packages(vm.vm_id, vm.subscription_id, os_family)
-                        scan_result.vm_installed_packages[vm.vm_id] = packages
-
-                    # Keep small scans responsive while limiting write frequency for larger scans.
-                    if (i + 1) % progress_update_interval == 0 or (i + 1) == len(vms):
-                        scan_result.scanned_vms = i + 1
-                        scan_result.total_matches = len(all_matches)
-                        scan_result.matches = all_matches[:1000]  # Limit to avoid doc size
-                        scan_result.vm_match_summaries = vm_match_summaries
-                        await self.scan_repository.save(scan_result)
-                        self._cache_status_summary(scan_result)
-                        logger.info(f"Scan {scan_id}: Progress {i + 1}/{len(vms)}, {len(all_matches)} matches")
-
+                    if vm.os_type == "Linux":
+                        scan_result.vm_installed_packages[vm.vm_id] = list(vm.installed_packages)
                 except Exception as e:
-                    logger.error(f"Scan {scan_id}: Error scanning VM {vm.name}: {e}")
-                    continue
+                    logger.error(f"Scan {scan_id}: Error scanning VM: {e}")
+                finally:
+                    completed_vms += 1
+
+                # Keep small scans responsive while limiting write frequency for larger scans.
+                if completed_vms % progress_update_interval == 0 or completed_vms == len(vms):
+                    scan_result.scanned_vms = completed_vms
+                    scan_result.total_matches = len(all_matches)
+                    scan_result.matches = all_matches[:1000]  # Limit to avoid doc size
+                    scan_result.vm_match_summaries = vm_match_summaries
+                    await self.scan_repository.save(scan_result)
+                    self._cache_status_summary(scan_result)
+                    logger.info(f"Scan {scan_id}: Progress {completed_vms}/{len(vms)}, {len(all_matches)} matches")
 
             # Mark scan complete
             scan_result.status = "completed"
@@ -412,14 +413,6 @@ class CVEScanner:
                 asyncio.create_task(
                     self._supervised_task(
                         self.linux_advisory_sync.sync_for_scan_result(scan_result)
-                    )
-                )
-
-            # Patch gap compute hook
-            if self.patch_gap_compute_service is not None:
-                asyncio.create_task(
-                    self._supervised_task(
-                        self.patch_gap_compute_service.compute_and_store(scan_result)
                     )
                 )
 
@@ -448,6 +441,17 @@ class CVEScanner:
             await coro
         except Exception as e:
             logger.error("Supervised background task failed: %s", e, exc_info=True)
+
+    async def _scan_single_vm(
+        self,
+        vm: VMScanTarget,
+        cve_filters: Optional[Dict[str, Any]] = None,
+    ) -> tuple[VMScanTarget, List[CVEMatch], str]:
+        """Scan one VM with bounded concurrency and return the computed data."""
+        async with self._vm_scan_semaphore:
+            matches = await self._match_cves_to_vm(vm, cve_filters)
+            os_family = self._get_os_family(vm.os_name)
+            return vm, matches, os_family
 
     async def _discover_vms(
         self,
@@ -499,14 +503,18 @@ class CVEScanner:
             )
 
             # Parse VM data
-            vms = []
-            for vm_data in response.data:
-                try:
-                    vm = await self._extract_vm_details(vm_data)
-                    vms.append(vm)
-                except Exception as e:
-                    logger.error(f"Failed to parse VM {vm_data.get('name', 'unknown')}: {e}")
-                    continue
+            semaphore = asyncio.Semaphore(self.vm_scan_concurrency)
+
+            async def _extract_one(vm_data: Dict[str, Any]) -> Optional[VMScanTarget]:
+                async with semaphore:
+                    try:
+                        return await self._extract_vm_details(vm_data)
+                    except Exception as e:
+                        logger.error(f"Failed to parse VM {vm_data.get('name', 'unknown')}: {e}")
+                        return None
+
+            extracted_vms = await asyncio.gather(*[_extract_one(vm_data) for vm_data in response.data])
+            vms = [vm for vm in extracted_vms if vm is not None]
 
             logger.info(f"Discovered {len(vms)} VMs from Resource Graph")
             return vms[:self.max_vms]  # Enforce limit

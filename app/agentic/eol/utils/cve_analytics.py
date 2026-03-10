@@ -17,12 +17,14 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 
 try:
+    from utils.cve_id_utils import is_valid_cve_id
     from utils.cve_scanner import CVEScanner
     from utils.cve_service import CVEService
     from utils.cve_patch_mapper import CVEPatchMapper
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
+    from app.agentic.eol.utils.cve_id_utils import is_valid_cve_id
     from app.agentic.eol.utils.cve_scanner import CVEScanner
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.cve_patch_mapper import CVEPatchMapper
@@ -67,7 +69,7 @@ class CVEAnalytics:
             return published_date
 
         cve_id = match.get("cve_id")
-        if not cve_id:
+        if not cve_id or not is_valid_cve_id(cve_id):
             return None
 
         cve = await self.cve_service.get_cve(cve_id)

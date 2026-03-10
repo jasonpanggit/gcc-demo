@@ -265,3 +265,49 @@ async def test_execute_scan_updates_progress_for_small_scans():
     assert progress_states, "expected intermediate running progress saves"
     assert progress_states[0] == ("running", 1, 8)
     assert progress_states[-1] == ("running", 8, 8)
+
+
+@pytest.mark.asyncio
+async def test_execute_scan_reuses_discovered_linux_packages():
+    repository = AsyncMock()
+    initial_scan = ScanResult(
+        scan_id="scan-linux",
+        started_at="2026-03-10T00:00:00+00:00",
+        status="pending",
+        total_vms=0,
+        scanned_vms=0,
+        total_matches=0,
+        matches=[],
+    )
+    repository.get = AsyncMock(return_value=initial_scan)
+    repository.save = AsyncMock()
+
+    scanner = CVEScanner(
+        cve_service=AsyncMock(),
+        resource_graph_client=MagicMock(),
+        scan_repository=repository,
+        subscription_id="sub-123",
+        vm_scan_concurrency=2,
+    )
+    linux_vm = VMScanTarget(
+        vm_id="vm-linux-1",
+        name="vm-linux-1",
+        resource_group="rg",
+        subscription_id="sub-123",
+        os_type="Linux",
+        os_name="Ubuntu",
+        os_version="22.04",
+        installed_packages=["openssl", "curl"],
+        tags={},
+        location="eastus",
+        vm_type="azure",
+    )
+    scanner._discover_vms = AsyncMock(return_value=[linux_vm])
+    scanner._match_cves_to_vm = AsyncMock(return_value=[])
+    scanner._extract_packages = AsyncMock(side_effect=AssertionError("scan should reuse discovered packages"))
+
+    await scanner._execute_scan("scan-linux", CVEScanRequest(subscription_ids=["sub-123"], include_arc=True))
+
+    saved_scan = repository.save.await_args_list[-1].args[0]
+    assert saved_scan.vm_installed_packages["vm-linux-1"] == ["openssl", "curl"]
+    scanner._extract_packages.assert_not_awaited()

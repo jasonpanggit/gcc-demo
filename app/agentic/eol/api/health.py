@@ -402,7 +402,8 @@ async def cve_scanner_health_check() -> Dict[str, Any]:
             "resource_graph_accessible": resource_graph_accessible,
             "scan_container_exists": True,  # Verified at startup
             "max_vms_per_scan": config.cve_scanner.max_vms_per_scan,
-            "scan_timeout_minutes": config.cve_scanner.scan_timeout_minutes
+            "scan_timeout_minutes": config.cve_scanner.scan_timeout_minutes,
+            "vm_scan_concurrency": config.cve_scanner.vm_scan_concurrency,
         }
 
     except Exception as e:

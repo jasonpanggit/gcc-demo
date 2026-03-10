@@ -36,6 +36,12 @@ async def _get_cve_scanner():
     return await get_cve_scanner()
 
 
+async def _get_scan_repository():
+    """Lazy import of the lightweight scan repository for polling endpoints."""
+    from main import get_cve_scan_repository
+    return await get_cve_scan_repository()
+
+
 @router.post("/cve/scan", response_model=StandardResponse)
 @write_endpoint(agent_name="cve_scan_trigger", timeout_seconds=10)
 async def trigger_cve_scan(request: Request):
@@ -85,7 +91,7 @@ async def trigger_cve_scan(request: Request):
 
 
 @router.get("/cve/scan/{scan_id}/status", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_scan_status", timeout_seconds=5)
+@readonly_endpoint(agent_name="cve_scan_status", timeout_seconds=15)
 async def get_scan_status(scan_id: str):
     """Get CVE scan status and progress.
 
@@ -99,8 +105,8 @@ async def get_scan_status(scan_id: str):
         HTTPException: If scan not found
     """
     try:
-        scanner = await _get_cve_scanner()
-        result = await scanner.get_scan_status_summary(scan_id)
+        repository = await _get_scan_repository()
+        result = await repository.get_status_summary(scan_id)
 
         if not result:
             raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
@@ -136,7 +142,7 @@ async def get_scan_status(scan_id: str):
 
 
 @router.get("/cve/scan/recent", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_scan_list", timeout_seconds=5)
+@readonly_endpoint(agent_name="cve_scan_list", timeout_seconds=15)
 async def list_recent_scans(limit: int = Query(default=10, le=100, ge=1)):
     """List recent CVE scans.
 
@@ -147,13 +153,13 @@ async def list_recent_scans(limit: int = Query(default=10, le=100, ge=1)):
         StandardResponse with list of recent scans
     """
     try:
-        scanner = await _get_cve_scanner()
-        scans = await scanner.list_recent_scans(limit=limit)
+        repository = await _get_scan_repository()
+        scans = await repository.list_status_summaries(limit=limit)
 
         return StandardResponse(
             success=True,
             data={
-                "scans": [scan.dict(exclude={"matches", "vm_match_summaries"}) for scan in scans],
+                "scans": list(scans),
                 "count": len(scans)
             },
             message="Recent CVE scans retrieved"
@@ -179,8 +185,8 @@ async def delete_scan(scan_id: str):
         HTTPException: If scan not found
     """
     try:
-        scanner = await _get_cve_scanner()
-        deleted = await scanner.delete_scan(scan_id)
+        repository = await _get_scan_repository()
+        deleted = await repository.delete(scan_id)
 
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
