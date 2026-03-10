@@ -315,6 +315,23 @@ class ScanResult(BaseModel):
     truncated: bool = False
     total_matches_before_truncation: Optional[int] = None
     error: Optional[str] = None
+    # NEW: True when per-VM match docs are stored separately (new storage format)
+    matches_stored_separately: bool = False
+
+
+class VMCVEMatchDocument(BaseModel):
+    """Per-VM CVE match document stored separately in Cosmos DB.
+
+    Document ID format: "{scan_id}--{vm_name_suffix}"
+    Partition key: scan_id (same partition as main scan document)
+    """
+    id: str           # "{scan_id}--{vm_name_suffix}"
+    scan_id: str      # Partition key
+    vm_id: str
+    vm_name: str
+    total_matches: int
+    matches: List[CVEMatch]   # Lightweight CVEMatch objects
+    created_at: str
 
 
 class CVEScanRequest(BaseModel):
@@ -480,6 +497,7 @@ __all__ = [
     "VMScanTarget",
     "CVEMatch",
     "ScanResult",
+    "VMCVEMatchDocument",
     "CVEScanRequest",
     "CVEScanStatusResponse",
     "ApplicablePatch",
