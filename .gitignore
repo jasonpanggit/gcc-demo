@@ -122,4 +122,7 @@ tasks/
 .firecrawl/**
 
 # errors
-errors/** 
+errors/**
+
+# git worktrees
+.worktrees/ 
