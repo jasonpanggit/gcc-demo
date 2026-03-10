@@ -640,6 +640,7 @@ _cve_scanner = None
 _cve_scan_repository = None
 _cve_patch_mapper = None
 _cve_vm_service = None
+_vm_cve_match_repository = None
 _cve_analytics = None
 _cve_monitoring_scheduler = None
 _cve_mcp_client = None
@@ -724,6 +725,7 @@ async def get_cve_scanner():
         from utils.cve_scanner import CVEScanner
 
         scan_repository = await get_cve_scan_repository()
+        vm_match_repository = await get_vm_cve_match_repository()
 
         # Create Resource Graph client
         credential = DefaultAzureCredential()
@@ -734,6 +736,7 @@ async def get_cve_scanner():
             cve_service=await get_cve_service(),
             resource_graph_client=resource_graph_client,
             scan_repository=scan_repository,
+            vm_match_repository=vm_match_repository,
             subscription_id=config.azure.subscription_id,
             max_vms=config.cve_scanner.max_vms_per_scan,
             scan_timeout_minutes=config.cve_scanner.scan_timeout_minutes,
@@ -760,6 +763,24 @@ async def get_cve_scan_repository():
         logger.info("✅ CVE scan repository singleton initialized")
 
     return _cve_scan_repository
+
+
+async def get_vm_cve_match_repository():
+    """Get or create VM CVE match repository singleton."""
+    global _vm_cve_match_repository
+    if _vm_cve_match_repository is None:
+        from utils.vm_cve_match_repository import VMCVEMatchRepository
+        from utils.cosmos_cache import base_cosmos
+
+        _vm_cve_match_repository = VMCVEMatchRepository(
+            cosmos_client=base_cosmos.cosmos_client,
+            database_name=config.azure.cosmos_database,
+            container_name=config.cve_scanner.cosmos_scan_container_name,
+        )
+        await _vm_cve_match_repository.initialize()
+        logger.info("✅ VM CVE match repository singleton initialized")
+
+    return _vm_cve_match_repository
 
 
 async def get_cve_patch_mapper():
@@ -817,6 +838,7 @@ async def get_cve_vm_service():
         from utils.cve_vm_service import CVEVMService
 
         # Create CVE VM service
+        # TODO: wire into CVEVMService in Task 6
         _cve_vm_service = CVEVMService(
             cve_service=await get_cve_service(),
             patch_mapper=await get_cve_patch_mapper(),
