@@ -373,12 +373,26 @@ async def query_patch_assessments(
     vm_type: Annotated[str, "'arc' or 'azure-vm'"] = "arc",
 ) -> Dict[str, Any]:
     """
-    Query Azure Resource Graph for historical patch assessment data.
+    Query Azure Resource Graph for historical patch assessment data with Cosmos DB caching.
 
     Returns stored assessment summaries and patch lists without triggering new assessments.
     Use this to check last-known patch status before deciding to trigger a live assessment.
+
+    PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
     """
     try:
+        # Try Cosmos cache first if machine_name is specified
+        if machine_name:
+            try:
+                from utils.patch_assessment_repository import get_patch_assessment_repository
+                repo = await get_patch_assessment_repository()
+                cached = await repo.get_assessment(subscription_id, machine_name, vm_type)
+                if cached:
+                    logger.info(f"Returning cached patch assessment for {machine_name}")
+                    return cached
+            except Exception as cache_err:
+                logger.debug(f"Cache lookup failed, falling back to ARG: {cache_err}")
+
         resolved_vm_type = _resolve_vm_type(None, vm_type)
 
         if resolved_vm_type == "azure-vm":
@@ -475,12 +489,24 @@ patchassessmentresources
                 },
             })
 
-        return {
+        result = {
             "success": True,
             "data": machines,
             "count": len(machines),
             "total_patches": sum(len(m["patches"]["available_patches"]) for m in machines),
         }
+
+        # Cache the result if machine_name was specified
+        if machine_name and machines:
+            try:
+                from utils.patch_assessment_repository import get_patch_assessment_repository
+                repo = await get_patch_assessment_repository()
+                await repo.store_assessment(subscription_id, machine_name, vm_type, result)
+                logger.info(f"Cached patch assessment for {machine_name}")
+            except Exception as cache_err:
+                logger.debug(f"Failed to cache assessment: {cache_err}")
+
+        return result
     except Exception as exc:
         logger.error("query_patch_assessments failed: %s", exc)
         return {"success": False, "error": str(exc), "data": []}
