@@ -193,7 +193,8 @@ class CVEScanner:
         cve_service: CVEService,
         resource_graph_client: ResourceGraphClient,
         scan_repository: CVEScanRepository,
-        subscription_id: str,
+        vm_match_repository=None,
+        subscription_id: str = "",
         max_vms: int = 1000,
         scan_timeout_minutes: int = 30,
         vm_scan_concurrency: int = 6,
@@ -201,6 +202,7 @@ class CVEScanner:
         self.cve_service = cve_service
         self.resource_graph_client = resource_graph_client
         self.scan_repository = scan_repository
+        self.vm_match_repository = vm_match_repository
         self.subscription_id = subscription_id
         self.max_vms = max_vms
         self.scan_timeout_minutes = scan_timeout_minutes
@@ -377,6 +379,20 @@ class CVEScanner:
 
                     if vm.os_type == "Linux":
                         scan_result.vm_installed_packages[vm.vm_id] = list(vm.installed_packages)
+
+                    # Save per-VM match document (new storage format)
+                    if self.vm_match_repository is not None and matches:
+                        try:
+                            await self.vm_match_repository.save_vm_matches(
+                                scan_id=scan_id,
+                                vm_id=vm.vm_id,
+                                vm_name=vm.name,
+                                matches=matches,
+                            )
+                        except Exception as save_err:
+                            logger.error(f"Failed to save VM match doc for {vm.name}: {save_err}")
+                            # Continue — don't fail entire scan on one VM save failure
+
                 except Exception as e:
                     logger.error(f"Scan {scan_id}: Error scanning VM: {e}")
                 finally:
@@ -386,7 +402,8 @@ class CVEScanner:
                 if completed_vms % progress_update_interval == 0 or completed_vms == len(vms):
                     scan_result.scanned_vms = completed_vms
                     scan_result.total_matches = len(all_matches)
-                    scan_result.matches = all_matches[:1000]  # Limit to avoid doc size
+                    scan_result.matches = []
+                    scan_result.matches_stored_separately = True
                     scan_result.vm_match_summaries = vm_match_summaries
                     await self.scan_repository.save(scan_result)
                     self._cache_status_summary(scan_result)
@@ -397,7 +414,8 @@ class CVEScanner:
             scan_result.completed_at = datetime.now(timezone.utc).isoformat()
             scan_result.scanned_vms = len(vms)
             scan_result.total_matches = len(all_matches)
-            scan_result.matches = all_matches[:1000]  # Limit stored matches
+            scan_result.matches = []
+            scan_result.matches_stored_separately = True
             scan_result.vm_match_summaries = vm_match_summaries
             await self.scan_repository.save(scan_result)
             self._cache_status_summary(scan_result)
