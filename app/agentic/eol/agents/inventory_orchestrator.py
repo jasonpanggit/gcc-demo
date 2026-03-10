@@ -1216,6 +1216,7 @@ Guidelines:
             "windows_count": os_summary.get("windows_count"),
             "linux_count": os_summary.get("linux_count"),
             "top_versions": os_summary.get("top_versions", [])[:5],
+            "version_breakdown": os_summary.get("version_breakdown", []),
             "azure_vm_count": os_summary.get("azure_vm_count", 0),
             "arc_count": os_summary.get("arc_count", 0),
         }
@@ -1962,16 +1963,45 @@ Guidelines:
             "</p>"
         )
 
+        version_breakdown = (
+            os_summary.get("version_breakdown")
+            if isinstance(os_summary.get("version_breakdown"), list)
+            else []
+        )
         top_versions = os_summary.get("top_versions") if isinstance(os_summary.get("top_versions"), list) else []
-        if top_versions:
+        version_rows_source = version_breakdown or top_versions
+        if version_rows_source:
+            display_variants = version_rows_source
+            remaining_systems = 0
+            remaining_variants = 0
+
+            if len(version_rows_source) > 10:
+                display_variants = version_rows_source[:10]
+                remaining_variants = len(version_rows_source) - len(display_variants)
+                remaining_systems = max(
+                    total_computers - sum(int(item.get("count", 0) or 0) for item in display_variants),
+                    0,
+                )
+
             version_rows = [
                 [item.get("name_version", "Unknown"), str(item.get("count", 0))]
-                for item in top_versions[:5]
+                for item in display_variants
             ]
+            if remaining_systems > 0:
+                label = "Other operating system variants"
+                if remaining_variants > 0:
+                    label = f"Other operating system variants ({remaining_variants})"
+                version_rows.append([label, str(remaining_systems)])
+
+            variant_count = len(version_rows_source)
+            footnote = f"Showing {len(display_variants)} of {variant_count} operating system variants."
+            if remaining_systems <= 0 and len(display_variants) == variant_count:
+                footnote = f"Showing all {variant_count} operating system variants."
+
             table = self._render_html_table(
                 ["Operating system", "Count"],
                 version_rows,
-                footnote=f"Showing top {min(len(top_versions), 5)} operating system variants.",
+                footnote=footnote,
                 highlight_first_column=True,
             )
             if table:
@@ -2418,11 +2448,39 @@ Guidelines:
             item for item in raw_os_data if isinstance(item, dict)
         ] if isinstance(raw_os_data, list) else []
         merged_records: List[Dict[str, Any]] = [
-            dict(item) for item in os_data_list if isinstance(item, dict)
+            self._normalize_os_inventory_record(dict(item))
+            for item in os_data_list
+            if isinstance(item, dict)
         ]
         merged_records = await self._merge_azure_vm_os_inventory(merged_records)
         from_cache = bool(os_inventory_result.get("from_cache")) if isinstance(os_inventory_result, dict) else False
         return merged_records, from_cache
+
+    def _normalize_os_inventory_record(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(item, dict):
+            return item
+
+        from utils.normalization import normalize_os_record
+
+        existing_normalized_name = str(item.get("normalized_os_name") or "").strip().lower() or None
+        existing_normalized_version = str(item.get("normalized_os_version") or "").strip().lower() or None
+
+        normalized = normalize_os_record(
+            item.get("os_name") or item.get("name"),
+            item.get("os_version") or item.get("version"),
+            item.get("os_type"),
+        )
+
+        item.setdefault("raw_os_name", normalized.get("raw_os_name"))
+        item.setdefault("raw_os_version", normalized.get("raw_os_version"))
+        item["os_name"] = normalized["os_name"]
+        item["name"] = normalized["os_name"]
+        item["os_version"] = normalized.get("os_version")
+        item["version"] = normalized.get("os_version")
+        item["normalized_os_name"] = existing_normalized_name or normalized.get("normalized_os_name")
+        item["normalized_os_version"] = existing_normalized_version or normalized.get("normalized_os_version")
+        item["os_type"] = normalized.get("os_type") or item.get("os_type")
+        return item
 
     async def _merge_azure_vm_os_inventory(self, os_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not isinstance(os_items, list):
@@ -2430,6 +2488,7 @@ Guidelines:
 
         try:
             from utils.resource_inventory_client import get_resource_inventory_client
+            from utils.normalization import normalize_os_record
 
             inv_client = get_resource_inventory_client()
             azure_vms = await inv_client.get_resources(
@@ -2458,19 +2517,25 @@ Guidelines:
                 if not vm_name or vm_name.lower() in existing_computer_names:
                     continue
 
-                os_name = selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown"
-                match = re.search(r"\b(20\d{2}|19\d{2})\b", str(os_name))
-                inferred_version = match.group(1) if match else ""
+                normalized_os = normalize_os_record(
+                    selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown",
+                    vm.get("os_version"),
+                    selected.get("os_type") or vm.get("os_type"),
+                )
 
                 os_items.append(
                     {
                         "computer_name": vm_name,
                         "computer": vm_name,
-                        "os_name": os_name,
-                        "name": os_name,
-                        "os_version": vm.get("os_version") or inferred_version,
-                        "version": vm.get("os_version") or inferred_version,
-                        "os_type": selected.get("os_type") or vm.get("os_type") or "Unknown",
+                        "os_name": normalized_os["os_name"],
+                        "name": normalized_os["os_name"],
+                        "os_version": normalized_os.get("os_version"),
+                        "version": normalized_os.get("os_version"),
+                        "os_type": normalized_os.get("os_type") or "Unknown",
+                        "raw_os_name": normalized_os.get("raw_os_name"),
+                        "raw_os_version": normalized_os.get("raw_os_version"),
+                        "normalized_os_name": normalized_os.get("normalized_os_name"),
+                        "normalized_os_version": normalized_os.get("normalized_os_version"),
                         "vendor": "Unknown",
                         "computer_environment": "Azure",
                         "computer_type": "Azure VM",
@@ -2496,6 +2561,7 @@ Guidelines:
                 "windows_count": 0,
                 "linux_count": 0,
                 "top_versions": [],
+                "version_breakdown": [],
                 "azure_vm_count": 0,
                 "arc_count": 0,
             }
@@ -2505,9 +2571,10 @@ Guidelines:
         linux_count = 0
         azure_vm_count = 0
         arc_count = 0
-        version_counts: Dict[str, int] = {}
+        version_counts: Dict[str, Dict[str, Any]] = {}
 
         for item in records:
+            item = self._normalize_os_inventory_record(item)
             identifier = (
                 str(item.get("resource_id") or item.get("resourceId") or "").strip().lower()
                 or str(item.get("computer") or item.get("computer_name") or "").strip().lower()
@@ -2523,27 +2590,49 @@ Guidelines:
             elif vm_type == "arc" or "arc-enabled" in computer_type:
                 arc_count += 1
 
-            os_type = str(item.get("os_type") or item.get("os_name") or item.get("name") or "").lower()
-            if "windows" in os_type:
+            normalized_os_name = str(item.get("normalized_os_name") or "").strip().lower()
+            os_type = str(item.get("os_type") or item.get("os_name") or item.get("name") or "").strip().lower()
+            if "windows" in normalized_os_name or "windows" in os_type:
                 windows_count += 1
-            elif os_type:
+            elif normalized_os_name or os_type:
                 linux_count += 1
 
             name = str(item.get("os_name") or item.get("name") or "Unknown").strip() or "Unknown"
             version = str(item.get("os_version") or item.get("version") or "").strip()
+            normalized_name = str(item.get("normalized_os_name") or "").strip().lower() or name.lower()
+            normalized_version = str(item.get("normalized_os_version") or "").strip().lower() or version.lower()
             name_version = f"{name} {version}".strip()
-            version_counts[name_version] = version_counts.get(name_version, 0) + 1
+            aggregate_key = f"{normalized_name}::{normalized_version}"
+            aggregate = version_counts.setdefault(
+                aggregate_key,
+                {
+                    "name_version": name_version,
+                    "count": 0,
+                },
+            )
+            aggregate["count"] += 1
 
-        top_versions = [
-            {"name_version": name_version, "count": count}
-            for name_version, count in sorted(version_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+        sorted_versions = [
+            {
+                "name_version": str(data.get("name_version") or "Unknown"),
+                "count": int(data.get("count") or 0),
+                "normalized_key": aggregate_key,
+            }
+            for aggregate_key, data in sorted(
+                version_counts.items(),
+                key=lambda item: (
+                    -int(item[1].get("count") or 0),
+                    str(item[1].get("name_version") or "").lower(),
+                ),
+            )
         ]
 
         return {
             "total_computers": len(unique_ids),
             "windows_count": windows_count,
             "linux_count": linux_count,
-            "top_versions": top_versions,
+            "top_versions": sorted_versions[:5],
+            "version_breakdown": sorted_versions,
             "azure_vm_count": azure_vm_count,
             "arc_count": arc_count,
         }

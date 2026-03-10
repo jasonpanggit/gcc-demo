@@ -77,7 +77,7 @@ _ENTRIES: List[DomainRegistryEntry] = [
     ),
     DomainRegistryEntry(
         domain=UnifiedDomain.SRE_COST_SECURITY,
-        sources=frozenset({"sre"}),
+        sources=frozenset({"sre", "cve"}),
         max_tools=11,
         sub_agent_class_path="app.agentic.eol.agents.cost_optimization_agent.CostOptimizationAgent",
         notes="Cost analysis, Defender alerts, compliance checks. "
@@ -107,7 +107,7 @@ _ENTRIES: List[DomainRegistryEntry] = [
     ),
     DomainRegistryEntry(
         domain=UnifiedDomain.ARC_INVENTORY,
-        sources=frozenset({"inventory", "os_eol"}),
+        sources=frozenset({"inventory", "os_eol", "cve"}),
         max_tools=9,
         sub_agent_class_path=None,  # Simple tools, direct execution
         notes="Arc server OS/software inventory and EOL lookups.",
@@ -137,7 +137,7 @@ _ENTRIES: List[DomainRegistryEntry] = [
     ),
     DomainRegistryEntry(
         domain=UnifiedDomain.GENERAL,
-        sources=frozenset({"azure", "sre", "monitor", "inventory", "os_eol", "azure_cli", "compute", "storage"}),
+        sources=frozenset({"azure", "sre", "monitor", "inventory", "os_eol", "azure_cli", "compute", "storage", "cve"}),
         max_tools=32,  # Fallback: broad coverage
         sub_agent_class_path=None,
         notes="Fallback domain when no specific domain matches.",
