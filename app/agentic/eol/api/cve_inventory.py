@@ -9,6 +9,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,6 +27,11 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Inventory"])
 
+# Simple in-memory cache for VM metadata lookups
+_vm_metadata_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
+_VM_CACHE_TTL_SECONDS = 60  # 1 minute TTL
+
+
 
 async def _get_cve_vm_service():
     """Lazy import to avoid circular dependency."""
@@ -34,7 +40,7 @@ async def _get_cve_vm_service():
 
 
 async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, Any]]:
-    """Fetch single VM metadata without scanning entire inventory.
+    """Fetch single VM metadata with caching and optimized queries.
 
     Args:
         vm_id: The resource ID of the VM to fetch
@@ -43,12 +49,21 @@ async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, A
     Returns:
         Machine metadata dict if found, None otherwise
     """
+    global _vm_metadata_cache
+
+    # Check cache first
+    vm_id_lower = vm_id.lower()
+    if vm_id_lower in _vm_metadata_cache:
+        cached_data, cached_time = _vm_metadata_cache[vm_id_lower]
+        age = (datetime.utcnow() - cached_time).total_seconds()
+        if age < _VM_CACHE_TTL_SECONDS:
+            logger.debug(f"VM metadata cache hit for {vm_id} (age: {age:.1f}s)")
+            return cached_data
+
     try:
         from main import get_eol_orchestrator
         from utils.resource_inventory_client import get_resource_inventory_client
         from utils.config import config
-
-        vm_id_lower = vm_id.lower()
 
         # Parallelize Arc and Azure VM lookups
         async def check_arc_inventory():
@@ -65,7 +80,6 @@ async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, A
                             str(item.get("computer_type", "")).lower() == "arc-enabled server"
                             or "/microsoft.hybridcompute/machines/" in vm_id_lower
                         ):
-                            # Import _normalize_machine_os_fields from patch_management
                             try:
                                 from api.patch_management import _normalize_machine_os_fields
                             except ModuleNotFoundError:
@@ -76,42 +90,42 @@ async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, A
             return None
 
         async def check_azure_inventory():
-            """Check Azure VMs from Resource Inventory."""
+            """Check Azure VMs using targeted resource query."""
             try:
                 inv_client = get_resource_inventory_client()
-                azure_vms = await inv_client.get_resources(
-                    "Microsoft.Compute/virtualMachines",
-                    subscription_id=config.azure.subscription_id,
+                # Use targeted API - much faster than scanning all VMs!
+                vm = await inv_client.get_resource_by_id(
+                    vm_id,
+                    resource_type="Microsoft.Compute/virtualMachines",
+                    subscription_id=config.azure.subscription_id
                 )
-                for vm in azure_vms:
-                    rid = str(vm.get("resource_id") or vm.get("id") or "").lower()
-                    if rid == vm_id_lower:
-                        # Import required functions
-                        try:
-                            from api.patch_management import normalize_os_record
-                        except ModuleNotFoundError:
-                            from app.agentic.eol.api.patch_management import normalize_os_record
 
-                        sp = vm.get("selected_properties") or {}
-                        vm_name = vm.get("resource_name") or vm.get("name")
-                        normalized_os = normalize_os_record(
-                            sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
-                            vm.get("os_version"),
-                            sp.get("os_type") or vm.get("os_type"),
-                        )
+                if vm:
+                    try:
+                        from api.patch_management import normalize_os_record
+                    except ModuleNotFoundError:
+                        from app.agentic.eol.api.patch_management import normalize_os_record
 
-                        return {
-                            "resource_id": vm.get("resource_id") or vm.get("id"),
-                            "computer": vm_name,
-                            "name": vm_name,
-                            "resource_group": vm.get("resource_group"),
-                            "subscription_id": vm.get("subscription_id"),
-                            "location": vm.get("location"),
-                            "os_type": normalized_os.get("os_type"),
-                            "os_name": normalized_os.get("os_name"),
-                            "os_version": normalized_os.get("os_version"),
-                            "vm_type": "azure",
-                        }
+                    sp = vm.get("selected_properties") or {}
+                    vm_name = vm.get("resource_name") or vm.get("name")
+                    normalized_os = normalize_os_record(
+                        sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
+                        vm.get("os_version"),
+                        sp.get("os_type") or vm.get("os_type"),
+                    )
+
+                    return {
+                        "resource_id": vm.get("resource_id") or vm.get("id"),
+                        "computer": vm_name,
+                        "name": vm_name,
+                        "resource_group": vm.get("resource_group"),
+                        "subscription_id": vm.get("subscription_id"),
+                        "location": vm.get("location"),
+                        "os_type": normalized_os.get("os_type"),
+                        "os_name": normalized_os.get("os_name"),
+                        "os_version": normalized_os.get("os_version"),
+                        "vm_type": "azure",
+                    }
             except Exception as exc:
                 logger.debug("Failed to check Azure inventory for VM %s: %s", vm_id, exc)
             return None
@@ -124,11 +138,17 @@ async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, A
         )
 
         # Return first non-None, non-exception result
-        for result in [arc_result, azure_result]:
-            if result and not isinstance(result, Exception):
-                return result
+        result = None
+        for r in [arc_result, azure_result]:
+            if r and not isinstance(r, Exception):
+                result = r
+                break
 
-        return None
+        # Cache the result for 60 seconds
+        if result:
+            _vm_metadata_cache[vm_id_lower] = (result, datetime.utcnow())
+
+        return result
     except Exception as exc:
         logger.warning("Failed to fetch machine %s: %s", vm_id, exc)
         return None
