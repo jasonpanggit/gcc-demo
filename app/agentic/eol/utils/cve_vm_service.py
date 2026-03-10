@@ -129,12 +129,40 @@ class CVEVMService:
                     if inventory_matches:
                         patch_context = await self._get_vm_patch_context(inventory_matches[0])
 
-                        semaphore = asyncio.Semaphore(8)
+                        # OPTIMIZATION: Batch-fetch CVE details and patch mappings upfront
+                        cve_ids = [m.cve_id for m in inventory_matches if is_valid_cve_id(m.cve_id)]
+
+                        # Pre-populate CVE cache with parallel fetches
+                        cve_fetch_tasks = []
+                        for cve_id in cve_ids:
+                            if cve_id not in self._cve_cache:
+                                cve_fetch_tasks.append(self.cve_service.get_cve(cve_id))
+
+                        if cve_fetch_tasks:
+                            fetched_cves = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
+                            for cve_id, result in zip([c for c in cve_ids if c not in self._cve_cache], fetched_cves):
+                                if result and not isinstance(result, Exception):
+                                    self._cve_cache[cve_id] = result
+
+                        # Pre-fetch patch mappings in parallel
+                        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
+                        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
+                        patch_mappings = {
+                            cve_id: result
+                            for cve_id, result in zip(cve_ids, patch_mappings_results)
+                            if result and not isinstance(result, Exception)
+                        }
+
+                        semaphore = asyncio.Semaphore(16)
 
                         async def enrich_match(match: CVEMatch) -> Optional[VMCVEDetail]:
                             async with semaphore:
                                 try:
-                                    return await self._enrich_cve_match(match)
+                                    return await self._enrich_cve_match_with_prefetch(
+                                        match,
+                                        patch_context=patch_context,
+                                        patch_mapping=patch_mappings.get(match.cve_id)
+                                    )
                                 except Exception as e:
                                     logger.warning(f"Failed to enrich fallback CVE {match.cve_id}: {e}")
                                     return None
@@ -183,15 +211,45 @@ class CVEVMService:
 
             patch_context = await self._get_vm_patch_context(vm_matches[0])
 
-            # Enrich each match with bounded concurrency to avoid long serial waits.
+            # OPTIMIZATION: Batch-fetch all CVE details and patch mappings upfront to avoid N sequential API calls
+            cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+
+            # Pre-populate CVE cache with parallel fetches
+            cve_fetch_tasks = []
+            for cve_id in cve_ids:
+                if cve_id not in self._cve_cache:
+                    cve_fetch_tasks.append(self.cve_service.get_cve(cve_id))
+
+            if cve_fetch_tasks:
+                logger.debug(f"Batch fetching {len(cve_fetch_tasks)} CVE details")
+                fetched_cves = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
+                for cve_id, result in zip([c for c in cve_ids if c not in self._cve_cache], fetched_cves):
+                    if result and not isinstance(result, Exception):
+                        self._cve_cache[cve_id] = result
+
+            # Pre-fetch patch mappings in parallel (no cache, so fetch all)
+            logger.debug(f"Batch fetching {len(cve_ids)} patch mappings")
+            patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
+            patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
+            patch_mappings = {
+                cve_id: result
+                for cve_id, result in zip(cve_ids, patch_mappings_results)
+                if result and not isinstance(result, Exception)
+            }
+
+            # Now enrich each match with pre-fetched data (much faster!)
             enriched_cves: List[VMCVEDetail] = []
             severity_counts: Dict[str, int] = {}
-            semaphore = asyncio.Semaphore(8)
+            semaphore = asyncio.Semaphore(16)  # Increased from 8 since we eliminated external API calls
 
             async def enrich_match(match: CVEMatch) -> Optional[VMCVEDetail]:
                 async with semaphore:
                     try:
-                        return await self._enrich_cve_match(match)
+                        return await self._enrich_cve_match_with_prefetch(
+                            match,
+                            patch_context=patch_context,
+                            patch_mapping=patch_mappings.get(match.cve_id)
+                        )
                     except Exception as e:
                         logger.warning(f"Failed to enrich CVE {match.cve_id}: {e}")
                         return None
@@ -890,6 +948,103 @@ class CVEVMService:
             )
         except Exception as e:
             logger.warning(f"Failed to get patches for {cve_id}: {e}")
+            patches_available = 0
+            installed_patches = 0
+            patch_status = "unknown"
+            installed_patch_ids = []
+            available_patch_ids = []
+            fix_kb_ids = []
+
+        # Build enriched detail
+        if cve:
+            # Use CVSS v3 if available, fall back to v2
+            cvss_score = None
+            severity = match.severity or "UNKNOWN"
+
+            if cve.cvss_v3:
+                cvss_score = cve.cvss_v3.base_score
+                severity = cve.cvss_v3.base_severity
+            elif cve.cvss_v2:
+                cvss_score = cve.cvss_v2.base_score
+                severity = cve.cvss_v2.base_severity
+
+            return VMCVEDetail(
+                cve_id=cve_id,
+                severity=severity,
+                cvss_score=cvss_score,
+                published_date=cve.published_date.isoformat() if cve.published_date else None,
+                description=cve.description,
+                match_reason=match.match_reason,
+                patches_available=patches_available,
+                patch_status=patch_status,
+                installed_patches=installed_patches,
+                installed_patch_ids=installed_patch_ids,
+                available_patch_ids=available_patch_ids,
+                fix_kb_ids=fix_kb_ids,
+            )
+        else:
+            # CVE details not available, use match data
+            return VMCVEDetail(
+                cve_id=cve_id,
+                severity=match.severity or "UNKNOWN",
+                cvss_score=match.cvss_score,
+                published_date=match.published_date,
+                description=f"CVE {cve_id}",
+                match_reason=match.match_reason,
+                patches_available=patches_available,
+                patch_status=patch_status,
+                installed_patches=installed_patches,
+                installed_patch_ids=installed_patch_ids,
+                available_patch_ids=available_patch_ids,
+                fix_kb_ids=fix_kb_ids,
+            )
+
+    async def _enrich_cve_match_with_prefetch(
+        self,
+        match: CVEMatch,
+        patch_context: Dict[str, Any],
+        patch_mapping: Optional[Any] = None
+    ) -> VMCVEDetail:
+        """Optimized enrichment using pre-fetched data to avoid N API calls.
+
+        Args:
+            match: CVE match from scan
+            patch_context: Pre-fetched VM patch context
+            patch_mapping: Pre-fetched patch mapping for this CVE
+
+        Returns:
+            VMCVEDetail with enriched data
+        """
+        cve_id = match.cve_id
+
+        # Use pre-populated CVE cache (no API call needed!)
+        cve = self._cve_cache.get(cve_id)
+
+        # Get patch count using pre-fetched data
+        installed_patch_ids: List[str] = []
+        available_patch_ids: List[str] = []
+        fix_kb_ids: List[str] = []
+        try:
+            # Use pre-fetched patch_mapping and patch_context (no API calls!)
+            if patch_mapping and patch_context:
+                (
+                    patch_status,
+                    patches_available,
+                    installed_patches,
+                    installed_patch_ids,
+                    available_patch_ids,
+                    fix_kb_ids,
+                ) = self._classify_patch_state(
+                    cve=cve,
+                    patch_mapping=patch_mapping,
+                    patch_context=patch_context,
+                )
+            else:
+                patch_status = "unknown"
+                patches_available = 0
+                installed_patches = 0
+        except Exception as e:
+            logger.warning(f"Failed to classify patch state for {cve_id}: {e}")
             patches_available = 0
             installed_patches = 0
             patch_status = "unknown"
