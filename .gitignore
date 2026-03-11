@@ -126,3 +126,6 @@ errors/**
 
 # git worktrees
 .worktrees/ 
+
+# superpowers
+docs/**
