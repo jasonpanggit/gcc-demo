@@ -594,7 +594,16 @@ class CVEScanner:
             extracted_vms = await asyncio.gather(*[_extract_one(vm_data) for vm_data in response.data])
             vms = [vm for vm in extracted_vms if vm is not None]
 
-            logger.info(f"Discovered {len(vms)} VMs from Resource Graph")
+            # Deduplicate by vm_id (case-insensitive) — a machine can appear as both
+            # an Azure VM and an Arc-enabled server in ARG, which would cause double scanning.
+            seen: dict[str, VMScanTarget] = {}
+            for vm in vms:
+                key = vm.vm_id.lower()
+                if key not in seen:
+                    seen[key] = vm
+            vms = list(seen.values())
+
+            logger.info(f"Discovered {len(vms)} VMs from Resource Graph (after dedup)")
 
             # Filter to specific VM resource IDs if requested (targeted rescan)
             if vm_ids:
