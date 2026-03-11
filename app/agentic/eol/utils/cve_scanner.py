@@ -18,6 +18,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
+_ARG_MAX_RETRIES = 3
+_ARG_BACKOFF_BASE = 5  # seconds; doubled each retry (5 → 10 → 20)
+
 try:
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest
@@ -214,6 +217,37 @@ class CVEScanner:
         self.on_scan_complete_hooks: List[Any] = []  # extensible hook registry
         logger.info("CVEScanner initialized")
 
+    async def _arg_query_with_retry(self, query_request: "QueryRequest") -> Any:
+        """Execute a Resource Graph query with exponential-backoff retry on throttling (429/RateLimiting)."""
+        from azure.core.exceptions import HttpResponseError
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(_ARG_MAX_RETRIES):
+            try:
+                return await asyncio.to_thread(
+                    self.resource_graph_client.resources,
+                    query_request,
+                )
+            except HttpResponseError as exc:
+                last_exc = exc
+                if getattr(getattr(exc, "error", None), "code", None) == "RateLimiting":
+                    retry_after = _ARG_BACKOFF_BASE * (2 ** attempt)
+                    try:
+                        header_val = exc.response.headers.get("Retry-After") if exc.response else None
+                        if header_val:
+                            retry_after = int(header_val)
+                    except Exception:
+                        pass
+                    logger.warning(
+                        "ARG throttled (attempt %d/%d) — sleeping %ds before retry",
+                        attempt + 1, _ARG_MAX_RETRIES, retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                else:
+                    raise
+
+        raise last_exc  # type: ignore[misc]
+
     def _build_status_summary(self, scan_result: ScanResult) -> Dict[str, Any]:
         return {
             "scan_id": scan_result.scan_id,
@@ -323,10 +357,7 @@ class CVEScanner:
                 subscriptions=subscriptions,
                 query=query
             )
-            await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request
-            )
+            await self._arg_query_with_retry(query_request)
             return True
         except Exception as e:
             logger.error(f"Resource Graph connectivity test failed: {e}")
@@ -515,10 +546,7 @@ class CVEScanner:
                 query=query
             )
 
-            response = await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request
-            )
+            response = await self._arg_query_with_retry(query_request)
 
             # Parse VM data
             semaphore = asyncio.Semaphore(self.vm_scan_concurrency)
@@ -588,10 +616,7 @@ class CVEScanner:
                 subscriptions=subscriptions,
                 query=query,
             )
-            response = await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request,
-            )
+            response = await self._arg_query_with_retry(query_request)
 
             inventory: Dict[str, VMScanTarget] = {}
             for vm_data in response.data:
@@ -823,10 +848,7 @@ class CVEScanner:
                     subscriptions=[subscription_id],
                     query=query,
                 )
-                response = await asyncio.to_thread(
-                    self.resource_graph_client.resources,
-                    query_request,
-                )
+                response = await self._arg_query_with_retry(query_request)
                 for r in (response.data or []):
                     pkg = (r.get("patchName") or "").strip()
                     if pkg:

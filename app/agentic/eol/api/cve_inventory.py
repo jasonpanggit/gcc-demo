@@ -472,7 +472,7 @@ async def get_vm_vulnerability_overview(
 
 
 @router.get("/vm-vulnerability-detail", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities_by_query(
     vm_id: str = Query(..., description="Full VM resource ID"),
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
@@ -496,7 +496,7 @@ async def get_vm_vulnerabilities_by_query(
 
 
 @router.get("/cve/inventory/{vm_id:path}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities(
     vm_id: str,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),

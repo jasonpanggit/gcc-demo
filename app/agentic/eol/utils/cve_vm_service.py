@@ -1317,18 +1317,30 @@ class CVEVMService:
         if cached is not None:
             return cached
 
-        # PERFORMANCE: Add timeout to patch context fetching to prevent request-level timeouts
+        # PERFORMANCE: Fetch installed and available patch data in parallel with a shared timeout
         try:
-            installed_task = self._get_installed_patch_identifiers(match.vm_name)
-            available_task = self._get_available_patch_identifiers(match)
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    self._get_installed_patch_identifiers(match.vm_name),
+                    self._get_available_patch_identifiers(match),
+                    return_exceptions=True,
+                ),
+                timeout=10.0,  # 10s total for both calls combined
+            )
+            installed_result, available_result = results
 
-            # Set aggressive timeout - if patch data takes >10s, skip it
-            installed_identifiers, software_inventory_checked, installed_patches = await asyncio.wait_for(
-                installed_task, timeout=10.0
-            )
-            available_identifiers, patch_assessment_checked, available_patches = await asyncio.wait_for(
-                available_task, timeout=10.0
-            )
+            if isinstance(installed_result, Exception):
+                logger.warning("Installed patch fetch failed for %s: %s", match.vm_name, installed_result)
+                installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
+            else:
+                installed_identifiers, software_inventory_checked, installed_patches = installed_result
+
+            if isinstance(available_result, Exception):
+                logger.warning("Available patch fetch failed for %s: %s", match.vm_name, available_result)
+                available_identifiers, patch_assessment_checked, available_patches = set(), False, []
+            else:
+                available_identifiers, patch_assessment_checked, available_patches = available_result
+
         except asyncio.TimeoutError:
             logger.warning(f"Patch context fetch timed out for {match.vm_name} - using empty patch data")
             installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
