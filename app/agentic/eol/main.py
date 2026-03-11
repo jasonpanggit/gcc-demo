@@ -838,7 +838,6 @@ async def get_cve_vm_service():
         from utils.cve_vm_service import CVEVMService
 
         # Create CVE VM service
-        # TODO: wire into CVEVMService in Task 6
         vm_match_repository = await get_vm_cve_match_repository()
         _cve_vm_service = CVEVMService(
             cve_service=await get_cve_service(),

@@ -314,20 +314,18 @@ class CVEVMService:
             # Get VM name from first match
             vm_name = vm_matches[0].vm_name if vm_matches else vm_id
 
+            _norm_os = self._normalize_os_fields(
+                getattr(vm_inventory, "os_name", None),
+                getattr(vm_inventory, "os_version", None),
+            ) if vm_inventory else (None, None)
             response = VMVulnerabilityResponse(
                 vm_id=vm_id,
                 vm_name=vm_name,
                 resource_group=getattr(vm_inventory, "resource_group", None),
                 subscription_id=getattr(vm_inventory, "subscription_id", None),
                 os_type=getattr(vm_inventory, "os_type", None),
-                os_name=self._normalize_os_fields(
-                    getattr(vm_inventory, "os_name", None),
-                    getattr(vm_inventory, "os_version", None),
-                )[0] if vm_inventory else None,
-                os_version=self._normalize_os_fields(
-                    getattr(vm_inventory, "os_name", None),
-                    getattr(vm_inventory, "os_version", None),
-                )[1] if vm_inventory else None,
+                os_name=_norm_os[0],
+                os_version=_norm_os[1],
                 location=getattr(vm_inventory, "location", None),
                 scan_id=scan.scan_id,
                 scan_date=scan.completed_at or scan.started_at,
@@ -924,20 +922,18 @@ class CVEVMService:
             len(enriched_cves), offset, limit, vm_id,
         )
 
+        _norm_os = self._normalize_os_fields(
+            getattr(vm_inventory, "os_name", None),
+            getattr(vm_inventory, "os_version", None),
+        ) if vm_inventory else (None, None)
         return VMVulnerabilityResponse(
             vm_id=vm_id,
             vm_name=vm_name,
             resource_group=getattr(vm_inventory, "resource_group", None),
             subscription_id=getattr(vm_inventory, "subscription_id", None),
             os_type=getattr(vm_inventory, "os_type", None),
-            os_name=self._normalize_os_fields(
-                getattr(vm_inventory, "os_name", None),
-                getattr(vm_inventory, "os_version", None),
-            )[0] if vm_inventory else None,
-            os_version=self._normalize_os_fields(
-                getattr(vm_inventory, "os_name", None),
-                getattr(vm_inventory, "os_version", None),
-            )[1] if vm_inventory else None,
+            os_name=_norm_os[0],
+            os_version=_norm_os[1],
             location=getattr(vm_inventory, "location", None),
             scan_id=scan.scan_id,
             scan_date=scan.completed_at or scan.started_at,
