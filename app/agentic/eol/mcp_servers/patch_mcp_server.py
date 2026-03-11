@@ -419,17 +419,19 @@ async def query_patch_assessments(
     PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
     """
     try:
-        # Try Cosmos cache first if machine_name is specified
-        if machine_name:
-            try:
-                from utils.patch_assessment_repository import get_patch_assessment_repository
-                repo = await get_patch_assessment_repository()
-                cached = await repo.get_assessment(subscription_id, machine_name, vm_type)
-                if cached:
-                    logger.info(f"Returning cached patch assessment for {machine_name}")
-                    return cached
-            except Exception as cache_err:
-                logger.debug(f"Cache lookup failed, falling back to ARG: {cache_err}")
+        # Determine the effective cache key name:
+        #   - named machine  → machine_name
+        #   - full-sub scan  → sentinel "__all__"
+        cache_name = machine_name or "__all__"
+        try:
+            from utils.patch_assessment_repository import get_patch_assessment_repository
+            repo = await get_patch_assessment_repository()
+            cached = await repo.get_assessment(subscription_id, cache_name, vm_type)
+            if cached:
+                logger.info("Returning cached patch assessment for %s", cache_name)
+                return cached
+        except Exception as cache_err:
+            logger.debug("Cache lookup failed, falling back to ARG: %s", cache_err)
 
         resolved_vm_type = _resolve_vm_type(None, vm_type)
 
@@ -534,15 +536,15 @@ patchassessmentresources
             "total_patches": sum(len(m["patches"]["available_patches"]) for m in machines),
         }
 
-        # Cache the result if machine_name was specified
-        if machine_name and machines:
+        # Cache the result (both per-machine and full-sub scans)
+        if machines:
             try:
                 from utils.patch_assessment_repository import get_patch_assessment_repository
                 repo = await get_patch_assessment_repository()
-                await repo.store_assessment(subscription_id, machine_name, vm_type, result)
-                logger.info(f"Cached patch assessment for {machine_name}")
+                await repo.store_assessment(subscription_id, cache_name, vm_type, result)
+                logger.info("Cached patch assessment for %s", cache_name)
             except Exception as cache_err:
-                logger.debug(f"Failed to cache assessment: {cache_err}")
+                logger.debug("Failed to cache assessment: %s", cache_err)
 
         return result
     except Exception as exc:
