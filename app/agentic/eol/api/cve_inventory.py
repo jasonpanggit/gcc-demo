@@ -259,15 +259,29 @@ def _normalize_vm_source(vm_type: Optional[str]) -> str:
     return "Virtual machine"
 
 
-def _calculate_risk_level(total_cves: int, critical: int, high: int, medium: int, low: int) -> str:
-    if critical > 0:
-        return "Critical"
-    if high > 0:
-        return "High"
-    if medium > 0:
-        return "Medium"
-    if low > 0 or total_cves > 0:
-        return "Low"
+def _calculate_risk_level(
+    total_cves: int,
+    critical: int,
+    high: int,
+    medium: int,
+    low: int,
+    unpatched_critical: int = 0,
+    unpatched_high: int = 0,
+    total_unpatched: int = 0,
+    has_patch_data: bool = False,
+) -> str:
+    """Calculate risk level, preferring unpatched counts when patch data is available."""
+    if has_patch_data:
+        if unpatched_critical > 0: return "Critical"
+        if unpatched_high > 0:     return "High"
+        if total_unpatched > 0:    return "Medium"
+        if total_cves > 0:         return "Low"   # all patched
+        return "Healthy"
+    # Fallback: raw counts (pre-enrichment scans)
+    if critical > 0: return "Critical"
+    if high > 0:     return "High"
+    if medium > 0:   return "Medium"
+    if low > 0 or total_cves > 0: return "Low"
     return "Healthy"
 
 
@@ -299,6 +313,7 @@ async def get_vm_vulnerability_overview(
             scan_summaries = getattr(scan, "vm_match_summaries", {}) or {}
             if scan_summaries:
                 for vm_id, summary in scan_summaries.items():
+                    patch_summary = summary.get("patch_summary") or {}
                     match_counts[vm_id] = {
                         "vm_id": vm_id,
                         "vm_name": summary.get("vm_name") or vm_id,
@@ -307,6 +322,14 @@ async def get_vm_vulnerability_overview(
                         "high": int(summary.get("high", 0)),
                         "medium": int(summary.get("medium", 0)),
                         "low": int(summary.get("low", 0)),
+                        "unpatched_critical": int(patch_summary.get("unpatched_critical", 0)),
+                        "unpatched_high": int(patch_summary.get("unpatched_high", 0)),
+                        "unpatched_medium": int(patch_summary.get("unpatched_medium", 0)),
+                        "unpatched_low": int(patch_summary.get("unpatched_low", 0)),
+                        "covered_cves": int(patch_summary.get("covered_cves", 0)),
+                        "fixable_cves": int(patch_summary.get("fixable_cves", 0)),
+                        "total_unpatched": int(patch_summary.get("total_unpatched", 0)),
+                        "has_patch_data": bool(patch_summary),
                     }
                 total_matches = sum(int(summary.get("total_cves", 0)) for summary in scan_summaries.values())
             else:
@@ -381,11 +404,15 @@ async def get_vm_vulnerability_overview(
                     }
 
             risk_level = _calculate_risk_level(
-                counts["total_cves"],
-                counts["critical"],
-                counts["high"],
-                counts["medium"],
-                counts["low"],
+                total_cves=counts.get("total_cves", 0),
+                critical=counts.get("critical", 0),
+                high=counts.get("high", 0),
+                medium=counts.get("medium", 0),
+                low=counts.get("low", 0),
+                unpatched_critical=counts.get("unpatched_critical", 0),
+                unpatched_high=counts.get("unpatched_high", 0),
+                total_unpatched=counts.get("total_unpatched", 0),
+                has_patch_data=counts.get("has_patch_data", False),
             )
 
             overview_rows.append(
@@ -413,11 +440,15 @@ async def get_vm_vulnerability_overview(
 
         for unmatched in match_counts.values():
             risk_level = _calculate_risk_level(
-                unmatched["total_cves"],
-                unmatched["critical"],
-                unmatched["high"],
-                unmatched["medium"],
-                unmatched["low"],
+                total_cves=unmatched.get("total_cves", 0),
+                critical=unmatched.get("critical", 0),
+                high=unmatched.get("high", 0),
+                medium=unmatched.get("medium", 0),
+                low=unmatched.get("low", 0),
+                unpatched_critical=unmatched.get("unpatched_critical", 0),
+                unpatched_high=unmatched.get("unpatched_high", 0),
+                total_unpatched=unmatched.get("total_unpatched", 0),
+                has_patch_data=unmatched.get("has_patch_data", False),
             )
             overview_rows.append(
                 {
