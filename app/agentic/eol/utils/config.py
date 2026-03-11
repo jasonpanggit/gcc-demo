@@ -459,6 +459,9 @@ class ConfigManager:
             app_subscription = self._get_appsettings_value("Azure", "SubscriptionId")
             app_tenant = self._get_appsettings_value("Azure", "TenantId")
             app_resource_group = self._get_appsettings_value("Azure", "ResourceGroup")
+            app_cosmos_endpoint = self._get_appsettings_value("AzureServices", "CosmosDB", "Endpoint")
+            app_cosmos_database = self._get_appsettings_value("AzureServices", "CosmosDB", "Database")
+            app_cosmos_container = self._get_appsettings_value("AzureServices", "CosmosDB", "Container")
 
             self._azure_config = AzureConfig(
                 aoai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
@@ -467,9 +470,9 @@ class ConfigManager:
                 tenant_id=os.getenv("AZURE_TENANT_ID", os.getenv("TENANT_ID", app_tenant or "")),
                 subscription_id=os.getenv("SUBSCRIPTION_ID", app_subscription or ""),
                 resource_group_name=os.getenv("RESOURCE_GROUP_NAME", app_resource_group or ""),
-                cosmos_endpoint=os.getenv("AZURE_COSMOS_DB_ENDPOINT", ""),
-                cosmos_database=os.getenv("AZURE_COSMOS_DB_DATABASE", ""),
-                cosmos_container=os.getenv("AZURE_COSMOS_DB_CONTAINER", "")
+                cosmos_endpoint=os.getenv("AZURE_COSMOS_DB_ENDPOINT", app_cosmos_endpoint or ""),
+                cosmos_database=os.getenv("AZURE_COSMOS_DB_DATABASE", app_cosmos_database or ""),
+                cosmos_container=os.getenv("AZURE_COSMOS_DB_CONTAINER", app_cosmos_container or "")
             )
         return self._azure_config
     
