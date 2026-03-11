@@ -934,6 +934,17 @@ class CVEVMService:
         vm_name = vm_match_data.get("vm_name") or vm_id
         total_cves = vm_match_data.get("total_matches", len(enriched_cves))
 
+        # Use scan-level summary for severity breakdown so stats reflect ALL CVEs, not just the current page.
+        # Falls back to page-level counts if no summary is available.
+        summary = self._get_scan_summary_for_vm(scan, vm_id)
+        if summary and int(summary.get("total_cves", 0)) > 0:
+            severity_counts = {
+                "CRITICAL": int(summary.get("critical", 0)),
+                "HIGH": int(summary.get("high", 0)),
+                "MEDIUM": int(summary.get("medium", 0)),
+                "LOW": int(summary.get("low", 0)),
+            }
+
         logger.info(
             "Retrieved %d enriched CVEs (page offset=%d, limit=%d) from repository for VM %s",
             len(enriched_cves), offset, limit, vm_id,
