@@ -982,6 +982,7 @@ class CVEVMService:
         # Falls back to page-level counts if no summary is available.
         summary = self._get_scan_summary_for_vm(scan, vm_id)
         if summary and int(summary.get("total_cves", 0)) > 0:
+            total_cves = int(summary.get("total_cves", 0))
             severity_counts = {
                 "CRITICAL": int(summary.get("critical", 0)),
                 "HIGH": int(summary.get("high", 0)),
