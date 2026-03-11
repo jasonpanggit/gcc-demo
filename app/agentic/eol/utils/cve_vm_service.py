@@ -853,6 +853,29 @@ class CVEVMService:
             for m in raw_matches
         ]
 
+        # Read pre-computed patch enrichment from scan document (if available)
+        stored_installed_cve_ids = {
+            cve_id.upper()
+            for cve_id in (vm_match_data.get("installed_cve_ids") or [])
+        }
+        stored_available_cve_ids = {
+            cve_id.upper()
+            for cve_id in (vm_match_data.get("available_cve_ids") or [])
+        }
+        stored_patch_summary: Dict[str, int] = vm_match_data.get("patch_summary") or {}
+        has_stored_patch_data = bool(stored_installed_cve_ids or stored_available_cve_ids or stored_patch_summary)
+
+        # Stamp patch_status on each CVEMatch from stored enrichment
+        if has_stored_patch_data:
+            for match in vm_matches:
+                cve_upper = (match.cve_id or "").upper()
+                if cve_upper in stored_installed_cve_ids:
+                    match.patch_status = "installed"
+                elif cve_upper in stored_available_cve_ids:
+                    match.patch_status = "available"
+                else:
+                    match.patch_status = "none"
+
         # Fetch inventory metadata for enriched OS/location fields
         vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
         vm_inventory = vm_inventory_by_id.get(vm_id.lower())
@@ -886,12 +909,33 @@ class CVEVMService:
                 if result and not isinstance(result, Exception):
                     self._cve_cache[cve_id] = result
 
-        patch_context, _, patch_mappings = await asyncio.gather(
-            self._get_vm_patch_context(anchor_match),
-            _fetch_and_cache_cves_repo(),
-            self._get_patch_mappings_cached(cve_ids),
-            return_exceptions=False,
-        )
+        if has_stored_patch_data:
+            # patch_status already stamped above — build minimal patch context from stored data
+            patch_context = {
+                "installed_identifiers": stored_installed_cve_ids,
+                "available_identifiers": stored_available_cve_ids,
+                "software_inventory_checked": True,
+                "patch_assessment_checked": True,
+                "installed_patches": vm_match_data.get("installed_kb_ids") or [],
+                "available_patches": vm_match_data.get("available_kb_ids") or [],
+                "installed_patch_entries": [],
+                "available_patch_entries": [],
+                "installed_patch_index": {},
+                "available_patch_index": {},
+                "patch_derived_cve_ids": [],
+            }
+            _, patch_mappings = await asyncio.gather(
+                _fetch_and_cache_cves_repo(),
+                self._get_patch_mappings_cached(cve_ids),
+            )
+        else:
+            # Fallback: fetch patch context live (legacy path or missing enrichment)
+            patch_context, _, patch_mappings = await asyncio.gather(
+                self._get_vm_patch_context(anchor_match),
+                _fetch_and_cache_cves_repo(),
+                self._get_patch_mappings_cached(cve_ids),
+                return_exceptions=False,
+            )
 
         # Enrich each match
         enriched_cves: List[VMCVEDetail] = []
@@ -950,6 +994,15 @@ class CVEVMService:
             len(enriched_cves), offset, limit, vm_id,
         )
 
+        unpatched_by_severity: Dict[str, int] = {}
+        if stored_patch_summary:
+            unpatched_by_severity = {
+                "CRITICAL": stored_patch_summary.get("unpatched_critical", 0),
+                "HIGH":     stored_patch_summary.get("unpatched_high", 0),
+                "MEDIUM":   stored_patch_summary.get("unpatched_medium", 0),
+                "LOW":      stored_patch_summary.get("unpatched_low", 0),
+            }
+
         _norm_os = self._normalize_os_fields(
             getattr(vm_inventory, "os_name", None),
             getattr(vm_inventory, "os_version", None),
@@ -975,6 +1028,7 @@ class CVEVMService:
                 "total": total_cves,
                 "has_more": vm_match_data.get("has_more", False),
             },
+            unpatched_by_severity=unpatched_by_severity,
         )
 
     async def _get_vm_inventory_by_ids(self, vm_ids: List[str]) -> Dict[str, Any]:

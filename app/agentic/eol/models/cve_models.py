@@ -292,6 +292,7 @@ class CVEMatch(BaseModel):
     cvss_score: Optional[float] = None
     severity: Optional[str] = None
     published_date: Optional[str] = None
+    patch_status: Optional[str] = None  # "installed", "available", "none", or None = unknown
 
 
 class ScanResult(BaseModel):
