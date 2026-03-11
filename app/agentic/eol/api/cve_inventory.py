@@ -286,7 +286,7 @@ def _calculate_risk_level(
 
 
 @router.get("/cve/inventory/overview", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=60)
+@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
 async def get_vm_vulnerability_overview(
     days: int = Query(default=90, ge=1, le=365, description="Look-back window for Arc VM inventory")
 ):
