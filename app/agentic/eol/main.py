@@ -1000,6 +1000,21 @@ async def _startup_cve_system():
         except Exception as e:
             logger.warning(f"⚠️ Linux advisory sync initialization warning: {e}")
 
+        # Wire CVEPatchEnricher into the scanner.
+        try:
+            from utils.cve_patch_enricher import CVEPatchEnricher
+            from utils.patch_mcp_client import get_patch_mcp_client
+            cve_scanner = await get_cve_scanner()
+            patch_mcp = await get_patch_mcp_client()
+            kb_cve_repo = await get_kb_cve_edge_repository()
+            if patch_mcp and kb_cve_repo:
+                cve_scanner.patch_enricher = CVEPatchEnricher(patch_mcp, kb_cve_repo)
+                logger.info("✅ CVEPatchEnricher injected into CVEScanner")
+            else:
+                logger.warning("⚠️ CVEPatchEnricher not injected — patch_mcp or kb_cve_repo unavailable")
+        except Exception as e:
+            logger.warning(f"⚠️ CVEPatchEnricher injection warning: {e}")
+
         logger.info("✅ CVE Data System initialized")
 
     except Exception as e:
