@@ -16,6 +16,7 @@ import re
 from collections import Counter
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import time
 import aiohttp
 from cachetools import TTLCache
 
@@ -83,6 +84,10 @@ class CVEVMService:
         self._cve_cache: TTLCache = TTLCache(maxsize=1000, ttl=900)  # 15 min TTL
         self._vm_patch_context_cache: TTLCache = TTLCache(maxsize=128, ttl=300)
         self._patch_assessment_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)  # 1h, matches Cosmos TTL
+
+        # Patch mapping cache: cve_id -> (patches_result, cached_at_timestamp)
+        self._patch_mapping_cache: Dict[str, tuple] = {}
+        self._patch_mapping_cache_ttl: float = 300.0  # 5 minutes
 
         logger.info("CVEVMService initialized with L1 caching")
 
@@ -180,13 +185,7 @@ class CVEVMService:
                                     self._cve_cache[cve_id] = result
 
                         # Pre-fetch patch mappings in parallel
-                        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-                        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-                        patch_mappings = {
-                            cve_id: result
-                            for cve_id, result in zip(cve_ids, patch_mappings_results)
-                            if result and not isinstance(result, Exception)
-                        }
+                        patch_mappings = await self._get_patch_mappings_cached(cve_ids)
 
                         semaphore = asyncio.Semaphore(16)
 
@@ -263,14 +262,7 @@ class CVEVMService:
                         self._cve_cache[cve_id] = result
 
             # Pre-fetch patch mappings in parallel (no cache, so fetch all)
-            logger.debug(f"Batch fetching {len(cve_ids)} patch mappings")
-            patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-            patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-            patch_mappings = {
-                cve_id: result
-                for cve_id, result in zip(cve_ids, patch_mappings_results)
-                if result and not isinstance(result, Exception)
-            }
+            patch_mappings = await self._get_patch_mappings_cached(cve_ids)
 
             # Now enrich each match with pre-fetched data (much faster!)
             enriched_cves: List[VMCVEDetail] = []
@@ -869,13 +861,7 @@ class CVEVMService:
                 if result and not isinstance(result, Exception):
                     self._cve_cache[cve_id] = result
 
-        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-        patch_mappings = {
-            cve_id: result
-            for cve_id, result in zip(cve_ids, patch_mappings_results)
-            if result and not isinstance(result, Exception)
-        }
+        patch_mappings = await self._get_patch_mappings_cached(cve_ids)
 
         # Enrich each match
         enriched_cves: List[VMCVEDetail] = []
@@ -1310,6 +1296,37 @@ class CVEVMService:
                 available_patch_ids=available_patch_ids,
                 fix_kb_ids=fix_kb_ids,
             )
+
+    async def _get_patch_mappings_cached(self, cve_ids: List[str]) -> Dict[str, Any]:
+        """Batch-fetch patch mappings with in-memory TTL cache.
+
+        Results are cached for 5 minutes — patch KB mappings don't change within
+        a request window or even across many requests.
+        """
+        now = time.monotonic()
+        cached_results: Dict[str, Any] = {}
+        uncached_ids: List[str] = []
+
+        for cve_id in cve_ids:
+            entry = self._patch_mapping_cache.get(cve_id)
+            if entry is not None:
+                result, cached_at = entry
+                if now - cached_at < self._patch_mapping_cache_ttl:
+                    cached_results[cve_id] = result
+                    continue
+                # TTL expired — evict stale entry before re-fetching
+                del self._patch_mapping_cache[cve_id]
+            uncached_ids.append(cve_id)
+
+        if uncached_ids:
+            tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in uncached_ids]
+            fetched = await asyncio.gather(*tasks, return_exceptions=True)
+            for cve_id, result in zip(uncached_ids, fetched):
+                if result and not isinstance(result, Exception):
+                    self._patch_mapping_cache[cve_id] = (result, now)
+                    cached_results[cve_id] = result
+
+        return cached_results
 
     async def _get_vm_patch_context(self, match: CVEMatch) -> Dict[str, Any]:
         cache_key = (match.vm_id or match.vm_name or "").lower()
