@@ -243,26 +243,31 @@ class CVEVMService:
                     patch_coverage=patch_coverage,
                 )
 
-            patch_context = await self._get_vm_patch_context(vm_matches[0])
-
             # OPTIMIZATION: Batch-fetch all CVE details and patch mappings upfront to avoid N sequential API calls
             cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
 
-            # Pre-populate CVE cache with parallel fetches
-            cve_fetch_tasks = []
-            for cve_id in cve_ids:
-                if cve_id not in self._cve_cache:
-                    cve_fetch_tasks.append(self.cve_service.get_cve(cve_id))
+            # PERFORMANCE: Run patch context fetch in parallel with CVE + patch mapping fetches.
+            # patch_context is not needed until enrich_match, so all three can overlap.
+            cve_ids_to_fetch = [c for c in cve_ids if c not in self._cve_cache]
 
-            if cve_fetch_tasks:
-                logger.debug(f"Batch fetching {len(cve_fetch_tasks)} CVE details")
-                fetched_cves = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
-                for cve_id, result in zip([c for c in cve_ids if c not in self._cve_cache], fetched_cves):
+            async def _fetch_and_cache_cves() -> None:
+                if not cve_ids_to_fetch:
+                    return
+                logger.debug(f"Batch fetching {len(cve_ids_to_fetch)} CVE details")
+                fetched = await asyncio.gather(
+                    *[self.cve_service.get_cve(cve_id) for cve_id in cve_ids_to_fetch],
+                    return_exceptions=True,
+                )
+                for cve_id, result in zip(cve_ids_to_fetch, fetched):
                     if result and not isinstance(result, Exception):
                         self._cve_cache[cve_id] = result
 
-            # Pre-fetch patch mappings in parallel (no cache, so fetch all)
-            patch_mappings = await self._get_patch_mappings_cached(cve_ids)
+            patch_context, _, patch_mappings = await asyncio.gather(
+                self._get_vm_patch_context(vm_matches[0]),
+                _fetch_and_cache_cves(),
+                self._get_patch_mappings_cached(cve_ids),
+                return_exceptions=False,
+            )
 
             # Now enrich each match with pre-fetched data (much faster!)
             enriched_cves: List[VMCVEDetail] = []
@@ -831,37 +836,41 @@ class CVEVMService:
         vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
         vm_inventory = vm_inventory_by_id.get(vm_id.lower())
 
-        # Build patch context using first match as anchor (same pattern as legacy path)
+        # Batch-fetch CVE details and patch mappings (same optimisation as legacy path)
+        cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+
+        # PERFORMANCE: Determine anchor match for patch context fetch
         if vm_matches:
-            patch_context = await self._get_vm_patch_context(vm_matches[0])
+            anchor_match = vm_matches[0]
         else:
-            # No matches on this page — use a synthetic anchor for patch context
-            synthetic = CVEMatch(
+            anchor_match = CVEMatch(
                 cve_id="CVE-NONE",
                 vm_id=vm_id,
                 vm_name=vm_match_data.get("vm_name", vm_id),
                 match_reason="No matches on this page",
             )
-            patch_context = await self._get_vm_patch_context(synthetic)
 
-        # Batch-fetch CVE details and patch mappings (same optimisation as legacy path)
-        cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+        # Run patch context fetch in parallel with CVE + patch mapping fetches
+        cve_ids_to_fetch = [c for c in cve_ids if c not in self._cve_cache]
 
-        cve_fetch_tasks = [
-            self.cve_service.get_cve(cve_id)
-            for cve_id in cve_ids
-            if cve_id not in self._cve_cache
-        ]
-        if cve_fetch_tasks:
-            logger.debug("Batch fetching %d CVE details (repository path)", len(cve_fetch_tasks))
-            fetched = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
-            for cve_id, result in zip(
-                [c for c in cve_ids if c not in self._cve_cache], fetched
-            ):
+        async def _fetch_and_cache_cves_repo() -> None:
+            if not cve_ids_to_fetch:
+                return
+            logger.debug("Batch fetching %d CVE details (repository path)", len(cve_ids_to_fetch))
+            fetched = await asyncio.gather(
+                *[self.cve_service.get_cve(cve_id) for cve_id in cve_ids_to_fetch],
+                return_exceptions=True,
+            )
+            for cve_id, result in zip(cve_ids_to_fetch, fetched):
                 if result and not isinstance(result, Exception):
                     self._cve_cache[cve_id] = result
 
-        patch_mappings = await self._get_patch_mappings_cached(cve_ids)
+        patch_context, _, patch_mappings = await asyncio.gather(
+            self._get_vm_patch_context(anchor_match),
+            _fetch_and_cache_cves_repo(),
+            self._get_patch_mappings_cached(cve_ids),
+            return_exceptions=False,
+        )
 
         # Enrich each match
         enriched_cves: List[VMCVEDetail] = []
