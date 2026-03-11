@@ -138,14 +138,15 @@ class VMCVEMatchRepository:
             return None
 
         all_matches = item.get("matches", [])
+        actual_total = len(all_matches)
         page = all_matches[offset : offset + limit]
 
         return {
             "vm_id": item["vm_id"],
             "vm_name": item["vm_name"],
-            "total_matches": item["total_matches"],
+            "total_matches": actual_total,  # use actual array length, not stale metadata field
             "matches": page,
-            "has_more": (offset + limit) < len(all_matches),
+            "has_more": (offset + limit) < actual_total,
         }
 
     async def delete_vm_matches(self, scan_id: str, vm_id: str) -> None:
