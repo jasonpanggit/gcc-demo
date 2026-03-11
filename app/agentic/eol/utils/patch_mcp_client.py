@@ -63,6 +63,7 @@ class PatchMCPClient:
         self._session_context = None
         self._read = None
         self._write = None
+        self._pending_install_operations: Dict[str, Dict[str, Any]] = {}
 
     async def initialize(self) -> bool:
         """Start the Python-based Patch MCP server and cache available tools."""
@@ -283,32 +284,64 @@ class PatchMCPClient:
         os_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Trigger patch installation on an Azure VM or Arc server."""
-        return await self.call_tool(
+        payload = {
+            "machine_name": machine_name,
+            "subscription_id": subscription_id,
+            "resource_group": resource_group,
+            "classifications": classifications or ["Critical", "Security"],
+            "vm_type": vm_type,
+            "resource_id": resource_id,
+            "kb_numbers_to_include": kb_numbers_to_include or [],
+            "kb_numbers_to_exclude": kb_numbers_to_exclude or [],
+            "reboot_setting": reboot_setting,
+            "maximum_duration": maximum_duration,
+            "os_type": os_type,
+        }
+        result = await self.call_tool(
             "install_vm_patches",
-            {
-                "machine_name": machine_name,
-                "subscription_id": subscription_id,
-                "resource_group": resource_group,
-                "classifications": classifications or ["Critical", "Security"],
-                "vm_type": vm_type,
-                "resource_id": resource_id,
-                "kb_numbers_to_include": kb_numbers_to_include or [],
-                "kb_numbers_to_exclude": kb_numbers_to_exclude or [],
-                "reboot_setting": reboot_setting,
-                "maximum_duration": maximum_duration,
-                "os_type": os_type,
-            },
+            payload,
         )
+        operation_url = result.get("operation_url") if isinstance(result, dict) else None
+        if operation_url:
+            self._pending_install_operations[operation_url] = payload
+            try:
+                from main import get_patch_install_history_repository
+
+                history_repo = await get_patch_install_history_repository()
+                await history_repo.upsert_pending({
+                    "operation_url": operation_url,
+                    "machine_name": machine_name,
+                    "subscription_id": subscription_id,
+                    "resource_group": resource_group,
+                    "vm_type": vm_type,
+                    "os_type": os_type,
+                    "classifications": payload["classifications"],
+                    "requested_patch_ids": payload["kb_numbers_to_include"] + payload["kb_numbers_to_exclude"],
+                    "status": result.get("status") or "InProgress",
+                })
+            except Exception as exc:
+                logger.warning("Failed to persist pending patch install operation: %s", exc)
+        return result
 
     async def get_install_status(
         self,
         operation_url: str,
     ) -> Dict[str, Any]:
         """Check the status of an in-progress or completed patch installation."""
-        return await self.call_tool(
+        result = await self.call_tool(
             "get_install_status",
             {"operation_url": operation_url},
         )
+        if isinstance(result, dict) and result.get("is_done") and result.get("data"):
+            try:
+                from main import get_patch_install_history_repository
+
+                history_repo = await get_patch_install_history_repository()
+                await history_repo.mark_completed(operation_url, result["data"])
+                self._pending_install_operations.pop(operation_url, None)
+            except Exception as exc:
+                logger.warning("Failed to persist completed patch install operation: %s", exc)
+        return result
 
     async def get_vm_patch_summary(
         self,

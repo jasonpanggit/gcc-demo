@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Inventory Management — Azure Agentic Platform{% endblock %}
+{% block title %}OS & Software Inventory — Azure Agentic Platform{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -255,64 +255,8 @@
         border: 1px solid var(--gray-300);
     }
 
-    .pagination-modern {
-        background: var(--bg-primary);
-        border-radius: var(--radius-lg);
-        padding: var(--spacing-lg);
-        margin: var(--spacing-lg) 0;
-        border: 1px solid var(--gray-200);
-        box-shadow: var(--shadow-sm);
-    }
-
-    .pagination-modern .pagination-controls {
-        display: flex !important;
-        flex-direction: row !important;
-        justify-content: flex-end !important;
-        align-items: center !important;
-        gap: 2rem !important;
-        flex-wrap: nowrap !important;
-        width: 100% !important;
-    }
-
-    .pagination-modern .pagination-info-section {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        gap: 0.5rem !important;
-        flex-wrap: nowrap !important;
-        padding: 0 !important;
-        background: transparent !important;
-    }
-
-    .pagination-modern .page-size-selector {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        gap: 0.5rem !important;
-        white-space: nowrap !important;
-    }
-
-    .pagination-modern .page-size-selector .form-select {
-        min-width: 70px !important;
-        width: auto !important;
-        font-size: 0.875rem !important;
-    }
-
-    .pagination-modern .page-size-selector .form-label {
-        font-size: 0.875rem !important;
-        margin: 0 !important;
-    }
-
-    /* Pagination nav */
-    .pagination-modern nav[aria-label*="pagination"] {
-        flex-shrink: 0;
-    }
-
-    /* Ensure pagination list doesn't wrap */
-    .pagination {
-        margin-bottom: 0;
-        flex-wrap: nowrap;
-    }
+    /* Shared pagination styling lives in static/css/pagination-components.css.
+       Keep only page-specific responsive adjustments here. */
 
     /* Desktop - more spacing */
     @media (min-width: 993px) {
@@ -421,42 +365,6 @@
             max-width: 40%;
             /* Ensure it doesn't take too much space */
         }
-    }
-
-    .pagination .page-link {
-        color: var(--primary-color);
-        border: 1px solid var(--gray-200);
-        padding: var(--spacing-sm) var(--spacing-md);
-        border-radius: var(--radius-md);
-        margin: 0 2px;
-        transition: all 0.2s ease;
-        font-weight: 500;
-        min-width: 40px;
-        text-align: center;
-    }
-
-    .pagination .page-item.active .page-link {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
-        color: white;
-        font-weight: 600;
-        box-shadow: var(--shadow-sm);
-    }
-
-    .pagination .page-link:hover {
-        background-color: var(--primary-light);
-        border-color: var(--primary-color);
-        color: white;
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-sm);
-    }
-
-    .pagination .page-link:disabled,
-    .pagination .page-item.disabled .page-link {
-        background-color: var(--gray-100);
-        border-color: var(--gray-200);
-        color: var(--gray-400);
-        cursor: not-allowed;
     }
 
     .loading-overlay {
@@ -898,28 +806,6 @@
         box-shadow: none;
     }
 
-    html.dark-mode .pagination .page-link {
-        background: var(--bg-secondary) !important;
-        border-color: var(--border-primary) !important;
-        color: var(--text-primary) !important;
-    }
-
-    html.dark-mode .pagination .page-link:hover {
-        background: var(--bg-tertiary) !important;
-        color: var(--text-primary) !important;
-    }
-
-    html.dark-mode .pagination .page-item.active .page-link {
-        background: var(--color-primary) !important;
-        border-color: var(--color-primary) !important;
-        color: #ffffff !important;
-    }
-
-    html.dark-mode .pagination .page-item.disabled .page-link {
-        background: var(--bg-tertiary) !important;
-        color: var(--text-muted) !important;
-    }
-
     html.dark-mode .loading-overlay,
     html.dark-mode #eol-loading {
         background: var(--bg-secondary) !important;
@@ -971,21 +857,21 @@
 <!-- Inventory Hero Section -->
 <div class="hero-section fade-in">
     <div class="hero-content">
-        <div class="row align-items-center">
-            <div class="col-lg-12">
+        <div class="hero-row">
+            <div class="hero-copy">
                 <h1 class="hero-title">
-                    <span class="hero-icon me-3"><i class="fas fa-list-ul"></i></span>Inventory Management
+                    <span class="hero-icon me-3"><i class="fas fa-list-ul"></i></span>OS & Software Inventory
                 </h1>
                 <p class="hero-subtitle">
-                    Comprehensive software and operating system inventory tracking with real-time data from Azure
-                    Monitor.
+                    Comprehensive software and operating system inventory tracking across Arc-connected machines and
+                    Azure VMs discovered from resource inventory.
                     Monitor versions, compliance status, and lifecycle information across your infrastructure.
                 </p>
-                <div class="d-flex gap-3 justify-content-start flex-wrap">
-                    <button class="btn btn-outline-light" onclick="refreshInventory()" id="refresh-btn">
-                        <i class="fas fa-sync-alt me-2"></i>Refresh Data
-                    </button>
-                </div>
+            </div>
+            <div class="hero-action">
+                <button class="btn hero-action-button" onclick="refreshInventory()" id="refresh-btn">
+                    <i class="fas fa-sync-alt me-2"></i>Refresh Data
+                </button>
             </div>
         </div>
     </div>
@@ -2222,6 +2108,14 @@
                         computer: osItem.computer_name || osItem.computer || 'Unknown', // Handle both field names
                         name: osItem.os_name || 'Operating System',
                         version: osItem.os_version || '',
+                        os_name: osItem.os_name || 'Operating System',
+                        os_version: osItem.os_version || '',
+                        raw_os_name: osItem.raw_os_name || '',
+                        raw_os_version: osItem.raw_os_version || '',
+                        normalized_os_name: osItem.normalized_os_name || '',
+                        normalized_os_version: osItem.normalized_os_version || '',
+                        derivation_strategy: osItem.derivation_strategy || '',
+                        derivation_rule_name: osItem.derivation_rule_name || '',
                         publisher: osItem.publisher || 'Microsoft',
                         software_type: 'Operating System',
                         computer_type: osItem.computer_type || 'Unknown',
@@ -2359,7 +2253,12 @@
                             item.id = `${Math.random().toString(36).substr(2, 9)}`;
                         }
                         if (softwareType === 'operating system') {
-                            checkEOLInPlace(item.name || '', item.version || '', item.id, item.software_type || '');
+                            checkEOLInPlace(
+                                item.normalized_os_name || item.os_name || item.name || '',
+                                item.normalized_os_version ?? item.os_version ?? item.version ?? '',
+                                item.id,
+                                item.software_type || ''
+                            );
                         }
                     });
                 }, 300);
@@ -2660,14 +2559,7 @@
         }
 
         if (osCountEl) {
-            // Count unique OS types
-            const osSet = new Set();
-            osInventory.forEach(os => {
-                if (os.name && os.name !== 'Unknown') {
-                    osSet.add(os.name);
-                }
-            });
-            osCountEl.textContent = osSet.size;
+            osCountEl.textContent = osInventory.length;
             osCountEl.style.animation = 'pulse 0.5s';
         }
 

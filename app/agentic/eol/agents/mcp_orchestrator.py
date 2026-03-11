@@ -520,8 +520,9 @@ FORMATTING:
         source_labels = {
             "azure":     "Azure MCP Server",
             "azure_cli": "Azure CLI Executor",
+            "cve":       "CVE Management Server",
             "os_eol":    "OS EOL Server",
-            "inventory": "Inventory Server",
+            "inventory": "Software & OS Inventory Server",
             "monitor":   "Azure Monitor Community",
             "sre":       "Azure SRE Agent",
             "meta":      "Orchestration Meta-tools",

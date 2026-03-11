@@ -20,6 +20,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 try:
+    from utils.normalization import normalize_os_record
+except ImportError:
+    from app.agentic.eol.utils.normalization import normalize_os_record
+
+try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
@@ -321,11 +326,21 @@ async def list_azure_vms(
                     continue
 
                 vm_name = vm.get("resource_name") or vm.get("name")
+                normalized_os = normalize_os_record(
+                    sp.get("os_image") or sp.get("os_type") or vm.get("os_name"),
+                    vm.get("os_version"),
+                    sp.get("os_type") or vm.get("os_type"),
+                )
                 machines.append({
                     "computer": vm_name,
                     "name": vm_name,
-                    "os_name": sp.get("os_image") or sp.get("os_type") or vm.get("os_name"),
-                    "os_type": sp.get("os_type") or vm.get("os_type"),
+                    "os_name": normalized_os["os_name"],
+                    "os_version": normalized_os.get("os_version"),
+                    "os_type": normalized_os.get("os_type"),
+                    "raw_os_name": normalized_os.get("raw_os_name"),
+                    "raw_os_version": normalized_os.get("raw_os_version"),
+                    "normalized_os_name": normalized_os.get("normalized_os_name"),
+                    "normalized_os_version": normalized_os.get("normalized_os_version"),
                     "resource_id": vm.get("resource_id") or vm.get("id"),
                     "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or subscription_id,
                     "resource_group": rg,
@@ -358,12 +373,26 @@ async def query_patch_assessments(
     vm_type: Annotated[str, "'arc' or 'azure-vm'"] = "arc",
 ) -> Dict[str, Any]:
     """
-    Query Azure Resource Graph for historical patch assessment data.
+    Query Azure Resource Graph for historical patch assessment data with Cosmos DB caching.
 
     Returns stored assessment summaries and patch lists without triggering new assessments.
     Use this to check last-known patch status before deciding to trigger a live assessment.
+
+    PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
     """
     try:
+        # Try Cosmos cache first if machine_name is specified
+        if machine_name:
+            try:
+                from utils.patch_assessment_repository import get_patch_assessment_repository
+                repo = await get_patch_assessment_repository()
+                cached = await repo.get_assessment(subscription_id, machine_name, vm_type)
+                if cached:
+                    logger.info(f"Returning cached patch assessment for {machine_name}")
+                    return cached
+            except Exception as cache_err:
+                logger.debug(f"Cache lookup failed, falling back to ARG: {cache_err}")
+
         resolved_vm_type = _resolve_vm_type(None, vm_type)
 
         if resolved_vm_type == "azure-vm":
@@ -460,12 +489,24 @@ patchassessmentresources
                 },
             })
 
-        return {
+        result = {
             "success": True,
             "data": machines,
             "count": len(machines),
             "total_patches": sum(len(m["patches"]["available_patches"]) for m in machines),
         }
+
+        # Cache the result if machine_name was specified
+        if machine_name and machines:
+            try:
+                from utils.patch_assessment_repository import get_patch_assessment_repository
+                repo = await get_patch_assessment_repository()
+                await repo.store_assessment(subscription_id, machine_name, vm_type, result)
+                logger.info(f"Cached patch assessment for {machine_name}")
+            except Exception as cache_err:
+                logger.debug(f"Failed to cache assessment: {cache_err}")
+
+        return result
     except Exception as exc:
         logger.error("query_patch_assessments failed: %s", exc)
         return {"success": False, "error": str(exc), "data": []}
@@ -694,14 +735,20 @@ async def install_vm_patches(
     classifications: Annotated[List[str], "Patch classifications to install"] = ["Critical", "Security"],
     vm_type: Annotated[str, "'arc' or 'azure-vm'"] = "arc",
     resource_id: Annotated[Optional[str], "Full ARM resource ID (overrides other params)"] = None,
-    kb_numbers_to_include: Annotated[List[str], "Specific KB IDs to include"] = [],
-    kb_numbers_to_exclude: Annotated[List[str], "KB IDs to exclude"] = [],
+    kb_numbers_to_include: Annotated[List[str], "Specific KB IDs to include (Windows)"] = [],
+    kb_numbers_to_exclude: Annotated[List[str], "KB IDs to exclude (Windows)"] = [],
     reboot_setting: Annotated[str, "Reboot behavior: IfRequired | NeverReboot | AlwaysReboot"] = "IfRequired",
     maximum_duration: Annotated[str, "ISO 8601 duration (e.g., PT2H)"] = "PT2H",
     os_type: Annotated[Optional[str], "Force OS type: Windows | Linux"] = None,
+    package_names: Annotated[Optional[List[str]], "Linux package name masks to install (e.g. ['openssl', 'curl*'])"] = None,
+    os_family: Annotated[Optional[str], "Linux OS family hint: 'ubuntu' | 'rhel' | 'centos'"] = None,
 ) -> Dict[str, Any]:
     """
     Trigger patch installation on an Azure VM or Arc server.
+
+    For Windows VMs, pass os_type='Windows' and use kb_numbers_to_include/kb_numbers_to_exclude.
+    For Linux VMs, pass os_type='Linux' and package_names instead of kb_numbers.
+    os_family ('ubuntu', 'rhel', 'centos') is an optional hint for Linux targets.
 
     Returns immediately with operation_url for status polling.
     Installation can take 10-30+ minutes depending on patch count and reboot requirements.
@@ -734,11 +781,14 @@ async def install_vm_patches(
 
         # Build OS-specific parameters
         if resolved_os_type.lower() == "linux":
+            # Prefer package_names (Linux-native); fall back to kb_numbers_to_include
+            pkg_include = package_names or kb_numbers_to_include or []
+            pkg_exclude = kb_numbers_to_exclude
             os_params = {
                 "linuxParameters": {
                     "classificationsToInclude": classifications,
-                    "packageNameMasksToInclude": kb_numbers_to_include,
-                    "packageNameMasksToExclude": kb_numbers_to_exclude,
+                    "packageNameMasksToInclude": pkg_include,
+                    "packageNameMasksToExclude": pkg_exclude,
                 }
             }
         else:

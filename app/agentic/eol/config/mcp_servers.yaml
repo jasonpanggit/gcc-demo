@@ -89,6 +89,18 @@ servers:
     priority: 10
     enabled: ${PATCH_MCP_ENABLED:-true}
 
+  # CVE MCP server
+  - name: cve_mcp
+    label: cve
+    command: python
+    args:
+      - "mcp_servers/cve_mcp_server.py"
+    domains:
+      - security
+      - patch
+    priority: 10
+    enabled: ${CVE_MCP_ENABLED:-true}
+
   # OS EOL MCP server
   - name: os_eol_mcp
     label: os_eol

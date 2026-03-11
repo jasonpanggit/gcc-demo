@@ -374,7 +374,7 @@ canvas {
     }
 
     .hero-section {
-        padding: var(--spacing-lg, 1.5rem) 0 !important;
+        padding: var(--spacing-md, 1rem) 0 !important;
     }
 }
 

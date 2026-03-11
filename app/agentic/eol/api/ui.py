@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import TemplateNotFound
 
@@ -170,6 +170,18 @@ async def eol_searches_ui(request: Request):
 async def eol_inventory_ui(request: Request):
     """EOL Cosmos inventory browser page."""
     return templates.TemplateResponse(request, "eol-inventory.html")
+
+
+@router.get("/os-normalization-rules", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="os_normalization_rules_page",
+    timeout_seconds=10,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def os_normalization_rules_ui(request: Request):
+    """Centralized OS normalization rule management page."""
+    return templates.TemplateResponse(request, "os-normalization-rules.html")
 
 
 @router.get("/eol-management", response_class=HTMLResponse)
@@ -458,7 +470,7 @@ async def resource_inventory_ui(request: Request):
     Returns:
         HTMLResponse with rendered resource-inventory.html template.
     """
-    asset_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
         "resource-inventory.html",
@@ -520,3 +532,219 @@ async def routing_analytics_ui(request: Request):
         HTMLResponse with rendered routing-analytics.html template.
     """
     return templates.TemplateResponse(request, "routing-analytics.html")
+
+
+@router.get("/cve-search", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_search_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_search_ui(request: Request):
+    """
+    CVE Search page.
+
+    Provides interface for searching and filtering Common Vulnerabilities and Exposures (CVEs).
+    Supports multiple filter types:
+    - CVE ID or keyword search
+    - Severity filtering (Critical, High, Medium, Low)
+    - CVSS score range
+    - Date range (published after/before)
+    - Vendor/product filtering
+    - Data source filtering
+
+    Results displayed in sortable grid with pagination.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve-search.html template.
+    """
+    asset_version = config.app.asset_version
+    return templates.TemplateResponse(
+        request,
+        "cve-search.html",
+        {"asset_version": asset_version},
+    )
+
+
+@router.get("/cve-detail/{cve_id}", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_detail_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_detail_ui(request: Request, cve_id: str):
+    """
+    CVE Detail page.
+
+    Displays comprehensive information for a specific CVE:
+    - CVSS v2/v3 scores with radar/bar chart visualizations
+    - Affected products (vendor/product/version/CPE)
+    - External references grouped by tag
+    - CWE classification
+    - Related CVEs (same product family)
+    - Applicable patches (Phase 6)
+
+    Args:
+        request: FastAPI Request object
+        cve_id: CVE identifier (e.g., CVE-2024-1234)
+
+    Returns:
+        HTMLResponse with rendered cve-detail.html template.
+    """
+    return templates.TemplateResponse(request, "cve-detail.html", {"cve_id": cve_id})
+
+
+@router.get("/cve-detail", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_detail_query_redirect",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_detail_query_redirect(request: Request, cve_id: Optional[str] = None):
+    """Redirect legacy query-param detail URLs to the canonical path-based route."""
+    if not cve_id:
+        return RedirectResponse(url="/cve-search", status_code=307)
+
+    return RedirectResponse(
+        url=f"/cve-detail/{cve_id}?from=dashboard",
+        status_code=307,
+    )
+
+
+@router.get("/cve-dashboard", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_dashboard_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_dashboard_page(request: Request):
+    """
+    CVE Analytics Dashboard page.
+
+    Provides comprehensive CVE analytics and metrics visualization:
+    - Summary metrics: Total CVEs, Critical, High, Mean Time to Patch
+    - Severity distribution donut chart
+    - CVE trending over time (line chart)
+    - CVE aging distribution (bar chart)
+    - Top 10 CVEs by exposure (sortable table)
+    - VM vulnerability posture (sortable table)
+    - Time range filters (30/90/365 days)
+    - Severity filters (All/Critical/High/Medium/Low)
+    - Drill-down navigation to CVE detail and VM vulnerability pages
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve-dashboard.html template.
+    """
+    asset_version = config.app.asset_version
+    return templates.TemplateResponse(
+        request,
+        "cve-dashboard.html",
+        {"asset_version": asset_version},
+    )
+
+
+@router.get("/cve-alert-config", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_alert_config_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_alert_config_page(request: Request):
+    """
+    CVE Alert Configuration page.
+
+    Provides UI for managing CVE alert rules:
+    - List all alert rules with status
+    - Create new alert rules
+    - Edit existing rules
+    - Delete rules with confirmation
+    - Test alert rules with sample CVE data
+    - Configure severity filters, VM filters, notification channels
+    - Set custom cron schedules and escalation policies
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered cve_alert_config.html template.
+    """
+    asset_version = config.app.asset_version
+    return templates.TemplateResponse(
+        request,
+        "cve_alert_config.html",
+        {"asset_version": asset_version},
+    )
+
+
+@router.get("/cve-alert-history", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="cve_alert_history_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def cve_alert_history_page(request: Request):
+    """
+    CVE Alert History page.
+
+    Display historical CVE alerts with filtering, acknowledge, and dismiss operations.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTMLResponse with rendered cve_alert_history.html template.
+    """
+    asset_version = config.app.asset_version
+    return templates.TemplateResponse(
+        request,
+        "cve_alert_history.html",
+        {"asset_version": asset_version},
+    )
+
+
+@router.get("/vm-vulnerability", response_class=HTMLResponse)
+@with_timeout_and_stats(
+    agent_name="vm_vulnerability_page",
+    timeout_seconds=5,
+    track_cache=False,
+    auto_wrap_response=False
+)
+async def vm_vulnerability_page(request: Request):
+    """
+    VM vulnerability page - overview for all VMs or detail for a specific VM.
+
+    Supports a standalone overview of Azure VMs and Arc-enabled servers with
+    vulnerability counts, plus a per-VM detail mode when vm_id is present in
+    the query string.
+
+    Query params:
+        vm_id: VM resource ID for detail mode (extracted client-side by JavaScript)
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HTMLResponse with rendered vm-vulnerability.html template.
+    """
+    asset_version = config.app.asset_version
+    return templates.TemplateResponse(
+        request,
+        "vm-vulnerability.html",
+        {
+            "page_title": "My VM Vulnerabilites",
+            "active_nav": "cve-management",
+            "asset_version": asset_version,
+        }
+    )

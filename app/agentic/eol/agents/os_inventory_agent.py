@@ -142,7 +142,14 @@ class OSInventoryAgent:
                 if has_dates:
                     try:
                         from ..utils.eol_inventory import eol_inventory
-                        await eol_inventory.upsert(normalized_name, normalized_version, eol_result)
+                        await eol_inventory.upsert(
+                            normalized_name,
+                            normalized_version,
+                            eol_result,
+                            raw_software_name=os_name,
+                            raw_version=version,
+                            item_type="os",
+                        )
                     except Exception as exc:
                         logger.debug("OS EOL cache upsert failed for %s %s: %s", normalized_name, normalized_version or "(any)", exc)
                     return eol_result

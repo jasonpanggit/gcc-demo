@@ -21,6 +21,51 @@ import pytest
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio, pytest.mark.mcp_sre]
 
 
+async def test_sre_get_credential_uses_service_principal_when_enabled():
+    """SRE MCP should honor explicit service-principal runtime mode."""
+    import mcp_servers.sre_mcp_server as sre_mcp_server
+
+    env = {
+        "USE_SERVICE_PRINCIPAL": "true",
+        "AZURE_SP_CLIENT_ID": "client-id",
+        "AZURE_SP_CLIENT_SECRET": "client-secret",
+        "AZURE_TENANT_ID": "tenant-id",
+    }
+
+    with patch.dict("os.environ", env, clear=False), \
+         patch.object(sre_mcp_server, "_credential", None), \
+         patch.object(sre_mcp_server, "ClientSecretCredential") as mock_csc, \
+         patch.object(sre_mcp_server, "DefaultAzureCredential") as mock_dac:
+        sre_mcp_server._get_credential()
+
+    mock_csc.assert_called_once_with(
+        tenant_id="tenant-id",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+    mock_dac.assert_not_called()
+
+
+async def test_sre_get_credential_uses_managed_identity_when_sp_disabled():
+    """SRE MCP should use DefaultAzureCredential when runtime auth is managed identity."""
+    import mcp_servers.sre_mcp_server as sre_mcp_server
+
+    env = {
+        "USE_SERVICE_PRINCIPAL": "false",
+        "MANAGED_IDENTITY_USE_CLIENT_ID": "true",
+        "MANAGED_IDENTITY_CLIENT_ID": "mi-client-id",
+    }
+
+    with patch.dict("os.environ", env, clear=False), \
+         patch.object(sre_mcp_server, "_credential", None), \
+         patch.object(sre_mcp_server, "ClientSecretCredential") as mock_csc, \
+         patch.object(sre_mcp_server, "DefaultAzureCredential") as mock_dac:
+        sre_mcp_server._get_credential()
+
+    mock_csc.assert_not_called()
+    mock_dac.assert_called_once_with(managed_identity_client_id="mi-client-id")
+
+
 @pytest.fixture
 def mock_resource_id():
     """Mock Azure resource ID"""

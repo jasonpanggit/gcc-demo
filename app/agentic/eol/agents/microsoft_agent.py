@@ -274,6 +274,13 @@ class MicrosoftEOLAgent(BaseEOLAgent):
         """Get Microsoft EOL data through web scraping and static data with caching"""
         # Normalize Windows Server naming to split year as version when missing
         normalized_name, resolved_version = self._normalize_windows_server_name(software_name, version)
+
+        if normalized_name == "windows server" and version and not resolved_version:
+            return self.create_failure_response(
+                software_name=normalized_name,
+                version=version,
+                error_message="Windows Server release is ambiguous without a product year",
+            )
         
         # Check cache first
         cached_data = await self._get_cached_data(normalized_name, resolved_version)
@@ -319,17 +326,47 @@ class MicrosoftEOLAgent(BaseEOLAgent):
         )
 
     def _normalize_windows_server_name(self, software_name: str, version: Optional[str]) -> (str, Optional[str]):
-        """Extract Windows Server year as version when embedded in name."""
+        """Extract a canonical Windows Server release label from name/version."""
         name = software_name or ""
-        detected_version = version
+        if "windows server" not in name.lower():
+            return software_name, version
 
-        if "windows server" in name.lower() and not version:
-            match = re.search(r"windows\s+server\s+(\d{4})", name, re.IGNORECASE)
-            if match:
-                detected_version = match.group(1)
-                return "windows server", detected_version
+        detected_version = self._normalize_windows_server_release(name)
+        if detected_version:
+            return "windows server", detected_version
 
-        return software_name, detected_version
+        detected_version = self._normalize_windows_server_release(version)
+        return "windows server", detected_version
+
+    def _normalize_windows_server_release(self, value: Optional[str]) -> Optional[str]:
+        """Return a canonical Windows Server release label when it is unambiguous."""
+        if not value:
+            return None
+
+        normalized = re.sub(r"[^a-z0-9\.]+", " ", str(value).lower()).strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        release_match = re.search(r"\b(20\d{2}|19\d{2})(?:\s*(r2))?\b", normalized)
+        if release_match:
+            year = release_match.group(1)
+            suffix = f" {release_match.group(2).lower()}" if release_match.group(2) else ""
+            return f"{year}{suffix}"
+
+        kernel_mappings = (
+            ("6.3", "2012 r2"),
+            ("6.2", "2012"),
+            ("6.1", "2008 r2"),
+            ("6.0", "2008"),
+            ("5.2", "2003"),
+        )
+        for prefix, release in kernel_mappings:
+            if normalized.startswith(prefix):
+                return release
+
+        if normalized.startswith("10.0"):
+            return None
+
+        return None
 
     def _extract_year(self, text: str) -> Optional[str]:
         """Return the first 4-digit year in the given text."""
@@ -453,7 +490,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
     def _parse_windows_server_eol(self, soup: BeautifulSoup, version: Optional[str] = None) -> Optional[list[Dict[str, Any]]]:
         """Parse Windows Server EOL information from Microsoft docs table."""
         try:
-            target_version = version.split('.')[0] if version else None
+            target_version = self._normalize_windows_server_release(version)
             tables = soup.find_all('table')
 
             def _normalize_header(text: str) -> str:
@@ -504,6 +541,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
 
                     version_text = cells[header_map["windows server version"]].get_text(" ", strip=True)
                     version_text_clean = re.sub(r"\s*\([^)]*\)", "", version_text).strip()
+                    release_label = self._normalize_windows_server_release(version_text_clean)
                     version_year = self._extract_year(version_text_clean) or version_text_clean
                     software_name = re.sub(r"\s+\d{4}.*$", "", version_text_clean).strip() or "windows server"
 
@@ -516,7 +554,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
                     if editions_raw:
                         editions_list = [e.strip() for e in editions_raw.split(",") if e.strip()]
 
-                    if target_version and target_version not in version_text_clean and target_version != version_year:
+                    if target_version and release_label != target_version:
                         continue
 
                     availability_raw = _normalize_value(cells[header_map["availability date"]].get_text(" ", strip=True))
@@ -537,9 +575,11 @@ class MicrosoftEOLAgent(BaseEOLAgent):
                     if len(editions_list) == 2:
                         edition_values.append(None)
                     for edition in edition_values:
-                        version_value = version_year
+                        version_value = release_label or version_year
+                        if isinstance(version_value, str) and version_value.endswith("r2"):
+                            version_value = version_value[:-2] + "R2"
                         if edition:
-                            version_value = f"{version_year} {edition}"
+                            version_value = f"{version_value} {edition}"
 
                         results.append(
                             {

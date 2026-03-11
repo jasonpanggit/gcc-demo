@@ -464,6 +464,56 @@ html body .page-link:hover {
     color: var(--text-primary) !important;
 }
 
+/* Pagination: enforce explicit light-mode surfaces so page-level styles
+   cannot fall back to dark backgrounds while leaving text unreadable. */
+html body .pagination-container,
+html body .pagination-modern,
+html body .pagination-page-indicator,
+html body .pagination-quick-jump {
+    background: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .pagination-summary-title,
+html body .pagination-summary-stats,
+html body .pagination-modern .form-label,
+html body .pagination-jump-label {
+    color: var(--text-primary) !important;
+}
+
+html body .pagination-summary-stats strong,
+html body .page-current-display {
+    color: var(--color-primary) !important;
+}
+
+html body .pagination .page-link,
+html body .pagination-modern .form-select,
+html body .pagination-jump-input {
+    background: var(--bg-primary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html body .pagination .page-link:hover {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: #ffffff !important;
+}
+
+html body .pagination .page-item.active .page-link {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: #ffffff !important;
+}
+
+html body .pagination .page-item.disabled .page-link,
+html body .pagination .page-link:disabled {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-muted) !important;
+}
+
 /* Overlay components */
 html body .modal-content,
 html body .popover,
@@ -601,6 +651,30 @@ html.dark-mode body .nav-pills .nav-link:hover,
 html.dark-mode body .page-link:hover {
     background: var(--bg-tertiary) !important;
     color: var(--text-primary) !important;
+}
+
+html.dark-mode body .pagination-container,
+html.dark-mode body .pagination-modern,
+html.dark-mode body .pagination-page-indicator,
+html.dark-mode body .pagination-quick-jump {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .pagination-summary-title,
+html.dark-mode body .pagination-summary-stats,
+html.dark-mode body .pagination-modern .form-label,
+html.dark-mode body .pagination-jump-label,
+html.dark-mode body .pagination-jump-input,
+html.dark-mode body .pagination-modern .form-select {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode body .pagination-jump-input,
+html.dark-mode body .pagination-modern .form-select {
+    background: var(--bg-tertiary) !important;
+    border-color: var(--border-primary) !important;
 }
 
 html.dark-mode body .modal-content,

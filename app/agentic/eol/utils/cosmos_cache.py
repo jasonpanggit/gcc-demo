@@ -7,6 +7,8 @@ import os
 import traceback
 import logging
 import asyncio
+import re
+from copy import deepcopy
 from typing import Optional, Dict, Any
 
 try:
@@ -221,3 +223,151 @@ class BaseCosmosClient:
 
 # Shared base client instance used by specialized caches
 base_cosmos = BaseCosmosClient()
+
+
+class _LegacyContainerAdapter:
+    """Compatibility adapter for older async container access patterns."""
+
+    def __init__(self, container_id: str, partition_path: str):
+        self._container_id = container_id
+        self._partition_path = partition_path
+        self._container = None
+        self._items: Dict[str, Dict[str, Any]] = {}
+
+    def _get_container(self):
+        if self._container is not None:
+            return self._container
+
+        self._container = base_cosmos.get_container(
+            container_id=self._container_id,
+            partition_path=self._partition_path,
+            offer_throughput=400,
+        )
+        return self._container
+
+    async def create_item(self, body: Dict[str, Any]):
+        container = self._get_container()
+        if container is not None:
+            return container.create_item(body=body)
+
+        item_id = body["id"]
+        if item_id in self._items:
+            raise ValueError(f"Item {item_id} already exists in {self._container_id}")
+        self._items[item_id] = deepcopy(body)
+        return deepcopy(body)
+
+    def query_items(self, query: str, parameters=None, enable_cross_partition_query: bool = False):
+        del enable_cross_partition_query
+
+        container = self._get_container()
+        if container is not None:
+            return container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)
+
+        return self._query_items_in_memory(query, parameters or [])
+
+    async def replace_item(self, item: str, body: Dict[str, Any]):
+        container = self._get_container()
+        if container is not None:
+            return container.replace_item(item=item, body=body)
+
+        if item not in self._items:
+            raise KeyError(f"Item {item} not found in {self._container_id}")
+        self._items[item] = deepcopy(body)
+        return deepcopy(body)
+
+    async def delete_item(self, item: str, partition_key=None):
+        del partition_key
+
+        container = self._get_container()
+        if container is not None:
+            return container.delete_item(item=item, partition_key=partition_key)
+
+        self._items.pop(item, None)
+        return None
+
+    def _query_items_in_memory(self, query: str, parameters):
+        params = {param["name"]: param["value"] for param in parameters}
+        rows = [deepcopy(item) for item in self._items.values()]
+
+        if "c.id = @rule_id" in query:
+            rows = [item for item in rows if item.get("id") == params.get("@rule_id")]
+        if "c.id = @record_id" in query:
+            rows = [item for item in rows if item.get("id") == params.get("@record_id")]
+        if "c.name = @name" in query:
+            rows = [item for item in rows if item.get("name") == params.get("@name")]
+        if "c.alert_type = @alert_type" in query:
+            rows = [item for item in rows if item.get("alert_type") == params.get("@alert_type")]
+        if "c.acknowledged = @acknowledged" in query:
+            rows = [item for item in rows if item.get("acknowledged") == params.get("@acknowledged")]
+        if "c.dismissed = @dismissed" in query:
+            rows = [item for item in rows if item.get("dismissed") == params.get("@dismissed")]
+        if "c.scan_id = @scan_id" in query:
+            rows = [item for item in rows if item.get("scan_id") == params.get("@scan_id")]
+        if "c.timestamp >= @start_date" in query:
+            rows = [item for item in rows if (item.get("timestamp") or "") >= params.get("@start_date", "")]
+        if "c.timestamp <= @end_date" in query:
+            rows = [item for item in rows if (item.get("timestamp") or "") <= params.get("@end_date", "")]
+        if "c.alert_type = 'critical'" in query:
+            rows = [item for item in rows if item.get("alert_type") == "critical"]
+        if "c.acknowledged = false" in query:
+            rows = [item for item in rows if item.get("acknowledged") is False]
+        if "c.dismissed = false" in query:
+            rows = [item for item in rows if item.get("dismissed") is False]
+        if "c.escalated = false" in query:
+            rows = [item for item in rows if item.get("escalated") is False]
+        if "c.timestamp < @cutoff_time" in query:
+            rows = [item for item in rows if (item.get("timestamp") or "") < params.get("@cutoff_time", "")]
+        if "c.enabled = true" in query:
+            rows = [item for item in rows if item.get("enabled") is True]
+
+        if "ORDER BY c.created_at DESC" in query:
+            rows.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+        elif "ORDER BY c.timestamp DESC" in query:
+            rows.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+        elif "ORDER BY c.timestamp ASC" in query:
+            rows.sort(key=lambda item: item.get("timestamp", ""))
+
+        offset = 0
+        limit = None
+        offset_match = re.search(r"OFFSET\s+(\d+)", query)
+        if offset_match:
+            offset = int(offset_match.group(1))
+        limit_match = re.search(r"LIMIT\s+(\d+)", query)
+        if limit_match:
+            limit = int(limit_match.group(1))
+
+        if offset:
+            rows = rows[offset:]
+        if limit is not None:
+            rows = rows[:limit]
+
+        return rows
+
+
+class _LegacyCosmosClientAdapter:
+    """Compatibility surface for modules that still expect get_container_client."""
+
+    _PARTITION_PATHS = {
+        "cve_alert_rules": "/rule_type",
+        "cve_alert_history": "/alert_type",
+    }
+
+    def __init__(self):
+        self._containers: Dict[str, _LegacyContainerAdapter] = {}
+
+    def get_container_client(self, database: str, container: str):
+        del database
+
+        if container not in self._containers:
+            partition_path = self._PARTITION_PATHS.get(container, "/id")
+            self._containers[container] = _LegacyContainerAdapter(container, partition_path)
+        return self._containers[container]
+
+
+_legacy_cosmos_client = _LegacyCosmosClientAdapter()
+
+
+def get_cosmos_client() -> _LegacyCosmosClientAdapter:
+    """Return the legacy-compatible Cosmos client surface used by CVE managers."""
+
+    return _legacy_cosmos_client

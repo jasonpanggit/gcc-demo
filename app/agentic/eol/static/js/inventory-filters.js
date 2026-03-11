@@ -81,15 +81,18 @@ export function sortTable(column, filterCallback) {
  * @returns {*} Sort value
  */
 function getSortValue(item, column) {
+    const isOperatingSystem = (item.software_type || '').toLowerCase() === 'operating system';
     switch (column) {
         case 'computer':
             return item.computer || 'Unknown';
         case 'computer_type':
             return item.computer_type || 'Unknown';
         case 'name':
-            return item.name || 'Unknown';
+            return isOperatingSystem ? (item.os_name || item.name || 'Unknown') : (item.name || 'Unknown');
         case 'version':
-            return item.version || '';
+            return isOperatingSystem
+                ? (item.os_version ?? item.version ?? item.normalized_os_version ?? '')
+                : (item.version || '');
         case 'publisher':
             return item.publisher || 'Unknown';
         case 'software_type':
@@ -196,9 +199,13 @@ export function filterInventory(displayCallback, updateSummaryCallback) {
 
     if (searchTerm) {
         filtered = filtered.filter(item =>
-            (item.name || '').toLowerCase().includes(searchTerm) ||
+            (((item.software_type || '').toLowerCase() === 'operating system'
+                ? (item.os_name || item.name || '')
+                : (item.name || '')).toLowerCase().includes(searchTerm)) ||
             (item.publisher || '').toLowerCase().includes(searchTerm) ||
-            (item.version || '').toLowerCase().includes(searchTerm) ||
+            (String((item.software_type || '').toLowerCase() === 'operating system'
+                ? (item.os_version ?? item.version ?? item.normalized_os_version ?? '')
+                : (item.version || '')).toLowerCase().includes(searchTerm)) ||
             (item.software_type || '').toLowerCase().includes(searchTerm) ||
             (item.computer_type || '').toLowerCase().includes(searchTerm) ||
             (item.computer || '').toLowerCase().includes(searchTerm)
@@ -234,12 +241,17 @@ export function applyFilters(displayCallback, updateSummaryCallback) {
     const statusFilter = statusFilterEl ? statusFilterEl.value : '';
 
     const filtered = state.currentInventory.filter(item => {
+        const isOperatingSystem = (item.software_type || '').toLowerCase() === 'operating system';
+        const itemName = isOperatingSystem ? (item.os_name || item.name || '') : (item.name || '');
+        const itemVersion = isOperatingSystem
+            ? (item.os_version ?? item.version ?? item.normalized_os_version ?? '')
+            : (item.version || '');
         // Search filter
         const searchMatch = !searchTerm ||
-            (item.name && item.name.toLowerCase().includes(searchTerm)) ||
+            (itemName && itemName.toLowerCase().includes(searchTerm)) ||
             (item.computer && item.computer.toLowerCase().includes(searchTerm)) ||
             (item.publisher && item.publisher.toLowerCase().includes(searchTerm)) ||
-            (item.version && item.version.toLowerCase().includes(searchTerm));
+            String(itemVersion).toLowerCase().includes(searchTerm);
 
         // Type filter
         const typeMatch = !typeFilter ||

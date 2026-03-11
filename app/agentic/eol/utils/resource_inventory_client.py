@@ -266,6 +266,65 @@ class ResourceInventoryClient:
 
         return matches
 
+    async def get_resource_by_id(
+        self,
+        resource_id: str,
+        resource_type: Optional[str] = None,
+        subscription_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Look up a single resource by its full Azure resource ID.
+
+        This is more efficient than get_resources() when you know the exact
+        resource ID, as it can do a targeted cache lookup and avoid iterating
+        through all resources.
+
+        Args:
+            resource_id: Full Azure resource ID (e.g., /subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/virtualMachines/vm-name)
+            resource_type: Optional type hint to optimize cache lookup (e.g., "Microsoft.Compute/virtualMachines")
+            subscription_id: Target subscription (defaults to config)
+
+        Returns:
+            Resource document if found, None otherwise
+        """
+        sub = subscription_id or self._default_subscription()
+        if not sub:
+            return None
+
+        resource_id_lower = resource_id.lower()
+
+        # If resource_type is provided, search only that type
+        if resource_type:
+            resources = await self.get_resources(resource_type, sub)
+            for resource in resources:
+                rid = str(resource.get("resource_id") or resource.get("id") or "").lower()
+                if rid == resource_id_lower:
+                    return resource
+            return None
+
+        # Otherwise, scan all cached resource types for this subscription
+        cache = self._cache
+        prefix = f"resource_inv:{sub}:"
+        candidate_types: List[str] = []
+
+        with cache._l1_lock:
+            for key in cache._l1:
+                if key.startswith(prefix):
+                    parts = key.split(":")
+                    if len(parts) >= 3:
+                        rtype = parts[2]
+                        if rtype not in candidate_types:
+                            candidate_types.append(rtype)
+
+        # Search each resource type until we find a match
+        for rtype in candidate_types:
+            resources = await self.get_resources(rtype, sub)
+            for resource in resources:
+                rid = str(resource.get("resource_id") or resource.get("id") or "").lower()
+                if rid == resource_id_lower:
+                    return resource
+
+        return None
+
     async def get_all_resources(
         self,
         subscription_id: Optional[str] = None,

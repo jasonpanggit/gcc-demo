@@ -57,14 +57,21 @@ FORCE_REBUILD=${POSITIONAL_ARGS[2]:-false}
 cd "$(dirname "$0")/.."
 APP_DIR=$(pwd)
 
-# Determine version/tag (use CLI argument, git commit, or timestamp)
-DEFAULT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)
-if [[ -z "$REQUESTED_VERSION" ]]; then
-    VERSION="$DEFAULT_VERSION"
-    VERSION_SOURCE="auto"
-else
+# Determine version/tag (use CLI argument, git commit, or a dirty-worktree timestamp)
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
+GIT_STATUS=$(git status --porcelain --untracked-files=normal 2>/dev/null || true)
+TIMESTAMP_VERSION=$(date +%Y%m%d%H%M%S)
+
+if [[ -n "$REQUESTED_VERSION" ]]; then
     VERSION="$REQUESTED_VERSION"
     VERSION_SOURCE="manual"
+elif [[ -n "$GIT_STATUS" ]]; then
+    VERSION="${GIT_COMMIT:-local}-${TIMESTAMP_VERSION}"
+    VERSION_SOURCE="dirty-worktree"
+    echo "⚠️ Git worktree has uncommitted changes; using unique image tag $VERSION instead of reusing commit tag."
+else
+    VERSION="${GIT_COMMIT:-$TIMESTAMP_VERSION}"
+    VERSION_SOURCE="git-commit"
 fi
 DEPLOYMENT_DIR="$APP_DIR/deploy"
 if [[ "$APPSETTINGS_INPUT" = /* ]]; then
@@ -218,6 +225,7 @@ KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTIN
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
 AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
 GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
+MSRC_API_KEY=$(jq -r '.AppSettings.MSRC_API_KEY // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
 TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
 
@@ -246,13 +254,24 @@ ENV_VARS="$ENV_VARS RESOURCE_GROUP_NAME=$RESOURCE_GROUP"
 ENV_VARS="$ENV_VARS AZURE_TENANT_ID=$TENANT_ID"
 ENV_VARS="$ENV_VARS TENANT_ID=$TENANT_ID"
 ENV_VARS="$ENV_VARS USE_SERVICE_PRINCIPAL=false"
-# Keep SPN vars for SRE MCP (SPN-only by design), but remove SDK env-credential
-# vars so DefaultAzureCredential uses system-assigned MI for app runtime.
-if [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
+ENV_VARS="$ENV_VARS MANAGED_IDENTITY_USE_CLIENT_ID=false"
+if [[ -n "$MANAGED_IDENTITY_CLIENT_ID" ]] && [[ "$MANAGED_IDENTITY_CLIENT_ID" != "null" ]]; then
+    ENV_VARS="$ENV_VARS MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID"
+fi
+# Keep managed identity as the default runtime auth mode, but preserve injected
+# service principal credentials for components that explicitly require SPN auth
+# for ARM/ARG operations (for example the patch MCP server).
+if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -n "$SP_CLIENT_SECRET" ]]; then
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_ID=$SP_CLIENT_ID"
     ENV_VARS="$ENV_VARS AZURE_SP_CLIENT_SECRET=$SP_CLIENT_SECRET"
+    echo "✅ Runtime SPN credentials injected for patch/ARG components"
 fi
-REMOVE_ENV_VARS="AZURE_CLIENT_ID AZURE_CLIENT_SECRET MANAGED_IDENTITY_CLIENT_ID"
+# Remove Azure SDK env credentials that would otherwise override the intended
+# runtime mode for clients that honor the standard AZURE_CLIENT_* variables.
+REMOVE_ENV_VARS="AZURE_CLIENT_ID AZURE_CLIENT_SECRET"
+if [[ "$USE_SERVICE_PRINCIPAL" != "true" ]] || [[ -z "$SP_CLIENT_ID" ]] || [[ -z "$SP_CLIENT_SECRET" ]]; then
+    REMOVE_ENV_VARS="$REMOVE_ENV_VARS AZURE_SP_CLIENT_ID AZURE_SP_CLIENT_SECRET"
+fi
 
 # Add Azure Services configuration
 ENV_VARS="$ENV_VARS AZURE_OPENAI_ENDPOINT=$OPENAI_ENDPOINT"
@@ -287,6 +306,10 @@ ENV_VARS="$ENV_VARS ENVIRONMENT=production"
 ENV_VARS="$ENV_VARS PLAYWRIGHT_LLM_EXTRACTION=$PLAYWRIGHT_LLM_EXTRACTION"
 # Disable optional MCP servers that cause issues in ACA unless explicitly enabled
 ENV_VARS="$ENV_VARS AZURE_CLI_EXECUTOR_ENABLED=$AZURE_CLI_EXECUTOR_ENABLED"
+if [[ -n "$MSRC_API_KEY" ]] && [[ "$MSRC_API_KEY" != "null" ]]; then
+    ENV_VARS="$ENV_VARS MSRC_API_KEY=$MSRC_API_KEY"
+    echo "✅ MSRC API key configured"
+fi
 
 # Add Routing Telemetry configuration
 ROUTING_TELEMETRY_ENABLED=$(jq -r '.RoutingTelemetry.ROUTING_TELEMETRY_ENABLED // "false"' "$APPSETTINGS_FILE")

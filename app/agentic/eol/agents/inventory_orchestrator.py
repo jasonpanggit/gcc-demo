@@ -9,6 +9,7 @@ internal flow to rely on a single assistant agent backed by Azure OpenAI.
 from __future__ import annotations
 
 import asyncio
+import copy
 import html
 import math
 import os
@@ -247,6 +248,73 @@ Guidelines:
                 user_message=user_message,
                 conversation_id=conversation_id,
             )
+
+            if self._should_use_eol_lookup_fast_path(user_message, agent_grounding):
+                response_text = self._build_eol_lookup_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "eol_lookup"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
+            if self._should_use_software_inventory_fast_path(user_message, agent_grounding):
+                response_text = self._build_software_inventory_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "software_inventory_summary"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
+            if self._should_use_os_inventory_fast_path(user_message, agent_grounding):
+                response_text = self._build_os_inventory_fast_path_response(agent_grounding)
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "os_inventory_summary"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
             system_prompt = self._SYSTEM_PROMPT_TEMPLATE.format(context=context)
             if agent_grounding.get("insights"):
                 system_prompt = f"{system_prompt}\n\nLive Agent Insights:\n{agent_grounding['insights']}"
@@ -1134,21 +1202,23 @@ Guidelines:
         agents_called: List[str],
         conversation_id: int,
     ) -> None:
-        os_agent = orchestrator.agents.get("os_inventory")
-        if not os_agent or not hasattr(os_agent, "get_os_summary"):
-            return
-
         try:
-            os_summary = await asyncio.wait_for(os_agent.get_os_summary(), timeout=20.0)
+            os_data_list, from_cache = await self._get_merged_os_inventory_records(orchestrator)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("OS summary retrieval failed: %s", exc)
             return
+
+        os_summary = self._build_os_summary_from_records(os_data_list)
+        os_summary["from_cache"] = from_cache
 
         metadata["os_summary"] = {
             "total_computers": os_summary.get("total_computers"),
             "windows_count": os_summary.get("windows_count"),
             "linux_count": os_summary.get("linux_count"),
             "top_versions": os_summary.get("top_versions", [])[:5],
+            "version_breakdown": os_summary.get("version_breakdown", []),
+            "azure_vm_count": os_summary.get("azure_vm_count", 0),
+            "arc_count": os_summary.get("arc_count", 0),
         }
         agents_called.append("os_inventory")
         os_section = self._format_os_insights(os_summary)
@@ -1163,6 +1233,8 @@ Guidelines:
                 "agent": "os_inventory",
                 "type": "summary",
                 "total_computers": os_summary.get("total_computers"),
+                "azure_vm_count": os_summary.get("azure_vm_count", 0),
+                "arc_count": os_summary.get("arc_count", 0),
             },
             agent_name="os_inventory",
         )
@@ -1176,15 +1248,8 @@ Guidelines:
         agents_called: List[str],
         conversation_id: int,
     ) -> None:
-        os_agent = orchestrator.agents.get("os_inventory")
-        if not os_agent or not hasattr(os_agent, "get_os_inventory"):
-            return
-
         try:
-            os_inventory_result = await asyncio.wait_for(
-                os_agent.get_os_inventory(limit=None, use_cache=True),
-                timeout=25.0,
-            )
+            os_data_list, from_cache = await self._get_merged_os_inventory_records(orchestrator)
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("OS inventory sample unavailable: %s", exc)
             agents_called.append("os_inventory")
@@ -1203,13 +1268,8 @@ Guidelines:
             return
 
         agents_called.append("os_inventory")
-        os_data_list = (
-            os_inventory_result.get("data")
-            if isinstance(os_inventory_result, dict) and isinstance(os_inventory_result.get("data"), list)
-            else []
-        )
         all_rows = self._summarize_os_inventory(os_data_list, limit=None)
-        from_cache = bool(os_inventory_result.get("from_cache")) if isinstance(os_inventory_result, dict) else False
+        summary_metrics = self._build_os_summary_from_records(os_data_list)
 
         full_records: List[Dict[str, Optional[str]]] = []
         for item in os_data_list:
@@ -1245,8 +1305,10 @@ Guidelines:
         metadata["os_inventory"].update(
             {
                 "count": len(os_data_list),
-                "success": bool(os_inventory_result.get("success", True)) if isinstance(os_inventory_result, dict) else bool(all_rows),
+                "success": bool(all_rows) or bool(os_data_list),
                 "from_cache": from_cache,
+                "azure_vm_count": summary_metrics.get("azure_vm_count", 0),
+                "arc_count": summary_metrics.get("arc_count", 0),
                 "sample": all_rows[:15] if all_rows else metadata.get("os_inventory", {}).get("sample"),
                 "paginated_rows": {
                     "rows": all_rows,
@@ -1517,6 +1579,7 @@ Guidelines:
         error: Optional[str],
         agent_metadata: Optional[Dict[str, Any]] = None,
         agents_called: Optional[List[str]] = None,
+        fast_path: bool = False,
     ) -> Dict[str, Any]:
         conversation_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1566,10 +1629,386 @@ Guidelines:
             "confirmation_required": False,
             "confirmation_declined": confirmation_state == "declined",
             "pending_message": None,
-            "fast_path": False,
+            "fast_path": fast_path,
             "error": error,
             "metadata": metadata_payload,
         }
+
+    def _should_use_os_inventory_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not intent.get("is_os_inventory_query"):
+            return False
+        if intent.get("is_eol_query") or intent.get("is_approaching_eol_query"):
+            return False
+        if intent.get("is_software_inventory_query"):
+            return False
+
+        normalized = user_message.lower()
+        direct_os_phrases = (
+            "what operating system",
+            "what os",
+            "operating system do i have",
+            "os do i have",
+            "operating system counts",
+            "os counts",
+        )
+        return any(phrase in normalized for phrase in direct_os_phrases)
+
+    def _should_use_eol_lookup_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not (intent.get("is_eol_query") or intent.get("is_approaching_eol_query")):
+            return False
+
+        eol_lookup = metadata.get("eol_lookup")
+        if not isinstance(eol_lookup, dict) or not eol_lookup.get("software"):
+            return False
+
+        normalized = user_message.lower()
+        broad_inventory_terms = (
+            "inventory",
+            "across my environment",
+            "across the environment",
+            "across my estate",
+            "show me all",
+            "list all",
+            "which servers",
+            "which computers",
+            "which machines",
+        )
+        if any(term in normalized for term in broad_inventory_terms):
+            return False
+
+        software_name, _ = self._extract_target_software(user_message)
+        if not software_name:
+            return False
+
+        direct_eol_phrases = (
+            "what is the eol date",
+            "what's the eol date",
+            "what is the end of life",
+            "what's the end of life",
+            "when is",
+            "when does",
+            "end of life date",
+            "support end date",
+        )
+        return any(phrase in normalized for phrase in direct_eol_phrases)
+
+    def _should_use_software_inventory_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        if not intent.get("is_software_inventory_query") and not intent.get("is_inventory_query"):
+            return False
+        if intent.get("is_os_inventory_query"):
+            return False
+        if intent.get("is_eol_query") or intent.get("is_approaching_eol_query"):
+            return False
+
+        normalized = user_message.lower()
+        direct_software_phrases = (
+            "what software do i have",
+            "what software is in inventory",
+            "show me software inventory",
+            "list installed software",
+            "show installed software",
+            "what applications do i have",
+            "what is installed",
+        )
+        return any(phrase in normalized for phrase in direct_software_phrases)
+
+    def _build_software_inventory_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_inventory_summary = metadata.get("inventory_summary")
+        inventory_summary: Dict[str, Any] = raw_inventory_summary if isinstance(raw_inventory_summary, dict) else {}
+        software_summary = inventory_summary.get("software") if isinstance(inventory_summary.get("software"), dict) else {}
+        raw_software_inventory_meta = metadata.get("software_inventory")
+        software_inventory_meta: Dict[str, Any] = raw_software_inventory_meta if isinstance(raw_software_inventory_meta, dict) else {}
+
+        target_computer = software_inventory_meta.get("target_computer")
+        raw_target_rows = software_inventory_meta.get("target_rows")
+        target_rows = [row for row in raw_target_rows if isinstance(row, list)] if isinstance(raw_target_rows, list) else []
+        top_software = software_inventory_meta.get("top_software") if isinstance(software_inventory_meta.get("top_software"), list) else []
+
+        if not software_summary and not target_rows and not top_software:
+            return ""
+
+        total_items = software_summary.get("total_software", software_inventory_meta.get("count", 0))
+        total_computers = software_summary.get("total_computers", 0)
+        from_cache = bool(software_inventory_meta.get("from_cache"))
+        source_label = "inventory cache" if from_cache else "live inventory query"
+
+        heading = f"Installed Software on {self._sanitize_cell(target_computer)}" if target_computer else "Software Inventory"
+        sections: List[str] = [f"<section><h2>{heading}</h2>"]
+
+        if target_computer:
+            target_results = software_inventory_meta.get("target_results", len(target_rows))
+            sections.append(
+                "<p>"
+                f"Found <strong>{self._sanitize_cell(target_results)}</strong> software entries for "
+                f"<strong>{self._sanitize_cell(target_computer)}</strong>. Source: {self._sanitize_cell(source_label)}."
+                "</p>"
+            )
+        else:
+            sections.append(
+                "<p>"
+                f"Current inventory (last 90 days): <strong>{self._sanitize_cell(total_items)}</strong> software items "
+                f"across <strong>{self._sanitize_cell(total_computers)}</strong> computers. "
+                f"Source: {self._sanitize_cell(source_label)}."
+                "</p>"
+            )
+
+        if target_rows:
+            page_size_value = software_inventory_meta.get("target_page_size")
+            page_size = int(page_size_value) if isinstance(page_size_value, int) and page_size_value > 0 else 50
+            total_rows = len(target_rows)
+            total_pages_value = software_inventory_meta.get("target_total_pages")
+            total_pages = int(total_pages_value) if isinstance(total_pages_value, int) and total_pages_value > 0 else max(1, math.ceil(total_rows / page_size) if page_size else 1)
+
+            base_notes: List[str] = []
+            stored_parts = software_inventory_meta.get("target_footnote_parts")
+            if isinstance(stored_parts, list):
+                base_notes.extend([part for part in stored_parts if part])
+
+            for page_index in range(total_pages):
+                start = page_index * page_size if page_size else 0
+                end = min(start + page_size, total_rows) if page_size else total_rows
+                chunk = target_rows[start:end] if page_size else target_rows
+                if not chunk:
+                    continue
+                footnotes = [f"Rows {start + 1}-{end} of {total_rows}"]
+                for part in base_notes:
+                    if part not in footnotes:
+                        footnotes.append(part)
+                table = self._render_html_table(
+                    ["Software", "Version", "Publisher", "Last Seen"],
+                    chunk,
+                    caption=f"Software Inventory (Page {page_index + 1} of {total_pages})",
+                    footnote=" • ".join(footnotes) if footnotes else None,
+                    highlight_first_column=True,
+                )
+                if table:
+                    sections.append(table)
+        elif top_software:
+            table = self._render_html_table(
+                ["Software", "Installations", "Computers"],
+                top_software,
+                footnote=(
+                    f"Source rows: {software_inventory_meta.get('count')} • Showing top {len(top_software)} entries."
+                    + (" • Retrieved from cache." if from_cache else "")
+                ),
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Installed Software</h3>{table}</div>")
+
+        top_publishers = software_summary.get("top_publishers") if isinstance(software_summary.get("top_publishers"), list) else []
+        if top_publishers:
+            publisher_rows = [
+                [item.get("publisher", "Unknown"), str(item.get("installations", 0))]
+                for item in top_publishers[:5]
+            ]
+            table = self._render_html_table(
+                ["Publisher", "Installations"],
+                publisher_rows,
+                footnote=f"Showing top {min(len(top_publishers), 5)} publishers.",
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Publishers</h3>{table}</div>")
+
+        top_categories = software_summary.get("top_categories") if isinstance(software_summary.get("top_categories"), list) else []
+        if top_categories:
+            category_rows = [
+                [item.get("category", "Unknown"), str(item.get("installations", 0))]
+                for item in top_categories[:5]
+            ]
+            table = self._render_html_table(
+                ["Category", "Installations"],
+                category_rows,
+                footnote=f"Showing top {min(len(top_categories), 5)} categories.",
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Top Categories</h3>{table}</div>")
+
+        sections.append("</section>")
+        return "".join(sections)
+
+    def _build_eol_lookup_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_eol_lookup = metadata.get("eol_lookup")
+        eol_lookup: Dict[str, Any] = raw_eol_lookup if isinstance(raw_eol_lookup, dict) else {}
+        if not eol_lookup:
+            return ""
+
+        software = eol_lookup.get("software") or "Requested software"
+        version = eol_lookup.get("version")
+        display_name = f"{software} {version}" if version else str(software)
+        heading = f"End of Life Date for {self._sanitize_cell(display_name)}"
+
+        sections: List[str] = [f"<section><h2>{heading}</h2>"]
+
+        if eol_lookup.get("success"):
+            eol_date = eol_lookup.get("eol_date") or "Unknown"
+            status = eol_lookup.get("status") or "Unknown"
+            support_status = eol_lookup.get("support_status") or "Unknown"
+            sections.append(
+                "<p>"
+                f"<strong>{self._sanitize_cell(display_name)}</strong> reaches end of life on "
+                f"<strong>{self._sanitize_cell(eol_date)}</strong>. "
+                f"Current status: <strong>{self._sanitize_cell(status)}</strong>."
+                "</p>"
+            )
+
+            footnote_parts: List[str] = []
+            if eol_lookup.get("days_until_eol") is not None:
+                footnote_parts.append(f"Days until EOL: {eol_lookup.get('days_until_eol')}")
+            if eol_lookup.get("confidence") is not None:
+                footnote_parts.append(f"Confidence: {eol_lookup.get('confidence')}")
+
+            table = self._render_html_table(
+                ["Product", "EOL Date", "Status", "Support", "Risk", "Agent"],
+                [[
+                    display_name,
+                    eol_date,
+                    status,
+                    support_status,
+                    eol_lookup.get("risk_level") or "unknown",
+                    eol_lookup.get("agent_used") or "orchestrator",
+                ]],
+                footnote=" • ".join(footnote_parts) if footnote_parts else None,
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(table)
+        else:
+            error_text = eol_lookup.get("error") or "No EOL data available"
+            sections.append(
+                "<p>"
+                f"I could not find a lifecycle date for <strong>{self._sanitize_cell(display_name)}</strong>. "
+                f"{self._sanitize_cell(error_text)}"
+                "</p>"
+            )
+
+        sections.append("</section>")
+        return "".join(sections)
+
+    def _build_os_inventory_fast_path_response(self, agent_grounding: Dict[str, Any]) -> str:
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_os_summary = metadata.get("os_summary")
+        os_summary: Dict[str, Any] = raw_os_summary if isinstance(raw_os_summary, dict) else {}
+        raw_os_inventory_meta = metadata.get("os_inventory")
+        os_inventory_meta: Dict[str, Any] = raw_os_inventory_meta if isinstance(raw_os_inventory_meta, dict) else {}
+        if not os_summary:
+            return ""
+
+        total_computers = os_summary.get("total_computers", 0)
+        windows_count = os_summary.get("windows_count", 0)
+        linux_count = os_summary.get("linux_count", 0)
+        azure_vm_count = os_summary.get("azure_vm_count", os_inventory_meta.get("azure_vm_count", 0))
+        arc_count = os_summary.get("arc_count", os_inventory_meta.get("arc_count", 0))
+
+        sections: List[str] = ["<section><h2>Operating System Inventory</h2>"]
+        sections.append(
+            "<p>"
+            f"You have <strong>{self._sanitize_cell(total_computers)}</strong> computers in inventory: "
+            f"<strong>{self._sanitize_cell(windows_count)}</strong> Windows and "
+            f"<strong>{self._sanitize_cell(linux_count)}</strong> Linux. "
+            f"That includes <strong>{self._sanitize_cell(azure_vm_count)}</strong> Azure VMs and "
+            f"<strong>{self._sanitize_cell(arc_count)}</strong> Arc-enabled servers."
+            "</p>"
+        )
+
+        version_breakdown = (
+            os_summary.get("version_breakdown")
+            if isinstance(os_summary.get("version_breakdown"), list)
+            else []
+        )
+        top_versions = os_summary.get("top_versions") if isinstance(os_summary.get("top_versions"), list) else []
+        version_rows_source = version_breakdown or top_versions
+        if version_rows_source:
+            display_variants = version_rows_source
+            remaining_systems = 0
+            remaining_variants = 0
+
+            if len(version_rows_source) > 10:
+                display_variants = version_rows_source[:10]
+                remaining_variants = len(version_rows_source) - len(display_variants)
+                remaining_systems = max(
+                    total_computers - sum(int(item.get("count", 0) or 0) for item in display_variants),
+                    0,
+                )
+
+            version_rows = [
+                [item.get("name_version", "Unknown"), str(item.get("count", 0))]
+                for item in display_variants
+            ]
+            if remaining_systems > 0:
+                label = "Other operating system variants"
+                if remaining_variants > 0:
+                    label = f"Other operating system variants ({remaining_variants})"
+                version_rows.append([label, str(remaining_systems)])
+
+            variant_count = len(version_rows_source)
+            footnote = f"Showing {len(display_variants)} of {variant_count} operating system variants."
+            if remaining_systems <= 0 and len(display_variants) == variant_count:
+                footnote = f"Showing all {variant_count} operating system variants."
+
+            table = self._render_html_table(
+                ["Operating system", "Count"],
+                version_rows,
+                footnote=footnote,
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(f"<div><h3>Operating system counts</h3>{table}</div>")
+
+        sections.append("</section>")
+        return "".join(sections)
 
     async def _gather_agent_grounding(
         self,
@@ -1589,7 +2028,13 @@ Guidelines:
 
         if not any(
             intent.get(flag)
-            for flag in ("is_inventory_query", "is_os_inventory_query", "is_eol_query", "is_approaching_eol_query")
+            for flag in (
+                "is_inventory_query",
+                "is_software_inventory_query",
+                "is_os_inventory_query",
+                "is_eol_query",
+                "is_approaching_eol_query",
+            )
         ):
             return {"insights": "", "metadata": {}, "agents_called": []}
 
@@ -1818,6 +2263,13 @@ Guidelines:
                 f"<li>Windows {self._sanitize_cell(windows_count or 0)} • Linux {self._sanitize_cell(linux_count or 0)}</li>"
             )
 
+        azure_vm_count = os_summary.get("azure_vm_count")
+        arc_count = os_summary.get("arc_count")
+        if azure_vm_count is not None or arc_count is not None:
+            bullets.append(
+                f"<li>Azure VMs {self._sanitize_cell(azure_vm_count or 0)} • Arc-enabled servers {self._sanitize_cell(arc_count or 0)}</li>"
+            )
+
         sections: List[str] = ["<section><h3>Operating System Coverage</h3>"]
         if bullets:
             sections.append(f"<ul>{''.join(bullets)}</ul>")
@@ -1981,6 +2433,209 @@ Guidelines:
                 str(len(data["computers"])) if data["computers"] else "-",
             ])
         return rows
+
+    async def _get_merged_os_inventory_records(self, orchestrator: Any) -> Tuple[List[Dict[str, Any]], bool]:
+        os_agent = orchestrator.agents.get("os_inventory")
+        if not os_agent or not hasattr(os_agent, "get_os_inventory"):
+            return [], False
+
+        os_inventory_result = await asyncio.wait_for(
+            os_agent.get_os_inventory(limit=None, use_cache=True),
+            timeout=25.0,
+        )
+        raw_os_data: Any = os_inventory_result.get("data") if isinstance(os_inventory_result, dict) else []
+        os_data_list: List[Dict[str, Any]] = [
+            item for item in raw_os_data if isinstance(item, dict)
+        ] if isinstance(raw_os_data, list) else []
+        merged_records: List[Dict[str, Any]] = [
+            self._normalize_os_inventory_record(dict(item))
+            for item in os_data_list
+            if isinstance(item, dict)
+        ]
+        merged_records = await self._merge_azure_vm_os_inventory(merged_records)
+        from_cache = bool(os_inventory_result.get("from_cache")) if isinstance(os_inventory_result, dict) else False
+        return merged_records, from_cache
+
+    def _normalize_os_inventory_record(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(item, dict):
+            return item
+
+        from utils.normalization import normalize_os_record
+
+        existing_normalized_name = str(item.get("normalized_os_name") or "").strip().lower() or None
+        existing_normalized_version = str(item.get("normalized_os_version") or "").strip().lower() or None
+
+        normalized = normalize_os_record(
+            item.get("os_name") or item.get("name"),
+            item.get("os_version") or item.get("version"),
+            item.get("os_type"),
+        )
+
+        item.setdefault("raw_os_name", normalized.get("raw_os_name"))
+        item.setdefault("raw_os_version", normalized.get("raw_os_version"))
+        item["os_name"] = normalized["os_name"]
+        item["name"] = normalized["os_name"]
+        item["os_version"] = normalized.get("os_version")
+        item["version"] = normalized.get("os_version")
+        item["normalized_os_name"] = existing_normalized_name or normalized.get("normalized_os_name")
+        item["normalized_os_version"] = existing_normalized_version or normalized.get("normalized_os_version")
+        item["os_type"] = normalized.get("os_type") or item.get("os_type")
+        return item
+
+    async def _merge_azure_vm_os_inventory(self, os_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not isinstance(os_items, list):
+            return os_items
+
+        try:
+            from utils.resource_inventory_client import get_resource_inventory_client
+            from utils.normalization import normalize_os_record
+
+            inv_client = get_resource_inventory_client()
+            azure_vms = await inv_client.get_resources(
+                "Microsoft.Compute/virtualMachines",
+                subscription_id=config.azure.subscription_id,
+            )
+
+            existing_resource_ids = {
+                str(item.get("resource_id") or item.get("resourceId") or "").lower()
+                for item in os_items
+                if str(item.get("resource_id") or item.get("resourceId") or "").strip()
+            }
+            existing_computer_names = {
+                str(item.get("computer_name") or item.get("computer") or "").strip().lower()
+                for item in os_items
+                if str(item.get("computer_name") or item.get("computer") or "").strip()
+            }
+
+            for vm in azure_vms:
+                selected = vm.get("selected_properties") or {}
+                resource_id = str(vm.get("resource_id") or vm.get("id") or "")
+                if not resource_id or resource_id.lower() in existing_resource_ids:
+                    continue
+
+                vm_name = str(vm.get("resource_name") or vm.get("name") or "").strip()
+                if not vm_name or vm_name.lower() in existing_computer_names:
+                    continue
+
+                normalized_os = normalize_os_record(
+                    selected.get("os_image") or selected.get("os_type") or vm.get("os_name") or "Unknown",
+                    vm.get("os_version"),
+                    selected.get("os_type") or vm.get("os_type"),
+                )
+
+                os_items.append(
+                    {
+                        "computer_name": vm_name,
+                        "computer": vm_name,
+                        "os_name": normalized_os["os_name"],
+                        "name": normalized_os["os_name"],
+                        "os_version": normalized_os.get("os_version"),
+                        "version": normalized_os.get("os_version"),
+                        "os_type": normalized_os.get("os_type") or "Unknown",
+                        "raw_os_name": normalized_os.get("raw_os_name"),
+                        "raw_os_version": normalized_os.get("raw_os_version"),
+                        "normalized_os_name": normalized_os.get("normalized_os_name"),
+                        "normalized_os_version": normalized_os.get("normalized_os_version"),
+                        "vendor": "Unknown",
+                        "computer_environment": "Azure",
+                        "computer_type": "Azure VM",
+                        "resource_group": vm.get("resource_group") or vm.get("resourceGroup") or "",
+                        "resource_id": resource_id,
+                        "last_heartbeat": None,
+                        "source": "resource_inventory",
+                        "software_type": "operating system",
+                        "vm_type": "azure-vm",
+                    }
+                )
+                existing_resource_ids.add(resource_id.lower())
+                existing_computer_names.add(vm_name.lower())
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Failed to merge Azure VMs into inventory assistant OS records: %s", exc)
+
+        return os_items
+
+    def _build_os_summary_from_records(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not records:
+            return {
+                "total_computers": 0,
+                "windows_count": 0,
+                "linux_count": 0,
+                "top_versions": [],
+                "version_breakdown": [],
+                "azure_vm_count": 0,
+                "arc_count": 0,
+            }
+
+        unique_ids: Set[str] = set()
+        windows_count = 0
+        linux_count = 0
+        azure_vm_count = 0
+        arc_count = 0
+        version_counts: Dict[str, Dict[str, Any]] = {}
+
+        for item in records:
+            item = self._normalize_os_inventory_record(item)
+            identifier = (
+                str(item.get("resource_id") or item.get("resourceId") or "").strip().lower()
+                or str(item.get("computer") or item.get("computer_name") or "").strip().lower()
+            )
+            if not identifier or identifier in unique_ids:
+                continue
+            unique_ids.add(identifier)
+
+            computer_type = str(item.get("computer_type") or item.get("computer_environment") or "").lower()
+            vm_type = str(item.get("vm_type") or "").lower()
+            if vm_type == "azure-vm" or "azure vm" in computer_type:
+                azure_vm_count += 1
+            elif vm_type == "arc" or "arc-enabled" in computer_type:
+                arc_count += 1
+
+            normalized_os_name = str(item.get("normalized_os_name") or "").strip().lower()
+            os_type = str(item.get("os_type") or item.get("os_name") or item.get("name") or "").strip().lower()
+            if "windows" in normalized_os_name or "windows" in os_type:
+                windows_count += 1
+            elif normalized_os_name or os_type:
+                linux_count += 1
+
+            name = str(item.get("os_name") or item.get("name") or "Unknown").strip() or "Unknown"
+            version = str(item.get("os_version") or item.get("version") or "").strip()
+            normalized_name = str(item.get("normalized_os_name") or "").strip().lower() or name.lower()
+            normalized_version = str(item.get("normalized_os_version") or "").strip().lower() or version.lower()
+            name_version = f"{name} {version}".strip()
+            aggregate_key = f"{normalized_name}::{normalized_version}"
+            aggregate = version_counts.setdefault(
+                aggregate_key,
+                {
+                    "name_version": name_version,
+                    "count": 0,
+                },
+            )
+            aggregate["count"] += 1
+
+        sorted_versions = [
+            {
+                "name_version": str(data.get("name_version") or "Unknown"),
+                "count": int(data.get("count") or 0),
+                "normalized_key": aggregate_key,
+            }
+            for aggregate_key, data in sorted(
+                version_counts.items(),
+                key=lambda item: (
+                    -int(item[1].get("count") or 0),
+                    str(item[1].get("name_version") or "").lower(),
+                ),
+            )
+        ]
+
+        return {
+            "total_computers": len(unique_ids),
+            "windows_count": windows_count,
+            "linux_count": linux_count,
+            "top_versions": sorted_versions[:5],
+            "version_breakdown": sorted_versions,
+            "azure_vm_count": azure_vm_count,
+            "arc_count": arc_count,
+        }
 
     def _summarize_os_inventory(self, records: List[Dict[str, Any]], limit: Optional[int] = 15) -> List[List[str]]:
         if not records:

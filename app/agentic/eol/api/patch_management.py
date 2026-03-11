@@ -26,6 +26,7 @@ from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from utils.config import config
+from utils.normalization import normalize_os_record
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 
@@ -93,6 +94,19 @@ class InstallRequest(BaseModel):
     os_type: Optional[str] = Field(
         None,
         description="Force OS type: Windows | Linux. Auto-detected from inventory when absent.",
+    )
+    # Linux-specific fields (None for Windows)
+    package_names_to_include: Optional[List[str]] = Field(
+        None,
+        description="Linux package names to install (e.g. ['openssl', 'curl'])",
+    )
+    package_names_to_exclude: Optional[List[str]] = Field(
+        None,
+        description="Linux package name masks to exclude",
+    )
+    os_family: Optional[str] = Field(
+        None,
+        description="Linux OS family hint: 'ubuntu' | 'rhel' | 'centos'",
     )
 
 
@@ -310,15 +324,31 @@ def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     return "arc"
 
 
+def _normalize_machine_os_fields(machine: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply centralized OS normalization to a machine inventory row."""
+    if not isinstance(machine, dict):
+        return machine
+
+    normalized = normalize_os_record(
+        machine.get("os_name"),
+        machine.get("os_version"),
+        machine.get("os_type"),
+    )
+    machine.setdefault("raw_os_name", normalized.get("raw_os_name"))
+    machine.setdefault("raw_os_version", normalized.get("raw_os_version"))
+    machine["os_name"] = normalized["os_name"]
+    machine["os_version"] = normalized.get("os_version")
+    machine["normalized_os_name"] = normalized.get("normalized_os_name")
+    machine["normalized_os_version"] = normalized.get("normalized_os_version")
+    machine["os_type"] = normalized.get("os_type") or machine.get("os_type")
+    return machine
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/machines", response_model=StandardResponse)
-@readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
-async def list_machines(
-    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
-):
+async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Dict[str, Any]:
     """
     Return a unified list of both Azure VMs (from Resource Inventory) and
     Arc-enabled servers (from OS Inventory), each tagged with vm_type.
@@ -338,7 +368,7 @@ async def list_machines(
                 str(item.get("computer_type", "")).lower() == "arc-enabled server"
                 or "/microsoft.hybridcompute/machines/" in str(item.get("resource_id", "")).lower()
             ):
-                machines.append({**item, "vm_type": "arc"})
+                machines.append(_normalize_machine_os_fields({**item, "vm_type": "arc"}))
     except Exception as exc:
         logger.warning("Failed to fetch OS inventory for Arc VMs: %s", exc)
 
@@ -354,13 +384,14 @@ async def list_machines(
             str(m.get("resource_id", "")).lower()
             for m in machines
         }
-        # Get EOL orchestrator for enrichment
+        # Get EOL orchestrator for enrichment only when the caller needs it.
         eol_orchestrator = None
-        try:
-            from main import get_eol_orchestrator
-            eol_orchestrator = get_eol_orchestrator()
-        except Exception:
-            logger.debug("EOL orchestrator not available for Azure VM enrichment")
+        if include_eol:
+            try:
+                from main import get_eol_orchestrator
+                eol_orchestrator = get_eol_orchestrator()
+            except Exception:
+                logger.debug("EOL orchestrator not available for Azure VM enrichment")
 
         for vm in azure_vms:
             # _to_documents() normalises field names:
@@ -372,14 +403,23 @@ async def list_machines(
             if not rid or rid in arc_rid_set:
                 continue
             vm_name = vm.get("resource_name") or vm.get("name")
-            os_name = sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or ""
+            normalized_os = normalize_os_record(
+                sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
+                vm.get("os_version"),
+                sp.get("os_type") or vm.get("os_type"),
+            )
 
             # Build base VM record
             vm_record = {
                 "computer":        vm_name,
                 "name":            vm_name,
-                "os_name":         os_name,
-                "os_type":         sp.get("os_type") or vm.get("os_type"),
+                "os_name":         normalized_os["os_name"],
+                "os_version":      normalized_os.get("os_version"),
+                "os_type":         normalized_os.get("os_type"),
+                "raw_os_name":     normalized_os.get("raw_os_name"),
+                "raw_os_version":  normalized_os.get("raw_os_version"),
+                "normalized_os_name": normalized_os.get("normalized_os_name"),
+                "normalized_os_version": normalized_os.get("normalized_os_version"),
                 "resource_id":     vm.get("resource_id") or vm.get("id"),
                 "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or config.azure.subscription_id,
                 "resource_group":  vm.get("resource_group") or vm.get("resourceGroup"),
@@ -387,15 +427,19 @@ async def list_machines(
                 "vm_size":         sp.get("vm_size") or vm.get("vm_size"),
                 "vm_type":         "azure-vm",
             }
+            machines.append(_normalize_machine_os_fields(vm_record))
 
-            # Enrich with EOL data if available
-            if eol_orchestrator and os_name:
+        # Parallelize EOL enrichment for all Azure VMs
+        if eol_orchestrator and machines:
+            async def enrich_vm_with_eol(vm_record):
+                """Enrich a single VM with EOL data."""
+                normalized_os_name = vm_record.get("os_name")
+                if not normalized_os_name:
+                    return vm_record
                 try:
-                    # Extract OS name and version from os_name string
-                    # Examples: "Windows Server 2019", "Ubuntu 20.04", "RHEL 8.5"
                     eol_result = await eol_orchestrator.get_eol_data(
-                        software_name=os_name,
-                        version=None  # Let the orchestrator parse version from the string
+                        software_name=normalized_os_name,
+                        version=vm_record.get("os_version"),
                     )
                     if eol_result and eol_result.get("success"):
                         eol_data = eol_result.get("data", {})
@@ -404,9 +448,25 @@ async def list_machines(
                         vm_record["support_status"] = eol_data.get("support_status")
                         vm_record["lts"] = eol_data.get("lts")
                 except Exception as e:
-                    logger.debug(f"Failed to enrich Azure VM {vm_name} with EOL data: {e}")
+                    logger.debug(f"Failed to enrich VM {vm_record.get('computer')} with EOL data: {e}")
+                return vm_record
 
-            machines.append(vm_record)
+            # Only enrich Azure VMs (Arc VMs are already processed)
+            azure_vm_indices = [i for i, m in enumerate(machines) if m.get("vm_type") == "azure-vm"]
+            if azure_vm_indices:
+                try:
+                    enrichment_tasks = [enrich_vm_with_eol(machines[i]) for i in azure_vm_indices]
+                    enriched_vms = await asyncio.gather(*enrichment_tasks, return_exceptions=True)
+
+                    # Update machines list with enriched data
+                    for idx, enriched_vm in zip(azure_vm_indices, enriched_vms):
+                        if not isinstance(enriched_vm, Exception):
+                            machines[idx] = enriched_vm
+                        else:
+                            logger.debug(f"EOL enrichment failed for VM at index {idx}: {enriched_vm}")
+                except Exception as e:
+                    logger.warning(f"Failed to parallelize EOL enrichment: {e}")
+
     except Exception as exc:
         logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
 
@@ -421,6 +481,14 @@ async def list_machines(
         "arc_count":     arc_count,
         "azure_vm_count": avm_count,
     }
+
+
+@router.get("/machines", response_model=StandardResponse)
+@readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
+async def list_machines(
+    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
+):
+    return await _list_machines_inventory(days=days, include_eol=True)
 
 
 @router.get("/arc-vms", response_model=StandardResponse)
@@ -781,10 +849,16 @@ async def install_patches(request: Request):
             detail="subscription_id, resource_group, and machine_name are required",
         )
 
-    # Detect OS type – try registry first, then param, then default Windows
-    os_type = body.os_type
-    if not os_type:
-        os_type = "Windows"  # sensible default for Arc-enrolled Windows servers
+    # Detect OS type – use param when supplied, otherwise default to Windows
+    os_type = body.os_type or "Windows"  # sensible default for Arc-enrolled Windows servers
+
+    # Validate Linux requirements before hitting the ARM API
+    if os_type.lower() == "linux":
+        if not body.package_names_to_include and not body.kb_numbers_to_include:
+            raise HTTPException(
+                status_code=400,
+                detail="package_names_to_include required for Linux VMs",
+            )
 
     # Route to the correct ARM provider based on vm_type
     vm_type = _resolve_vm_type(body.resource_id, body.vm_type)
@@ -806,11 +880,14 @@ async def install_patches(request: Request):
     # Build OS-specific parameters
     classifications = body.classifications or ["Critical", "Security"]
     if os_type.lower() == "linux":
+        # Prefer package_names_to_include (Linux-native); fall back to kb_numbers_to_include
+        pkg_include = body.package_names_to_include or body.kb_numbers_to_include or []
+        pkg_exclude = body.package_names_to_exclude or body.kb_numbers_to_exclude or []
         os_params = {
             "linuxParameters": {
                 "classificationsToInclude": classifications,
-                "packageNameMasksToInclude": body.kb_numbers_to_include or [],
-                "packageNameMasksToExclude": body.kb_numbers_to_exclude or [],
+                "packageNameMasksToInclude": pkg_include,
+                "packageNameMasksToExclude": pkg_exclude,
             }
         }
     else:
@@ -844,11 +921,28 @@ async def install_patches(request: Request):
             if resp.status == 200:
                 # Synchronous / immediate completion (rare)
                 result_body = await resp.json(content_type=None)
+                from main import get_patch_install_history_repository
+
+                history_repo = await get_patch_install_history_repository()
+                sync_result = _extract_install_result(result_body)
+                pending_record = await history_repo.upsert_pending({
+                    "operation_url": install_url,
+                    "machine_name": machine_name,
+                    "subscription_id": sub_id,
+                    "resource_group": rg,
+                    "vm_type": vm_type,
+                    "os_type": os_type,
+                    "classifications": classifications,
+                    "requested_patch_ids": (body.kb_numbers_to_include or []) + (body.kb_numbers_to_exclude or []),
+                    "status": "Completed",
+                    "start_date_time": sync_result.get("start_date_time"),
+                })
+                await history_repo.mark_completed(pending_record["operation_url"], sync_result)
                 return {
                     "success": True,
                     "machine": machine_name,
                     "status": "Completed",
-                    "data": _extract_install_result(result_body),
+                    "data": sync_result,
                 }
 
             if resp.status != 202:
@@ -873,6 +967,21 @@ async def install_patches(request: Request):
                 )
 
     logger.info("Install operation started for %s: %s", machine_name, operation_url)
+
+    from main import get_patch_install_history_repository
+
+    history_repo = await get_patch_install_history_repository()
+    await history_repo.upsert_pending({
+        "operation_url": operation_url,
+        "machine_name": machine_name,
+        "subscription_id": sub_id,
+        "resource_group": rg,
+        "vm_type": vm_type,
+        "os_type": os_type,
+        "classifications": classifications,
+        "requested_patch_ids": (body.kb_numbers_to_include or []) + (body.kb_numbers_to_exclude or []),
+        "status": "InProgress",
+    })
 
     return {
         "success":       True,
@@ -920,6 +1029,13 @@ async def get_install_status(operation_url: str = Query(..., description="Azure-
         "data":       _extract_install_result(body) if is_done else None,
         "error":      body.get("error"),
     }
+
+    if is_done and result["data"]:
+        from main import get_patch_install_history_repository
+
+        history_repo = await get_patch_install_history_repository()
+        await history_repo.mark_completed(operation_url, result["data"])
+
     return result
 
 

@@ -132,11 +132,12 @@ class QueryPatterns:
     ]
 
     SECURITY_PATTERNS = [
+        'cve', 'cves',
         'security score', 'secure score', 'security posture',
         'security recommend', 'compliance', 'cis benchmark',
         'nist', 'pci-dss', 'pci dss', 'azure policy',
         'defender for cloud', 'security finding',
-        'vulnerability', 'attack surface',
+        'vulnerability', 'vulnerabilities', 'attack surface',
     ]
 
     SLO_PATTERNS = [
@@ -208,12 +209,12 @@ class QueryPatterns:
     DOMAIN_SOURCE_MAP: Dict[str, List[str]] = {
         'sre':                 ['sre', 'azure_cli', 'meta'],
         'cost':                ['sre', 'meta'],
-        'security':            ['sre', 'meta'],
+        'security':            ['sre', 'cve', 'meta'],
         'slo':                 ['sre', 'meta'],
         'app_insights':        ['sre', 'meta'],
         'monitoring':          ['monitor', 'azure_cli', 'meta'],
         'eol':                 ['os_eol', 'inventory'],
-        'inventory':           ['inventory', 'os_eol'],
+        'inventory':           ['inventory', 'os_eol', 'cve'],
         'resource_management': ['azure', 'azure_cli'],
         'network':             ['network', 'azure'],
         'cli':                 ['azure_cli'],

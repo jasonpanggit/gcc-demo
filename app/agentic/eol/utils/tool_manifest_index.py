@@ -55,7 +55,7 @@ class ToolManifest:
     """
 
     tool_name: str
-    source: str                             # "azure" | "sre" | "monitor" | "inventory" | "os_eol" | "azure_cli" | "network"
+    source: str                             # "azure" | "sre" | "monitor" | "inventory" | "os_eol" | "azure_cli" | "network" | "cve"
     domains: FrozenSet[str]                 # UnifiedDomain values
     tags: FrozenSet[str]                    # Semantic boost tags: ["health", "container", "aks"]
     affordance: ToolAffordance
@@ -438,6 +438,7 @@ def _build_index() -> ToolManifestIndex:
     index = ToolManifestIndex()
     _manifest_leaves = [
         "azure_manifests",
+        "cve_manifests",
         "sre_manifests",
         "monitor_manifests",
         "inventory_manifests",

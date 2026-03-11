@@ -426,7 +426,7 @@ html.dark-mode .patch-counter.other .count-num    { color: #79b8ff; }
 
                 <!-- Patches table -->
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm align-middle mb-0" id="modal-patch-table">
+                    <table class="table table-hover table-sm align-middle mb-0 patch-table" id="modal-patch-table">
                         <thead class="table-light">
                             <tr>
                                 <th class="install-col ps-2" style="width:36px"></th>
@@ -521,9 +521,36 @@ function updateHeroStats() {
 function machineKey(name, vmType) { return name + '||' + (vmType || 'arc'); }
 function cardId(key) { return 'vm-' + key.replace(/[^a-zA-Z0-9|]/g, '_').replace(/\|/g, '_'); }
 
+function formatVmOsName(item) {
+    const normalizedName = (item.normalized_os_name || '').trim();
+    const normalizedVersion = (item.normalized_os_version || item.os_version || '').trim();
+    if (normalizedName) {
+        let displayName;
+        if (normalizedName === 'windows server') displayName = 'Windows Server';
+        else if (normalizedName === 'windows') displayName = 'Windows';
+        else if (normalizedName === 'ubuntu') displayName = 'Ubuntu';
+        else if (normalizedName === 'rhel') displayName = 'RHEL';
+        else if (normalizedName === 'centos') displayName = 'CentOS';
+        else if (normalizedName === 'debian') displayName = 'Debian';
+        else displayName = normalizedName.split(/\s+/).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+
+        return normalizedVersion ? `${displayName} ${normalizedVersion}` : displayName;
+    }
+
+    const osName = (item.os_name || item.os_type || 'Unknown OS').trim();
+    const osVersion = normalizedVersion;
+    if (!osVersion) {
+        return osName;
+    }
+
+    const escapedVersion = osVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const baseName = osName.replace(new RegExp(`([\\s(\\-]+)?${escapedVersion}$`, 'i'), '').trim() || osName;
+    return `${baseName} ${osVersion}`.trim();
+}
+
 function buildCard(item) {
     const name = item.computer || item.name || '(unknown)';
-    const os   = item.os_name || item.os_type || 'Unknown OS';
+    const os   = formatVmOsName(item);
     const key  = machineKey(name, item.vm_type);
 
     const card = document.createElement('div');
@@ -1007,7 +1034,13 @@ function showDetail(key) {
     }
 
     // ── Info strip ───────────────────────────────────────────────
-    const osType = argMeta.os_type || osData.os_type || osData.os_name || '—';
+    const osType = formatVmOsName({
+        normalized_os_name: osData.normalized_os_name,
+        normalized_os_version: osData.normalized_os_version,
+        os_name: osData.os_name || argMeta.os_type,
+        os_type: argMeta.os_type || osData.os_type,
+        os_version: osData.os_version,
+    }) || '—';
     const rg     = argMeta.resource_group || osData.resource_group || osData.resource_group_name || '—';
     const lastTs = vm.patches.last_assessed;
     const status = vm.patches.status || '—';

@@ -2,6 +2,14 @@
 
 FastAPI-based agentic application for software lifecycle and Azure operations workflows.
 
+## Current capabilities
+
+- End-of-life and software lifecycle analysis
+- Azure MCP and SRE-assisted operations
+- Resource inventory and inventory assistant workflows
+- CVE search, syncing, inventory scanning, dashboarding, and alerting
+- Patch mapping and remediation workflows tied to CVE results
+
 ## Key areas
 
 - API routers: `api/`
@@ -10,6 +18,15 @@ FastAPI-based agentic application for software lifecycle and Azure operations wo
 - Utility and client layer: `utils/`
 - Web UI: `templates/` and `static/`
 - Tests: `tests/`
+
+## Current application shape
+
+- `agents/`: 43 Python modules
+- `api/`: 29 Python modules
+- `mcp_servers/`: 10 local MCP servers
+- `utils/`: 119 Python modules
+
+Major API areas include CVE routes (`cve*`), patch management, SRE audit/orchestration, inventory, and UI support routes.
 
 ## Run locally
 

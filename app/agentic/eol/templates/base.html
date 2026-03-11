@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Azure Agentic Platform{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%230078d4'/%3E%3Cstop offset='100%25' stop-color='%2350a7ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Cpath d='M18 36c0-6.1 4.9-11 11-11 1.7 0 3.3.4 4.8 1.1C35.8 21.8 40.4 19 45.7 19 53 19 59 25 59 32.3 59 39.3 53.6 45 46.8 45H22.5C17.8 45 14 41.2 14 36.5 14 32.4 16.9 29 20.8 28.2c-1.8 2-2.8 4.7-2.8 7.8z' fill='white' fill-opacity='.96'/%3E%3C/svg%3E">
 
     <!-- Performance optimization: DNS prefetch and preconnect -->
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
@@ -39,6 +40,7 @@
     {% block extra_head %}{% endblock %}
     <!-- Theme Foundation - MUST load after extra_head to enforce centralized light/dark consistency -->
     <link href="/static/css/theme-foundation.css" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
 </head>
 
 <body>
@@ -105,7 +107,7 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">AI Assistants</div>
+                <div class="nav-section-title">Assistants</div>
                 <a href="/azure-mcp" class="nav-item {% if '/azure-mcp' in request.path %}active{% endif %}">
                     <i class="fas fa-magic"></i>
                     <span class="nav-text">Ask Anything</span>
@@ -116,35 +118,39 @@
                 </a>
                 <a href="/inventory-assistant" class="nav-item {% if '/inventory-assistant' in request.path %}active{% endif %}">
                     <i class="fas fa-robot"></i>
-                    <span class="nav-text">Inventory</span>
-                </a>
-                <a href="/eol-search" class="nav-item {% if '/eol-search' in request.path %}active{% endif %}">
-                    <i class="fas fa-search"></i>
-                    <span class="nav-text">EOL Search</span>
+                    <span class="nav-text">OS & Software</span>
                 </a>
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Resources</div>
+                <div class="nav-section-title">Inventory &amp; Lifecycle</div>
                 <a href="/resource-inventory" class="nav-item {% if '/resource-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-boxes"></i>
                     <span class="nav-text">My Azure Resources</span>
                 </a>
                 <a href="/inventory" class="nav-item {% if request.path == '/inventory' %}active{% endif %}">
                     <i class="fas fa-list"></i>
-                    <span class="nav-text">OS & Software (LAW)</span>
+                    <span class="nav-text">My OS &amp; Software</span>
                 </a>
-                <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
-                    <i class="fas fa-chart-line"></i>
-                    <span class="nav-text">OS EOL Tracker</span>
+                <a href="/vm-vulnerability" class="nav-item {% if '/vm-vulnerability' in request.path %}active{% endif %}" title="Open My VM Vulnerabilites">
+                    <i class="fas fa-server"></i>
+                    <span class="nav-text">My VM Vulnerabilites</span>
                 </a>
-                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
-                    <i class="fas fa-shield-virus"></i>
-                    <span class="nav-text">Patch Management</span>
+                <a href="/eol-search" class="nav-item {% if request.path == '/eol-search' %}active{% endif %}">
+                    <i class="fas fa-search"></i>
+                    <span class="nav-text">EOL Search</span>
                 </a>
                 <a href="/eol-inventory" class="nav-item {% if '/eol-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-table"></i>
                     <span class="nav-text">EOL Dates Database</span>
+                </a>
+                <a href="/os-normalization-rules" class="nav-item {% if '/os-normalization-rules' in request.path %}active{% endif %}">
+                    <i class="fas fa-sliders"></i>
+                    <span class="nav-text">OS Normalization Rules</span>
+                </a>
+                <a href="/eol-management" class="nav-item {% if '/eol-management' in request.path %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="nav-text">OS EOL Tracker</span>
                 </a>
                 <a href="/eol-searches" class="nav-item {% if '/eol-searches' in request.path %}active{% endif %}">
                     <i class="fas fa-history"></i>
@@ -153,7 +159,35 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Management</div>
+                <div class="nav-section-title">Security &amp; Remediation</div>
+                <a href="/cve-dashboard" class="nav-item {% if '/cve-dashboard' in request.path %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">CVE Dashboard</span>
+                </a>
+                <a href="/cve-search" class="nav-item {% if '/cve-search' in request.path or '/cve-detail' in request.path %}active{% endif %}">
+                    <i class="fas fa-search"></i>
+                    <span class="nav-text">CVE Database</span>
+                </a>
+                <a href="/cve-alert-config" class="nav-item {% if '/cve-alert-config' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell text-warning"></i>
+                    <span class="nav-text">CVE Alert Configuration</span>
+                </a>
+                <a href="/cve-alert-history" class="nav-item {% if '/cve-alert-history' in request.path %}active{% endif %}">
+                    <i class="fas fa-clock-rotate-left text-info"></i>
+                    <span class="nav-text">CVE Alert History</span>
+                </a>
+                <a href="/patch-management" class="nav-item {% if '/patch-management' in request.path %}active{% endif %}">
+                    <i class="fas fa-shield-virus"></i>
+                    <span class="nav-text">Patch Management</span>
+                </a>
+                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell"></i>
+                    <span class="nav-text">Alerts</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Platform</div>
                 <a href="/docs" class="nav-item {% if request.path == '/docs' %}active{% endif %}" target="_blank" rel="noopener noreferrer">
                     <i class="fas fa-book"></i>
                     <span class="nav-text">API Docs</span>
@@ -161,10 +195,6 @@
                 <a href="/redoc" class="nav-item {% if request.path == '/redoc' %}active{% endif %}" target="_blank" rel="noopener noreferrer">
                     <i class="fas fa-file-alt"></i>
                     <span class="nav-text">API ReDoc</span>
-                </a>
-                <a href="/alerts" class="nav-item {% if '/alerts' in request.path %}active{% endif %}">
-                    <i class="fas fa-bell"></i>
-                    <span class="nav-text">Alerts</span>
                 </a>
                 <a href="/cache" class="nav-item {% if '/cache' in request.path %}active{% endif %}">
                     <i class="fas fa-database"></i>
@@ -293,6 +323,7 @@
     </script>
 
     {% block extra_scripts %}{% endblock %}
+    {% block extra_js %}{% endblock %}
 </body>
 
 </html>

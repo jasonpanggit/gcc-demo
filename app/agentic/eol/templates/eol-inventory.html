@@ -5,17 +5,20 @@
 <!-- Hero Section -->
 <div class="hero-section fade-in">
     <div class="hero-content">
-        <div class="row align-items-center">
-            <div class="col-lg-12">
+        <div class="hero-row">
+            <div class="hero-copy">
                 <h1 class="hero-title">
-                    <span class="hero-icon me-3"><i class="fab fa-microsoft"></i></span></span>EOL Dates Database
+                    <span class="hero-icon me-3"><i class="fab fa-microsoft"></i></span>EOL Dates Database
                 </h1>
                 <p class="hero-subtitle">
                     Cached EOL records (high confidence) stored in the Cosmos-backed EOL inventory. Filter by software/version and inspect source, agent, and cache freshness.
                 </p>
             </div>
-            <div class="d-flex gap-3 justify-content-start flex-wrap">
-                <button id="refreshBtn" class="btn btn-outline-light">
+            <div class="hero-action">
+                <a href="/os-normalization-rules" class="btn btn-outline-primary">
+                    <i class="fas fa-sliders me-2"></i>Manage OS Rules
+                </a>
+                <button id="refreshBtn" class="btn hero-action-button">
                     <i class="fas fa-rotate me-2"></i>Refresh
                 </button>
                 <button id="purgeAllBtn" class="btn btn-outline-danger">
@@ -54,6 +57,29 @@
             </div>
         </div>
 
+        <div class="modern-card fade-in mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Centralized OS Normalization</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4 align-items-center">
+                    <div class="col-lg-8">
+                        <p class="mb-2">
+                            OS family and version extraction rules are managed in a dedicated page because they apply across EOL inventory, OS inventory, Azure resource inventory, and patch management.
+                        </p>
+                        <p class="mb-0 text-muted small">
+                            Open the standalone rules page to add, edit, test, and prioritize regex derivation logic without mixing it into the cache browser.
+                        </p>
+                    </div>
+                    <div class="col-lg-4 d-flex justify-content-lg-end">
+                        <a href="/os-normalization-rules" class="btn btn-primary">
+                            <i class="fas fa-arrow-up-right-from-square me-2"></i>Open Rules Page
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="modern-card fade-in">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-database me-2"></i>List of EOL Records</h5>
@@ -78,6 +104,8 @@
                                 <th style="width: 42px;"><input type="checkbox" id="selectAllRows"></th>
                                 <th class="sortable" data-sort-key="software_name" data-sort-type="string" style="cursor: pointer;">Software <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
                                 <th class="sortable" data-sort-key="version" data-sort-type="string" style="cursor: pointer;">Version <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
+                                <th>Raw Input</th>
+                                <th>Derivation</th>
                                 <th class="sortable" data-sort-key="eol_date" data-sort-type="date" style="cursor: pointer;">EOL Date <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
                                 <th class="sortable" data-sort-key="support_end_date" data-sort-type="date" style="cursor: pointer;">Support End <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
                                 <th class="sortable" data-sort-key="release_date" data-sort-type="date" style="cursor: pointer;">Release <i class="fas fa-sort ms-1 sort-indicator text-muted"></i></th>
@@ -91,7 +119,7 @@
                             </tr>
                         </thead>
                         <tbody id="eolTableBody">
-                            <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
+                            <tr><td colspan="15" class="text-center text-muted py-4">Loading...</td></tr>
                         </tbody>
                     </table>
                     <div id="paginationBar" class="d-flex flex-wrap justify-content-between align-items-center gap-3 p-3 border-top" style="display: none;">
@@ -194,7 +222,6 @@
     const jumpToPageBtn = document.getElementById('jumpToPageBtn');
     const pageNumbersContainer = document.getElementById('pageNumbersContainer');
     const sortableHeaders = document.querySelectorAll('th.sortable');
-
     const pagingState = {
         allItems: [],
         currentPage: 1,
@@ -287,6 +314,8 @@
             recordIndex[item.id] = item;
             const riskBadge = formatRisk(item.risk_level);
             const confidence = formatConfidence(item.confidence);
+            const displaySoftwareName = item.normalized_software_name || item.software_name || '';
+            const displayVersion = item.normalized_version ?? item.version ?? '';
 
             let sourceUrl = item.source_url;
             if (sourceUrl && typeof sourceUrl === 'object' && sourceUrl.url) {
@@ -303,8 +332,10 @@
             return `
                 <tr data-record-id="${encodedId}" data-software-key="${encodedPk}" data-editing="false">
                     <td><input type="checkbox" class="row-select" data-record-id="${encodedId}" data-software-key="${encodedPk}" ${isChecked ? 'checked' : ''}></td>
-                    <td>${escapeHtml(item.software_name)}</td>
-                    <td class="version-cell">${escapeHtml(item.version || '')}</td>
+                    <td class="software-name-cell">${escapeHtml(displaySoftwareName)}</td>
+                    <td class="version-cell">${escapeHtml(displayVersion)}</td>
+                    <td><small class="text-muted">${escapeHtml(item.raw_software_name || item.software_name || '')}${item.raw_version ? `<br><span>${escapeHtml(item.raw_version)}</span>` : ''}</small></td>
+                    <td><small>${escapeHtml(item.derivation_strategy || '—')}${item.derivation_rule_name ? `<br><span class="text-muted">${escapeHtml(item.derivation_rule_name)}</span>` : ''}</small></td>
                     <td class="eol-date-cell">${formatDate(item.eol_date)}</td>
                     <td class="support-end-cell">${formatDate(item.support_end_date)}</td>
                     <td>${formatDate(item.release_date)}</td>
@@ -594,11 +625,15 @@
 
     function exitInlineEdit(row, recordId) {
         const record = recordIndex[recordId] || {};
+        const softwareNameCell = row.querySelector('.software-name-cell');
         const versionCell = row.querySelector('.version-cell');
         const eolCell = row.querySelector('.eol-date-cell');
         const supportCell = row.querySelector('.support-end-cell');
+        if (softwareNameCell) {
+            softwareNameCell.textContent = escapeHtml(record.normalized_software_name ?? record.software_name ?? '');
+        }
         if (versionCell) {
-            versionCell.textContent = escapeHtml(record.version || '');
+            versionCell.textContent = escapeHtml(record.normalized_version ?? record.version ?? '');
         }
         if (eolCell) {
             eolCell.textContent = formatDate(record.eol_date);
@@ -634,11 +669,15 @@
 
         if (!isEditing) {
             row.dataset.editing = 'true';
+            const softwareNameCell = row.querySelector('.software-name-cell');
             const versionCell = row.querySelector('.version-cell');
             const eolCell = row.querySelector('.eol-date-cell');
             const supportCell = row.querySelector('.support-end-cell');
+            if (softwareNameCell) {
+                softwareNameCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.normalized_software_name ?? existing.software_name ?? '')}" placeholder="Normalized software name">`;
+            }
             if (versionCell) {
-                versionCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.version || '')}" placeholder="Version">`;
+                versionCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.normalized_version ?? existing.version ?? '')}" placeholder="Version">`;
             }
             if (eolCell) {
                 eolCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${escapeHtml(existing.eol_date || '')}" placeholder="YYYY-MM-DD">`;
@@ -656,16 +695,25 @@
             return;
         }
 
+        const softwareNameInput = row.querySelector('.software-name-cell input');
         const versionInput = row.querySelector('.version-cell input');
         const eolInput = row.querySelector('.eol-date-cell input');
         const supportInput = row.querySelector('.support-end-cell input');
+        const newSoftwareName = softwareNameInput ? softwareNameInput.value.trim() : '';
         const newVersion = versionInput ? versionInput.value.trim() : '';
         const newEol = eolInput ? eolInput.value.trim() : '';
         const newSupport = supportInput ? supportInput.value.trim() : '';
 
         const updates = {};
-        if (newVersion !== (existing.version || '')) {
+        const existingSoftwareName = existing.normalized_software_name ?? existing.software_name ?? '';
+        if (newSoftwareName !== existingSoftwareName) {
+            updates.software_name = newSoftwareName || null;
+            updates.normalized_software_name = newSoftwareName || null;
+        }
+        const existingVersion = existing.normalized_version ?? existing.version ?? '';
+        if (newVersion !== existingVersion) {
             updates.version = newVersion || null;
+            updates.normalized_version = newVersion || null;
         }
         if (newEol !== (existing.eol_date || '')) {
             updates.eol_date = newEol || null;
@@ -718,7 +766,7 @@
     function showErrorRow(message) {
         emptyState.style.display = 'none';
         tableWrapper.style.display = 'block';
-        tableBody.innerHTML = `<tr><td colspan="13" class="text-center text-danger py-4">${message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="15" class="text-center text-danger py-4">${message}</td></tr>`;
         if (paginationBar) {
             paginationBar.style.display = 'none';
         }
@@ -775,7 +823,6 @@
     if (applyBtnSecondary) {
         applyBtnSecondary.addEventListener('click', loadTable);
     }
-
     // Purge-all flow
     const purgeAllBtn = document.getElementById('purgeAllBtn');
     const purgeAllConfirmBtn = document.getElementById('purgeAllConfirmBtn');
@@ -957,7 +1004,9 @@
         });
     });
 
-    document.addEventListener('DOMContentLoaded', loadTable);
+    document.addEventListener('DOMContentLoaded', () => {
+        loadTable();
+    });
 })();
 </script>
 {% endblock %}

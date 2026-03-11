@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Inventory Assistant — Azure Agentic Platform{% endblock %}
+{% block title %}OS & Software Assistant — Azure Agentic Platform{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -1104,162 +1104,8 @@
        pagination-summary, page-link styling, content-preview, and responsive breakpoints
        =================================================================== */
 
-    /* Additional pagination styling removed - using inventory.html based design above */
-
-    .page-current-display {
-        font-size: 1.2em;
-        font-weight: 700;
-    }
-
-    .page-divider {
-        opacity: 0.8;
-        font-size: 0.9em;
-        margin: 0 0.25rem;
-    }
-
-    .page-total-display {
-        opacity: 0.9;
-    }
-
-    .pagination-navigation {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex: 1;
-        justify-content: center;
-        width: 100%;
-        /* Use full width for better content display */
-        flex-wrap: nowrap;
-        overflow-x: auto;
-    }
-
-    .pagination-nav-btn {
-        border: none;
-        background: white;
-        color: #3b82f6;
-        padding: 0.75rem;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 40px;
-        height: 40px;
-        font-size: 0.875rem;
-        border: 2px solid #e2e8f0;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .pagination-nav-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-        transition: left 0.5s;
-    }
-
-    .pagination-nav-btn:hover::before {
-        left: 100%;
-    }
-
-    .pagination-nav-btn:hover:not(.disabled) {
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-        color: white;
-        border-color: #3b82f6;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-    }
-
-    .pagination-nav-btn.active {
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-        color: white;
-        border-color: #3b82f6;
-        font-weight: 600;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
-    }
-
-    .pagination-nav-btn.disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        background: #f1f5f9;
-        color: #94a3b8;
-        border-color: #f1f5f9;
-    }
-
-    .pagination-nav-btn.disabled:hover {
-        transform: none;
-        box-shadow: none;
-    }
-
-    .pagination-page-grid {
-        display: flex;
-        gap: 0.25rem;
-        margin: 0 0.5rem;
-    }
-
-    .pagination-quick-jump {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-shrink: 0;
-        background: white;
-        padding: 0.5rem;
-        border-radius: 8px;
-        border: 2px solid #e2e8f0;
-        min-width: 140px;
-        /* Ensure consistent width */
-        justify-content: center;
-    }
-
-    .pagination-jump-label {
-        font-size: 0.8rem;
-        color: #64748b;
-        font-weight: 500;
-    }
-
-    .pagination-jump-input {
-        width: 50px;
-        height: 32px;
-        padding: 0.25rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        text-align: center;
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: #1e293b;
-        background: white;
-        transition: all 0.2s ease;
-    }
-
-    .pagination-jump-input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-    }
-
-    .pagination-jump-go {
-        padding: 0.5rem 0.75rem;
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .pagination-jump-go:hover {
-        background: linear-gradient(135deg, #059669 0%, #047857 100%);
-        transform: translateY(-1px);
-        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
-    }
+    /* Shared pagination component styles come from pagination-components.css.
+       Keep only the assistant-specific responsive adjustments below. */
 
     /* Responsive Pagination */
     @media (max-width: 992px) {
@@ -1901,11 +1747,11 @@
         <div class="row align-items-center">
             <div class="col-lg-12">
                 <h1 class="hero-title">
-                    <span class="hero-icon me-3"><i class="fas fa-robot"></i></span>Inventory Assistant
+                    <span class="hero-icon me-3"><i class="fas fa-robot"></i></span>OS & Software Assistant
                 </h1>
                 <p class="hero-subtitle">
                     Intelligent conversational interface powered by multi-agent orchestration.
-                    Ask questions about your software inventory, get EOL analysis, and receive expert recommendations.
+                    Ask questions about your OS & software inventory, get EOL analysis, and receive expert recommendations.
                 </p>
             </div>
         </div>

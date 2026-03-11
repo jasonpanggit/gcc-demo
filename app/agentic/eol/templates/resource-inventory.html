@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Resource Inventory Browser - Azure Agentic Platform{% endblock %}
+{% block title %}Resource Inventory | Azure Resources{% endblock %}
 
 {% block extra_head %}
+<meta name="description" content="Browse and manage Azure resources including VMs, networks, and storage with CVE vulnerability tracking">
+<meta name="keywords" content="Azure, resources, inventory, VMs, management, CVE, vulnerabilities, security">
 <link rel="stylesheet" href="/static/css/resource-inventory.css?v={{ asset_version }}">
 <!-- DataTables via CDN -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
@@ -260,7 +262,8 @@
                                         <th>Location</th>
                                         <th>Tags</th>
                                         <th>Discovered</th>
-                                        <th></th>
+                                        <th>CVEs</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="resource-tbody">

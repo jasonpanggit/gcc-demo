@@ -64,6 +64,9 @@ async def _get_client_for_label(label: str) -> Any:
     elif label == "patch":
         from .patch_mcp_client import get_patch_mcp_client
         return await get_patch_mcp_client()
+    elif label == "cve":
+        from .cve_mcp_client import get_cve_mcp_client
+        return await get_cve_mcp_client()
     elif label == "os_eol":
         from .os_eol_mcp_client import get_os_eol_mcp_client
         return await get_os_eol_mcp_client()

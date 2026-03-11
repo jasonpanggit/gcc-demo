@@ -1,0 +1,362 @@
+"""
+CVE API Router
+
+Provides endpoints for CVE search and detail retrieval.
+"""
+import asyncio
+import re
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Path
+
+try:
+    from models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
+    from utils.response_models import StandardResponse
+    from utils.endpoint_decorators import readonly_endpoint
+    from utils.logging_config import get_logger
+except ModuleNotFoundError:
+    from app.agentic.eol.models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
+    from app.agentic.eol.utils.response_models import StandardResponse
+    from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
+    from app.agentic.eol.utils.logging_config import get_logger
+
+
+router = APIRouter()
+logger = get_logger(__name__)
+
+
+def _format_os_display_name(normalized_name: str, fallback_key: Optional[str] = None) -> str:
+    normalized_name = str(normalized_name or "").strip()
+    if normalized_name == "windows server":
+        return "Windows Server"
+    if normalized_name == "windows":
+        return "Windows"
+    if normalized_name == "ubuntu":
+        return "Ubuntu"
+    if normalized_name == "rhel":
+        return "RHEL"
+    if normalized_name == "centos":
+        return "CentOS"
+    if normalized_name == "debian":
+        return "Debian"
+    if normalized_name:
+        return " ".join(part.capitalize() for part in normalized_name.split())
+
+    key = str(fallback_key or "").strip()
+    if "::" in key:
+        name_part, _ = key.split("::", 1)
+        return " ".join(part.capitalize() for part in name_part.split())
+    return key or "Unknown OS"
+
+
+def _build_inventory_cached_filters(identity: dict) -> dict:
+    normalized_name = str(identity.get("normalized_name") or "").strip().lower()
+    normalized_version = str(identity.get("normalized_version") or "").strip()
+
+    keyword_parts = [part for part in [normalized_name, normalized_version] if part]
+    filters = {"keyword": " ".join(keyword_parts).strip()}
+
+    vendor_map = {
+        "ubuntu": "ubuntu",
+        "windows server": "microsoft",
+        "windows": "microsoft",
+        "rhel": "redhat",
+        "centos": "centos",
+        "debian": "debian",
+    }
+    vendor = vendor_map.get(normalized_name)
+    if vendor:
+        filters["vendor"] = vendor
+    return filters
+
+
+@router.get("/cve/stats")
+@readonly_endpoint(agent_name="cve_stats", timeout_seconds=15)
+async def get_cve_stats() -> StandardResponse:
+    """Get cached CVE statistics for the UI."""
+    try:
+        from main import get_cve_scanner, get_cve_service, get_eol_orchestrator
+        from utils.cve_inventory_sync import CVEInventorySyncStateStore, discover_inventory_os_identities
+
+        cve_service = await get_cve_service()
+        cached_count = await cve_service.count_cves({})
+        inventory_state = await CVEInventorySyncStateStore().load()
+        discovered_identities = await discover_inventory_os_identities(
+            eol_orchestrator=get_eol_orchestrator(),
+            cve_scanner=await get_cve_scanner(),
+        )
+
+        state_entries = {
+            str(entry.get("key") or "").strip(): entry
+            for entry in inventory_state.get("os_entries") or []
+            if str(entry.get("key") or "").strip()
+        }
+
+        identities = []
+        seen_keys = set()
+        for identity in discovered_identities:
+            key = str(identity.get("key") or "").strip()
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            merged = {**state_entries.get(key, {}), **identity}
+            identities.append(merged)
+
+        for key, entry in state_entries.items():
+            if key in seen_keys:
+                continue
+            identities.append(dict(entry))
+
+        semaphore = asyncio.Semaphore(6)
+
+        async def build_os_count(identity: dict) -> dict:
+            async with semaphore:
+                filters = _build_inventory_cached_filters(identity)
+                match_count = await cve_service.count_cves(filters) if filters.get("keyword") else 0
+                key = str(identity.get("key") or "").strip()
+                normalized_name = str(identity.get("normalized_name") or "").strip()
+                normalized_version = str(identity.get("normalized_version") or "").strip()
+                state_entry = state_entries.get(key, {})
+
+                return {
+                    "key": key,
+                    "display_name": _format_os_display_name(normalized_name, fallback_key=key),
+                    "version": normalized_version or None,
+                    "match_count": int(match_count),
+                    "query_mode": state_entry.get("query_mode"),
+                    "synced_at": state_entry.get("synced_at"),
+                }
+
+        inventory_os_counts = await asyncio.gather(
+            *(build_os_count(identity) for identity in identities),
+            return_exceptions=False,
+        )
+
+        inventory_os_counts.sort(
+            key=lambda item: (-item["match_count"], item["display_name"].lower(), str(item.get("version") or ""))
+        )
+
+        return StandardResponse(
+            success=True,
+            message="CVE stats retrieved",
+            data={
+                "cached_count": cached_count,
+                "l1_cache": cve_service.get_cache_stats(),
+                "inventory_os_counts": inventory_os_counts,
+                "inventory_os_last_synced_at": inventory_state.get("last_synced_at"),
+            }
+        )
+    except Exception as e:
+        logger.error(f"CVE stats retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cve/search")
+@readonly_endpoint(agent_name="cve_search", timeout_seconds=30)
+async def search_cves(request: CVESearchRequest) -> StandardResponse:
+    """Search CVEs with advanced filtering.
+
+    Supports multiple filter types:
+    - ID: Exact CVE ID match
+    - Keyword: Text search in description
+    - Severity: Filter by CVSS severity level
+    - CVSS Score: Min/max score range
+    - Date Range: Published date filters
+    - Vendor/Product: Affected product filters
+    - Source: Filter by data source
+    - Exploit: Filter by exploit availability
+
+    Pagination and sorting supported.
+
+    Args:
+        request: CVESearchRequest with filters, pagination, and sorting
+
+    Returns:
+        StandardResponse with CVESearchResponse data
+    """
+    try:
+        # Import here to get singleton
+        from main import get_cve_service
+
+        cve_service = await get_cve_service()
+
+        # Build filters dict for repository
+        filters = {}
+
+        if request.cve_id:
+            # Direct ID lookup - use get_cve instead of search
+            cve = await cve_service.get_cve(request.cve_id)
+            if cve is None:
+                return StandardResponse(
+                    success=False,
+                    message=f"CVE {request.cve_id} not found",
+                    data=CVESearchResponse(
+                        results=[],
+                        total_count=0,
+                        offset=0,
+                        limit=request.limit,
+                        has_more=False
+                    ).model_dump()
+                )
+
+            return StandardResponse(
+                success=True,
+                message="CVE found",
+                data=CVESearchResponse(
+                    results=[cve],
+                    total_count=1,
+                    offset=0,
+                    limit=request.limit,
+                    has_more=False
+                ).model_dump()
+            )
+
+        # Text search
+        if request.keyword:
+            filters["keyword"] = request.keyword
+
+        # Severity filter
+        if request.severity:
+            filters["severity"] = request.severity.upper()
+
+        # CVSS score range
+        if request.min_score is not None:
+            filters["min_score"] = request.min_score
+        if request.max_score is not None:
+            filters["max_score"] = request.max_score
+
+        # Date range
+        if request.published_after:
+            filters["published_after"] = request.published_after
+        if request.published_before:
+            filters["published_before"] = request.published_before
+
+        # Vendor/product filters
+        if request.vendor:
+            filters["vendor"] = request.vendor
+        if request.product:
+            filters["product"] = request.product
+
+        # Source filter
+        if request.source:
+            filters["source"] = request.source
+
+        # Exploit filter (if supported by repository)
+        if request.exploit_available is not None:
+            filters["exploit_available"] = request.exploit_available
+
+        # Execute search
+        results = await cve_service.search_cves(
+            filters=filters,
+            limit=request.limit,
+            offset=request.offset,
+            sort_by=request.sort_by,
+            sort_order=request.sort_order,
+        )
+
+        total_count = await cve_service.count_cves(filters)
+        total_count = max(total_count, request.offset + len(results))
+        has_more = request.offset + len(results) < total_count
+
+        response_data = CVESearchResponse(
+            results=results,
+            total_count=total_count,
+            offset=request.offset,
+            limit=request.limit,
+            has_more=has_more
+        )
+
+        logger.info(
+            "CVE search: %d results (filters=%d, offset=%d, sort=%s %s)",
+            len(results),
+            len(filters),
+            request.offset,
+            request.sort_by,
+            request.sort_order,
+        )
+
+        return StandardResponse(
+            success=True,
+            message=f"Found {len(results)} CVE(s)",
+            data=response_data.model_dump()
+        )
+
+    except Exception as e:
+        logger.error(f"CVE search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cve/{cve_id}")
+@readonly_endpoint(agent_name="cve_detail", timeout_seconds=15)
+async def get_cve_detail(
+    cve_id: str = Path(..., description="CVE identifier (e.g., CVE-2024-1234)")
+) -> StandardResponse:
+    """Get detailed information for a specific CVE.
+
+    Uses L1/L2 cache for fast retrieval. Cache hit indicator included in response.
+
+    Args:
+        cve_id: CVE identifier
+
+    Returns:
+        StandardResponse with CVEDetailResponse data
+    """
+    try:
+        # Import here to get singleton
+        from main import get_cve_service
+
+        cve_service = await get_cve_service()
+        cve_id = cve_id.upper()
+
+        # Check L1 cache first
+        cache_hit = False
+        cve = cve_service.cache.get(cve_id)
+        if cve:
+            cache_hit = True
+            logger.debug(f"CVE {cve_id} served from L1 cache")
+        else:
+            # Will check L2 (Cosmos) and APIs
+            cve = await cve_service.get_cve(cve_id)
+            # L2 cache hit logged by service
+
+        if cve is None:
+            return StandardResponse(
+                success=False,
+                message=f"CVE {cve_id} not found",
+                data=None
+            )
+
+        # Find related CVEs (optional - same vendor/product)
+        related_cves = []
+        if cve.affected_products:
+            # Get first product for related search
+            first_product = cve.affected_products[0]
+            try:
+                related = await cve_service.search_cves(
+                    filters={
+                        "vendor": first_product.vendor,
+                        "product": first_product.product
+                    },
+                    limit=6  # Get 6, exclude self, return 5
+                )
+                related_cves = [r.cve_id for r in related if r.cve_id != cve_id][:5]
+            except Exception as e:
+                logger.warning(f"Failed to find related CVEs: {e}")
+
+        response_data = CVEDetailResponse(
+            cve=cve,
+            related_cves=related_cves,
+            cache_hit=cache_hit
+        )
+
+        logger.info(f"CVE detail: {cve_id} (cache_hit={cache_hit}, related={len(related_cves)})")
+
+        return StandardResponse(
+            success=True,
+            message=f"CVE {cve_id} retrieved",
+            data=response_data.model_dump()
+        )
+
+    except Exception as e:
+        logger.error(f"CVE detail retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

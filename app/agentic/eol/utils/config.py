@@ -3,6 +3,7 @@ Centralized configuration management for the EOL Multi-Agent App
 """
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
@@ -36,6 +37,8 @@ class AppConfig:
     timeout: int = 60
     log_level: str = "INFO"
     debug_mode: bool = False
+    base_url: str = field(default_factory=lambda: os.getenv("APP_BASE_URL", "http://localhost:8000"))
+    asset_version: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
 
 
 @dataclass
@@ -152,6 +155,192 @@ class InventoryConfig:
     cosmos_autoscale_max_ru: int = 4000
 
 
+
+@dataclass
+class CVEDataConfig:
+    """CVE (Common Vulnerabilities and Exposures) data configuration.
+
+    Controls CVE data fetching from multiple sources: CVE.org, NVD, vendor feeds.
+    """
+
+    # API endpoints
+    cve_org_base_url: str = "https://cveawg.mitre.org/api"
+    nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
+    redhat_base_url: str = "https://access.redhat.com/hydra/rest/securitydata"
+    ubuntu_base_url: str = "https://ubuntu.com/security"
+    msrc_base_url: str = "https://api.msrc.microsoft.com/cvrf/v3.0"
+    github_graphql_url: str = "https://api.github.com/graphql"
+
+    # API keys (optional for some sources)
+    cve_org_api_org: str = field(default_factory=lambda: os.getenv("CVE_API_ORG", ""))
+    nvd_api_key: str = field(default_factory=lambda: os.getenv("NVD_API_KEY", ""))
+    msrc_api_key: str = field(default_factory=lambda: os.getenv("MSRC_API_KEY", ""))
+    github_token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", ""))
+
+    # Request configuration
+    request_timeout: int = 30  # seconds
+    max_retries: int = 3
+    rate_limit_per_second: float = 5.0  # Default rate limit
+
+    # Cache configuration
+    l1_cache_size: int = 1000  # Max CVEs in memory
+    l1_cache_ttl_seconds: int = 3600  # 1 hour
+    cosmos_container_name: str = "cve_data"
+    cosmos_kb_edge_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_KB_EDGE_COSMOS_CONTAINER", "cve_kb_edges")
+    )
+
+    # Source priority for conflict resolution (lower number = higher priority)
+    source_priority: Dict[str, int] = field(default_factory=lambda: {
+        "nvd": 1,        # Highest priority for CVSS scores
+        "cve_org": 2,    # Authoritative for CVE metadata
+        "github": 3,     # Good for software package CVEs
+        "redhat": 4,     # Enterprise Linux focus
+        "ubuntu": 4,     # Same priority as RedHat
+        "microsoft": 4   # Windows/Office focus
+    })
+
+
+@dataclass
+class CVESyncConfig:
+    """CVE synchronization scheduler configuration.
+
+    Controls periodic CVE database refresh jobs using APScheduler.
+    """
+
+    # Feature flag
+    enable_cve_sync: bool = field(
+        default_factory=lambda: os.getenv("CVE_SYNC_ENABLED", "true").lower() == "true"
+    )
+
+    # Sync schedules
+    full_sync_schedule_cron: str = field(
+        default_factory=lambda: os.getenv("CVE_SYNC_CRON", "0 2 * * *")  # Daily at 2 AM
+    )
+    incremental_sync_interval_hours: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_INTERVAL_HOURS", "6"))
+    )
+
+    # Sync behavior
+    sync_lookback_days: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_LOOKBACK_DAYS", "7"))
+    )
+
+    # Job limits
+    max_cves_per_sync: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SYNC_MAX_CVES", "10000"))
+    )
+
+
+@dataclass
+class CVEScannerConfig:
+    """CVE scanner configuration for inventory vulnerability scanning.
+
+    Controls VM discovery, package extraction, and CVE matching behavior.
+    """
+
+    # Feature flag
+    enable_scanner: bool = field(
+        default_factory=lambda: os.getenv("CVE_SCANNER_ENABLED", "true").lower() == "true"
+    )
+
+    # Scan limits
+    scan_timeout_minutes: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_TIMEOUT_MINUTES", "30"))
+    )
+    max_vms_per_scan: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_MAX_VMS", "1000"))
+    )
+    vm_scan_concurrency: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_VM_CONCURRENCY", "6"))
+    )
+
+    # Package extraction
+    package_extraction_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_PACKAGE_TIMEOUT", "10"))
+    )
+
+    # Persistence
+    cosmos_scan_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_SCAN_COSMOS_CONTAINER", "cve_scans")
+    )
+    cosmos_patch_install_container_name: str = field(
+        default_factory=lambda: os.getenv("CVE_PATCH_INSTALL_COSMOS_CONTAINER", "cve_patch_installs")
+    )
+
+
+@dataclass
+class CVEMonitoringConfig:
+    """CVE monitoring and alerting configuration.
+
+    Controls scheduled CVE scanning, delta detection, and multi-channel alerting.
+
+    Environment variables:
+        ENABLE_CVE_MONITORING: Enable scheduled scanning (default: true)
+        CVE_SCAN_SCHEDULE_CRON: Cron schedule for scans (default: "0 9 * * *" - 9 AM daily)
+        CVE_ALERT_SEVERITY_THRESHOLD: Minimum severity to alert (HIGH or CRITICAL, default: HIGH)
+        CVE_ALERT_ON_NEW_CVES: Alert on new CVE detection (default: true)
+        CVE_ALERT_ON_SEVERITY_INCREASE: Alert on severity increases (default: true)
+        CVE_ENABLE_ESCALATION: Enable escalation for unacknowledged alerts (default: true)
+        CVE_ESCALATION_TIMEOUT_HOURS: Hours before escalation (default: 24)
+        CVE_MAX_ALERTS_PER_BATCH: Max CVEs per alert batch (default: 50)
+        CVE_SCAN_TIMEOUT_SECONDS: Scan completion timeout (default: 600)
+    """
+
+    # Master switch
+    enable_cve_monitoring: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_CVE_MONITORING", "true").lower() == "true"
+    )
+
+    # Scan schedule (cron expression)
+    scan_schedule_cron: str = field(
+        default_factory=lambda: os.getenv("CVE_SCAN_SCHEDULE_CRON", "0 9 * * *")
+    )
+
+    # Alert filters
+    alert_severity_threshold: str = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_SEVERITY_THRESHOLD", "HIGH")
+    )
+
+    alert_on_new_cves: bool = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_ON_NEW_CVES", "true").lower() == "true"
+    )
+
+    alert_on_severity_increase: bool = field(
+        default_factory=lambda: os.getenv("CVE_ALERT_ON_SEVERITY_INCREASE", "true").lower() == "true"
+    )
+
+    # Escalation
+    enable_escalation: bool = field(
+        default_factory=lambda: os.getenv("CVE_ENABLE_ESCALATION", "true").lower() == "true"
+    )
+
+    escalation_timeout_hours: int = field(
+        default_factory=lambda: int(os.getenv("CVE_ESCALATION_TIMEOUT_HOURS", "24"))
+    )
+
+    # Performance
+    max_alerts_per_batch: int = field(
+        default_factory=lambda: int(os.getenv("CVE_MAX_ALERTS_PER_BATCH", "50"))
+    )
+
+    scan_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("CVE_SCAN_TIMEOUT_SECONDS", "600"))
+    )
+
+    def __post_init__(self):
+        """Validate configuration values"""
+        valid_severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        if self.alert_severity_threshold not in valid_severities:
+            raise ValueError(
+                f"Invalid severity threshold: {self.alert_severity_threshold}. "
+                f"Must be one of {valid_severities}"
+            )
+
+        if self.escalation_timeout_hours < 1:
+            raise ValueError("Escalation timeout must be at least 1 hour")
+
+
 # ============================================================================
 # Phase 2 Day 6: Centralized Timeout Configuration
 # ============================================================================
@@ -227,6 +416,10 @@ class ConfigManager:
         self._app_config: Optional[AppConfig] = None
         self._inventory_asst_config: Optional[InventoryAssistantConfig] = None
         self._inventory_config: Optional[InventoryConfig] = None
+        self._cve_data_config: Optional[CVEDataConfig] = None
+        self._cve_sync_config: Optional[CVESyncConfig] = None
+        self._cve_scanner_config: Optional[CVEScannerConfig] = None
+        self._cve_monitoring_config: Optional[CVEMonitoringConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
@@ -378,6 +571,34 @@ class ConfigManager:
         return self._inventory_config
 
     @property
+    def cve_sync(self) -> CVESyncConfig:
+        """Get CVE sync scheduler configuration"""
+        if self._cve_sync_config is None:
+            self._cve_sync_config = CVESyncConfig()
+        return self._cve_sync_config
+
+    @property
+    def cve_data(self) -> CVEDataConfig:
+        """Get CVE data source/cache configuration."""
+        if self._cve_data_config is None:
+            self._cve_data_config = CVEDataConfig()
+        return self._cve_data_config
+
+    @property
+    def cve_scanner(self) -> CVEScannerConfig:
+        """Get CVE scanner configuration (Phase 5)"""
+        if self._cve_scanner_config is None:
+            self._cve_scanner_config = CVEScannerConfig()
+        return self._cve_scanner_config
+
+    @property
+    def cve_monitoring(self) -> CVEMonitoringConfig:
+        """Get CVE monitoring configuration (Phase 9)"""
+        if self._cve_monitoring_config is None:
+            self._cve_monitoring_config = CVEMonitoringConfig()
+        return self._cve_monitoring_config
+
+    @property
     def timeouts(self) -> TimeoutConfig:
         """Get centralized timeout configuration (Phase 2, Day 6)"""
         if self._timeout_config is None:
@@ -445,3 +666,7 @@ class ConfigManager:
 
 # Global configuration instance
 config = ConfigManager()
+
+# Compatibility alias used by some modules
+def get_config() -> ConfigManager:
+    return config

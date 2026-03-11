@@ -11,6 +11,16 @@ Terraform-based demo platform for hybrid connectivity, security, Azure Arc, AVD,
 - VM/bootstrap scripts: `scripts/*`
 - Workbook automation: `workbooks/end-of-life`
 
+## Current application scope
+
+The active application under `app/agentic/eol` now covers:
+
+- End-of-life analysis and version intelligence
+- Azure SRE workflows and diagnostics
+- Resource inventory and inventory assistant experiences
+- CVE search, dashboarding, alerting, inventory scan, and remediation mapping
+- Patch assessment and remediation orchestration through local MCP servers
+
 ## Quick start
 
 ```bash
@@ -60,6 +70,8 @@ terraform apply -var-file="credentials.tfvars" -var-file="demos/arc/arc-demo.tfv
 1. Deploy a demo (typically Arc or Agentic).
 2. Run `workbooks/end-of-life/post-deploy-setup.sh`.
 3. For app runtime/deploy details, see `app/agentic/eol/README.md` and `app/agentic/eol/deploy/README.md`.
+
+For the most complete EOL/CVE experience, start from one of the agentic demo tfvars under `demos/agentic/` or `demos/eol-agentic/`.
 
 ## Cleanup
 

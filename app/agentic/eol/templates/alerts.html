@@ -1667,8 +1667,8 @@
         const infoDays = convertTodays(alertConfig.info.period, alertConfig.info.unit);
 
         osInventoryData.forEach(osItem => {
-            const normalizedName = normalizeOsName(osItem.os_name);
-            const normalizedVersion = osItem.os_version || inferOsVersion(normalizedName) || 'Unknown';
+            const normalizedName = String(osItem.os_name || osItem.name || 'Unknown OS').trim() || 'Unknown OS';
+            const normalizedVersion = osItem.os_version || osItem.version || osItem.normalized_os_version || 'Unknown';
             // Mock EOL dates - in real implementation, this would come from EOL database
             const eolDate = getMockEOLDate(normalizedName, normalizedVersion);
 
@@ -1757,17 +1757,6 @@
 
     function normalizeEnvironment(value) {
         return value === 'NonAzure' ? 'Non-Azure' : (value || 'Unknown');
-    }
-
-    function normalizeOsName(osName) {
-        const raw = String(osName || '').trim();
-        if (!raw) return 'Unknown OS';
-        return raw.replace(/^windowsserver\b/i, 'Windows Server');
-    }
-
-    function inferOsVersion(osName) {
-        const match = String(osName || '').match(/\b(20\d{2}|19\d{2})\b/);
-        return match ? match[1] : '';
     }
 
     function detectVmType(osItem) {

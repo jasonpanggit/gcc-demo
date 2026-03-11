@@ -134,6 +134,18 @@ export function displayInventory(inventory, checkEOLCallback = null, updateSumma
 function renderInventoryRow(item, itemId) {
     const isSearchable = (item.software_type || '').toLowerCase() === 'operating system';
     const eolBadge = renderEolBadge(item);
+    const displayName = isSearchable
+        ? (item.os_name || item.name || 'Unknown')
+        : (item.name || 'Unknown');
+    const canonicalName = isSearchable
+        ? (item.normalized_os_name || item.os_name || item.name || '')
+        : (item.name || '');
+    const displayVersion = isSearchable
+        ? (item.os_version ?? item.version ?? item.normalized_os_version ?? 'N/A')
+        : (item.version || 'N/A');
+    const lookupVersion = isSearchable
+        ? (item.normalized_os_version ?? item.os_version ?? item.version ?? '')
+        : (item.version || '');
     
     return `
         <tr>
@@ -153,21 +165,21 @@ function renderInventoryRow(item, itemId) {
             <td>
                 ${isSearchable ?
                                         `<div class="software-name-clickable text-primary" 
-                          onclick="handleManualEOLCheck('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}')"
-                          title="Click to search EOL information for ${escapeHtml(item.name)}${item.version ? ' v' + escapeHtml(item.version) : ''}"
+                          onclick="handleManualEOLCheck('${escapeHtml(canonicalName)}', '${escapeHtml(lookupVersion)}', '${itemId}')"
+                          title="Click to search EOL information for ${escapeHtml(displayName)}${lookupVersion ? ' v' + escapeHtml(lookupVersion) : ''}"
                                                     style="cursor: pointer;">
-                        <strong>${escapeHtml(item.name || 'Unknown')}</strong>
+                        <strong>${escapeHtml(displayName)}</strong>
                         <small class="text-muted d-block mt-1">
                             <i class="fas fa-search me-1 icon-sm"></i>
                             Click to search EOL info
                         </small>
                     </div>` :
-                    `<strong>${escapeHtml(item.name || 'Unknown')}</strong>`
+                    `<strong>${escapeHtml(displayName)}</strong>`
                 }
-                ${item.name && item.name.includes('(Arc-enabled)') ? '<i class="fas fa-cloud ms-1 text-success" title="Arc-enabled OS"></i>' : ''}
+                ${displayName && displayName.includes('(Arc-enabled)') ? '<i class="fas fa-cloud ms-1 text-success" title="Arc-enabled OS"></i>' : ''}
             </td>
             <td>
-                <span class="badge bg-secondary">${escapeHtml(item.version || 'N/A')}</span>
+                <span class="badge bg-secondary">${escapeHtml(displayVersion)}</span>
             </td>
             <td>${escapeHtml(item.publisher || 'Unknown')}</td>
             <td>
@@ -178,7 +190,7 @@ function renderInventoryRow(item, itemId) {
             </td>
             <td>
                 ${isSearchable ?
-                    `<button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(item.name)}', '${escapeHtml(item.version || '')}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
+                    `<button class="btn btn-sm btn-outline-primary" onclick="checkEOLInPlace('${escapeHtml(canonicalName)}', '${escapeHtml(lookupVersion)}', '${itemId}', '${escapeHtml(item.software_type || '')}')">
                         <i class="fas fa-sync me-1"></i>
                         Refresh EOL
                     </button>` :
@@ -279,10 +291,16 @@ function startAutomaticEOLChecks(inventory, checkEOLCallback) {
     
     inventory.forEach(item => {
         const softwareType = (item.software_type || '').toLowerCase();
+        const lookupName = softwareType === 'operating system'
+            ? (item.normalized_os_name || item.os_name || item.name || '')
+            : (item.name || '');
+        const lookupVersion = softwareType === 'operating system'
+            ? (item.normalized_os_version ?? item.os_version ?? item.version ?? '')
+            : (item.version || '');
         if (softwareType === 'operating system') osCount++;
         if (softwareType === 'application') appCount++;
         
-        if (item.name && !item.name.includes('(Arc-enabled)')) {
+        if (lookupName && !lookupName.includes('(Arc-enabled)')) {
             // Only check EOL for operating systems
             if (softwareType === 'operating system') {
                 // Skip automatic checking if item was manually checked
@@ -292,7 +310,7 @@ function startAutomaticEOLChecks(inventory, checkEOLCallback) {
                     }
                     checkedCount++;
                     const targetId = item.dom_id || item.id;
-                    checkEOLCallback(item.name, item.version || '', targetId, item.software_type || '');
+                    checkEOLCallback(lookupName, lookupVersion, targetId, item.software_type || '');
                 }
             } else {
                 // Set N/A status for other types

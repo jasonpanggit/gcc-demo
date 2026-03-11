@@ -22,6 +22,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
 try:
+    from azure.identity import DefaultAzureCredential
     from azure.identity import ClientSecretCredential
     from azure.monitor.query import LogsQueryClient, MetricsQueryClient
     from azure.monitor.query.aio import LogsQueryClient as AsyncLogsQueryClient
@@ -35,6 +36,7 @@ try:
     from azure.mgmt.redis import RedisManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
 except ImportError:
+    DefaultAzureCredential = None
     ClientSecretCredential = None
     LogsQueryClient = None
     AsyncLogsQueryClient = None
@@ -81,7 +83,7 @@ logging.getLogger("azure.monitor.query").setLevel(logging.WARNING)
 logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
 _server = FastMCP(name="azure-sre")
-_credential: Optional[DefaultAzureCredential] = None
+_credential: Optional[Any] = None
 _teams_client: Optional[TeamsNotificationClient] = None
 _subscription_id: Optional[str] = None
 
@@ -342,25 +344,46 @@ def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[s
 
 
 def _get_credential():
-    """Get or create Azure credential using injected Service Principal credentials only."""
+    """Get or create Azure credential using configured runtime auth mode."""
     global _credential
     if _credential is None:
+        use_sp = os.getenv("USE_SERVICE_PRINCIPAL", "false").lower() == "true"
         sp_client_id = os.getenv("AZURE_SP_CLIENT_ID")
         sp_client_secret = os.getenv("AZURE_SP_CLIENT_SECRET")
         tenant_id = os.getenv("AZURE_TENANT_ID")
+        use_mi_client_id = os.getenv("MANAGED_IDENTITY_USE_CLIENT_ID", "false").lower() == "true"
+        managed_identity_client_id = os.getenv("MANAGED_IDENTITY_CLIENT_ID")
 
-        if not (sp_client_id and sp_client_secret and tenant_id):
-            raise RuntimeError(
-                "Service Principal credentials are required for SRE MCP server. "
-                "Set AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID."
+        if use_sp:
+            if not (sp_client_id and sp_client_secret and tenant_id):
+                raise RuntimeError(
+                    "Service Principal authentication is enabled for SRE MCP server, "
+                    "but AZURE_SP_CLIENT_ID, AZURE_SP_CLIENT_SECRET, and AZURE_TENANT_ID are not all set."
+                )
+
+            logger.info("Using injected Service Principal authentication for SRE MCP server")
+            _credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=sp_client_id,
+                client_secret=sp_client_secret
             )
+        else:
+            if DefaultAzureCredential is None:
+                raise RuntimeError(
+                    "DefaultAzureCredential is not available. Install azure-identity to use Managed Identity."
+                )
 
-        logger.info("Using injected Service Principal authentication for SRE MCP server")
-        _credential = ClientSecretCredential(
-            tenant_id=tenant_id,
-            client_id=sp_client_id,
-            client_secret=sp_client_secret
-        )
+            credential_kwargs: Dict[str, Any] = {}
+            if use_mi_client_id and managed_identity_client_id:
+                credential_kwargs["managed_identity_client_id"] = managed_identity_client_id
+                logger.info(
+                    "Using Managed Identity authentication for SRE MCP server (client_id=%s...)",
+                    managed_identity_client_id[:8],
+                )
+            else:
+                logger.info("Using Managed Identity authentication for SRE MCP server")
+
+            _credential = DefaultAzureCredential(**credential_kwargs)
     return _credential
 
 
@@ -5810,6 +5833,15 @@ async def get_cost_analysis(
         columns = [col["name"] for col in cost_data.get("properties", {}).get("columns", [])]
         rows = cost_data.get("properties", {}).get("rows", [])
 
+        if not rows:
+            logger.warning(
+                "Cost analysis returned zero rows | scope=%s | time_range=%s | group_by=%s | columns=%s",
+                scope,
+                time_range,
+                group_by,
+                columns,
+            )
+
         cost_items = []
         total_cost = 0.0
         for row in rows:
@@ -5825,6 +5857,17 @@ async def get_cost_analysis(
 
         # Sort by cost descending
         cost_items.sort(key=lambda x: x["cost"], reverse=True)
+
+        logger.info(
+            "Cost analysis parsed | scope=%s | time_range=%s | group_by=%s | raw_rows=%d | parsed_items=%d | total_cost=%s | sample_groups=%s",
+            scope,
+            time_range,
+            group_by,
+            len(rows),
+            len(cost_items),
+            round(total_cost, 2),
+            [item.get("group") for item in cost_items[:5]],
+        )
 
         response = {
             "success": True,

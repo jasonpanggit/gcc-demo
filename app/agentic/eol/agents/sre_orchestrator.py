@@ -490,14 +490,16 @@ class SREOrchestratorAgent(BaseSREAgent):
     # ------------------------------------------------------------------
 
     async def _init_sre_sub_agent(self) -> None:
-        """Initialise SRESubAgent with tools from the SRE MCP server.
+        """Initialise SRESubAgent with tools from SRE + CVE MCP servers.
 
-        Mirrors the pattern in MCPOrchestratorAgent._init_sre_agent().
+        Merges SRE and CVE tools into a unified catalog for SRESubAgent.
+        Creates a routing tool invoker that dispatches to the correct MCP client.
         """
         if SRESubAgent is None:
             logger.warning("SRESubAgent class not available — skipping init")
             return
 
+        # Initialize SRE MCP client
         try:
             sre_client = await get_sre_mcp_client()
         except SREMCPDisabledError:
@@ -512,13 +514,117 @@ class SREOrchestratorAgent(BaseSREAgent):
             logger.warning("No SRE tools returned by MCP client — SRESubAgent not initialised")
             return
 
+        # Initialize CVE MCP client and get CVE tools
+        cve_tools = []
+        cve_client = None
+        try:
+            from main import get_cve_mcp_client
+            cve_client = await get_cve_mcp_client()
+            # Get CVE tools from the MCP server
+            cve_tool_names = ["search_cve", "scan_inventory", "get_patches", "trigger_remediation"]
+            for tool_name in cve_tool_names:
+                # Build tool definition matching MCP format
+                tool_def = {
+                    "name": tool_name,
+                    "description": self._get_cve_tool_description(tool_name),
+                    "inputSchema": self._get_cve_tool_schema(tool_name)
+                }
+                cve_tools.append(tool_def)
+            logger.info("✅ CVE MCP client integrated with %d CVE tools", len(cve_tools))
+        except Exception as exc:
+            logger.warning("CVE MCP client init failed: %s — continuing without CVE tools", exc)
+
+        # Merge SRE and CVE tools
+        all_tools = sre_tools + cve_tools
+        logger.info("📦 Merged tool catalog: %d SRE + %d CVE = %d total tools",
+                   len(sre_tools), len(cve_tools), len(all_tools))
+
+        # Create unified tool invoker that routes to correct MCP client
+        async def unified_tool_invoker(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            """Route tool calls to correct MCP client based on tool name."""
+            cve_tool_names = {"search_cve", "scan_inventory", "get_patches", "trigger_remediation"}
+            if tool_name in cve_tool_names:
+                if cve_client is None:
+                    return {
+                        "success": False,
+                        "error": "CVE MCP client not available"
+                    }
+                # Route to CVE MCP client
+                result = await cve_client.mcp.call_tool(tool_name, arguments=arguments)
+                # Parse MCP response
+                if hasattr(result, 'text'):
+                    return json.loads(result.text)
+                return result
+            else:
+                # Route to SRE MCP client
+                return await sre_client.call_tool(tool_name, arguments)
+
         self._sre_sub_agent = SRESubAgent(
-            tool_definitions=sre_tools,
-            tool_invoker=sre_client.call_tool,
+            tool_definitions=all_tools,
+            tool_invoker=unified_tool_invoker,
             event_callback=None,
         )
-        self._sre_tool_invoker = sre_client.call_tool
-        logger.info("✅ SRESubAgent initialised with %d SRE tools", len(sre_tools))
+        self._sre_tool_invoker = unified_tool_invoker
+        logger.info("✅ SRESubAgent initialised with %d total tools (%d SRE + %d CVE)",
+                   len(all_tools), len(sre_tools), len(cve_tools))
+
+    def _get_cve_tool_description(self, tool_name: str) -> str:
+        """Get description for CVE tool."""
+        descriptions = {
+            "search_cve": "Search CVEs by ID, keyword, severity, CVSS score, or date filters. Returns CVE summaries with metadata.",
+            "scan_inventory": "Trigger CVE vulnerability scan on VM inventory. Scans VMs for known CVEs and returns scan status.",
+            "get_patches": "Get patches that remediate a specific CVE. Returns patch list with KB numbers and affected VMs.",
+            "trigger_remediation": "Trigger patch installation to remediate a CVE on a VM. Supports dry_run and requires confirmation."
+        }
+        return descriptions.get(tool_name, "CVE management tool")
+
+    def _get_cve_tool_schema(self, tool_name: str) -> Dict[str, Any]:
+        """Get input schema for CVE tool."""
+        schemas = {
+            "search_cve": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID (e.g. CVE-2024-1234)"},
+                    "keyword": {"type": "string", "description": "Keyword search"},
+                    "severity": {"type": "string", "description": "Severity filter: CRITICAL, HIGH, MEDIUM, LOW"},
+                    "cvss_min": {"type": "number", "description": "Minimum CVSS score"},
+                    "cvss_max": {"type": "number", "description": "Maximum CVSS score"},
+                    "published_after": {"type": "string", "description": "ISO date"},
+                    "published_before": {"type": "string", "description": "ISO date"},
+                    "limit": {"type": "integer", "description": "Max results (default 20)"}
+                }
+            },
+            "scan_inventory": {
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string", "description": "Azure subscription ID"},
+                    "resource_group": {"type": "string", "description": "Resource group (optional)"},
+                    "vm_name": {"type": "string", "description": "Specific VM name (optional)"}
+                },
+                "required": ["subscription_id"]
+            },
+            "get_patches": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID"},
+                    "subscription_ids": {"type": "array", "items": {"type": "string"}, "description": "Subscription IDs (optional)"}
+                },
+                "required": ["cve_id"]
+            },
+            "trigger_remediation": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {"type": "string", "description": "CVE ID"},
+                    "vm_name": {"type": "string", "description": "VM name"},
+                    "subscription_id": {"type": "string", "description": "Subscription ID"},
+                    "resource_group": {"type": "string", "description": "Resource group"},
+                    "dry_run": {"type": "boolean", "description": "Preview only (default true)"},
+                    "confirmed": {"type": "boolean", "description": "Execute remediation (requires confirmation)"}
+                },
+                "required": ["cve_id", "vm_name", "subscription_id", "resource_group"]
+            }
+        }
+        return schemas.get(tool_name, {"type": "object"})
 
     async def _run_via_sre_sub_agent(
         self,
@@ -556,6 +662,14 @@ class SREOrchestratorAgent(BaseSREAgent):
         if self._is_diagnostic_logging_query(query):
             logger.info("🔍 Detected diagnostic logging query, routing to deterministic workflow")
             forced = await self._run_diagnostic_logging_deterministic_workflow(query, workflow_id, context)
+            if forced:
+                return forced
+
+        # Generic Container App health queries: scope to the configured deployment RG
+        # to avoid subscription-wide fan-out and long CLI fallback chains.
+        if self._is_generic_container_app_health_query(query):
+            logger.info("🔍 Detected generic Container App health query, routing to deterministic workflow")
+            forced = await self._run_container_app_health_deterministic_workflow(query, workflow_id, context)
             if forced:
                 return forced
 
@@ -769,6 +883,238 @@ class SREOrchestratorAgent(BaseSREAgent):
         )
         return availability, detail
 
+    def _is_generic_container_app_health_query(self, query: str) -> bool:
+        """Detect broad Container App health queries without a named target."""
+        if not self._is_container_app_query(query):
+            return False
+
+        q = query.lower()
+        has_health = bool(re.search(r"\b(health|healthy|status|unhealthy|degraded|availability|up|down)\b", q))
+        if not has_health:
+            return False
+
+        resource_name, resource_type = self._extract_resource_name_and_type(query)
+        return resource_type == "container_app" and not resource_name
+
+    def _get_default_container_app_scope(self, context: Dict[str, Any]) -> tuple[str, str, str]:
+        """Return default subscription, resource group, and workspace for ACA health queries."""
+        azure_config = getattr(config, "azure", None)
+
+        subscription_id = (
+            str(context.get("subscription_id") or "").strip()
+            or str(getattr(azure_config, "subscription_id", "") or "").strip()
+            or str(os.getenv("SUBSCRIPTION_ID") or os.getenv("AZURE_SUBSCRIPTION_ID") or "").strip()
+        )
+        resource_group = (
+            str(context.get("resource_group") or "").strip()
+            or str(getattr(azure_config, "resource_group_name", "") or "").strip()
+            or str(os.getenv("RESOURCE_GROUP_NAME") or "").strip()
+        )
+        workspace_id = (
+            str(context.get("workspace_id") or "").strip()
+            or str(getattr(azure_config, "log_analytics_workspace_id", "") or "").strip()
+            or str(os.getenv("LOG_ANALYTICS_WORKSPACE_ID") or "").strip()
+        )
+        return subscription_id, resource_group, workspace_id
+
+    async def _run_container_app_health_deterministic_workflow(
+        self,
+        query: str,
+        workflow_id: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run a scoped Container App health workflow for generic ACA health queries."""
+        if not self._sre_tool_invoker:
+            return None
+
+        subscription_id, resource_group, workspace_id = self._get_default_container_app_scope(context)
+
+        if not subscription_id or not resource_group:
+            response_html = self._format_error_message(
+                "Container App Health",
+                "The default Azure subscription or resource group is not configured. "
+                "Set SUBSCRIPTION_ID and RESOURCE_GROUP_NAME, or provide a resource group explicitly.",
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 0, "container_app_health_error"
+            )
+
+        if not workspace_id:
+            response_html = self._format_error_message(
+                "Container App Health",
+                "The Log Analytics workspace is not configured. Set LOG_ANALYTICS_WORKSPACE_ID "
+                "to enable Container App health checks.",
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 0, "container_app_health_error"
+            )
+
+        list_result = await self._sre_tool_invoker(
+            "container_app_list",
+            {"subscription_id": subscription_id, "resource_group": resource_group},
+        )
+        apps = self._parse_container_app_list_tool_result(list_result)
+
+        if not apps:
+            response_html = self._format_no_resources_message(
+                "Container App Health",
+                f"No Container Apps were found in resource group '{resource_group}'.",
+            )
+            return self._build_deterministic_response(
+                query, workflow_id, response_html, 1, "container_app_health"
+            )
+
+        apps = apps[:10]
+        tool_calls = 1
+
+        async def _check_app(app: Dict[str, Any]) -> Dict[str, Any]:
+            resource_id = str(app.get("id") or app.get("resource_id") or "").strip()
+            if not resource_id:
+                return {
+                    "name": str(app.get("name") or "Unknown"),
+                    "resource_group": str(app.get("resource_group") or app.get("resourceGroup") or resource_group),
+                    "health": "Unknown",
+                    "detail": "Missing resource ID",
+                    "error_count": 0,
+                    "warning_count": 0,
+                    "data_source": "inventory",
+                    "recommendations": [],
+                }
+
+            tool_result = await self._sre_tool_invoker(
+                "check_container_app_health",
+                {"workspace_id": workspace_id, "resource_id": resource_id},
+            )
+            return self._parse_container_app_health_tool_result(tool_result, app)
+
+        results = await asyncio.gather(*[_check_app(app) for app in apps])
+        tool_calls += len(apps)
+
+        healthy = sum(1 for item in results if item.get("health") == "Healthy")
+        degraded = sum(1 for item in results if item.get("health") == "Degraded")
+        unhealthy = sum(1 for item in results if item.get("health") == "Unhealthy")
+        unknown = len(results) - healthy - degraded - unhealthy
+
+        rows = []
+        recommendations: List[str] = []
+        for item in results:
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(str(item.get('name') or 'Unknown'))}</td>"
+                f"<td>{html.escape(str(item.get('resource_group') or resource_group))}</td>"
+                f"<td>{html.escape(str(item.get('health') or 'Unknown'))}</td>"
+                f"<td>{html.escape(str(item.get('detail') or ''))}</td>"
+                f"<td>{html.escape(str(item.get('error_count', 0)))}</td>"
+                f"<td>{html.escape(str(item.get('warning_count', 0)))}</td>"
+                f"<td>{html.escape(str(item.get('data_source') or 'unknown'))}</td>"
+                "</tr>"
+            )
+            for recommendation in item.get("recommendations") or []:
+                if recommendation and recommendation not in recommendations:
+                    recommendations.append(str(recommendation))
+
+        response_html = (
+            "<h3>Container App Health Status</h3>"
+            f"<p>Scoped to resource group <strong>{html.escape(resource_group)}</strong>. "
+            f"Checked {len(results)} Container App(s): Healthy={healthy}, Degraded={degraded}, "
+            f"Unhealthy={unhealthy}, Unknown={unknown}.</p>"
+            "<table>"
+            "<thead><tr><th>Container App</th><th>Resource Group</th><th>Health</th><th>Details</th><th>Errors</th><th>Warnings</th><th>Data Source</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
+
+        if recommendations:
+            response_html += (
+                "<h4>Recommendations</h4><ul>"
+                + "".join(f"<li>{html.escape(item)}</li>" for item in recommendations[:6])
+                + "</ul>"
+            )
+
+        return self._build_deterministic_response(
+            query, workflow_id, response_html, tool_calls, "container_app_health"
+        )
+
+    @staticmethod
+    def _parse_container_app_list_tool_result(tool_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract Container App list payload from SRE tool result."""
+        if not isinstance(tool_result, dict):
+            return []
+
+        payload = tool_result.get("parsed") if isinstance(tool_result.get("parsed"), dict) else None
+        if payload is None:
+            content = tool_result.get("content")
+            entries = content if isinstance(content, list) else [content]
+            for entry in entries:
+                if not isinstance(entry, str):
+                    continue
+                try:
+                    decoded = json.loads(entry)
+                except Exception:
+                    continue
+                if isinstance(decoded, dict):
+                    payload = decoded
+                    break
+
+        apps = payload.get("apps") if isinstance(payload, dict) else None
+        return apps if isinstance(apps, list) else []
+
+    @staticmethod
+    def _parse_container_app_health_tool_result(
+        tool_result: Dict[str, Any],
+        app: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Extract summary fields from check_container_app_health output."""
+        fallback = {
+            "name": str(app.get("name") or "Unknown"),
+            "resource_group": str(app.get("resource_group") or app.get("resourceGroup") or "unknown"),
+            "health": "Unknown",
+            "detail": str(tool_result.get("error") or "Unexpected tool response"),
+            "error_count": 0,
+            "warning_count": 0,
+            "data_source": "unknown",
+            "recommendations": [],
+        }
+
+        if not isinstance(tool_result, dict):
+            return fallback
+
+        payload = tool_result.get("parsed") if isinstance(tool_result.get("parsed"), dict) else None
+        if payload is None:
+            content = tool_result.get("content")
+            entries = content if isinstance(content, list) else [content]
+            for entry in entries:
+                if not isinstance(entry, str):
+                    continue
+                try:
+                    decoded = json.loads(entry)
+                except Exception:
+                    continue
+                if isinstance(decoded, dict):
+                    payload = decoded
+                    break
+
+        if not isinstance(payload, dict):
+            return fallback
+
+        health_data = payload.get("health_data") if isinstance(payload.get("health_data"), dict) else {}
+        detail = (
+            str(health_data.get("cli_error") or "").strip()
+            or str(health_data.get("show_error") or "").strip()
+            or str(health_data.get("last_log_message") or "").strip()
+            or str(payload.get("note") or "").strip()
+        )
+
+        return {
+            "name": str(payload.get("container_app_name") or app.get("name") or "Unknown"),
+            "resource_group": str(payload.get("resource_group") or app.get("resource_group") or app.get("resourceGroup") or "unknown"),
+            "health": str(health_data.get("health_status") or "Unknown"),
+            "detail": detail,
+            "error_count": int(health_data.get("error_count") or 0),
+            "warning_count": int(health_data.get("warning_count") or 0),
+            "data_source": str(health_data.get("table_used") or "unknown"),
+            "recommendations": payload.get("recommendations") if isinstance(payload.get("recommendations"), list) else [],
+        }
+
     async def _run_cost_analysis_deterministic_workflow(
         self,
         query: str,
@@ -800,7 +1146,9 @@ class SREOrchestratorAgent(BaseSREAgent):
 
             # Extract subscription_id from first resource
             first_resource = inventory_result[0]
-            subscription_id = self._extract_subscription_id(first_resource.get("id", ""))
+            subscription_id = self._extract_subscription_id(
+                first_resource.get("resource_id") or first_resource.get("id", "")
+            )
 
             if not subscription_id:
                 response_html = self._format_error_message(
@@ -859,14 +1207,28 @@ class SREOrchestratorAgent(BaseSREAgent):
         }
 
         result = await self._sre_tool_invoker("get_cost_analysis", params)
+        payload = self._extract_tool_payload(result)
 
-        if not result or "error" in str(result).lower():
+        error_message = self._extract_tool_error_message(result)
+        if error_message:
+            if self._is_permission_error(error_message):
+                return self._format_error_message(
+                    "Cost Analysis Permission Error",
+                    "Azure Cost Management access was denied. Grant the calling identity a role such as Cost Management Reader at the subscription or billing scope, then retry."
+                ), 1
+
+            return self._format_no_data_message(
+                "Cost Analysis",
+                f"Cost analysis query failed: {error_message}"
+            ), 1
+
+        if not payload:
             return self._format_no_data_message(
                 "Cost Analysis",
                 "No cost data available. This may be a new subscription or Cost Management may not be enabled."
             ), 1
 
-        return self._format_cost_analysis_results(result), 1
+        return self._format_cost_analysis_results(payload), 1
 
     async def _execute_orphaned_resources_check(self, subscription_id: str) -> tuple[str, int]:
         """Execute identify_orphaned_resources tool."""
@@ -921,6 +1283,57 @@ class SREOrchestratorAgent(BaseSREAgent):
             return parts[sub_index + 1]
         except (ValueError, IndexError):
             return ""
+
+    def _extract_tool_error_message(self, result: Any) -> str:
+        """Extract a normalized error message from a tool result payload."""
+        if not isinstance(result, dict):
+            return ""
+
+        error = result.get("error")
+        if error:
+            return str(error)
+
+        payload = self._extract_tool_payload(result)
+        if isinstance(payload, dict):
+            payload_error = payload.get("error")
+            if payload_error:
+                return str(payload_error)
+
+            if payload.get("success") is False:
+                return str(payload.get("message") or "Unknown tool error")
+
+        return ""
+
+    def _extract_tool_payload(self, result: Any) -> Dict[str, Any]:
+        """Return the parsed MCP payload when present, otherwise the raw dict result."""
+        if not isinstance(result, dict):
+            return {}
+
+        parsed = result.get("parsed")
+        if isinstance(parsed, dict):
+            return parsed
+
+        nested = result.get("result")
+        if isinstance(nested, dict):
+            return nested
+
+        return result
+
+    def _is_permission_error(self, error_message: str) -> bool:
+        """Return True when an error message indicates authorization failure."""
+        text = error_message.lower()
+        permission_markers = (
+            "authorizationfailed",
+            "forbidden",
+            "access denied",
+            "does not have authorization",
+            "not authorized",
+            "microsoft.costmanagement",
+            "cost management",
+            "rbac",
+            "403",
+        )
+        return any(marker in text for marker in permission_markers)
 
     def _build_deterministic_response(
         self,
@@ -1038,10 +1451,18 @@ class SREOrchestratorAgent(BaseSREAgent):
         ]
 
         for resource in resources[:10]:  # Limit to 10 examples
-            name = html.escape(resource.get("name", "Unknown"))
-            rg = html.escape(resource.get("resourceGroup", "Unknown"))
-            resource_id = html.escape(resource.get("id", ""))
-            resource_type = html.escape(resource.get("type", "Unknown"))
+            name = html.escape(
+                resource.get("resource_name") or resource.get("name", "Unknown")
+            )
+            rg = html.escape(
+                resource.get("resource_group") or resource.get("resourceGroup", "Unknown")
+            )
+            resource_id = html.escape(
+                resource.get("resource_id") or resource.get("id", "")
+            )
+            resource_type = html.escape(
+                resource.get("resource_type") or resource.get("type", "Unknown")
+            )
 
             # Generate example CLI command
             cli_example = f"az monitor diagnostic-settings create --resource {resource_id} --workspace {{workspace-id}} --logs '[{{\"category\":\"AuditEvent\",\"enabled\":true}}]'"
@@ -1157,7 +1578,7 @@ class SREOrchestratorAgent(BaseSREAgent):
         ])
 
         for item in cost_breakdown[:20]:  # Top 20 groups
-            name = html.escape(item.get("name", "Unknown"))
+            name = html.escape(item.get("group") or item.get("name", "Unknown"))
             cost = item.get("cost", 0)
             percentage = (cost / total * 100) if total > 0 else 0
             html_parts.append(
@@ -1763,13 +2184,29 @@ class SREOrchestratorAgent(BaseSREAgent):
         self, resource_type: str, context: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         """Discover resources by type."""
-        if not self.interaction_handler:
-            return []
-
         rg = context.get("resource_group")
         name_filter = context.get("name_filter")
 
         try:
+            if resource_type == "all":
+                if not self.resource_inventory_client:
+                    logger.warning("Resource inventory client unavailable for all-resource discovery")
+                    return []
+
+                filters: Dict[str, Any] = {}
+                if rg:
+                    filters["resource_group"] = rg
+                if name_filter:
+                    filters["name"] = name_filter
+
+                return await self.resource_inventory_client.get_all_resources(
+                    subscription_id=context.get("subscription_id"),
+                    filters=filters or None,
+                )
+
+            if not self.interaction_handler:
+                return []
+
             if resource_type == "container_app":
                 return await self.interaction_handler.discover_container_apps(rg, name_filter)
             elif resource_type == "vm":
