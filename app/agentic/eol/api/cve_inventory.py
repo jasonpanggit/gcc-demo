@@ -160,13 +160,15 @@ async def _build_vm_vulnerability_response(
     min_cvss: Optional[float],
     sort_by: str,
     sort_order: str,
+    offset: int = 0,
+    limit: int = 100,
 ):
     """Build the VM vulnerability response payload for either route shape."""
     service = await _get_cve_vm_service()
 
     # Parallelize independent API calls
     result, machine = await asyncio.gather(
-        service.get_vm_vulnerabilities(vm_id),
+        service.get_vm_vulnerabilities(vm_id, offset=offset, limit=limit),
         _get_machine_by_id(vm_id, days=90)
     )
 
@@ -476,11 +478,13 @@ async def get_vm_vulnerabilities_by_query(
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
-    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(100, ge=1, le=500, description="Page size"),
 ):
     """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
     try:
-        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order)
+        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
     except HTTPException:
         raise
     except Exception as e:
@@ -498,7 +502,9 @@ async def get_vm_vulnerabilities(
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
-    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(100, ge=1, le=500, description="Page size"),
 ):
     """Get CVEs affecting a specific VM.
 
@@ -524,7 +530,7 @@ async def get_vm_vulnerabilities(
         HTTPException: 404 if VM not found, 503 if no scan data available
     """
     try:
-        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order)
+        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
 
     except HTTPException:
         raise
