@@ -174,7 +174,9 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
                     try:
                         header_val = exc.response.headers.get("Retry-After") if exc.response else None
                         if header_val:
-                            retry_after = int(header_val)
+                            # Use header value but enforce a minimum floor so a
+                            # stale/short Retry-After doesn't cause instant re-throttling
+                            retry_after = max(retry_after, int(header_val))
                     except Exception:
                         pass
                     logger.warning(

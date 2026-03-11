@@ -27,7 +27,7 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 _CONTAINER_NAME = "patch_assessments"
-_CONTAINER_PARTITION_PATH = "/subscription_id"
+_CONTAINER_PARTITION_PATH = "/partitionKey"
 _CONTAINER_TTL = 3600  # 1 hour
 
 
@@ -101,6 +101,7 @@ class PatchAssessmentRepository:
         cache_key = _make_cache_key(subscription_id, machine_name, vm_type)
         document = {
             "id": cache_key,
+            "partitionKey": subscription_id,
             "subscription_id": subscription_id,
             "machine_name": machine_name.lower(),
             "vm_type": vm_type,

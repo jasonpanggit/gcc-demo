@@ -235,7 +235,7 @@ class CVEScanner:
                     try:
                         header_val = exc.response.headers.get("Retry-After") if exc.response else None
                         if header_val:
-                            retry_after = int(header_val)
+                            retry_after = max(retry_after, int(header_val))
                     except Exception:
                         pass
                     logger.warning(
