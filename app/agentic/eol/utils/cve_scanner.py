@@ -18,6 +18,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
+_ARG_MAX_RETRIES = 3
+_ARG_BACKOFF_BASE = 5  # seconds; doubled each retry (5 → 10 → 20)
+
 try:
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest
@@ -28,6 +31,7 @@ try:
     from utils.cve_service import CVEService
     from utils.logging_config import get_logger
     from utils.normalization import normalize_os_name_version
+    from utils.cve_patch_enricher import CVEPatchEnricher, VMPatchEnrichment
 except ModuleNotFoundError:
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest
@@ -38,6 +42,7 @@ except ModuleNotFoundError:
     from app.agentic.eol.utils.cve_service import CVEService
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.normalization import normalize_os_name_version
+    from app.agentic.eol.utils.cve_patch_enricher import CVEPatchEnricher, VMPatchEnrichment
 
 logger = get_logger(__name__)
 
@@ -212,7 +217,40 @@ class CVEScanner:
         self._scan_status_cache: Dict[str, Dict[str, Any]] = {}
         self.linux_advisory_sync = None   # LinuxAdvisorySyncService, injected in main.py
         self.on_scan_complete_hooks: List[Any] = []  # extensible hook registry
+        # Patch enricher — injected at startup; None disables patch enrichment without error
+        self.patch_enricher: Optional[CVEPatchEnricher] = None
         logger.info("CVEScanner initialized")
+
+    async def _arg_query_with_retry(self, query_request: "QueryRequest") -> Any:
+        """Execute a Resource Graph query with exponential-backoff retry on throttling (429/RateLimiting)."""
+        from azure.core.exceptions import HttpResponseError
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(_ARG_MAX_RETRIES):
+            try:
+                return await asyncio.to_thread(
+                    self.resource_graph_client.resources,
+                    query_request,
+                )
+            except HttpResponseError as exc:
+                last_exc = exc
+                if getattr(getattr(exc, "error", None), "code", None) == "RateLimiting":
+                    retry_after = _ARG_BACKOFF_BASE * (2 ** attempt)
+                    try:
+                        header_val = exc.response.headers.get("Retry-After") if exc.response else None
+                        if header_val:
+                            retry_after = max(retry_after, int(header_val))
+                    except Exception:
+                        pass
+                    logger.warning(
+                        "ARG throttled (attempt %d/%d) — sleeping %ds before retry",
+                        attempt + 1, _ARG_MAX_RETRIES, retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                else:
+                    raise
+
+        raise last_exc  # type: ignore[misc]
 
     def _build_status_summary(self, scan_result: ScanResult) -> Dict[str, Any]:
         return {
@@ -323,10 +361,7 @@ class CVEScanner:
                 subscriptions=subscriptions,
                 query=query
             )
-            await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request
-            )
+            await self._arg_query_with_retry(query_request)
             return True
         except Exception as e:
             logger.error(f"Resource Graph connectivity test failed: {e}")
@@ -353,7 +388,8 @@ class CVEScanner:
             vms = await self._discover_vms(
                 request.subscription_ids,
                 request.resource_groups,
-                request.include_arc
+                request.include_arc,
+                request.vm_ids,
             )
 
             scan_result.total_vms = len(vms)
@@ -361,20 +397,33 @@ class CVEScanner:
             self._cache_status_summary(scan_result)
             logger.info(f"Scan {scan_id}: Found {len(vms)} VMs")
 
+            # Prefetch patch data for all subscriptions (one bulk ARG call per subscription)
+            # Result is an in-memory dict: machine_name.lower() → patch_data
+            patch_map: Dict[str, Any] = {}
+            if self.patch_enricher and vms:
+                try:
+                    effective_subs = request.subscription_ids or [self.subscription_id]
+                    patch_map = await self.patch_enricher.prefetch_patch_data(effective_subs, vms)
+                    logger.info("Scan %s: patch data prefetched for %d VMs", scan_id, len(patch_map))
+                except Exception as prefetch_err:
+                    logger.warning("Scan %s: patch prefetch failed, continuing without: %s", scan_id, prefetch_err)
+
             # Match CVEs to VMs
             all_matches = []
             vm_match_summaries: Dict[str, Dict[str, Any]] = {}
             progress_update_interval = self._get_progress_update_interval(len(vms))
             tasks = [
-                asyncio.create_task(self._scan_single_vm(vm, request.cve_filters))
+                asyncio.create_task(
+                    self._scan_single_vm(vm, request.cve_filters, patch_map)
+                )
                 for vm in vms
             ]
             completed_vms = 0
             for task in asyncio.as_completed(tasks):
                 try:
-                    vm, matches, os_family = await task
+                    vm, matches, os_family, enrichment = await task
                     all_matches.extend(matches)
-                    vm_match_summaries[vm.vm_id.lower()] = self._build_vm_match_summary(vm, matches)
+                    vm_match_summaries[vm.vm_id.lower()] = self._build_vm_match_summary(vm, matches, enrichment)
                     scan_result.vm_os_family[vm.vm_id] = os_family
 
                     if vm.os_type == "Linux":
@@ -388,6 +437,11 @@ class CVEScanner:
                                 vm_id=vm.vm_id,
                                 vm_name=vm.name,
                                 matches=matches,
+                                installed_kb_ids=enrichment.installed_kb_ids,
+                                available_kb_ids=enrichment.available_kb_ids,
+                                installed_cve_ids=enrichment.installed_cve_ids,
+                                available_cve_ids=enrichment.available_cve_ids,
+                                patch_summary=enrichment.patch_summary,
                             )
                         except Exception as save_err:
                             logger.error(f"Failed to save VM match doc for {vm.name}: {save_err}")
@@ -464,18 +518,27 @@ class CVEScanner:
         self,
         vm: VMScanTarget,
         cve_filters: Optional[Dict[str, Any]] = None,
-    ) -> tuple[VMScanTarget, List[CVEMatch], str]:
-        """Scan one VM with bounded concurrency and return the computed data."""
+        patch_map: Optional[Dict[str, Any]] = None,   # NEW
+    ) -> tuple[VMScanTarget, List[CVEMatch], str, "VMPatchEnrichment"]:
+        """Scan one VM with bounded concurrency and return computed data + patch enrichment."""
         async with self._vm_scan_semaphore:
             matches = await self._match_cves_to_vm(vm, cve_filters)
             os_family = self._get_os_family(vm.os_name)
-            return vm, matches, os_family
+
+            # Enrich with patch data if available
+            enrichment = VMPatchEnrichment()
+            if self.patch_enricher and patch_map is not None:
+                vm_patch_data = patch_map.get((vm.name or "").lower())
+                enrichment = await self.patch_enricher.enrich_vm(vm, matches, vm_patch_data)
+
+            return vm, matches, os_family, enrichment
 
     async def _discover_vms(
         self,
         subscription_ids: Optional[List[str]],
         resource_groups: Optional[List[str]],
-        include_arc: bool
+        include_arc: bool,
+        vm_ids: Optional[List[str]] = None,   # NEW
     ) -> List[VMScanTarget]:
         """Discover VMs from Azure Resource Graph.
 
@@ -515,10 +578,7 @@ class CVEScanner:
                 query=query
             )
 
-            response = await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request
-            )
+            response = await self._arg_query_with_retry(query_request)
 
             # Parse VM data
             semaphore = asyncio.Semaphore(self.vm_scan_concurrency)
@@ -535,6 +595,13 @@ class CVEScanner:
             vms = [vm for vm in extracted_vms if vm is not None]
 
             logger.info(f"Discovered {len(vms)} VMs from Resource Graph")
+
+            # Filter to specific VM resource IDs if requested (targeted rescan)
+            if vm_ids:
+                vm_ids_lower = {v.lower() for v in vm_ids}
+                vms = [vm for vm in vms if vm.vm_id.lower() in vm_ids_lower]
+                logger.info("Targeted scan: filtered to %d VMs from vm_ids filter", len(vms))
+
             return vms[:self.max_vms]  # Enforce limit
 
         except Exception as e:
@@ -588,10 +655,7 @@ class CVEScanner:
                 subscriptions=subscriptions,
                 query=query,
             )
-            response = await asyncio.to_thread(
-                self.resource_graph_client.resources,
-                query_request,
-            )
+            response = await self._arg_query_with_retry(query_request)
 
             inventory: Dict[str, VMScanTarget] = {}
             for vm_data in response.data:
@@ -823,10 +887,7 @@ class CVEScanner:
                     subscriptions=[subscription_id],
                     query=query,
                 )
-                response = await asyncio.to_thread(
-                    self.resource_graph_client.resources,
-                    query_request,
-                )
+                response = await self._arg_query_with_retry(query_request)
                 for r in (response.data or []):
                     pkg = (r.get("patchName") or "").strip()
                     if pkg:
@@ -892,8 +953,13 @@ class CVEScanner:
 
         return matches
 
-    def _build_vm_match_summary(self, vm: VMScanTarget, matches: List[CVEMatch]) -> Dict[str, Any]:
-        """Build a compact per-VM summary that survives raw match truncation."""
+    def _build_vm_match_summary(
+        self,
+        vm: VMScanTarget,
+        matches: List[CVEMatch],
+        enrichment: Optional["VMPatchEnrichment"] = None,
+    ) -> Dict[str, Any]:
+        """Build a compact per-VM summary with patch-aware counts."""
         summary = {
             "vm_id": vm.vm_id,
             "vm_name": vm.name,
@@ -902,6 +968,7 @@ class CVEScanner:
             "high": 0,
             "medium": 0,
             "low": 0,
+            "patch_summary": enrichment.patch_summary if enrichment else {},
         }
 
         for match in matches:

@@ -217,13 +217,18 @@ async def _build_vm_vulnerability_response(
         )
 
     result.cve_details = cve_details
-    result.total_cves = len(cve_details)
 
-    severity_counts = {}
-    for cve in cve_details:
-        severity = cve.severity
-        severity_counts[severity] = severity_counts.get(severity, 0) + 1
-    result.cves_by_severity = severity_counts
+    # Only recompute stats from the current page when filters are active.
+    # Without filters the service already provides accurate totals (from scan summary /
+    # total_matches metadata), so overwriting them with the page count would show wrong numbers.
+    filters_active = severity_filter or min_cvss is not None
+    if filters_active:
+        result.total_cves = len(cve_details)
+        severity_counts = {}
+        for cve in cve_details:
+            severity = cve.severity
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        result.cves_by_severity = severity_counts
 
     logger.info(
         f"Retrieved {len(cve_details)} CVEs for VM {vm_id} "
@@ -254,15 +259,29 @@ def _normalize_vm_source(vm_type: Optional[str]) -> str:
     return "Virtual machine"
 
 
-def _calculate_risk_level(total_cves: int, critical: int, high: int, medium: int, low: int) -> str:
-    if critical > 0:
-        return "Critical"
-    if high > 0:
-        return "High"
-    if medium > 0:
-        return "Medium"
-    if low > 0 or total_cves > 0:
-        return "Low"
+def _calculate_risk_level(
+    total_cves: int,
+    critical: int,
+    high: int,
+    medium: int,
+    low: int,
+    unpatched_critical: int = 0,
+    unpatched_high: int = 0,
+    total_unpatched: int = 0,
+    has_patch_data: bool = False,
+) -> str:
+    """Calculate risk level, preferring unpatched counts when patch data is available."""
+    if has_patch_data:
+        if unpatched_critical > 0: return "Critical"
+        if unpatched_high > 0:     return "High"
+        if total_unpatched > 0:    return "Medium"
+        if total_cves > 0:         return "Low"   # all patched
+        return "Healthy"
+    # Fallback: raw counts (pre-enrichment scans)
+    if critical > 0: return "Critical"
+    if high > 0:     return "High"
+    if medium > 0:   return "Medium"
+    if low > 0 or total_cves > 0: return "Low"
     return "Healthy"
 
 
@@ -294,6 +313,7 @@ async def get_vm_vulnerability_overview(
             scan_summaries = getattr(scan, "vm_match_summaries", {}) or {}
             if scan_summaries:
                 for vm_id, summary in scan_summaries.items():
+                    patch_summary = summary.get("patch_summary") or {}
                     match_counts[vm_id] = {
                         "vm_id": vm_id,
                         "vm_name": summary.get("vm_name") or vm_id,
@@ -302,6 +322,14 @@ async def get_vm_vulnerability_overview(
                         "high": int(summary.get("high", 0)),
                         "medium": int(summary.get("medium", 0)),
                         "low": int(summary.get("low", 0)),
+                        "unpatched_critical": int(patch_summary.get("unpatched_critical", 0)),
+                        "unpatched_high": int(patch_summary.get("unpatched_high", 0)),
+                        "unpatched_medium": int(patch_summary.get("unpatched_medium", 0)),
+                        "unpatched_low": int(patch_summary.get("unpatched_low", 0)),
+                        "covered_cves": int(patch_summary.get("covered_cves", 0)),
+                        "fixable_cves": int(patch_summary.get("fixable_cves", 0)),
+                        "total_unpatched": int(patch_summary.get("total_unpatched", 0)),
+                        "has_patch_data": bool(patch_summary),
                     }
                 total_matches = sum(int(summary.get("total_cves", 0)) for summary in scan_summaries.values())
             else:
@@ -376,11 +404,15 @@ async def get_vm_vulnerability_overview(
                     }
 
             risk_level = _calculate_risk_level(
-                counts["total_cves"],
-                counts["critical"],
-                counts["high"],
-                counts["medium"],
-                counts["low"],
+                total_cves=counts.get("total_cves", 0),
+                critical=counts.get("critical", 0),
+                high=counts.get("high", 0),
+                medium=counts.get("medium", 0),
+                low=counts.get("low", 0),
+                unpatched_critical=counts.get("unpatched_critical", 0),
+                unpatched_high=counts.get("unpatched_high", 0),
+                total_unpatched=counts.get("total_unpatched", 0),
+                has_patch_data=counts.get("has_patch_data", False),
             )
 
             overview_rows.append(
@@ -400,6 +432,14 @@ async def get_vm_vulnerability_overview(
                     "high": counts["high"],
                     "medium": counts["medium"],
                     "low": counts["low"],
+                    "unpatched_critical": counts.get("unpatched_critical", 0),
+                    "unpatched_high": counts.get("unpatched_high", 0),
+                    "unpatched_medium": counts.get("unpatched_medium", 0),
+                    "unpatched_low": counts.get("unpatched_low", 0),
+                    "total_unpatched": counts.get("total_unpatched", 0),
+                    "covered_cves": counts.get("covered_cves", 0),
+                    "fixable_cves": counts.get("fixable_cves", 0),
+                    "has_patch_data": counts.get("has_patch_data", False),
                     "risk_level": risk_level,
                     "has_scan_data": scan is not None,
                     "last_synced": (scan.completed_at or scan.started_at) if scan else None,
@@ -408,11 +448,15 @@ async def get_vm_vulnerability_overview(
 
         for unmatched in match_counts.values():
             risk_level = _calculate_risk_level(
-                unmatched["total_cves"],
-                unmatched["critical"],
-                unmatched["high"],
-                unmatched["medium"],
-                unmatched["low"],
+                total_cves=unmatched.get("total_cves", 0),
+                critical=unmatched.get("critical", 0),
+                high=unmatched.get("high", 0),
+                medium=unmatched.get("medium", 0),
+                low=unmatched.get("low", 0),
+                unpatched_critical=unmatched.get("unpatched_critical", 0),
+                unpatched_high=unmatched.get("unpatched_high", 0),
+                total_unpatched=unmatched.get("total_unpatched", 0),
+                has_patch_data=unmatched.get("has_patch_data", False),
             )
             overview_rows.append(
                 {
@@ -431,6 +475,14 @@ async def get_vm_vulnerability_overview(
                     "high": unmatched["high"],
                     "medium": unmatched["medium"],
                     "low": unmatched["low"],
+                    "unpatched_critical": unmatched.get("unpatched_critical", 0),
+                    "unpatched_high": unmatched.get("unpatched_high", 0),
+                    "unpatched_medium": unmatched.get("unpatched_medium", 0),
+                    "unpatched_low": unmatched.get("unpatched_low", 0),
+                    "total_unpatched": unmatched.get("total_unpatched", 0),
+                    "covered_cves": unmatched.get("covered_cves", 0),
+                    "fixable_cves": unmatched.get("fixable_cves", 0),
+                    "has_patch_data": unmatched.get("has_patch_data", False),
                     "risk_level": risk_level,
                     "has_scan_data": True,
                     "last_synced": (scan.completed_at or scan.started_at) if scan else None,
@@ -472,7 +524,7 @@ async def get_vm_vulnerability_overview(
 
 
 @router.get("/vm-vulnerability-detail", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities_by_query(
     vm_id: str = Query(..., description="Full VM resource ID"),
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
@@ -496,7 +548,7 @@ async def get_vm_vulnerabilities_by_query(
 
 
 @router.get("/cve/inventory/{vm_id:path}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=60)
+@readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities(
     vm_id: str,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),

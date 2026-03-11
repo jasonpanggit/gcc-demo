@@ -292,6 +292,7 @@ class CVEMatch(BaseModel):
     cvss_score: Optional[float] = None
     severity: Optional[str] = None
     published_date: Optional[str] = None
+    patch_status: Optional[str] = None  # "installed", "available", "none", or None = unknown
 
 
 class ScanResult(BaseModel):
@@ -340,6 +341,7 @@ class CVEScanRequest(BaseModel):
     resource_groups: Optional[List[str]] = None
     include_arc: bool = True
     cve_filters: Optional[Dict[str, Any]] = None  # Optional: only scan for specific CVEs
+    vm_ids: Optional[List[str]] = None  # NEW — target specific VMs by resource ID; None = all VMs
 
 
 class CVEScanStatusResponse(BaseModel):
@@ -457,6 +459,7 @@ class VMVulnerabilityResponse(BaseModel):
     cve_details: List[VMCVEDetail]
     patch_coverage: PatchCoverageSummary = Field(default_factory=PatchCoverageSummary)
     pagination: Optional[Dict[str, Any]] = None  # {offset, limit, total, has_more}
+    unpatched_by_severity: Dict[str, int] = Field(default_factory=dict)  # NEW — pre-computed from scan
 
 
 class AffectedVMDetail(BaseModel):

@@ -68,6 +68,16 @@ _POLL_MAX_SECONDS = 180  # 3 minutes max wait
 _credential: Optional[Any] = None
 _subscription_id: Optional[str] = None
 
+# Per-key locks to prevent cache stampede: concurrent calls for the same
+# subscription/vm_type wait for the first caller to populate the cache.
+_arg_query_locks: Dict[str, asyncio.Lock] = {}
+
+
+def _get_arg_lock(key: str) -> asyncio.Lock:
+    if key not in _arg_query_locks:
+        _arg_query_locks[key] = asyncio.Lock()
+    return _arg_query_locks[key]
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -174,7 +184,9 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
                     try:
                         header_val = exc.response.headers.get("Retry-After") if exc.response else None
                         if header_val:
-                            retry_after = int(header_val)
+                            # Use header value but enforce a minimum floor so a
+                            # stale/short Retry-After doesn't cause instant re-throttling
+                            retry_after = max(retry_after, int(header_val))
                     except Exception:
                         pass
                     logger.warning(
@@ -417,33 +429,53 @@ async def query_patch_assessments(
     PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
     """
     try:
-        # Try Cosmos cache first if machine_name is specified
-        if machine_name:
+        # Determine the effective cache key name:
+        #   - named machine  → machine_name
+        #   - full-sub scan  → sentinel "__all__"
+        cache_name = machine_name or "__all__"
+        lock_key = f"{subscription_id}:{vm_type}:{cache_name}"
+
+        # Fast path: check cache before acquiring the lock
+        try:
+            from utils.patch_assessment_repository import get_patch_assessment_repository
+            repo = await get_patch_assessment_repository()
+            cached = await repo.get_assessment(subscription_id, cache_name, vm_type)
+            if cached:
+                logger.info("Returning cached patch assessment for %s", cache_name)
+                return cached
+        except Exception as cache_err:
+            logger.debug("Cache lookup failed, falling back to ARG: %s", cache_err)
+            repo = None
+
+        # Acquire per-key lock to prevent stampede: only one coroutine runs
+        # the ARG query; others wait and then read the result from cache.
+        async with _get_arg_lock(lock_key):
+            # Re-check cache inside the lock (another coroutine may have populated it)
             try:
-                from utils.patch_assessment_repository import get_patch_assessment_repository
-                repo = await get_patch_assessment_repository()
-                cached = await repo.get_assessment(subscription_id, machine_name, vm_type)
+                if repo is None:
+                    repo = await get_patch_assessment_repository()
+                cached = await repo.get_assessment(subscription_id, cache_name, vm_type)
                 if cached:
-                    logger.info(f"Returning cached patch assessment for {machine_name}")
+                    logger.info("Returning cached patch assessment for %s (post-lock)", cache_name)
                     return cached
-            except Exception as cache_err:
-                logger.debug(f"Cache lookup failed, falling back to ARG: {cache_err}")
+            except Exception:
+                pass
 
-        resolved_vm_type = _resolve_vm_type(None, vm_type)
+            resolved_vm_type = _resolve_vm_type(None, vm_type)
 
-        if resolved_vm_type == "azure-vm":
-            summary_type = "microsoft.compute/virtualmachines/patchassessmentresults"
-            patches_type = "microsoft.compute/virtualmachines/patchassessmentresults/softwarepatches"
-        else:
-            summary_type = "microsoft.hybridcompute/machines/patchassessmentresults"
-            patches_type = "microsoft.hybridcompute/machines/patchassessmentresults/softwarepatches"
+            if resolved_vm_type == "azure-vm":
+                summary_type = "microsoft.compute/virtualmachines/patchassessmentresults"
+                patches_type = "microsoft.compute/virtualmachines/patchassessmentresults/softwarepatches"
+            else:
+                summary_type = "microsoft.hybridcompute/machines/patchassessmentresults"
+                patches_type = "microsoft.hybridcompute/machines/patchassessmentresults/softwarepatches"
 
-        name_filter = ""
-        if machine_name:
-            safe_name = machine_name.replace("'", "''")
-            name_filter = f"| where machineName =~ '{safe_name}'"
+            name_filter = ""
+            if machine_name:
+                safe_name = machine_name.replace("'", "''")
+                name_filter = f"| where machineName =~ '{safe_name}'"
 
-        summary_kql = f"""
+            summary_kql = f"""
 patchassessmentresources
 | where type =~ '{summary_type}'
 | extend machineName = tostring(split(id, '/')[8])
@@ -458,7 +490,7 @@ patchassessmentresources
     rebootPending = tobool(props.rebootPending)
 """
 
-        patches_kql = f"""
+            patches_kql = f"""
 patchassessmentresources
 | where type =~ '{patches_type}'
 | extend machineName = tostring(split(id, '/')[8])
@@ -473,76 +505,76 @@ patchassessmentresources
     publishedDate = tostring(props.publishedDate)
 """
 
-        summary_rows, patches_rows = await asyncio.gather(
-            _query_arg(summary_kql, [subscription_id]),
-            _query_arg(patches_kql, [subscription_id]),
-        )
+            summary_rows, patches_rows = await asyncio.gather(
+                _query_arg(summary_kql, [subscription_id]),
+                _query_arg(patches_kql, [subscription_id]),
+            )
 
-        # Group patches by machine
-        patches_by_machine: Dict[str, List[Dict[str, Any]]] = {}
-        for row in patches_rows:
-            mname = (row.get("machineName") or "").lower()
-            patches_by_machine.setdefault(mname, []).append({
-                "patchName": row.get("patchName"),
-                "kbId": row.get("kbId"),
-                "classifications": _parse_arg_list(row.get("classifications")),
-                "rebootBehavior": row.get("rebootBehavior"),
-                "assessmentState": row.get("assessmentState"),
-                "publishedDate": row.get("publishedDate"),
-            })
+            # Group patches by machine
+            patches_by_machine: Dict[str, List[Dict[str, Any]]] = {}
+            for row in patches_rows:
+                mname = (row.get("machineName") or "").lower()
+                patches_by_machine.setdefault(mname, []).append({
+                    "patchName": row.get("patchName"),
+                    "kbId": row.get("kbId"),
+                    "classifications": _parse_arg_list(row.get("classifications")),
+                    "rebootBehavior": row.get("rebootBehavior"),
+                    "assessmentState": row.get("assessmentState"),
+                    "publishedDate": row.get("publishedDate"),
+                })
 
-        # Build results
-        machines = []
-        for row in summary_rows:
-            mname = row.get("machineName") or ""
-            patches = patches_by_machine.get(mname.lower(), [])
-            crit = row.get("criticalCount") or 0
-            other = row.get("otherCount") or 0
+            # Build results
+            machines = []
+            for row in summary_rows:
+                mname = row.get("machineName") or ""
+                patches = patches_by_machine.get(mname.lower(), [])
+                crit = row.get("criticalCount") or 0
+                other = row.get("otherCount") or 0
 
-            if (crit == 0 and other == 0) and patches:
-                for p in patches:
-                    cls = [c.lower() for c in (p.get("classifications") or [])]
-                    if "critical" in cls or "security" in cls:
-                        crit += 1
-                    else:
-                        other += 1
+                if (crit == 0 and other == 0) and patches:
+                    for p in patches:
+                        cls = [c.lower() for c in (p.get("classifications") or [])]
+                        if "critical" in cls or "security" in cls:
+                            crit += 1
+                        else:
+                            other += 1
 
-            machines.append({
-                "machine_name": mname,
-                "resource_group": row.get("resourceGroup"),
-                "subscription_id": row.get("subscriptionId") or subscription_id,
-                "os_type": row.get("osType"),
-                "reboot_pending": row.get("rebootPending"),
-                "vm_type": resolved_vm_type,
-                "patches": {
-                    "available_patches": patches,
-                    "critical_and_security_count": crit,
-                    "other_count": other,
-                    "total_count": len(patches) or (crit + other),
-                    "last_assessed": row.get("lastModified"),
-                    "status": row.get("status"),
-                    "source": "resource_graph",
-                },
-            })
+                machines.append({
+                    "machine_name": mname,
+                    "resource_group": row.get("resourceGroup"),
+                    "subscription_id": row.get("subscriptionId") or subscription_id,
+                    "os_type": row.get("osType"),
+                    "reboot_pending": row.get("rebootPending"),
+                    "vm_type": resolved_vm_type,
+                    "patches": {
+                        "available_patches": patches,
+                        "critical_and_security_count": crit,
+                        "other_count": other,
+                        "total_count": len(patches) or (crit + other),
+                        "last_assessed": row.get("lastModified"),
+                        "status": row.get("status"),
+                        "source": "resource_graph",
+                    },
+                })
 
-        result = {
-            "success": True,
-            "data": machines,
-            "count": len(machines),
-            "total_patches": sum(len(m["patches"]["available_patches"]) for m in machines),
-        }
+            result = {
+                "success": True,
+                "data": machines,
+                "count": len(machines),
+                "total_patches": sum(len(m["patches"]["available_patches"]) for m in machines),
+            }
 
-        # Cache the result if machine_name was specified
-        if machine_name and machines:
-            try:
-                from utils.patch_assessment_repository import get_patch_assessment_repository
-                repo = await get_patch_assessment_repository()
-                await repo.store_assessment(subscription_id, machine_name, vm_type, result)
-                logger.info(f"Cached patch assessment for {machine_name}")
-            except Exception as cache_err:
-                logger.debug(f"Failed to cache assessment: {cache_err}")
+            # Cache the result (both per-machine and full-sub scans)
+            if machines:
+                try:
+                    if repo is None:
+                        repo = await get_patch_assessment_repository()
+                    await repo.store_assessment(subscription_id, cache_name, vm_type, result)
+                    logger.info("Cached patch assessment for %s", cache_name)
+                except Exception as cache_err:
+                    logger.debug("Failed to cache assessment: %s", cache_err)
 
-        return result
+            return result
     except Exception as exc:
         logger.error("query_patch_assessments failed: %s", exc)
         return {"success": False, "error": str(exc), "data": []}

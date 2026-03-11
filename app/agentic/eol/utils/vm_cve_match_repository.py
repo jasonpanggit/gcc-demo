@@ -56,6 +56,11 @@ class VMCVEMatchRepository:
         vm_id: str,
         vm_name: str,
         matches: List[CVEMatch],
+        installed_kb_ids: Optional[List[str]] = None,
+        available_kb_ids: Optional[List[str]] = None,
+        installed_cve_ids: Optional[List[str]] = None,
+        available_cve_ids: Optional[List[str]] = None,
+        patch_summary: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Save all CVE matches for a VM.
 
@@ -64,6 +69,11 @@ class VMCVEMatchRepository:
             vm_id: Full Azure resource ID of the VM
             vm_name: VM display name
             matches: CVEMatch objects to persist
+            installed_kb_ids: KB IDs already installed on this VM
+            available_kb_ids: KB IDs available (not yet installed) for this VM
+            installed_cve_ids: CVE IDs covered by installed KBs
+            available_cve_ids: CVE IDs that would be covered by available KBs
+            patch_summary: Aggregated patch coverage statistics
 
         Raises:
             ValueError: If the serialized document exceeds 1.8MB
@@ -78,6 +88,12 @@ class VMCVEMatchRepository:
             "total_matches": len(matches),
             "matches": [m.dict() for m in matches],
             "created_at": datetime.now(timezone.utc).isoformat(),
+            # Patch enrichment fields (optional — absent in pre-enrichment docs)
+            "installed_kb_ids": installed_kb_ids or [],
+            "available_kb_ids": available_kb_ids or [],
+            "installed_cve_ids": installed_cve_ids or [],
+            "available_cve_ids": available_cve_ids or [],
+            "patch_summary": patch_summary or {},
         }
 
         doc_size = len(json.dumps(item).encode("utf-8"))

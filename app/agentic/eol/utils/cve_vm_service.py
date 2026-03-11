@@ -16,6 +16,7 @@ import re
 from collections import Counter
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import time
 import aiohttp
 from cachetools import TTLCache
 
@@ -83,6 +84,10 @@ class CVEVMService:
         self._cve_cache: TTLCache = TTLCache(maxsize=1000, ttl=900)  # 15 min TTL
         self._vm_patch_context_cache: TTLCache = TTLCache(maxsize=128, ttl=300)
         self._patch_assessment_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)  # 1h, matches Cosmos TTL
+
+        # Patch mapping cache: cve_id -> (patches_result, cached_at_timestamp)
+        self._patch_mapping_cache: Dict[str, tuple] = {}
+        self._patch_mapping_cache_ttl: float = 300.0  # 5 minutes
 
         logger.info("CVEVMService initialized with L1 caching")
 
@@ -180,13 +185,7 @@ class CVEVMService:
                                     self._cve_cache[cve_id] = result
 
                         # Pre-fetch patch mappings in parallel
-                        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-                        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-                        patch_mappings = {
-                            cve_id: result
-                            for cve_id, result in zip(cve_ids, patch_mappings_results)
-                            if result and not isinstance(result, Exception)
-                        }
+                        patch_mappings = await self._get_patch_mappings_cached(cve_ids)
 
                         semaphore = asyncio.Semaphore(16)
 
@@ -244,33 +243,39 @@ class CVEVMService:
                     patch_coverage=patch_coverage,
                 )
 
-            patch_context = await self._get_vm_patch_context(vm_matches[0])
-
             # OPTIMIZATION: Batch-fetch all CVE details and patch mappings upfront to avoid N sequential API calls
             cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
 
-            # Pre-populate CVE cache with parallel fetches
-            cve_fetch_tasks = []
-            for cve_id in cve_ids:
-                if cve_id not in self._cve_cache:
-                    cve_fetch_tasks.append(self.cve_service.get_cve(cve_id))
+            # PERFORMANCE: Run patch context fetch in parallel with CVE + patch mapping fetches.
+            # patch_context is not needed until enrich_match, so all three can overlap.
+            cve_ids_to_fetch = [c for c in cve_ids if c not in self._cve_cache]
 
-            if cve_fetch_tasks:
-                logger.debug(f"Batch fetching {len(cve_fetch_tasks)} CVE details")
-                fetched_cves = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
-                for cve_id, result in zip([c for c in cve_ids if c not in self._cve_cache], fetched_cves):
+            async def _fetch_and_cache_cves() -> None:
+                if not cve_ids_to_fetch:
+                    return
+                logger.debug(f"Batch fetching {len(cve_ids_to_fetch)} CVE details")
+                fetched = await asyncio.gather(
+                    *[self.cve_service.get_cve(cve_id) for cve_id in cve_ids_to_fetch],
+                    return_exceptions=True,
+                )
+                for cve_id, result in zip(cve_ids_to_fetch, fetched):
                     if result and not isinstance(result, Exception):
                         self._cve_cache[cve_id] = result
 
-            # Pre-fetch patch mappings in parallel (no cache, so fetch all)
-            logger.debug(f"Batch fetching {len(cve_ids)} patch mappings")
-            patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-            patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-            patch_mappings = {
-                cve_id: result
-                for cve_id, result in zip(cve_ids, patch_mappings_results)
-                if result and not isinstance(result, Exception)
-            }
+            t0 = time.monotonic()
+
+            patch_context, _, patch_mappings = await asyncio.gather(
+                self._get_vm_patch_context(vm_matches[0]),
+                _fetch_and_cache_cves(),
+                self._get_patch_mappings_cached(cve_ids),
+                return_exceptions=False,
+            )
+
+            t1 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage1(patch_ctx+cve_fetch+patch_map)=%.2fs cve_ids=%d",
+                vm_id, t1 - t0, len(cve_ids)
+            )
 
             # Now enrich each match with pre-fetched data (much faster!)
             enriched_cves: List[VMCVEDetail] = []
@@ -294,6 +299,12 @@ class CVEVMService:
                 return_exceptions=False,
             )
 
+            t2 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage2(enrich)=%.2fs matches=%d",
+                vm_id, t2 - t1, len(vm_matches)
+            )
+
             for detail in enriched_results:
                 if not detail:
                     continue
@@ -305,6 +316,13 @@ class CVEVMService:
                 {detail.cve_id for detail in enriched_cves},
                 patch_context,
             )
+
+            t3 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage3(derived_cves)=%.2fs total=%.2fs",
+                vm_id, t3 - t2, t3 - t0
+            )
+
             for detail in derived_cves:
                 enriched_cves.append(detail)
                 severity_counts[detail.severity] = severity_counts.get(detail.severity, 0) + 1
@@ -835,47 +853,89 @@ class CVEVMService:
             for m in raw_matches
         ]
 
+        # Read pre-computed patch enrichment from scan document (if available)
+        stored_installed_cve_ids = {
+            cve_id.upper()
+            for cve_id in (vm_match_data.get("installed_cve_ids") or [])
+        }
+        stored_available_cve_ids = {
+            cve_id.upper()
+            for cve_id in (vm_match_data.get("available_cve_ids") or [])
+        }
+        stored_patch_summary: Dict[str, int] = vm_match_data.get("patch_summary") or {}
+        has_stored_patch_data = bool(stored_installed_cve_ids or stored_available_cve_ids or stored_patch_summary)
+
+        # Stamp patch_status on each CVEMatch from stored enrichment
+        if has_stored_patch_data:
+            for match in vm_matches:
+                cve_upper = (match.cve_id or "").upper()
+                if cve_upper in stored_installed_cve_ids:
+                    match.patch_status = "installed"
+                elif cve_upper in stored_available_cve_ids:
+                    match.patch_status = "available"
+                else:
+                    match.patch_status = "none"
+
         # Fetch inventory metadata for enriched OS/location fields
         vm_inventory_by_id = await self._get_vm_inventory_by_ids([vm_id])
         vm_inventory = vm_inventory_by_id.get(vm_id.lower())
 
-        # Build patch context using first match as anchor (same pattern as legacy path)
+        # Batch-fetch CVE details and patch mappings (same optimisation as legacy path)
+        cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+
+        # PERFORMANCE: Determine anchor match for patch context fetch
         if vm_matches:
-            patch_context = await self._get_vm_patch_context(vm_matches[0])
+            anchor_match = vm_matches[0]
         else:
-            # No matches on this page — use a synthetic anchor for patch context
-            synthetic = CVEMatch(
+            anchor_match = CVEMatch(
                 cve_id="CVE-NONE",
                 vm_id=vm_id,
                 vm_name=vm_match_data.get("vm_name", vm_id),
                 match_reason="No matches on this page",
             )
-            patch_context = await self._get_vm_patch_context(synthetic)
 
-        # Batch-fetch CVE details and patch mappings (same optimisation as legacy path)
-        cve_ids = [m.cve_id for m in vm_matches if is_valid_cve_id(m.cve_id)]
+        # Run patch context fetch in parallel with CVE + patch mapping fetches
+        cve_ids_to_fetch = [c for c in cve_ids if c not in self._cve_cache]
 
-        cve_fetch_tasks = [
-            self.cve_service.get_cve(cve_id)
-            for cve_id in cve_ids
-            if cve_id not in self._cve_cache
-        ]
-        if cve_fetch_tasks:
-            logger.debug("Batch fetching %d CVE details (repository path)", len(cve_fetch_tasks))
-            fetched = await asyncio.gather(*cve_fetch_tasks, return_exceptions=True)
-            for cve_id, result in zip(
-                [c for c in cve_ids if c not in self._cve_cache], fetched
-            ):
+        async def _fetch_and_cache_cves_repo() -> None:
+            if not cve_ids_to_fetch:
+                return
+            logger.debug("Batch fetching %d CVE details (repository path)", len(cve_ids_to_fetch))
+            fetched = await asyncio.gather(
+                *[self.cve_service.get_cve(cve_id) for cve_id in cve_ids_to_fetch],
+                return_exceptions=True,
+            )
+            for cve_id, result in zip(cve_ids_to_fetch, fetched):
                 if result and not isinstance(result, Exception):
                     self._cve_cache[cve_id] = result
 
-        patch_mapping_tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in cve_ids]
-        patch_mappings_results = await asyncio.gather(*patch_mapping_tasks, return_exceptions=True)
-        patch_mappings = {
-            cve_id: result
-            for cve_id, result in zip(cve_ids, patch_mappings_results)
-            if result and not isinstance(result, Exception)
-        }
+        if has_stored_patch_data:
+            # patch_status already stamped above — build minimal patch context from stored data
+            patch_context = {
+                "installed_identifiers": stored_installed_cve_ids,
+                "available_identifiers": stored_available_cve_ids,
+                "software_inventory_checked": True,
+                "patch_assessment_checked": True,
+                "installed_patches": vm_match_data.get("installed_kb_ids") or [],
+                "available_patches": vm_match_data.get("available_kb_ids") or [],
+                "installed_patch_entries": [],
+                "available_patch_entries": [],
+                "installed_patch_index": {},
+                "available_patch_index": {},
+                "patch_derived_cve_ids": [],
+            }
+            _, patch_mappings = await asyncio.gather(
+                _fetch_and_cache_cves_repo(),
+                self._get_patch_mappings_cached(cve_ids),
+            )
+        else:
+            # Fallback: fetch patch context live (legacy path or missing enrichment)
+            patch_context, _, patch_mappings = await asyncio.gather(
+                self._get_vm_patch_context(anchor_match),
+                _fetch_and_cache_cves_repo(),
+                self._get_patch_mappings_cached(cve_ids),
+                return_exceptions=False,
+            )
 
         # Enrich each match
         enriched_cves: List[VMCVEDetail] = []
@@ -918,10 +978,30 @@ class CVEVMService:
         vm_name = vm_match_data.get("vm_name") or vm_id
         total_cves = vm_match_data.get("total_matches", len(enriched_cves))
 
+        # Use scan-level summary for severity breakdown so stats reflect ALL CVEs, not just the current page.
+        # Falls back to page-level counts if no summary is available.
+        summary = self._get_scan_summary_for_vm(scan, vm_id)
+        if summary and int(summary.get("total_cves", 0)) > 0:
+            severity_counts = {
+                "CRITICAL": int(summary.get("critical", 0)),
+                "HIGH": int(summary.get("high", 0)),
+                "MEDIUM": int(summary.get("medium", 0)),
+                "LOW": int(summary.get("low", 0)),
+            }
+
         logger.info(
             "Retrieved %d enriched CVEs (page offset=%d, limit=%d) from repository for VM %s",
             len(enriched_cves), offset, limit, vm_id,
         )
+
+        unpatched_by_severity: Dict[str, int] = {}
+        if stored_patch_summary:
+            unpatched_by_severity = {
+                "CRITICAL": stored_patch_summary.get("unpatched_critical", 0),
+                "HIGH":     stored_patch_summary.get("unpatched_high", 0),
+                "MEDIUM":   stored_patch_summary.get("unpatched_medium", 0),
+                "LOW":      stored_patch_summary.get("unpatched_low", 0),
+            }
 
         _norm_os = self._normalize_os_fields(
             getattr(vm_inventory, "os_name", None),
@@ -948,6 +1028,7 @@ class CVEVMService:
                 "total": total_cves,
                 "has_more": vm_match_data.get("has_more", False),
             },
+            unpatched_by_severity=unpatched_by_severity,
         )
 
     async def _get_vm_inventory_by_ids(self, vm_ids: List[str]) -> Dict[str, Any]:
@@ -1311,24 +1392,67 @@ class CVEVMService:
                 fix_kb_ids=fix_kb_ids,
             )
 
+    async def _get_patch_mappings_cached(self, cve_ids: List[str]) -> Dict[str, Any]:
+        """Batch-fetch patch mappings with in-memory TTL cache.
+
+        Results are cached for 5 minutes — patch KB mappings don't change within
+        a request window or even across many requests.
+        """
+        now = time.monotonic()
+        cached_results: Dict[str, Any] = {}
+        uncached_ids: List[str] = []
+
+        for cve_id in cve_ids:
+            entry = self._patch_mapping_cache.get(cve_id)
+            if entry is not None:
+                result, cached_at = entry
+                if now - cached_at < self._patch_mapping_cache_ttl:
+                    cached_results[cve_id] = result
+                    continue
+                # TTL expired — evict stale entry before re-fetching
+                del self._patch_mapping_cache[cve_id]
+            uncached_ids.append(cve_id)
+
+        if uncached_ids:
+            tasks = [self.patch_mapper.get_patches_for_cve(cve_id) for cve_id in uncached_ids]
+            fetched = await asyncio.gather(*tasks, return_exceptions=True)
+            for cve_id, result in zip(uncached_ids, fetched):
+                if result and not isinstance(result, Exception):
+                    self._patch_mapping_cache[cve_id] = (result, now)
+                    cached_results[cve_id] = result
+
+        return cached_results
+
     async def _get_vm_patch_context(self, match: CVEMatch) -> Dict[str, Any]:
         cache_key = (match.vm_id or match.vm_name or "").lower()
         cached = self._vm_patch_context_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        # PERFORMANCE: Add timeout to patch context fetching to prevent request-level timeouts
+        # PERFORMANCE: Fetch installed and available patch data in parallel with a shared timeout
         try:
-            installed_task = self._get_installed_patch_identifiers(match.vm_name)
-            available_task = self._get_available_patch_identifiers(match)
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    self._get_installed_patch_identifiers(match.vm_name),
+                    self._get_available_patch_identifiers(match),
+                    return_exceptions=True,
+                ),
+                timeout=10.0,  # 10s total for both calls combined
+            )
+            installed_result, available_result = results
 
-            # Set aggressive timeout - if patch data takes >10s, skip it
-            installed_identifiers, software_inventory_checked, installed_patches = await asyncio.wait_for(
-                installed_task, timeout=10.0
-            )
-            available_identifiers, patch_assessment_checked, available_patches = await asyncio.wait_for(
-                available_task, timeout=10.0
-            )
+            if isinstance(installed_result, Exception):
+                logger.warning("Installed patch fetch failed for %s: %s", match.vm_name, installed_result)
+                installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
+            else:
+                installed_identifiers, software_inventory_checked, installed_patches = installed_result
+
+            if isinstance(available_result, Exception):
+                logger.warning("Available patch fetch failed for %s: %s", match.vm_name, available_result)
+                available_identifiers, patch_assessment_checked, available_patches = set(), False, []
+            else:
+                available_identifiers, patch_assessment_checked, available_patches = available_result
+
         except asyncio.TimeoutError:
             logger.warning(f"Patch context fetch timed out for {match.vm_name} - using empty patch data")
             installed_identifiers, software_inventory_checked, installed_patches = set(), False, []
@@ -1414,7 +1538,7 @@ class CVEVMService:
             result = await inventory_agent.get_software_inventory(
                 days=90,
                 computer_filter=vm_name,
-                limit=None,
+                limit=500,          # cap: 500 patch records is sufficient; avoids unbounded fetch
                 use_cache=True,
                 skip_eol_enrichment=True,
             )
