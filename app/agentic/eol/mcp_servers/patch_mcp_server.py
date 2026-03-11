@@ -120,8 +120,12 @@ def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     return "arc"
 
 
+_ARG_MAX_RETRIES = 3
+_ARG_BACKOFF_BASE = 5  # seconds, doubled each retry
+
+
 async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, Any]]:
-    """Execute a Resource Graph query (synchronous SDK wrapped in executor)."""
+    """Execute a Resource Graph query with exponential-backoff retry on throttling."""
     if not ResourceGraphClient or not QueryRequest:
         raise RuntimeError("azure-mgmt-resourcegraph not installed")
 
@@ -136,6 +140,7 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
         )
 
     from azure.identity import ClientSecretCredential as SyncSPCred
+    from azure.core.exceptions import HttpResponseError
     cred = SyncSPCred(tenant_id=tenant_id, client_id=sp_client_id, client_secret=sp_client_secret)
 
     graph_client = ResourceGraphClient(cred)
@@ -144,14 +149,40 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
     loop = asyncio.get_event_loop()
 
     while True:
-        def _run(st=skip_token):
-            opts = QueryRequestOptions(result_format="objectArray", top=1000)
-            if st:
-                opts.skip_token = st
-            req = QueryRequest(subscriptions=subscription_ids, query=query, options=opts)
-            return graph_client.resources(req)
+        last_exc: Optional[Exception] = None
+        for attempt in range(_ARG_MAX_RETRIES):
+            try:
+                def _run(st=skip_token):
+                    opts = QueryRequestOptions(result_format="objectArray", top=1000)
+                    if st:
+                        opts.skip_token = st
+                    req = QueryRequest(subscriptions=subscription_ids, query=query, options=opts)
+                    return graph_client.resources(req)
 
-        response = await loop.run_in_executor(None, _run)
+                response = await loop.run_in_executor(None, _run)
+                last_exc = None
+                break  # success — exit retry loop
+            except HttpResponseError as exc:
+                last_exc = exc
+                if getattr(getattr(exc, "error", None), "code", None) == "RateLimiting":
+                    retry_after = _ARG_BACKOFF_BASE * (2 ** attempt)
+                    try:
+                        header_val = exc.response.headers.get("Retry-After") if exc.response else None
+                        if header_val:
+                            retry_after = int(header_val)
+                    except Exception:
+                        pass
+                    logger.warning(
+                        "ARG throttled (attempt %d/%d) — sleeping %ds before retry",
+                        attempt + 1, _ARG_MAX_RETRIES, retry_after,
+                    )
+                    await asyncio.sleep(retry_after)
+                else:
+                    raise  # non-throttle error, propagate immediately
+
+        if last_exc is not None:
+            raise last_exc  # exhausted retries
+
         data = response.data if hasattr(response, "data") else []
         all_rows.extend(data if isinstance(data, list) else [])
         skip_token = getattr(response, "skip_token", None)
