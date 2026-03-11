@@ -25,6 +25,11 @@ except ImportError:
     from app.agentic.eol.utils.normalization import normalize_os_record
 
 try:
+    from utils.patch_assessment_repository import get_patch_assessment_repository
+except ImportError:
+    from app.agentic.eol.utils.patch_assessment_repository import get_patch_assessment_repository
+
+try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.resourcegraph import ResourceGraphClient
     from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
@@ -646,8 +651,20 @@ async def get_assessment_result(
 
     Use this after triggering assess_vm_patches to retrieve completed assessment data.
     Returns patch summary with classifications and reboot requirements.
+
+    PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
     """
     try:
+        # Check Cosmos cache first to avoid ARG throttling
+        try:
+            repo = await get_patch_assessment_repository()
+            cached = await repo.get_assessment(subscription_id, machine_name, vm_type)
+            if cached:
+                logger.info("Returning cached assessment result for %s", machine_name)
+                return cached
+        except Exception as cache_err:
+            logger.debug("Cache lookup failed for %s, falling back to ARG: %s", machine_name, cache_err)
+
         resolved_vm_type = _resolve_vm_type(None, vm_type)
 
         if resolved_vm_type == "azure-vm":
@@ -733,7 +750,7 @@ patchassessmentresources
         rg = row.get("resourceGroup") or ""
         resource_id = f"/subscriptions/{subscription_id}/resourceGroups/{rg}/providers/{provider}/{machine_name}"
 
-        return {
+        result = {
             "success": True,
             "found": True,
             "machine_name": machine_name,
@@ -753,6 +770,16 @@ patchassessmentresources
                 "source": "resource_graph",
             },
         }
+
+        # Store to cache for next request
+        try:
+            repo = await get_patch_assessment_repository()
+            await repo.store_assessment(subscription_id, machine_name, vm_type, result)
+            logger.info("Cached assessment result for %s", machine_name)
+        except Exception as cache_err:
+            logger.debug("Failed to cache assessment for %s: %s", machine_name, cache_err)
+
+        return result
     except Exception as exc:
         logger.error("get_assessment_result failed: %s", exc)
         return {"success": False, "error": str(exc)}
