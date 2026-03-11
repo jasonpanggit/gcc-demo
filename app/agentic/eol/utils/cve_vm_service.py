@@ -82,6 +82,7 @@ class CVEVMService:
         self._scan_cache: TTLCache = TTLCache(maxsize=10, ttl=300)  # 5 min TTL
         self._cve_cache: TTLCache = TTLCache(maxsize=1000, ttl=900)  # 15 min TTL
         self._vm_patch_context_cache: TTLCache = TTLCache(maxsize=128, ttl=300)
+        self._patch_assessment_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)  # 1h, matches Cosmos TTL
 
         logger.info("CVEVMService initialized with L1 caching")
 
@@ -1445,6 +1446,13 @@ class CVEVMService:
 
         vm_type = self._resolve_vm_type(match.vm_id)
 
+        # L1 in-process cache keyed by full ARM resource ID (unambiguous across resource groups)
+        cache_key = (match.vm_id or "").lower()
+        cached = self._patch_assessment_cache.get(cache_key)
+        if cached is not None:
+            identifiers_frozen, patches_list = cached
+            return set(identifiers_frozen), True, patches_list
+
         try:
             result = await self.patch_mapper.patch_mcp_client.get_assessment_result(
                 machine_name=match.vm_name,
@@ -1457,6 +1465,8 @@ class CVEVMService:
                 for patch in available_patches:
                     identifiers.update(self._extract_patch_identifiers(patch))
 
+                # Store in L1 cache before returning (frozenset prevents cache corruption)
+                self._patch_assessment_cache[cache_key] = (frozenset(identifiers), list(available_patches))
                 return identifiers, True, list(available_patches)
         except Exception as e:
             logger.debug("Patch MCP assessment lookup failed for %s: %s", match.vm_name, e)
@@ -1474,6 +1484,8 @@ class CVEVMService:
         for patch in available_patches:
             identifiers.update(self._extract_patch_identifiers(patch))
 
+        # Store fallback result in L1 cache too (frozenset prevents cache corruption)
+        self._patch_assessment_cache[cache_key] = (frozenset(identifiers), list(available_patches))
         return identifiers, True, list(available_patches)
 
     async def _get_available_patch_assessment_via_api(
