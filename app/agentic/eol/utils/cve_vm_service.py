@@ -1426,7 +1426,7 @@ class CVEVMService:
             result = await inventory_agent.get_software_inventory(
                 days=90,
                 computer_filter=vm_name,
-                limit=None,
+                limit=500,          # cap: 500 patch records is sufficient; avoids unbounded fetch
                 use_cache=True,
                 skip_eol_enrichment=True,
             )
