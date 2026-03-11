@@ -262,11 +262,19 @@ class CVEVMService:
                     if result and not isinstance(result, Exception):
                         self._cve_cache[cve_id] = result
 
+            t0 = time.monotonic()
+
             patch_context, _, patch_mappings = await asyncio.gather(
                 self._get_vm_patch_context(vm_matches[0]),
                 _fetch_and_cache_cves(),
                 self._get_patch_mappings_cached(cve_ids),
                 return_exceptions=False,
+            )
+
+            t1 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage1(patch_ctx+cve_fetch+patch_map)=%.2fs cve_ids=%d",
+                vm_id, t1 - t0, len(cve_ids)
             )
 
             # Now enrich each match with pre-fetched data (much faster!)
@@ -291,6 +299,12 @@ class CVEVMService:
                 return_exceptions=False,
             )
 
+            t2 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage2(enrich)=%.2fs matches=%d",
+                vm_id, t2 - t1, len(vm_matches)
+            )
+
             for detail in enriched_results:
                 if not detail:
                     continue
@@ -302,6 +316,13 @@ class CVEVMService:
                 {detail.cve_id for detail in enriched_cves},
                 patch_context,
             )
+
+            t3 = time.monotonic()
+            logger.debug(
+                "vm-vuln timing [%s]: stage3(derived_cves)=%.2fs total=%.2fs",
+                vm_id, t3 - t2, t3 - t0
+            )
+
             for detail in derived_cves:
                 enriched_cves.append(detail)
                 severity_counts[detail.severity] = severity_counts.get(detail.severity, 0) + 1
