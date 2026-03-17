@@ -306,8 +306,9 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-16 | P3.2: Dict-based joins are common in-memory pattern | 3 of 7 entries use dict comprehension to build lookup tables then loop with .get(); easier to read than nested loops but same perf |
 
 | 2026-03-17 | P6.6: All 24 UI views have target SQL across 3 domain files (CVE, Inventory/EOL, Admin) | 35+ queries documented with asyncpg params, index usage, pagination, BH-001 through BH-010 fixes, Phase 8/9 forward refs |
+| 2026-03-17 | P6.3 gap closure: JOIN-INDEX-STRATEGY.md restored (was 0 bytes) | File write failed during original P6.3 execution; all decisions were already recorded in STATE.md and 06-03-SUMMARY.md; gap closure re-executed the write |
 
 ---
 
-*State version: 6.7*
-*Updated: 2026-03-17 (P6.6 complete -- TARGET-SQL-CVE-DOMAIN.md, TARGET-SQL-INVENTORY-DOMAIN.md, TARGET-SQL-ADMIN-DOMAIN.md with 35+ queries covering all 24 views, 10 bad-hack fixes, Phase 6 complete)*
+*State version: 6.8*
+*Updated: 2026-03-17 (P6.3 gap closure -- JOIN-INDEX-STRATEGY.md restored with 6 sections, 209 lines; Phase 6 now 100% complete with all deliverable files populated)*
