@@ -1246,74 +1246,31 @@ def _parse_arg_list(val: Any) -> List[str]:
 @router.get("/results/{machine_name}", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_results", timeout_seconds=30)
 async def get_patch_results(
+    request: Request,
     machine_name: str,
-    subscription_id: Optional[str] = Query(None),
-    resource_group: Optional[str] = Query(None),
+    resource_id: Optional[str] = Query(None, description="Full ARM resource ID for the VM"),
 ):
     """
-    Retrieve the latest patch assessment results for an Arc-enabled machine
-    using the patchAssessmentResults/latest REST API (read-only, no new assessment triggered).
-    """
-    sub_id = subscription_id or config.azure.subscription_id
-    rg = resource_group or config.azure.resource_group_name
+    Retrieve available patches for a machine from PostgreSQL.
 
-    if not sub_id or not rg:
-        raise HTTPException(
-            status_code=400,
-            detail="subscription_id and resource_group are required",
+    Uses PatchRepository.get_patches_for_vm() instead of the previous ARM REST
+    patchAssessmentResults/latest call. The data comes directly from the
+    available_patches table without triggering a new assessment.
+    """
+    if not resource_id:
+        return StandardResponse(
+            success=True,
+            data=[],
+            count=0,
+            message=f"No patches available for '{machine_name}' (resource_id required)",
         )
 
-    results_url = (
-        f"{_ARM_BASE}/subscriptions/{sub_id}/resourceGroups/{rg}"
-        f"/providers/Microsoft.HybridCompute/machines/{machine_name}"
-        f"/patchAssessmentResults/latest?api-version={_ASSESS_API_VERSION}"
+    patch_repo = request.app.state.patch_repo
+    patches = await patch_repo.get_patches_for_vm(resource_id)
+
+    return StandardResponse(
+        success=True,
+        data=patches,
+        count=len(patches),
+        message=f"Retrieved {len(patches)} patches for {machine_name}" if patches else "No patches available for this machine",
     )
-
-    token = await _get_arm_token()
-    headers = {"Authorization": f"Bearer {token}"}
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(results_url, headers=headers) as resp:
-            if resp.status == 404:
-                return {
-                    "success": True,
-                    "machine": machine_name,
-                    "data": None,
-                    "message": "No assessment results found – run an assessment first",
-                }
-            if resp.status != 200:
-                error_text = await resp.text()
-                raise HTTPException(
-                    status_code=resp.status,
-                    detail=f"Failed to fetch results ({resp.status}): {error_text[:500]}",
-                )
-            body = await resp.json(content_type=None)
-
-    props = body.get("properties") or {}
-    available_patches = props.get("availablePatches", [])
-
-    critical_count = props.get("criticalAndSecurityPatchCount", 0) or 0
-    other_count = props.get("otherPatchCount", 0) or 0
-
-    if available_patches and critical_count == 0:
-        for p in available_patches:
-            classifications = [c.lower() for c in (p.get("classifications") or [])]
-            if "critical" in classifications or "security" in classifications:
-                critical_count += 1
-            else:
-                other_count += 1
-
-    return {
-        "success": True,
-        "machine": machine_name,
-        "data": {
-            "available_patches": available_patches,
-            "critical_and_security_count": critical_count,
-            "other_count": other_count,
-            "total_count": len(available_patches) if available_patches else (critical_count + other_count),
-            "last_assessed": props.get("lastModifiedDateTimeUTC") or props.get("lastModifiedDateTime"),
-            "status": props.get("status", "Unknown"),
-            "os_type": props.get("osType"),
-            "reboot_pending": props.get("rebootPending"),
-        },
-    }
