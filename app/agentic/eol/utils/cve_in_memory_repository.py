@@ -1,6 +1,11 @@
 """
 In-memory repository for CVE data persistence in mock mode.
 
+# TODO(Phase-11): Replace in-memory repo with mock PostgreSQL fixture.
+# This module is required for USE_MOCK_DATA=true mode (main.py line ~659).
+# Once mock mode uses a local PostgreSQL instance with the standard
+# CVERepository, this file can be deleted.
+
 Implements the same async interface used by CVEService so local/mock runs can
 persist sync/search results without Cosmos DB.
 """
