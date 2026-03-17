@@ -2,29 +2,29 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-03-17T07:15:08.797Z"
+status: planning
+last_updated: "2026-03-17T08:55:05.000Z"
 progress:
   total_phases: 10
-  completed_phases: 3
-  total_plans: 45
-  completed_plans: 31
+  completed_phases: 4
+  total_plans: 52
+  completed_plans: 38
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
 
 **Project:** gcc-demo EOL Platform — Schema & Performance Overhaul
 **Last Updated:** 2026-03-17
-**Status:** In progress
+**Status:** Ready to plan
 
 ---
 
 ## Current Phase
 
-**-> Phase 7: Schema Implementation** 🔄 **In progress -- 6 / 7 plans done**
+**-> Phase 8: Repository Layer Update** 🔄 **In progress -- 5 / 7 plans done**
 
-**Completed:** P7.1 -- Migration 027: Drop Obsolete Tables + kb_cve_edge Data Migration, P7.2 -- Migration 028: Create VM Identity Spine (subscriptions + vms tables), P7.3 -- Migration 029: CVE Table FK Additions + Orphan Cleanup, P7.4 -- Migration 030: Inventory + EOL Tables (FK, Type Align, New Tables), P7.5 -- Migration 031: Alerting Tables (DROP + CREATE with 9 indexes), P7.6 -- Migration 032: MV Re-creation + Optimization Indexes + FTS
-**Next:** P7.7 -- Bootstrap DDL Rewrite (pg_database.py)
+**Completed:** P8.1, P8.2, P8.3, P8.4, P8.5
+**Next:** P8.6 -- Sync rewiring + cache freshness
 
 ---
 
@@ -38,8 +38,8 @@ progress:
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
 | 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
 | 6 | Index & Query Optimization Design | ✅ Complete | 6 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md, P6.6 TARGET-SQL (3 domain files) done |
-| 7 | Schema Implementation | 🔄 In progress | 6 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables), P7.3 done — Migration 029 (CVE FK additions + orphan cleanup), P7.4 done — Migration 030 (inventory FK + eol_agent_responses + cache_ttl_config), P7.5 done — Migration 031 (alerting tables DROP/CREATE + 9 indexes), P7.6 done — Migration 032 (MV re-creation + 13 optimization indexes + FTS infrastructure) |
-| 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
+| 7 | Schema Implementation | ✅ Complete | 7 / 7 | P7.1–P7.6 done (migrations 027-032), P7.7 done (pg_database.py bootstrap DDL rewrite) |
+| 8 | Repository Layer Update | 🔄 In progress | 5 / 7 | P8.1 done — pg_client.py + repositories/__init__.py; P8.2 done — CVERepository (16+ methods); P8.3 done — InventoryRepository; P8.4 done — PatchRepository + AlertRepository; P8.5 done — EOLRepository |
 | 9 | UI Integration Update | ⬜ Not started | 0 / 7 | Depends on Phase 8 |
 | 10 | Validation & Cleanup | ⬜ Not started | 0 / 7 | Depends on Phase 9 |
 
@@ -292,14 +292,16 @@ The following migrations are already complete and represent the baseline for thi
 
 ## Next Actions
 
-1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 + P7.3 + P7.4 + P7.5 + P7.6 done (migrations 027 + 028 + 029 + 030 + 031 + 032)
-2. **Next:** P7.7 -- Bootstrap DDL Rewrite (pg_database.py _bootstrap_runtime_schema update)
-3. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
-4. **Note:** All 6 migration SQL files (027-032) now exist — P7.7 rewrites bootstrap to match
-5. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
-6. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
-7. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
-8. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
+1. **P8.1 COMPLETE** -- asyncpg pool singleton + repositories package init
+2. **P8.3 COMPLETE** -- InventoryRepository with BH-005 bulk EOL lookup
+3. **P8.4 COMPLETE** -- PatchRepository (BH-010 fix) + AlertRepository (I-06 resolution)
+4. **P8.5 COMPLETE** -- EOLRepository with BH-009 sort fix
+5. **Next:** P8.2 -- CVE repository (uses TARGET-SQL-CVE-DOMAIN.md)
+6. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
+7. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
+8. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob
+9. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
+10. Phase 9 must rewire 5+ callers of cve_alert_rule_manager.py and cve_alert_history_manager.py to use AlertRepository
 
 ---
 
@@ -323,7 +325,27 @@ The following migrations are already complete and represent the baseline for thi
 
 | 2026-03-17 | P7.6: Migration 032 created — MV re-creation + 13 optimization indexes + FTS | mv_vm_vulnerability_posture recreated with vms source + eol_records LEFT JOIN; FTS trigger function + trigger + GIN index (bootstrap gap); 13 optimization indexes (2 expression, 3 severity, 2 composite, 3 partial, 2 JOIN/covering); DROP idx_edges_kb (R-02); 4 MV indexes; I-03 OWNER TO CURRENT_ROLE fix |
 
+| 2026-03-17 | P7.7: pg_database.py created with full target schema bootstrap DDL | 39 _REQUIRED_TABLES (29 existing + 8 new + 2 deprecated caches), 14 _REQUIRED_RELATIONS, I-03 MV fix, all Phase 6 indexes, FTS infrastructure; Phase 7 complete |
+
+| 2026-03-17 | P8.1: PostgresClient receives DSN externally (no config.py dependency) | Enables independent testing; 3-tier DSN resolution: param > DATABASE_URL > PG* env vars |
+| 2026-03-17 | P8.1: repositories/__init__.py forward-declares __all__ without imports | Prevents ImportError before P8.2-P8.6 create actual repo files |
+
+| 2026-03-17 | P8.3: InventoryRepository created with 7 methods covering queries 9a-9c, 10a-10b | BH-005 eliminated (CTE + LEFT JOIN); BH-013/BH-015 inherently fixed via vms table |
+| 2026-03-17 | P8.3: upsert_vm uses ON CONFLICT (never DELETE + INSERT) | Preserves CASCADE FK integrity with 6 child tables |
+
+| 2026-03-17 | P8.5: EOLRepository created with 8 methods covering queries 12a-16a | BH-009 eliminated (server-side ORDER BY with ALLOWED_SORT_COLUMNS whitelist); eol_agent_responses write path implemented |
+| 2026-03-17 | P8.5: Sort whitelist has 9 entries mapping user-facing names to DB columns | Prevents SQL injection; invalid sort_column defaults to "updated_at", invalid direction defaults to "DESC" |
+
+| 2026-03-17 | P8.4: PatchRepository created with 5 methods covering queries 11a-11b, 4c | BH-010 eliminated: single LEFT JOIN + correlated subquery replaces /machines + /arg-patch-data two-query pattern |
+| 2026-03-17 | P8.4: AlertRepository created with 9 methods covering queries 5a-5b, 6a, 8a-8b + full CRUD | I-06 resolved: replaces cve_alert_rule_manager.py and cve_alert_history_manager.py (Cosmos/in-memory) |
+| 2026-03-17 | P8.4: Per-CVE firing model uses ON CONFLICT (rule_id, cve_id) DO NOTHING | Prevents duplicate alert firings; matches redesigned cve_alert_history schema from P5.5 |
+| 2026-03-17 | P8.4: update_rule uses COALESCE for partial updates | Only non-NULL kwargs modify the row; enables single-field updates without overwriting other fields |
+
+| 2026-03-17 | P8.2: CVERepository created with 16+ methods covering all Phase 6 CVE-domain queries | BH-001/002/003/004/006/007/008 eliminated; MV-first reads + full-filter search + 3-tier refresh |
+| 2026-03-17 | P8.2: 3-tier MV refresh: tier1 (dashboard), tier2 (scan-scoped), tier3 (detail) | Per-MV error handling; failed MVs don't block remaining refreshes; returns refreshed/failed/duration_ms |
+| 2026-03-17 | P8.2: UPSERT_CVE aligned to bootstrap cves schema column names | Uses last_modified_at/vector_string_v3/exploitability_score (not migration 011 names); 18 parameters |
+
 ---
 
-*State version: 7.7*
-*Updated: 2026-03-17 (P7.6 complete -- Migration 032 MV re-creation + optimization indexes + FTS; Phase 7 now 6/7 plans done)*
+*State version: 8.5*
+*Updated: 2026-03-17 (P8.2 complete -- CVERepository 16+ methods; Phase 8 in progress 5/7 plans done)*

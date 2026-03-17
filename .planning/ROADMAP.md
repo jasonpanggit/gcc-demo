@@ -153,7 +153,7 @@ Plans:
 - [x] P7.4: Write migration 030 — finalize Inventory + EOL tables ✅ (2026-03-17)
 - [x] P7.5: Write migration 031 — create/replace all Materialized Views
 - [x] P7.6: Write migration 032 — create all optimization indexes ✅ (2026-03-17)
-- [ ] P7.7: Update `pg_database.py` bootstrap with new tables
+- [x] P7.7: Update `pg_database.py` bootstrap with new tables ✅ (2026-03-17)
 
 ---
 
@@ -168,13 +168,13 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] P8.1: Update CVE repositories to use new schema with single-query patterns
-- [ ] P8.2: Update Inventory repositories
-- [ ] P8.3: Update Patch repositories
-- [ ] P8.4: Update Alert repositories
-- [ ] P8.5: Update EOL repository
-- [ ] P8.6: Update ARG/LAW cache repositories
-- [ ] P8.7: Verify all repository aliases resolve correctly
+- [x] P8.1: Foundation -- asyncpg pool singleton + repository package init
+- [x] P8.2: CVERepository -- Dashboard MVs, Search, Detail, VM Posture
+- [x] P8.3: InventoryRepository -- VM Inventory, Resources, Software
+- [x] P8.4: PatchRepository + AlertRepository -- Patch Management + Alert CRUD
+- [x] P8.5: EOLRepository -- EOL Records, Agent Responses, Extraction Rules
+- [ ] P8.6: Sync Job Rewiring + Cache Freshness Queries
+- [ ] P8.7: Consumer Rewiring -- Import Paths + main.py Integration
 
 ---
 
