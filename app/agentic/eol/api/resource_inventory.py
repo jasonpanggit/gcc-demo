@@ -19,13 +19,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 
 try:
     from utils.logger import get_logger
     from utils.config import config
     from utils.helpers import create_error_response
+    from utils.response_models import StandardResponse
     from utils.resource_inventory_client import get_resource_inventory_client
     from utils.resource_inventory_cache import get_resource_inventory_cache
     from utils.resource_discovery_engine import ResourceDiscoveryEngine
@@ -34,6 +35,7 @@ except ImportError:
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.helpers import create_error_response
+    from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client
     from app.agentic.eol.utils.resource_inventory_cache import get_resource_inventory_cache
     from app.agentic.eol.utils.resource_discovery_engine import ResourceDiscoveryEngine
@@ -65,16 +67,6 @@ class RefreshRequest(BaseModel):
     mode: str = Field(
         "full", description="Discovery mode: 'full' or 'incremental'",
     )
-
-
-class StandardResponse(BaseModel):
-    """Uniform API response envelope."""
-    success: bool = True
-    data: Any = None
-    error: Optional[str] = None
-    message: Optional[str] = None
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    duration_ms: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -189,20 +181,19 @@ async def refresh_inventory(body: RefreshRequest):
 
 
 @router.get("/stats", response_model=StandardResponse)
-async def get_cache_stats():
+async def get_cache_stats(request: Request):
     """Return cache statistics: hit/miss rates, entry counts, TTL config."""
     start = time.time()
     try:
-        cache = get_resource_inventory_cache()
-        client = get_resource_inventory_client()
-
-        stats = client.get_statistics()
+        inventory_repo = request.app.state.inventory_repo
+        cache_status = await inventory_repo.get_cache_status()
         duration = (time.time() - start) * 1000
 
         return StandardResponse(
-            data=stats,
-            message="Cache statistics retrieved",
-            duration_ms=round(duration, 1),
+            success=True,
+            data=cache_status,
+            count=len(cache_status),
+            message=f"Retrieved {len(cache_status)} cache entries",
         )
     except Exception as exc:
         logger.error("Failed to retrieve cache stats: %s", exc)
@@ -214,6 +205,7 @@ async def get_cache_stats():
 
 @router.get("/resources", response_model=StandardResponse)
 async def query_resources(
+    request: Request,
     subscription_id: Optional[str] = Query(None, description="Target subscription"),
     resource_type: Optional[str] = Query(None, description="Azure resource type (e.g. Microsoft.Compute/virtualMachines)"),
     resource_group: Optional[str] = Query(None, description="Filter by resource group"),
@@ -227,65 +219,27 @@ async def query_resources(
 
     Returns paginated results with total count and type breakdown.
     """
-    start = time.time()
-    sub = subscription_id or _default_subscription()
-
-    if not sub:
-        return StandardResponse(
-            success=False,
-            error="No subscription_id provided and none configured",
-        )
-
     try:
-        client = get_resource_inventory_client()
-        metrics = get_inventory_metrics()
-
-        # Build filter dict from query params
-        filters: Dict[str, Any] = {}
-        if resource_group:
-            filters["resource_group"] = resource_group
-        if location:
-            filters["location"] = location
-        if name:
-            filters["name"] = name
-
-        if resource_type:
-            # Single-type query (existing path)
-            async with metrics.track_query_async("get_resources"):
-                resources = await client.get_resources(
-                    resource_type=resource_type,
-                    subscription_id=sub,
-                    filters=filters or None,
-                    refresh=refresh,
-                )
-            type_label = resource_type
-        else:
-            # All-types query — aggregate across every cached type.
-            # Live discovery is intentionally skipped here; the user should
-            # trigger a refresh first if cache is empty.
-            async with metrics.track_query_async("get_all_resources"):
-                resources = await client.get_all_resources(
-                    subscription_id=sub,
-                    filters=filters or None,
-                )
-            type_label = "all types"
-
-        duration = (time.time() - start) * 1000
-        paginated = _paginate(resources, offset, limit)
-
+        inventory_repo = request.app.state.inventory_repo
+        resources = await inventory_repo.list_resources(
+            subscription_id=subscription_id,
+            resource_type=resource_type,
+            name_search=name,
+            limit=limit,
+            offset=offset,
+        )
         return StandardResponse(
-            data=paginated,
-            message=f"Found {paginated['total']} resources of type {type_label}",
-            duration_ms=round(duration, 1),
+            success=True,
+            data={"items": resources, "total": len(resources), "offset": offset, "limit": limit},
+            count=len(resources),
+            message=f"Retrieved {len(resources)} resources" if resources else "No resources found matching your filters",
         )
 
     except Exception as exc:
         logger.error("Resource query failed: %s", exc)
-        duration = (time.time() - start) * 1000
         return StandardResponse(
             success=False,
             error=str(exc),
-            duration_ms=round(duration, 1),
         )
 
 
