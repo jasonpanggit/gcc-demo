@@ -27,7 +27,7 @@ Date: October 2025
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Request
 import logging
 
@@ -45,32 +45,6 @@ logger = logging.getLogger(__name__)
 
 # Create router for inventory endpoints
 router = APIRouter(tags=["Inventory Management"])
-
-
-def _apply_os_inventory_normalization(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize OS identity fields on an inventory row in place."""
-    if not isinstance(item, dict):
-        return item
-
-    normalized = normalize_os_record(
-        item.get("os_name") or item.get("name"),
-        item.get("os_version") or item.get("version"),
-        item.get("os_type"),
-    )
-
-    item.setdefault("raw_os_name", normalized.get("raw_os_name"))
-    item.setdefault("raw_os_version", normalized.get("raw_os_version"))
-    item["os_name"] = normalized["os_name"]
-    item["os_version"] = normalized.get("os_version")
-    item["normalized_os_name"] = normalized.get("normalized_os_name")
-    item["normalized_os_version"] = normalized.get("normalized_os_version")
-    item["os_type"] = normalized.get("os_type") or item.get("os_type")
-    if item.get("software_type") == "operating system":
-        if "name" in item:
-            item["name"] = normalized["os_name"]
-        if "version" in item:
-            item["version"] = normalized.get("os_version")
-    return item
 
 
 def _get_eol_orchestrator():
@@ -150,57 +124,6 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
         logger.warning("Failed to merge Azure VMs into OS inventory: %s", exc)
 
     return os_items
-
-
-async def _enrich_missing_os_eol(items: List[Dict[str, Any]]) -> None:
-    """Populate EOL fields only for OS rows that were added without enrichment."""
-    if not isinstance(items, list) or not items:
-        return
-
-    candidates = [
-        item for item in items
-        if isinstance(item, dict)
-        and not item.get("eol_date")
-        and item.get("source") == "resource_inventory"
-    ]
-
-    if not candidates:
-        return
-
-    orchestrator = _get_eol_orchestrator()
-    semaphore = asyncio.Semaphore(4)
-
-    async def enrich_item(item: Dict[str, Any]) -> None:
-        lookup_name = item.get("os_name") or item.get("name") or ""
-        lookup_version = item.get("os_version") or item.get("version")
-        if not lookup_name:
-            return
-
-        async with semaphore:
-            try:
-                eol_result = await orchestrator.get_autonomous_eol_data(
-                    lookup_name,
-                    lookup_version,
-                    item_type="os",
-                )
-            except Exception:
-                return
-
-        if not eol_result or not eol_result.get("success"):
-            return
-
-        data_block = eol_result.get("data") if isinstance(eol_result, dict) else None
-        if not isinstance(data_block, dict):
-            return
-
-        if data_block.get("eol_date"):
-            item["eol_date"] = data_block.get("eol_date")
-        if data_block.get("support_end_date") or data_block.get("support"):
-            item["support_end_date"] = data_block.get("support_end_date") or data_block.get("support")
-        item["eol_source"] = data_block.get("source") or data_block.get("agent_used")
-        item["eol_confidence"] = data_block.get("confidence")
-
-    await asyncio.gather(*(enrich_item(item) for item in candidates), return_exceptions=True)
 
 
 @router.get("/api/inventory", response_model=StandardResponse)
