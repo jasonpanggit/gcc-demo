@@ -149,7 +149,7 @@ Plans:
 Plans:
 - [x] P7.1: Write migration 027 — drop obsolete tables identified in Phase 3
 - [x] P7.2: Write migration 028 — create/alter VM identity spine table
-- [ ] P7.3: Write migration 029 — finalize CVE tables with constraints and indexes
+- [x] P7.3: Write migration 029 — finalize CVE tables with constraints and indexes ✅ (2026-03-17)
 - [ ] P7.4: Write migration 030 — finalize Inventory + EOL tables
 - [ ] P7.5: Write migration 031 — create/replace all Materialized Views
 - [ ] P7.6: Write migration 032 — create all optimization indexes
