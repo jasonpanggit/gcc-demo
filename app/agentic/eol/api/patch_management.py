@@ -486,9 +486,37 @@ async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Di
 @router.get("/machines", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
 async def list_machines(
-    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
+    request: Request,
+    subscription_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    return await _list_machines_inventory(days=days, include_eol=True)
+    """
+    List machines for patch management with LEFT JOINed assessment data.
+
+    Uses a single PostgreSQL query (PatchRepository.get_patch_management_view)
+    that replaces the previous two-query pattern (_list_machines_inventory +
+    _fetch_arg_patch_data via orchestrator + resource_inventory_client).
+    """
+    patch_repo = request.app.state.patch_repo
+
+    machines = await patch_repo.get_patch_management_view(
+        subscription_id=subscription_id,
+        limit=limit,
+        offset=offset,
+    )
+
+    return StandardResponse(
+        success=True,
+        data={
+            "items": machines,
+            "total": len(machines),
+            "offset": offset,
+            "limit": limit,
+        },
+        count=len(machines),
+        message=f"Retrieved {len(machines)} machines" if machines else "No machines found",
+    )
 
 
 @router.get("/arc-vms", response_model=StandardResponse)
