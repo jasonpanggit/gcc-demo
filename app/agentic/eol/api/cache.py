@@ -2,15 +2,13 @@
 Cache Management API Endpoints
 
 This module provides comprehensive cache management endpoints for the EOL
-Multi-Agent application, including cache status, clearing, statistics, and
-Cosmos DB cache operations.
+Multi-Agent application, including cache status, clearing, and statistics.
 
 Endpoints:
     GET  /api/cache/status - Get cache status across all agents
     POST /api/cache/clear - Clear inventory caches
     POST /api/cache/purge - Purge specific cache entries
     GET  /api/cache/stats/* - Various cache statistics endpoints
-    GET  /api/cache/cosmos/* - Cosmos DB cache operations
     POST /api/cache-eol-result - Manually cache EOL results
     GET  /cache - Cache management UI page
     GET  /agent-cache-details - Agent cache details page
@@ -37,7 +35,7 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["Cache Management"])
 
 # Note: Cache management now uses the unified inventory_cache from utils.inventory_cache
-# which handles both software and OS inventory with memory + Cosmos DB persistence
+# which handles both software and OS inventory with memory + PostgreSQL persistence
 
 
 @router.get("/api/cache/status", response_model=StandardResponse)
@@ -140,7 +138,7 @@ async def get_cache_ui_data():
     payload = {
         "agents": all_stats.get("agent_stats", {}),
         "inventory": all_stats.get("inventory_stats", {}),
-        "cosmos": all_stats.get("cosmos_stats", {}),
+        "cache_stats": all_stats.get("cache_stats", {}),
         "performance": all_stats.get("performance_summary", {}),
         "last_updated": all_stats.get("last_updated"),
     }
@@ -158,7 +156,7 @@ async def clear_cache():
     """
     Clear all inventory caches (software and OS).
     
-    This endpoint clears both in-memory and Cosmos DB caches for inventory data.
+    This endpoint clears both in-memory and PostgreSQL caches for inventory data.
     EOL agent caches are managed separately via /api/cache/purge endpoint.
     
     The clear operation:
@@ -204,7 +202,7 @@ async def clear_cache():
             data=[{
                 "cleared_cache_types": result.get("cache_types", []),
                 "memory_entries_cleared": result.get("cleared_count", 0),
-                "cosmos_cleared": result.get("cosmos_cleared", False),
+                "cache_cleared": result.get("l2_cleared", False),
                 "timestamp": datetime.utcnow().isoformat()
             }],
             message="Inventory caches cleared successfully"
@@ -221,9 +219,9 @@ async def clear_cache():
 @write_endpoint(agent_name="cache_purge", timeout_seconds=30)
 async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[str] = None, version: Optional[str] = None):
     """
-    Purge EOL agent caches (Cosmos + in-memory) for a specific agent or all agents.
+    Purge EOL agent caches (L2 + in-memory) for a specific agent or all agents.
 
-    - Agent caches live in Cosmos via utils.eol_cache and an in-memory layer on the orchestrator.
+    - Agent caches live in eol_cache (L2 persistence) and an in-memory layer on the orchestrator.
     - This endpoint clears both layers and resets cache statistics for agents.
 
     Args:
@@ -243,11 +241,11 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
     memory_cleared = len(orchestrator.eol_cache)
     orchestrator.eol_cache.clear()
 
-    # Purge Cosmos + in-memory shared cache (agent-level, eol_cache)
-    cosmos_result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_type)
-    deleted_count = cosmos_result.get("deleted_count", 0) if isinstance(cosmos_result, dict) else 0
+    # Purge L2 + in-memory shared cache (agent-level, eol_cache)
+    cache_result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_type)
+    deleted_count = cache_result.get("deleted_count", 0) if isinstance(cache_result, dict) else 0
 
-    # Also purge the orchestrator-level Cosmos EOL inventory (eol_table) when a
+    # Also purge the orchestrator-level EOL inventory (eol_table) when a
     # specific software name is supplied.  Without this the UI replays stale
     # per-agent comparison data that was baked into the stored record.
     eol_inventory_deleted = 0
@@ -281,7 +279,7 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
     }
 
     return {
-        "success": bool(cosmos_result.get("success", True) if isinstance(cosmos_result, dict) else True),
+        "success": bool(cache_result.get("success", True) if isinstance(cache_result, dict) else True),
         "results": results,
         "data": [{
             "message": "Agent caches cleared",
@@ -428,7 +426,7 @@ async def get_inventory_cache_details():
                 "summary": {
                     "total_cache_entries": 0,
                     "cache_types": cache_stats.get("supported_cache_types", []),
-                    "cosmos_initialized": cache_stats.get("cosmos_initialized", False),
+                    "base_initialized": cache_stats.get("initialized", False),
                 },
                 "cache_stats": cache_stats,
                 "message": "No inventory data cached",
@@ -448,7 +446,7 @@ async def get_inventory_cache_details():
         "summary": {
             "total_cache_entries": cache_stats.get("total_memory_entries", 0),
             "cache_types": cache_stats.get("supported_cache_types", []),
-            "cosmos_initialized": cache_stats.get("cosmos_initialized", False),
+            "base_initialized": cache_stats.get("initialized", False),
         },
         "cache_stats": cache_stats,
     }
@@ -567,288 +565,6 @@ async def get_webscraping_cache_details():
 
 
 # ============================================================================
-# COSMOS DB CACHE ENDPOINTS
-# ============================================================================
-
-@router.get("/api/cache/cosmos/stats", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_cache_stats", timeout_seconds=20)
-async def get_cosmos_cache_stats():
-    """
-    Get Cosmos DB cache statistics with enhanced metrics.
-    
-    Retrieves comprehensive statistics about Cosmos DB cache usage including
-    EOL cache stats, inventory cache stats, and performance metrics.
-    
-    Returns:
-        StandardResponse with Cosmos cache statistics and enhanced performance data.
-    
-    Example Response:
-        {
-            "success": true,
-            "data": [{
-                "eol_cache_stats": {...},
-                "inventory_containers": {...},
-                "enhanced_stats": {...}
-            }]
-        }
-    """
-    import time
-    from fastapi import HTTPException
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    from utils.inventory_cache import inventory_cache
-
-    start_time = time.time()
-    try:
-        was_cache_hit = False
-        stats: Dict[str, Any] = {
-            "cosmos": {
-                "initialized": getattr(base_cosmos, "initialized", False),
-                "database": getattr(base_cosmos, "database_name", None),
-                "containers": getattr(base_cosmos, "container_configs", {}),
-            }
-        }
-
-        try:
-            eol_stats = await eol_cache.get_cache_stats()
-            stats["eol_cache_stats"] = eol_stats
-            was_cache_hit = bool(eol_stats.get("cached")) if isinstance(eol_stats, dict) else False
-        except Exception as eol_error:
-            stats["eol_cache_stats"] = {"error": str(eol_error)}
-
-        try:
-            inventory_stats = inventory_cache.get_cache_stats()
-            stats["inventory_containers"] = inventory_stats
-        except Exception as inv_error:
-            stats["inventory_containers"] = {"error": str(inv_error)}
-
-        try:
-            enhanced_stats = cache_stats_manager.get_cosmos_statistics()
-            stats["enhanced_stats"] = enhanced_stats
-        except Exception as enh_error:
-            stats["enhanced_stats"] = {"error": str(enh_error)}
-
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(
-            response_time_ms=response_time_ms,
-            was_cache_hit=was_cache_hit,
-            operation="stats_query",
-        )
-
-        response = StandardResponse.success_response(
-            data=[stats],
-            cached=was_cache_hit,
-            metadata={"agent": "cosmos_cache_stats"},
-        )
-        return response.to_dict()
-
-    except Exception as e:
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(
-            response_time_ms=response_time_ms,
-            was_cache_hit=False,
-            operation="stats_query_error",
-        )
-        logger.error(f"Error getting Cosmos cache stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Error getting cache stats: {str(e)}")
-
-
-@router.post("/api/cache/cosmos/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="clear_cosmos_cache", timeout_seconds=30)
-async def clear_cosmos_cache(agent_name: Optional[str] = None, software_name: Optional[str] = None):
-    """
-    Clear Cosmos DB cache with optional filters.
-    
-    Clears EOL cache entries from Cosmos DB. Can filter by software name
-    and/or agent name, or clear all if no filters provided.
-    
-    Args:
-        agent_name: Optional filter to clear only specific agent's cache entries
-        software_name: Optional filter to clear only specific software's cache entries
-    
-    Returns:
-        StandardResponse with clear operation results and count of cleared items.
-    """
-    from fastapi import HTTPException
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    
-    if not getattr(base_cosmos, 'initialized', False):
-        raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-    
-    result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_name)
-    logger.info(f"Cosmos cache cleared: {result}")
-    return result
-
-
-@router.post("/api/cache/cosmos/initialize", response_model=StandardResponse)
-@write_endpoint(agent_name="initialize_cosmos", timeout_seconds=45)
-async def initialize_cosmos_cache():
-    """
-    Initialize Cosmos DB cache manually.
-    
-    Forces initialization of Cosmos DB base client and specialized caches
-    (EOL cache, inventory cache). Useful for troubleshooting or recovery
-    after connection failures.
-    
-    Returns:
-        StandardResponse with initialization status and message.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    
-    if getattr(base_cosmos, 'initialized', False):
-        return {"success": True, "message": "Cosmos DB base client already initialized"}
-    
-    await base_cosmos._initialize_async()
-    
-    # Initialize specialized caches
-    try:
-        await eol_cache.initialize()
-    except Exception:
-        pass
-    
-    if getattr(base_cosmos, 'initialized', False):
-        return {"success": True, "message": "Cosmos DB base client initialized successfully"}
-    
-    return {"success": False, "error": "Failed to initialize Cosmos DB base client"}
-
-
-@router.get("/api/cache/cosmos/config", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_config", timeout_seconds=15)
-async def get_cosmos_config():
-    """
-    Get Cosmos DB configuration and status.
-    
-    Retrieves Cosmos DB connection configuration including endpoint, database,
-    container names, authentication method, and initialization status.
-    
-    Returns:
-        StandardResponse with Cosmos DB configuration and error details if applicable.
-    """
-    from utils.config import config
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-
-    cosmos_config = {
-        "endpoint": config.azure.cosmos_endpoint if hasattr(config.azure, 'cosmos_endpoint') else None,
-        "database": config.azure.cosmos_database if hasattr(config.azure, 'cosmos_database') else None,
-        "container": getattr(eol_cache, 'container_id', 'eol_cache'),
-        "auth_method": "DefaultAzureCredential (Managed Identity)",
-        "base_initialized": getattr(base_cosmos, 'initialized', False),
-        "eol_cache_initialized": getattr(eol_cache, 'initialized', False),
-        "cache_duration_days": getattr(eol_cache, 'cache_duration_days', 30),
-        "min_confidence_threshold": getattr(eol_cache, 'min_confidence_threshold', 80),
-        "error": None,
-        "error_details": None,
-        "debug": None
-    }
-
-    # Add error details if base cosmos not initialized
-    if not getattr(base_cosmos, 'initialized', False):
-        cosmos_config["error"] = "Base Cosmos client failed to initialize"
-        if getattr(base_cosmos, 'last_error', None):
-            cosmos_config["error_details"] = base_cosmos.last_error
-    
-    # Include any structured details present on base_cosmos
-    if getattr(base_cosmos, 'last_error_details', None):
-        try:
-            cosmos_config["debug"] = base_cosmos.last_error_details
-        except Exception:
-            cosmos_config["debug"] = {"note": "Failed to serialize last_error_details"}
-        
-    return cosmos_config
-
-
-@router.get("/api/cache/cosmos/debug", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_debug", timeout_seconds=15)
-async def get_cosmos_debug_info():
-    """
-    Get debug information about Cosmos DB container caching.
-    
-    Provides detailed debugging information about Cosmos DB cache state
-    including base client, EOL cache, and inventory cache initialization
-    and container availability.
-    
-    Returns:
-        StandardResponse with comprehensive Cosmos DB debug information.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    from utils.inventory_cache import inventory_cache
-    
-    debug_info = {
-        "base_cosmos": {
-            "cache_info": base_cosmos.get_cache_info(),
-            "initialization_attempted": getattr(base_cosmos, '_initialization_attempted', False)
-        },
-        "eol_cache": {
-            "initialized": getattr(eol_cache, 'initialized', False),
-            "container_available": eol_cache.container is not None,
-            "container_id": getattr(eol_cache, 'container_id', None)
-        },
-        "inventory_cache": {
-            "cosmos_initialized": inventory_cache.cosmos_client.initialized,
-            "cache_stats": inventory_cache.get_cache_stats(),
-            "container_mapping": inventory_cache.container_mapping
-        }
-    }
-    
-    return debug_info
-
-
-@router.post("/api/cache/cosmos/test", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_cache_test", timeout_seconds=20)
-async def test_cosmos_cache(req: Dict[str, Any]):
-    """
-    Test Cosmos DB cache retrieval for a specific request.
-    
-    Tests the EOL cache retrieval functionality by attempting to fetch cached
-    data for a specific software/version/agent combination. Useful for verifying
-    cache operations are working correctly.
-    
-    Request Body:
-        software_name: str - Software name to search for
-        version: Optional[str] - Software version
-        agent_name: str - Agent name that created the cache entry
-    
-    Returns:
-        StandardResponse with cache hit status and retrieved data if found.
-    
-    Example Request:
-        {
-            "software_name": "Windows Server 2016",
-            "version": "10.0.14393",
-            "agent_name": "microsoft"
-        }
-    """
-    from utils.eol_cache import eol_cache
-    
-    software_name = req.get("software_name")
-    version = req.get("version")
-    agent_name = req.get("agent_name")
-    
-    cached_data = await eol_cache.get_cached_response(
-        software_name,
-        version,
-        agent_name
-    )
-    
-    if cached_data:
-        return {
-            "cache_hit": True,
-            "data": cached_data,
-            "message": "Data found in cache"
-        }
-    else:
-        return {
-            "cache_hit": False,
-            "data": None,
-            "message": "No cached data found"
-        }
-
-
-# ============================================================================
 # CACHE STATISTICS ENDPOINTS
 # ============================================================================
 
@@ -859,7 +575,7 @@ async def get_enhanced_cache_stats():
     Get comprehensive cache statistics with real performance data.
     
     Returns aggregated statistics including agent performance metrics,
-    inventory cache stats, Cosmos DB usage, and overall performance summary.
+    inventory cache stats, and overall performance summary.
     
     Returns:
         StandardResponse with comprehensive cache statistics.
@@ -924,4 +640,4 @@ async def reset_cache_stats():
 
 # All cache endpoints have been successfully migrated from main.py
 # Total: 17 endpoints covering status, clear, purge, inventory, webscraping, 
-# Cosmos DB operations, and comprehensive statistics
+# cache operations, and comprehensive statistics

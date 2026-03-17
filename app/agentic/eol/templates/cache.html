@@ -327,18 +327,6 @@
         height: 8px;
     }
 
-    #cosmos-cache-stats .d-flex.align-items-center,
-    #cosmos-cache-stats .d-flex {
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    /* Allow the status text in the cosmos cache area to expand instead of being truncated */
-    #cosmos-cache-stats .d-flex.align-items-center span.text-muted {
-        flex: 1 1 auto;
-        min-width: 180px;
-    }
-
     /* ===================================================================
        LOADING SPINNER NOW IN common-components.css
        Removed: loading-spinner, @keyframes spin (~22 lines)
@@ -681,52 +669,6 @@
         </div>
     </div>
 
-    <!-- Cosmos DB Cache -->
-    <div class="cache-type-section">
-        <div class="row">
-            <div class="col-12">
-                <div class="card cache-card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center">
-                            <h5 class="mb-0 me-2">
-                                <i class="fas fa-cloud me-2"></i>Cosmos DB Cache
-                            </h5>
-                            <span class="cache-health healthy" id="cosmos-health" data-health-text="Checking"></span>
-                        </div>
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-primary" onclick="refreshCosmosCache()">
-                                <i class="fas fa-sync-alt me-1"></i>Refresh
-                            </button>
-                            <button class="btn btn-sm btn-info" onclick="viewCosmosDetails()">
-                                <i class="fas fa-eye me-1"></i>View Details
-                            </button>
-                            <button class="btn btn-sm btn-warning" onclick="clearCosmosCache()">
-                                <i class="fas fa-trash me-1"></i>Clear
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-12">
-                                <div id="cosmos-cache-stats">
-                                    <div class="d-flex align-items-center">
-                                        <div class="loading-spinner me-2"></div>
-                                        <span class="text-muted">Checking Cosmos DB cache status...</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- <div class="col-md-4">
-                                <div class="text-end">
-                                    <div class="last-updated" id="cosmos-last-updated">Never</div>
-                                </div>
-                            </div> -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Inventory Cache -->
     <div class="cache-type-section">
         <div class="row">
@@ -891,7 +833,6 @@
         // console.log('Initializing cache management...');
 
         // Set all health indicators to checking state initially
-        updateHealthIndicator('cosmos-health', 'unavailable', 'Checking');
         updateHealthIndicator('agents-health', 'unavailable', 'Checking');
         updateHealthIndicator('inventory-health', 'unavailable', 'Checking');
 
@@ -902,7 +843,6 @@
         updateOverviewWithRealData().catch(error => {
             console.warn('Failed to load initial cache status:', error);
             // Set fallback states if loading fails
-            updateHealthIndicator('cosmos-health', 'error', 'Error');
             updateHealthIndicator('agents-health', 'error', 'Error');
             updateHealthIndicator('inventory-health', 'error', 'Error');
         });
@@ -1090,13 +1030,11 @@
 
         try {
             // Show loading indicators
-            updateHealthIndicator('cosmos-health', 'unavailable', 'Checking');
-            updateHealthIndicator('agents-health', 'unavailable', 'Checking'); 
+            updateHealthIndicator('agents-health', 'unavailable', 'Checking');
             updateHealthIndicator('inventory-health', 'unavailable', 'Checking');
 
             // Try to refresh caches with better error handling
             const results = await Promise.allSettled([
-                refreshCosmosCache(),
                 refreshInventoryCache(),
                 refreshAgentCaches(),
                 updatePerformanceDashboard()
@@ -1139,540 +1077,20 @@
 
     function setOfflineMode() {
         // Set all health indicators to unavailable
-        updateHealthIndicator('cosmos-health', 'unavailable');
         updateHealthIndicator('agents-health', 'unavailable');
         updateHealthIndicator('inventory-health', 'unavailable');
-        
+
         // Show offline message
         showAlert('Server not available - displaying cached data only', 'warning');
-        
+
         // Update health indicator text
-        const indicators = ['cosmos-health', 'agents-health', 'inventory-health'];
+        const indicators = ['agents-health', 'inventory-health'];
         indicators.forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.setAttribute('data-health-text', 'Offline');
             }
         });
-    }
-
-    // Cosmos DB Cache Functions
-    async function refreshCosmosCache() {
-        // console.log('Refreshing Cosmos cache...');
-        try {
-            const response = await fetch('/api/cache/cosmos/stats');
-            // console.log('Cosmos cache response status:', response.status);
-
-            if (response.status === 503) {
-                // Service unavailable - cache not initialized
-                // console.log('Cosmos DB cache not available (503)');
-                updateHealthIndicator('cosmos-health', 'unavailable');
-                document.getElementById('cosmos-cache-stats').innerHTML =
-                    `<div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Cosmos DB Cache Not Initialized</strong>
-                    <p class="mb-2">Cosmos DB cache is not configured or unavailable. This may be because:</p>
-                    <ul class="mb-3">
-                        <li>Cosmos DB endpoint is not configured in environment variables</li>
-                        <li>Azure credentials are not properly set up</li>
-                        <li>Database or container creation failed</li>
-                    </ul>
-                    <button class="btn btn-primary btn-sm" onclick="initializeCosmosCache()">
-                        <i class="fas fa-rocket me-1"></i>Initialize Cosmos DB Cache
-                    </button>
-                    <button class="btn btn-info btn-sm ms-2" onclick="checkCosmosConfig()">
-                        <i class="fas fa-cog me-1"></i>Check Configuration
-                    </button>
-                </div>`;
-                return;
-            }
-
-            if (response.status === 400) {
-                // Bad request - likely invalid input values (the specific error you're experiencing)
-                const errorData = await response.json().catch(() => ({ message: 'Unknown query error' }));
-                // console.log('Cosmos DB BadRequest error:', errorData);
-                updateHealthIndicator('cosmos-health', 'error');
-                
-                // Extract ActivityId from error message if available
-                const errorMessage = errorData.message || errorData.error || 'Unknown error';
-                const activityIdMatch = errorMessage.match(/ActivityId: ([a-f0-9-]+)/i);
-                const activityId = activityIdMatch ? activityIdMatch[1] : null;
-                
-                document.getElementById('cosmos-cache-stats').innerHTML =
-                    `<div class="alert alert-danger">
-                    <i class="fas fa-times me-2"></i>
-                    <strong>Cosmos DB BadRequest Error - Invalid Input Values</strong>
-                    <p class="mb-2">One of the input values is invalid. This error typically occurs due to:</p>
-                    <ul class="mb-3">
-                        <li><strong>Invalid document ID or partition key values</strong> (containing /, \\, ?, # characters)</li>
-                        <li><strong>Missing required partition key field</strong> ('cache_key' field)</li>
-                        <li><strong>Non-JSON serializable data</strong> in document fields</li>
-                        <li><strong>Document size exceeding limits</strong> (2MB maximum per document)</li>
-                        <li><strong>Container or partition configuration problems</strong></li>
-                        <li><strong>Cosmos DB SDK version compatibility issues</strong></li>
-                        <li><strong>Parameterized query issues</strong> with datetime values or special characters</li>
-                    </ul>
-                    <div class="mt-2">
-                        <small class="text-muted"><strong>Error details:</strong> ${errorMessage}</small>
-                        ${activityId ? `<br><small class="text-muted"><strong>ActivityId:</strong> <code>${activityId}</code></small>` : ''}
-                        <br><small class="text-muted"><em>This error has been resolved with improved query handling. Try refreshing or reinitializing the cache.</em></small>
-                    </div>
-                    <button class="btn btn-success btn-sm mt-2" onclick="refreshCosmosCache()">
-                        <i class="fas fa-sync-alt me-1"></i>Retry with Fixed Queries
-                    </button>
-                    <button class="btn btn-warning btn-sm mt-2 ms-2" onclick="reinitializeCosmosCache()">
-                        <i class="fas fa-redo me-1"></i>Reinitialize Cache
-                    </button>
-                    <button class="btn btn-info btn-sm ms-2 mt-2" onclick="checkCosmosConfig()">
-                        <i class="fas fa-cog me-1"></i>Check Configuration
-                    </button>
-                </div>`;
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const rawData = await response.json();
-            // console.log('Cosmos cache data:', rawData);
-            
-            // Extract from StandardResponse format (data[0])
-            const data = rawData.data && rawData.data.length > 0 ? rawData.data[0] : null;
-
-            if (rawData.success && data) {
-                displayCosmosStats(data);
-                updateHealthIndicator('cosmos-health', 'healthy');
-                
-                // Update performance dashboard with latest data
-                await updatePerformanceDashboard();
-            } else if (rawData.success && !data) {
-                // Empty data array - Cosmos DB is configured but has no data yet
-                updateHealthIndicator('cosmos-health', 'healthy');
-                document.getElementById('cosmos-cache-stats').innerHTML =
-                    `<div class="alert alert-success">
-                    <i class="fas fa-check-circle me-2"></i>
-                    <strong>Cosmos DB is Ready - Waiting for Cache Data</strong>
-                    <p class="mb-2">✅ Cosmos DB is properly configured and connected. No cached EOL data yet.</p>
-                    <p class="mb-2">Cache entries will be created automatically when:</p>
-                    <ul class="mb-3">
-                        <li><strong>EOL Search queries</strong> are executed from the EOL Search page</li>
-                        <li><strong>AI Assistant (Chat)</strong> performs EOL lookups</li>
-                        <li><strong>Agent orchestrators</strong> cache responses for reuse</li>
-                    </ul>
-                    <p class="text-muted mb-2">
-                        <small><i class="fas fa-lightbulb me-1"></i><strong>Tip:</strong> Try running a few EOL searches, then refresh this page to see cache statistics.</small>
-                    </p>
-                    <button class="btn btn-primary btn-sm" onclick="window.location.href='/eol-search'">
-                        <i class="fas fa-search me-1"></i>Run EOL Search
-                    </button>
-                    <button class="btn btn-outline-primary btn-sm ms-2" onclick="refreshCosmosCache()">
-                        <i class="fas fa-sync-alt me-1"></i>Refresh Stats
-                    </button>
-                    <button class="btn btn-outline-info btn-sm ms-2" onclick="checkCosmosConfig()">
-                        <i class="fas fa-cog me-1"></i>View Config
-                    </button>
-                </div>`;
-            } else {
-                updateHealthIndicator('cosmos-health', 'error');
-                document.getElementById('cosmos-cache-stats').innerHTML =
-                    `<div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Cache Statistics Unavailable</strong>
-                    <p class="mb-2">${rawData.error || 'Unknown error retrieving cache statistics'}</p>
-                    <button class="btn btn-info btn-sm" onclick="checkCosmosConfig()">
-                        <i class="fas fa-cog me-1"></i>Check Configuration
-                    </button>
-                </div>`;
-            }
-        } catch (error) {
-            console.error('Error fetching Cosmos cache stats:', error);
-            updateHealthIndicator('cosmos-health', 'error');
-            document.getElementById('cosmos-cache-stats').innerHTML =
-                `<div class="alert alert-danger">
-                <i class="fas fa-times me-2"></i>
-                <strong>Failed to load Cosmos DB cache stats</strong>
-                <p class="mb-2">Error: ${error.message}</p>
-                <button class="btn btn-info btn-sm" onclick="checkCosmosConfig()">
-                    <i class="fas fa-cog me-1"></i>Check Configuration
-                </button>
-                <button class="btn btn-warning btn-sm ms-2" onclick="refreshCosmosCache()">
-                    <i class="fas fa-sync-alt me-1"></i>Retry
-                </button>
-            </div>`;
-        }
-    }
-
-    function displayCosmosStats(data) {
-        // Check if we have inventory container information
-        const hasInventoryData = data.inventory_containers && !data.inventory_containers.error;
-        const inventoryData = data.inventory_containers || {};
-        const inventoryMemoryEntries = inventoryData.memory_cache_entries || {};
-        const totalInventoryEntries = inventoryData.total_memory_entries || 0;
-        
-        const html = `
-        <!-- EOL Cache Containers -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <h6 class="text-secondary mb-3">
-                    <i class="fas fa-server me-1"></i>EOL Cache Containers
-                </h6>
-            </div>
-        </div>
-        <div class="row g-4 mb-4">
-            <div class="col-lg-3 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-primary mb-1">${data.total_items || 0}</h4>
-                        <small class="text-muted">EOL Cache Items</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-success mb-1">${data.active_items || 0}</h4>
-                        <small class="text-muted">Active EOL Items</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-warning mb-1">${data.expired_items || 0}</h4>
-                        <small class="text-muted">Expired EOL Items</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-info mb-1">${Object.keys(data.agent_breakdown || {}).length}</h4>
-                        <small class="text-muted">EOL Agent Types</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card modern-card">
-                    <div class="card-body">
-                        <small class="text-muted">
-                            <i class="fas fa-clock me-1"></i>EOL Cache Duration: ${data.cache_duration_days || 30} days |
-                            <i class="fas fa-percentage me-1"></i>Min Confidence: ${data.min_confidence_threshold || 80}%
-                        </small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        ${hasInventoryData ? `
-        <!-- Inventory Cache Containers -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <h6 class="text-secondary mb-3">
-                    <i class="fas fa-server me-1"></i>Inventory Cache Containers
-                </h6>
-            </div>
-        </div>
-        <div class="row g-4 mb-4">
-            <div class="col-lg-4 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-info mb-1">${inventoryMemoryEntries.software || 0}</h4>
-                        <small class="text-muted">Software Cache Entries</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-4 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-info mb-1">${inventoryMemoryEntries.os || 0}</h4>
-                        <small class="text-muted">OS Cache Entries</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-4 col-md-6">
-                <div class="card modern-card h-100">
-                    <div class="card-body text-center">
-                        <h4 class="text-info mb-1">${totalInventoryEntries}</h4>
-                        <small class="text-muted">Total Inventory Items</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <div class="col-12">
-                <div class="card modern-card">
-                    <div class="card-body">
-                        <small class="text-muted">
-                            <i class="fas fa-database me-1"></i>Containers: ${inventoryData.software_container || 'inventory_software'}, ${inventoryData.os_container || 'inventory_os'} |
-                            <i class="fas fa-clock me-1"></i>Duration: ${inventoryData.cache_duration_hours || 4}h
-                        </small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        ` : `
-        <div class="row">
-            <div class="col-12">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <strong>Inventory Cache:</strong> ${data.inventory_containers && data.inventory_containers.error ? 
-                        `Not available (${data.inventory_containers.error})` : 
-                        'No inventory data in Cosmos DB containers yet'}
-                </div>
-            </div>
-        </div>
-        `}
-    `;
-
-        document.getElementById('cosmos-cache-stats').innerHTML = html;
-        
-        const cosmosLastUpdatedEl = document.getElementById('cosmos-last-updated');
-        if (cosmosLastUpdatedEl) {
-            cosmosLastUpdatedEl.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-        }
-    }
-
-    async function clearCosmosCache() {
-        const confirmed = await showConfirmation('Clear Cosmos DB Cache',
-            'This will remove all cached EOL responses from Cosmos DB. This action cannot be undone.');
-
-        if (!confirmed) {
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/cache/cosmos/clear', { method: 'POST' });
-
-            if (!response.ok) {
-                const message = `HTTP ${response.status}: ${response.statusText}`;
-                showAlert(`Failed to clear cache: ${message}`, 'error');
-                return;
-            }
-
-            const result = await response.json();
-
-            if (result.success) {
-                showAlert(`Cosmos DB cache cleared: ${result.deleted_count} items removed`, 'success');
-
-                // Immediately reflect cleared state in UI before any async refresh finishes
-                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
-                const statsContainer = document.getElementById('cosmos-cache-stats');
-                if (statsContainer) {
-                    statsContainer.innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-check-circle me-2"></i>
-                            Cosmos DB cache is empty. Run an EOL search or refresh to repopulate.
-                        </div>
-                    `;
-                }
-
-                // If backend returned updated stats, use them to update the display immediately
-                if (result.stats) {
-                    try {
-                        displayCosmosStats(result.stats);
-
-                        // Update overview counts using the stats where possible
-                        // Trigger a lightweight overview update (recalculate totals)
-                        await updateOverviewWithRealData();
-                    } catch (e) {
-                        // Fallback to full refresh if something goes wrong
-                        console.warn('Failed to apply returned stats:', e);
-                        await refreshCosmosCache();
-                    }
-                } else {
-                    // No stats returned; fall back to refreshing from server
-                    await refreshCosmosCache();
-                }
-            } else {
-                showAlert(`Failed to clear cache: ${result.error}`, 'error');
-            }
-        } catch (error) {
-            showAlert('Error clearing Cosmos DB cache', 'error');
-            console.error('Error:', error);
-        }
-    }
-
-    async function viewCosmosDetails() {
-        try {
-            const response = await fetch('/api/cache/cosmos/stats');
-            const data = await response.json();
-
-            if (data.success) {
-                const detailsHtml = `
-                <h6>Cosmos DB Cache Details</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Agent</th>
-                                <th>Cached Items</th>
-                                <th>Percentage</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${Object.entries(data.agent_breakdown || {}).map(([agent, count]) => `
-                                <tr>
-                                    <td><span class="badge bg-primary">${agent}</span></td>
-                                    <td>${count}</td>
-                                    <td>
-                                        <div class="progress progress-sm">
-                                            <div class="progress-bar" style="width: ${(count / data.total_items * 100).toFixed(1)}%"></div>
-                                        </div>
-                                        ${(count / data.total_items * 100).toFixed(1)}%
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="mt-3">
-                    <h6>Configuration</h6>
-                    <ul>
-                        <li><strong>Total Items:</strong> ${data.total_items}</li>
-                        <li><strong>Active Items:</strong> ${data.active_items}</li>
-                        <li><strong>Expired Items:</strong> ${data.expired_items}</li>
-                    </ul>
-                </div>
-            `;
-
-                document.getElementById('cache-details-content').innerHTML = detailsHtml;
-                new bootstrap.Modal(document.getElementById('cacheDetailsModal')).show();
-            }
-        } catch (error) {
-            showAlert('Error loading Cosmos DB details', 'error');
-            console.error('Error:', error);
-        }
-    }
-
-    // Cosmos DB initialization functions
-    async function initializeCosmosCache() {
-        try {
-            showAlert('Initializing Cosmos DB cache...', 'info');
-
-            const response = await fetch('/api/cache/cosmos/initialize', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                showAlert('Cosmos DB cache initialized successfully!', 'success');
-                // Refresh the cache section after successful initialization
-                setTimeout(() => refreshCosmosCache(), 1000);
-            } else {
-                showAlert(`Failed to initialize Cosmos DB cache: ${result.error || 'Unknown error'}`, 'error');
-            }
-        } catch (error) {
-            console.error('Error initializing Cosmos cache:', error);
-            showAlert('Error initializing Cosmos DB cache. Check console for details.', 'error');
-        }
-    }
-
-    async function reinitializeCosmosCache() {
-        try {
-            showAlert('Reinitializing Cosmos DB cache to fix query issues...', 'info');
-
-            // First try to clear the cache
-            await fetch('/api/cache/cosmos/clear', { method: 'POST' });
-
-            // Then reinitialize
-            const response = await fetch('/api/cache/cosmos/initialize', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                showAlert('Cosmos DB cache reinitialized successfully!', 'success');
-                // Refresh the cache section after successful reinitialization
-                setTimeout(() => refreshCosmosCache(), 1500);
-            } else {
-                showAlert(`Failed to reinitialize Cosmos DB cache: ${result.error || 'Unknown error'}`, 'error');
-            }
-        } catch (error) {
-            console.error('Error reinitializing Cosmos cache:', error);
-            showAlert('Error reinitializing Cosmos DB cache. Check console for details.', 'error');
-        }
-    }
-
-    async function checkCosmosConfig() {
-        try {
-            const response = await fetch('/api/cache/cosmos/config');
-            const config = await response.json();
-
-            const configHtml = `
-            <h6>Cosmos DB Configuration</h6>
-            <div class="table-responsive">
-                <table class="table table-sm">
-                    <tbody>
-                        <tr>
-                            <td><strong>Endpoint:</strong></td>
-                            <td>${config.endpoint || '<span class="text-danger">Not configured</span>'}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Database:</strong></td>
-                            <td>${config.database || '<span class="text-danger">Not configured</span>'}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Container:</strong></td>
-                            <td>${config.container || '<span class="text-danger">Not configured</span>'}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Authentication:</strong></td>
-                            <td>${config.auth_method || '<span class="text-danger">Unknown</span>'}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Initialized:</strong></td>
-                            <td>${config.initialized ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Cache Duration:</strong></td>
-                            <td>${config.cache_duration_days || 30} days</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Min Confidence:</strong></td>
-                            <td>${config.min_confidence_threshold || 80}%</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            ${!config.initialized && config.error ? `
-                <div class="alert alert-danger mt-3">
-                    <strong>Initialization Error:</strong><br>
-                    ${config.error}
-                </div>
-            ` : ''}
-            ${!config.endpoint ? `
-                <div class="alert alert-warning mt-3">
-                    <strong>Setup Required:</strong><br>
-                    Please configure the following environment variables:
-                    <ul class="mt-2">
-                        <li><code>AZURE_COSMOS_ENDPOINT</code></li>
-                        <li><code>AZURE_COSMOS_DATABASE</code></li>
-                        <li><code>AZURE_COSMOS_CONTAINER</code></li>
-                    </ul>
-                    Ensure Azure authentication is configured (Managed Identity, Service Principal, or Azure CLI).
-                </div>
-            ` : ''}
-        `;
-
-            document.getElementById('cache-details-content').innerHTML = configHtml;
-            new bootstrap.Modal(document.getElementById('cacheDetailsModal')).show();
-        } catch (error) {
-            showAlert('Error loading Cosmos DB configuration', 'error');
-            console.error('Error:', error);
-        }
     }
 
     // Agent Cache Functions
@@ -2645,7 +2063,6 @@
             let totalCacheItems = 0;
             let activeAgents = 0;
             let expiredItems = 0;
-            let cosmosItems = 0;
             let hitRate = 0;
 
             // Extract cache status from StandardResponse format (data[0])
@@ -2677,36 +2094,12 @@
             // Count from enhanced stats and calculate hit rate
             if (enhancedStats && enhancedStats.performance_summary) {
                 hitRate = enhancedStats.performance_summary.overall_hit_rate || 0;
-                
-                // Add cosmos stats items
-                if (enhancedStats.cosmos_stats) {
-                    cosmosItems = enhancedStats.cosmos_stats.total_requests || 0;
-                    totalCacheItems += enhancedStats.cosmos_stats.hits || 0;
-                }
             }
-
-            // console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
-
-            // console.log('Calculated stats:', { totalCacheItems, activeAgents, hitRate, expiredItems, cosmosItems });
 
             // Calculate total requests from enhanced stats
             let totalRequests = 0;
             if (enhancedStats && enhancedStats.performance_summary) {
                 totalRequests = enhancedStats.performance_summary.total_requests || 0;
-            }
-
-            // Update health indicators based on API availability (not data content)
-            const cosmosHealthElement = document.getElementById('cosmos-health');
-            if (cosmosHealthElement) {
-                // Cosmos is available if we got enhanced stats with cosmos_stats section
-                const cosmosAvailable = enhancedStats && enhancedStats.cosmos_stats;
-                if (cosmosAvailable) {
-                    cosmosHealthElement.className = 'cache-health healthy';
-                    cosmosHealthElement.textContent = cosmosItems > 0 ? `${cosmosItems} requests` : 'Available';
-                } else {
-                    cosmosHealthElement.className = 'cache-health unavailable';
-                    cosmosHealthElement.textContent = 'Unavailable';
-                }
             }
 
             const agentsBadge = document.getElementById('agents-health');
@@ -2828,7 +2221,6 @@
 
             // Update health indicators based on actual data availability
             if (!cacheStatus.success) {
-                updateHealthIndicator('cosmos-health', 'error', 'Error');
                 updateHealthIndicator('agents-health', 'error', 'Error');
             }
             if (!inventoryStats.success) {
@@ -2841,7 +2233,6 @@
             console.error('Error stack:', error.stack);
             
             // Set error state for health indicators
-            updateHealthIndicator('cosmos-health', 'error', 'Error');
             updateHealthIndicator('agents-health', 'error', 'Error');
             updateHealthIndicator('inventory-health', 'error', 'Error');
             
@@ -2906,7 +2297,7 @@
             // console.log('Available agents:', Object.keys(enhancedStats?.agent_stats?.agents || {}));
             // console.log('Overall hit rate:', enhancedStats?.performance_summary?.overall_hit_rate || 0);
             // console.log('Avg response time:', enhancedStats?.performance_summary?.avg_response_time_ms || 0);
-            // console.log('Cosmos stats:', enhancedStats?.cosmos_stats || 'None');
+            // console.log('Enhanced stats:', enhancedStats?.performance_summary || 'None');
         } catch (e) {
             console.error('Enhanced stats failed:', e);
         }
@@ -3071,19 +2462,9 @@
 
         // Optimistically reflect a cleared state in the UI
         updateHealthIndicator('agents-health', 'unavailable', 'Clearing');
-        updateHealthIndicator('cosmos-health', 'unavailable', 'Clearing');
         updateHealthIndicator('inventory-health', 'unavailable', 'Clearing');
         setOverviewClearedState();
         updateAgentCachesDisplay({});
-
-        const cosmosStatsContainer = document.getElementById('cosmos-cache-stats');
-        if (cosmosStatsContainer) {
-            cosmosStatsContainer.innerHTML = `
-                <div class="alert alert-info">
-                    <i class="fas fa-broom me-2"></i>Clearing Cosmos DB cache...
-                </div>
-            `;
-        }
 
         const inventoryStatsContainer = document.getElementById('inventory-cache-stats');
         if (inventoryStatsContainer) {
@@ -3110,24 +2491,10 @@
             }
         }
 
-        const [, , cosmosResult] = await Promise.all([
+        const [,] = await Promise.all([
             postAndParse('/api/cache/clear', 'App cache'),
-            postAndParse('/api/cache/purge', 'Agent caches'),
-            postAndParse('/api/cache/cosmos/clear', 'Cosmos cache')
+            postAndParse('/api/cache/purge', 'Agent caches')
         ]);
-
-        // Apply Cosmos stats if returned, otherwise keep the cleared placeholder
-        if (cosmosResult && cosmosResult.stats) {
-            try {
-                displayCosmosStats(cosmosResult.stats);
-                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
-            } catch (err) {
-                console.warn('Failed to render returned Cosmos stats, keeping cleared placeholder', err);
-                updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
-            }
-        } else {
-            updateHealthIndicator('cosmos-health', 'unavailable', 'Cleared');
-        }
 
         // Make sure agent panel shows empty state immediately
         updateAgentCachesDisplay({});
