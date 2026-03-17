@@ -108,7 +108,7 @@ Plans:
 Plans:
 - [x] P5.1: Design the VM identity spine — single source-of-truth VM table ✅ (2026-03-17)
 - [x] P5.2: Design CVE data tables with finalized column set and constraints ✅ (2026-03-17)
-- [ ] P5.3: Design Inventory tables — normalize or consolidate redundant OS data
+- [x] P5.3: Design Inventory tables — normalize or consolidate redundant OS data ✅ (2026-03-17)
 - [x] P5.4: Design EOL tables — ensure fast EOL lookup by OS key ✅ (2026-03-17)
 - [x] P5.5: Design Alerting tables with foreign keys and query patterns ✅ (2026-03-17)
 - [x] P5.6: Design Materialized View set with refresh schedule ✅ (2026-03-17)
