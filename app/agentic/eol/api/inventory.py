@@ -28,7 +28,7 @@ Date: October 2025
 
 import asyncio
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 import logging
 
 from utils.config import config
@@ -296,46 +296,50 @@ async def inventory_status():
 
 @router.get("/api/os", response_model=StandardResponse)
 @standard_endpoint(agent_name="os_inventory", timeout_seconds=30)
-async def get_os(days: int = 90):
+async def get_os(request: Request):
     """
-    Get operating system inventory from Heartbeat via OS agent.
-    
-    Retrieves OS information from Log Analytics Heartbeat table and enriches
-    it with EOL status for supported operating systems.
-    
-    Args:
-        days: Number of days to look back for OS data (default: 90)
-    
+    Get operating system inventory with EOL status via single PostgreSQL JOIN.
+
+    Replaces the former orchestrator + normalization + merge + N+1 EOL enrichment
+    path (BH-005) with a single inventory_repo query that bulk-JOINs eol_records.
+
     Returns:
-        StandardResponse with OS inventory including computer names, OS types,
+        StandardResponse with paginated OS inventory including VM names, OS types,
         versions, and EOL status.
-    
-    Example Response:
-        {
-            "success": true,
-            "data": [
-                {
-                    "computer": "WEB-SERVER-01",
-                    "os_name": "Windows Server 2019",
-                    "os_version": "10.0.17763",
-                    "last_heartbeat": "2025-10-15T10:25:00Z",
-                    "eol_status": "active",
-                    "eol_date": "2029-01-09"
-                }
-            ],
-            "count": 1
-        }
     """
-    result = await _get_eol_orchestrator().agents["os_inventory"].get_os_inventory(days=days)
-    if result.get("success") and isinstance(result.get("data"), list):
-        try:
-            result["data"] = [_apply_os_inventory_normalization(item) for item in result["data"]]
-            result["data"] = await _merge_azure_vm_os_inventory(result["data"])
-            await _enrich_missing_os_eol(result["data"])
-            result["count"] = len(result["data"])
-        except Exception:
-            pass
-    return result
+    inventory_repo = request.app.state.inventory_repo
+
+    # Extract query params
+    subscription_id = request.query_params.get("subscription_id")
+    os_search = request.query_params.get("os_search")
+    limit = int(request.query_params.get("limit", "50"))
+    offset = int(request.query_params.get("offset", "0"))
+
+    # Single query replaces: orchestrator + normalization + merge + N+1 EOL enrichment
+    results, total = await asyncio.gather(
+        inventory_repo.get_vm_inventory_with_eol(
+            subscription_id=subscription_id,
+            os_search=os_search,
+            limit=limit,
+            offset=offset,
+        ),
+        inventory_repo.count_vm_inventory(
+            subscription_id=subscription_id,
+            os_search=os_search,
+        ),
+    )
+
+    return StandardResponse(
+        success=True,
+        data={
+            "items": results,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        },
+        count=len(results),
+        message=f"Retrieved {len(results)} OS inventory records" if results else "No OS inventory data available",
+    )
 
 
 @router.get("/api/os/summary", response_model=StandardResponse)
