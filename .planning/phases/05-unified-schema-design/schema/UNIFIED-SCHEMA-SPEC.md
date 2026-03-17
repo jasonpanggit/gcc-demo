@@ -578,5 +578,103 @@ ALTER MATERIALIZED VIEW mv_vm_vulnerability_posture OWNER TO CURRENT_ROLE;
 
 ---
 
+## Bootstrap _REQUIRED_TABLES Update
+
+Document exact changes to `pg_database.py` `_REQUIRED_TABLES` list:
+
+### Tables to ADD to _REQUIRED_TABLES
+
+| # | Table | Reason |
+|---|-------|--------|
+| 1 | `subscriptions` | NEW — VM identity spine parent table |
+| 2 | `vms` | NEW — canonical VM identity spine |
+| 3 | `eol_agent_responses` | NEW — session-scoped chat history for eol-searches.html |
+| 4 | `cache_ttl_config` | NEW — TTL admin overrides for cache management |
+| 5 | `patch_assessments_cache` | Migration 011, now promoted to bootstrap — actively used by ARG sync job |
+| 6 | `available_patches` | Migration 011, now promoted to bootstrap — actively used by ARG sync job |
+| 7 | `arc_software_inventory` | Migration 011, now promoted to bootstrap — actively used by LAW sync job |
+| 8 | `cve_vm_detections` | Migration 011, now promoted to bootstrap — actively used by KB-CVE inference job |
+
+### Tables to REMOVE from _REQUIRED_TABLES (after Phase 7 DROP)
+
+None immediately — deprecated tables (`inventory_vm_metadata`, `arg_cache`, `law_cache`, `patch_assessments`) remain in `_REQUIRED_TABLES` until Phase 10 consumer migration is complete. Premature removal would break the bootstrap check.
+
+### _REQUIRED_RELATIONS to ADD
+
+| # | FK Name | Child Table | Child Column | Parent Table | Parent Column | On Delete |
+|---|---------|-------------|--------------|-------------|---------------|-----------|
+| 1 | `fk_vms_subscription` | vms | subscription_id | subscriptions | subscription_id | RESTRICT |
+| 2 | `fk_vmcvematch_vm` | vm_cve_match_rows | vm_id | vms | resource_id | CASCADE |
+| 3 | `fk_vmcvematch_cve` | vm_cve_match_rows | cve_id | cves | cve_id | CASCADE DEFERRABLE |
+| 4 | `fk_patchcache_vm` | patch_assessments_cache | resource_id | vms | resource_id | CASCADE |
+| 5 | `fk_availpatches_vm` | available_patches | resource_id | vms | resource_id | CASCADE |
+| 6 | `fk_osinvsnap_vm` | os_inventory_snapshots | resource_id | vms | resource_id | CASCADE |
+| 7 | `fk_cvevmdet_vm` | cve_vm_detections | resource_id | vms | resource_id | CASCADE |
+| 8 | `fk_cvevmdet_cve` | cve_vm_detections | cve_id | cves | cve_id | CASCADE |
+| 9 | `fk_arcswinv_vm` | arc_software_inventory | resource_id | vms | resource_id | CASCADE |
+| 10 | `fk_alerthistory_rule` | cve_alert_history | rule_id | cve_alert_rules | rule_id | CASCADE |
+| 11 | `fk_alerthistory_cve` | cve_alert_history | cve_id | cves | cve_id | CASCADE |
+
+---
+
+## Phase 6-10 Forward References
+
+### Phase 6 — Index & Query Optimization Design
+
+- Design optimal index for `vms.os_name` -> `eol_records.software_key` fuzzy JOIN (BH-005 bulk lookup)
+- Design missing `idx_cves_severity` on `cvss_v3_severity` (INDEX-AUDIT GAP-01)
+- Design composite indexes for common filter combinations on `vms` (subscription_id + os_type + location)
+- Design composite `idx_cves_severity_published` for severity + date range queries (GAP-02)
+- Benchmark whether `idx_edges_kb` is redundant with PK prefix on `kb_cve_edges` (R-02)
+- Design partial index strategy for `vm_cve_match_rows WHERE scan_id = latest_completed_scan_id()` (GAP-05)
+- Write target SQL for all 24 high-traffic endpoints
+
+### Phase 7 — Schema Implementation
+
+- Execute migrations 027-032 as specified in the DDL section above
+- Update `pg_database.py` bootstrap DDL for new/redesigned tables
+- Update `_REQUIRED_TABLES` and `_REQUIRED_RELATIONS` lists per bootstrap section above
+- Run `ALTER MATERIALIZED VIEW ... OWNER TO {runtime_role}` for all MVs (I-03 fix)
+- Implement idempotent bootstrap: check `pg_matviews` before CREATE (skip if MV exists)
+- Verify zero callers for 3 migration-011 MVs before DROP (grep checks documented in migration 027)
+
+### Phase 8 — Repository Layer Update
+
+- Rewrite `AlertPostgresRepository` to use new `cve_alert_rules` / `cve_alert_history` schema (8 columns, UUID PKs, per-CVE firing model)
+- Replace `cve_alert_rule_manager.py` / `cve_alert_history_manager.py` in-memory managers with DB-backed calls (resolves BH-025, BH-026, BH-027)
+- Rewrite `cve_metadata_sync_job.py` to use canonical `cves` column names (I-09 fix): `severity`->`cvss_v3_severity`, `cvss_score`->`cvss_v3_score`, `vendor`/`product`->`affected_products` JSONB, `cached_at`->`synced_at`
+- Rewire `MSRCKBCVESyncJob` to write to `kb_cve_edges` (not `kb_cve_edge`): column mapping `kb_id`->`kb_number`
+- Rewire `KBCVEInferenceJob` to read from `kb_cve_edges` (not `kb_cve_edge`): column mapping `kb_id`->`kb_number` in `_process_available_patches()` and `_process_installed_patches()`
+- Remove `KBCVEInferenceJob._refresh_materialized_views()` 3-MV refresh list (migration-011 MVs dropped)
+- Consolidate `InventoryPostgresRepository` + `PostgresInventoryVMRepository` to write to `vms` (fix dual-write with conflicting staleness policies)
+- Create `EolAgentResponseRepository` for `eol_agent_responses` table with `save()`, `get_by_session()`, `list_recent_sessions()`, `delete_session()`
+- Reduce `inventory_software_cache` / `inventory_os_cache` TTL from 4h to 1h (MEDIUM_LIVED alignment)
+- Replace `cve_inventory.py` LAW fallback with `arc_software_inventory` query (eliminate last uncached LAW KQL call)
+- Implement 6 admin API endpoints: 3 refresh (POST /api/cache/refresh/{arg,law,msrc}), 1 status (GET /api/cache/status), 2 TTL config (GET/PUT /api/cache/config/ttl)
+
+### Phase 9 — UI Integration Update
+
+- Wire `cve-alert-config.html` and `cve-alert-history.html` to DB-backed alert repository (replacing in-memory data)
+- Wire `eol-searches.html` to `eol_agent_responses` for persistent chat history (replacing in-memory orchestrator lists)
+- Remove `INVENTORY_USE_UNIFIED_VIEW` feature flag from all 5 callers (I-02 resolution)
+- Wire PDF export to PG fast-path MVs instead of Python analytics fallback (I-04 fix)
+- Remove stale "L2 (Cosmos DB)" label in resource-inventory.html
+- Replace N+1 EOL lookups in inventory.html with bulk JOIN query using `vms` -> `eol_records` pattern (BH-005)
+- Wire `cache.html` to new admin API endpoints (refresh buttons, TTL config, freshness indicators)
+- Fix hardcoded "Database Load" 35% metric in index.html (I-07)
+
+### Phase 10 — Validation & Cleanup
+
+- DROP deprecated tables: `inventory_vm_metadata`, `arg_cache`, `law_cache`, `patch_assessments`
+- DROP deprecated view: `v_unified_vm_inventory`
+- Remove deprecated tables from `_REQUIRED_TABLES` list
+- Remove Cosmos stubs: `cve_cosmos_repository`, `resource_inventory_cosmos`, `cosmos_cache` (I-05)
+- Remove `cache.html` deprecated Cosmos endpoint calls (`/api/cache/cosmos/*`) that return 410 Gone (I-08)
+- Run EXPLAIN ANALYZE on all high-traffic queries to validate index usage
+- Confirm zero remaining consumers for each dropped table before DROP
+- Final `pg_database.py` bootstrap DDL verification against target schema
+
+---
+
 *Phase: 05-unified-schema-design / P5.7*
 *Generated: 2026-03-17*
