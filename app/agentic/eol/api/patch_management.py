@@ -4,13 +4,16 @@ Patch Management API Module
 Provides endpoints for assessing and installing patches on Arc-enabled servers
 using the Azure HybridCompute assessPatches / installPatches REST APIs.
 
+Read endpoints use PatchRepository (PostgreSQL) for data retrieval.
+Write endpoints (assess, install, poll) use ARM REST for live Azure operations.
+
 Endpoints:
-    GET  /api/patch-management/machines          - List Azure VMs + Arc servers (unified)
+    GET  /api/patch-management/machines          - List VMs with patch assessment data (PG)
     GET  /api/patch-management/arc-vms          - List Arc VMs from OS inventory (legacy)
     GET  /api/patch-management/arg-patch-data    - Pre-existing assessments + patches from Resource Graph
     POST /api/patch-management/assess            - Trigger patch assessment (fire-and-forget)
     GET  /api/patch-management/last-assessment   - Fetch latest assessment for a single VM from ARG
-    GET  /api/patch-management/results/{name}    - Get latest assessment results for a VM
+    GET  /api/patch-management/results/{name}    - Get available patches for a VM (PG)
     POST /api/patch-management/install           - Trigger patch installation (non-blocking)
     GET  /api/patch-management/install-status    - Poll an in-progress install operation
 """
@@ -18,7 +21,6 @@ Endpoints:
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -26,7 +28,6 @@ from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from utils.config import config
-from utils.normalization import normalize_os_record
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 
@@ -274,46 +275,6 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
     return all_rows
 
 
-def _extract_patches(operation_result: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract the patch list from a completed assessPatches operation result."""
-    # The operation result properties vary by API version.
-    # Try several known paths.
-    props = operation_result.get("properties") or {}
-    details = (
-        props.get("patchAssessmentDetails")
-        or props.get("assessmentDetails")
-        or props
-    )
-
-    available_patches: List[Dict[str, Any]] = details.get("availablePatches", [])
-
-    # Counters may be top-level or nested
-    critical_count = details.get("criticalAndSecurityPatchCount", 0) or 0
-    other_count = details.get("otherPatchCount", 0) or 0
-
-    # Derive counts from patch list if not provided
-    if not available_patches and not critical_count:
-        available_patches = []
-
-    # Classify patches if counts weren't supplied
-    if available_patches and critical_count == 0:
-        for p in available_patches:
-            classifications = [c.lower() for c in (p.get("classifications") or [])]
-            if "critical" in classifications or "security" in classifications:
-                critical_count += 1
-            else:
-                other_count += 1
-
-    return {
-        "available_patches": available_patches,
-        "critical_and_security_count": critical_count,
-        "other_count": other_count,
-        "total_count": len(available_patches) if available_patches else (critical_count + other_count),
-        "last_assessed": operation_result.get("endTime") or datetime.now(timezone.utc).isoformat(),
-        "status": operation_result.get("status", "Succeeded"),
-    }
-
-
 def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     """Return 'arc' or 'azure-vm' based on resource_id or explicit hint."""
     if vm_type and vm_type.lower() in ("arc", "azure-vm"):
@@ -324,164 +285,9 @@ def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     return "arc"
 
 
-def _normalize_machine_os_fields(machine: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply centralized OS normalization to a machine inventory row."""
-    if not isinstance(machine, dict):
-        return machine
-
-    normalized = normalize_os_record(
-        machine.get("os_name"),
-        machine.get("os_version"),
-        machine.get("os_type"),
-    )
-    machine.setdefault("raw_os_name", normalized.get("raw_os_name"))
-    machine.setdefault("raw_os_version", normalized.get("raw_os_version"))
-    machine["os_name"] = normalized["os_name"]
-    machine["os_version"] = normalized.get("os_version")
-    machine["normalized_os_name"] = normalized.get("normalized_os_name")
-    machine["normalized_os_version"] = normalized.get("normalized_os_version")
-    machine["os_type"] = normalized.get("os_type") or machine.get("os_type")
-    return machine
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-
-async def _list_machines_inventory(days: int, *, include_eol: bool = True) -> Dict[str, Any]:
-    """
-    Return a unified list of both Azure VMs (from Resource Inventory) and
-    Arc-enabled servers (from OS Inventory), each tagged with vm_type.
-    """
-    machines: List[Dict[str, Any]] = []
-
-    # ── Arc-enabled servers from OS inventory ──────────────────────────────
-    try:
-        from main import get_eol_orchestrator
-        orchestrator = get_eol_orchestrator()
-        os_result = await orchestrator.agents["os_inventory"].get_os_inventory(days=days)
-        all_os: List[Dict[str, Any]] = (
-            os_result.get("data", []) if isinstance(os_result, dict) else []
-        )
-        for item in all_os:
-            if (
-                str(item.get("computer_type", "")).lower() == "arc-enabled server"
-                or "/microsoft.hybridcompute/machines/" in str(item.get("resource_id", "")).lower()
-            ):
-                machines.append(_normalize_machine_os_fields({**item, "vm_type": "arc"}))
-    except Exception as exc:
-        logger.warning("Failed to fetch OS inventory for Arc VMs: %s", exc)
-
-    # ── Azure VMs from Resource Inventory ─────────────────────────────────
-    try:
-        from utils.resource_inventory_client import get_resource_inventory_client
-        inv_client = get_resource_inventory_client()
-        azure_vms = await inv_client.get_resources(
-            "Microsoft.Compute/virtualMachines",
-            subscription_id=config.azure.subscription_id,
-        )
-        arc_rid_set = {
-            str(m.get("resource_id", "")).lower()
-            for m in machines
-        }
-        # Get EOL orchestrator for enrichment only when the caller needs it.
-        eol_orchestrator = None
-        if include_eol:
-            try:
-                from main import get_eol_orchestrator
-                eol_orchestrator = get_eol_orchestrator()
-            except Exception:
-                logger.debug("EOL orchestrator not available for Azure VM enrichment")
-
-        for vm in azure_vms:
-            # _to_documents() normalises field names:
-            #   id → resource_id (ARM path), name → resource_name,
-            #   resourceGroup → resource_group, subscriptionId → subscription_id
-            #   os_type / vm_size are stored under selected_properties
-            sp  = vm.get("selected_properties") or {}
-            rid = str(vm.get("resource_id") or vm.get("id") or "").lower()
-            if not rid or rid in arc_rid_set:
-                continue
-            vm_name = vm.get("resource_name") or vm.get("name")
-            normalized_os = normalize_os_record(
-                sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
-                vm.get("os_version"),
-                sp.get("os_type") or vm.get("os_type"),
-            )
-
-            # Build base VM record
-            vm_record = {
-                "computer":        vm_name,
-                "name":            vm_name,
-                "os_name":         normalized_os["os_name"],
-                "os_version":      normalized_os.get("os_version"),
-                "os_type":         normalized_os.get("os_type"),
-                "raw_os_name":     normalized_os.get("raw_os_name"),
-                "raw_os_version":  normalized_os.get("raw_os_version"),
-                "normalized_os_name": normalized_os.get("normalized_os_name"),
-                "normalized_os_version": normalized_os.get("normalized_os_version"),
-                "resource_id":     vm.get("resource_id") or vm.get("id"),
-                "subscription_id": vm.get("subscription_id") or vm.get("subscriptionId") or config.azure.subscription_id,
-                "resource_group":  vm.get("resource_group") or vm.get("resourceGroup"),
-                "location":        vm.get("location"),
-                "vm_size":         sp.get("vm_size") or vm.get("vm_size"),
-                "vm_type":         "azure-vm",
-            }
-            machines.append(_normalize_machine_os_fields(vm_record))
-
-        # Parallelize EOL enrichment for all Azure VMs
-        if eol_orchestrator and machines:
-            async def enrich_vm_with_eol(vm_record):
-                """Enrich a single VM with EOL data."""
-                normalized_os_name = vm_record.get("os_name")
-                if not normalized_os_name:
-                    return vm_record
-                try:
-                    eol_result = await eol_orchestrator.get_eol_data(
-                        software_name=normalized_os_name,
-                        version=vm_record.get("os_version"),
-                    )
-                    if eol_result and eol_result.get("success"):
-                        eol_data = eol_result.get("data", {})
-                        vm_record["eol_date"] = eol_data.get("eol_date") or eol_data.get("eol")
-                        vm_record["eol_status"] = eol_data.get("eol_status")
-                        vm_record["support_status"] = eol_data.get("support_status")
-                        vm_record["lts"] = eol_data.get("lts")
-                except Exception as e:
-                    logger.debug(f"Failed to enrich VM {vm_record.get('computer')} with EOL data: {e}")
-                return vm_record
-
-            # Only enrich Azure VMs (Arc VMs are already processed)
-            azure_vm_indices = [i for i, m in enumerate(machines) if m.get("vm_type") == "azure-vm"]
-            if azure_vm_indices:
-                try:
-                    enrichment_tasks = [enrich_vm_with_eol(machines[i]) for i in azure_vm_indices]
-                    enriched_vms = await asyncio.gather(*enrichment_tasks, return_exceptions=True)
-
-                    # Update machines list with enriched data
-                    for idx, enriched_vm in zip(azure_vm_indices, enriched_vms):
-                        if not isinstance(enriched_vm, Exception):
-                            machines[idx] = enriched_vm
-                        else:
-                            logger.debug(f"EOL enrichment failed for VM at index {idx}: {enriched_vm}")
-                except Exception as e:
-                    logger.warning(f"Failed to parallelize EOL enrichment: {e}")
-
-    except Exception as exc:
-        logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
-
-    arc_count = sum(1 for m in machines if m.get("vm_type") == "arc")
-    avm_count  = sum(1 for m in machines if m.get("vm_type") == "azure-vm")
-    logger.info("Machines list: %d Arc, %d Azure VM", arc_count, avm_count)
-
-    return {
-        "success": True,
-        "data":    machines,
-        "count":   len(machines),
-        "arc_count":     arc_count,
-        "azure_vm_count": avm_count,
-    }
-
 
 @router.get("/machines", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
