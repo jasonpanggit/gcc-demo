@@ -210,44 +210,32 @@ async def _enrich_missing_os_eol(items: List[Dict[str, Any]]) -> None:
     track_cache=True,
     auto_wrap_response=False  # Keep original response format for now
 )
-async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = True):
+async def get_inventory(request: Request, limit: int = 5000, days: int = 90, use_cache: bool = True):
     """
     Get software inventory using multi-agent system.
-    
+
     Retrieves software installation data from Azure Log Analytics and analyzes
     it for EOL status. Results are cached for performance.
-    
+
     Args:
+        request: FastAPI Request for app.state access
         limit: Maximum number of records to return (default: 5000)
         days: Number of days to look back for inventory data (default: 90)
         use_cache: Whether to use cached data if available (default: True)
-    
+
     Returns:
         StandardResponse with software inventory data including computer names,
         software names, versions, publishers, and EOL status.
-    
-    Example Response:
-        {
-            "success": true,
-            "data": [
-                {
-                    "computer": "SERVER-01",
-                    "software_name": "Windows Server 2012 R2",
-                    "version": "6.3.9600",
-                    "publisher": "Microsoft",
-                    "eol_status": "expired",
-                    "eol_date": "2023-10-10"
-                }
-            ],
-            "count": 1,
-            "timestamp": "2025-10-15T10:30:00Z"
-        }
     """
+    # TODO(P10): Migrate to inventory_repo.get_software_for_vm() once
+    # arc_software_inventory table is populated by a sync job. Currently
+    # this endpoint pulls live data from Azure Log Analytics via the
+    # orchestrator agent -- no PG equivalent yet.
     result = await _get_eol_orchestrator().get_software_inventory(
         days=days,
         use_cache=use_cache
     )
-    
+
     # Apply limit if specified
     if limit and limit > 0 and isinstance(result, dict) and "data" in result:
         result["data"] = result["data"][:limit]
@@ -255,7 +243,7 @@ async def get_inventory(limit: int = 5000, days: int = 90, use_cache: bool = Tru
     elif limit and limit > 0 and isinstance(result, list):
         # Legacy format support
         result = result[:limit]
-    
+
     return result
 
 
