@@ -38,7 +38,7 @@ progress:
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
 | 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
 | 6 | Index & Query Optimization Design | ✅ Complete | 6 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md, P6.6 TARGET-SQL (3 domain files) done |
-| 7 | Schema Implementation | 🔄 In progress | 5 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables), P7.3 done — Migration 029 (CVE FK additions + orphan cleanup), P7.4 done — Migration 030 (inventory FK + eol_agent_responses + cache_ttl_config), P7.5 done — Migration 031 (alerting tables DROP/CREATE + 9 indexes) |
+| 7 | Schema Implementation | 🔄 In progress | 6 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables), P7.3 done — Migration 029 (CVE FK additions + orphan cleanup), P7.4 done — Migration 030 (inventory FK + eol_agent_responses + cache_ttl_config), P7.5 done — Migration 031 (alerting tables DROP/CREATE + 9 indexes), P7.6 done — Migration 032 (MV re-creation + 13 optimization indexes + FTS infrastructure) |
 | 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
 | 9 | UI Integration Update | ⬜ Not started | 0 / 7 | Depends on Phase 8 |
 | 10 | Validation & Cleanup | ⬜ Not started | 0 / 7 | Depends on Phase 9 |
@@ -292,10 +292,10 @@ The following migrations are already complete and represent the baseline for thi
 
 ## Next Actions
 
-1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 + P7.3 + P7.4 + P7.5 done (migrations 027 + 028 + 029 + 030 + 031)
-2. **Next:** P7.6 -- Migration 032 (Optimization indexes + modified MV re-creation)
+1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 + P7.3 + P7.4 + P7.5 + P7.6 done (migrations 027 + 028 + 029 + 030 + 031 + 032)
+2. **Next:** P7.7 -- Bootstrap DDL Rewrite (pg_database.py _bootstrap_runtime_schema update)
 3. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
-4. **Note:** Migration 029 cached_at safety net confirmed redundant (already in 027) — IF NOT EXISTS makes it harmless
+4. **Note:** All 6 migration SQL files (027-032) now exist — P7.7 rewrites bootstrap to match
 5. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
 6. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
 7. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
@@ -321,7 +321,9 @@ The following migrations are already complete and represent the baseline for thi
 
 | 2026-03-17 | P7.5: Migration 031 created — alerting tables DROP + CREATE with 9 indexes | DROP cve_alert_history (child) then cve_alert_rules (parent); recreated cve_alert_rules (9 explicit cols, UUID PK) + cve_alert_history (8 cols, per-CVE firing model); 5 base + 4 Phase 6 optimization indexes; FKs to cve_alert_rules and cves with CASCADE DELETE; I-06 schema foundation complete |
 
+| 2026-03-17 | P7.6: Migration 032 created — MV re-creation + 13 optimization indexes + FTS | mv_vm_vulnerability_posture recreated with vms source + eol_records LEFT JOIN; FTS trigger function + trigger + GIN index (bootstrap gap); 13 optimization indexes (2 expression, 3 severity, 2 composite, 3 partial, 2 JOIN/covering); DROP idx_edges_kb (R-02); 4 MV indexes; I-03 OWNER TO CURRENT_ROLE fix |
+
 ---
 
-*State version: 7.6*
-*Updated: 2026-03-17 (P7.5 complete -- Migration 031 alerting tables DROP/CREATE + 9 indexes; Phase 7 now 5/7 plans done)*
+*State version: 7.7*
+*Updated: 2026-03-17 (P7.6 complete -- Migration 032 MV re-creation + optimization indexes + FTS; Phase 7 now 6/7 plans done)*
