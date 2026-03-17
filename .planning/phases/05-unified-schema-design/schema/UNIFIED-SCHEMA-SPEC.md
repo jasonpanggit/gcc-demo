@@ -224,5 +224,359 @@ erDiagram
 
 ---
 
+## Complete DDL — Phase 7 Migration Blueprint
+
+### Migration 027 — Drop Obsolete Tables and MVs
+
+```sql
+-- ============================================================
+-- Migration 027: Drop inactive tables and migration-011 MVs
+-- Pre-condition: Verify no active callers before executing
+-- ============================================================
+
+-- Drop inactive tables (confirmed INACTIVE in P2.2)
+DROP TABLE IF EXISTS arc_os_inventory;
+DROP TABLE IF EXISTS patch_assessment_history;
+
+-- Drop migration-011 MVs (no active callers — superseded by bootstrap MVs)
+-- Verify with grep before executing:
+--   grep -r "vm_vulnerability_overview" app/agentic/eol/ --include="*.py"
+--   grep -r "cve_dashboard_stats" app/agentic/eol/ --include="*.py"
+--   grep -r "os_cve_inventory_counts" app/agentic/eol/ --include="*.py"
+DROP MATERIALIZED VIEW IF EXISTS vm_vulnerability_overview;
+DROP MATERIALIZED VIEW IF EXISTS cve_dashboard_stats;
+DROP MATERIALIZED VIEW IF EXISTS os_cve_inventory_counts;
+
+-- Migrate kb_cve_edge data to kb_cve_edges before DROP (I-01 resolution)
+INSERT INTO kb_cve_edges (kb_number, cve_id, source, severity, last_seen, cached_at)
+SELECT kb_id, cve_id, COALESCE(source, 'msrc'), severity, cached_at, cached_at
+FROM kb_cve_edge
+WHERE NOT EXISTS (
+    SELECT 1 FROM kb_cve_edges
+    WHERE kb_cve_edges.kb_number = kb_cve_edge.kb_id
+      AND kb_cve_edges.cve_id = kb_cve_edge.cve_id
+      AND kb_cve_edges.source = COALESCE(kb_cve_edge.source, 'msrc')
+);
+DROP TABLE IF EXISTS kb_cve_edge;
+```
+
+### Migration 028 — Create VM Identity Spine
+
+```sql
+-- ============================================================
+-- Migration 028: Create subscriptions + vms tables (P5.1)
+-- Pre-condition: None (new tables)
+-- ============================================================
+
+-- Create subscriptions table (must exist before vms due to FK)
+CREATE TABLE IF NOT EXISTS subscriptions (
+    subscription_id UUID            NOT NULL,
+    subscription_name VARCHAR(200)  NOT NULL,
+    tenant_id       UUID,
+    state           VARCHAR(20)     DEFAULT 'Enabled',
+    tags            JSONB           NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_subscriptions PRIMARY KEY (subscription_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_name
+    ON subscriptions (subscription_name);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_tenant
+    ON subscriptions (tenant_id);
+
+-- Create vms table (canonical VM identity spine)
+CREATE TABLE IF NOT EXISTS vms (
+    resource_id     TEXT            NOT NULL,
+    subscription_id UUID            NOT NULL,
+    resource_group  TEXT            NOT NULL,
+    vm_name         TEXT            NOT NULL,
+    os_name         TEXT,
+    os_type         VARCHAR(10),    -- 'Linux' or 'Windows'
+    vm_type         VARCHAR(20),    -- 'arc' or 'azure-vm'
+    location        TEXT,
+    tags            JSONB           NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    last_synced_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_vms PRIMARY KEY (resource_id),
+    CONSTRAINT fk_vms_subscription FOREIGN KEY (subscription_id)
+        REFERENCES subscriptions(subscription_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_vms_subscription
+    ON vms (subscription_id);
+
+CREATE INDEX IF NOT EXISTS idx_vms_os_name
+    ON vms (os_name);
+
+CREATE INDEX IF NOT EXISTS idx_vms_os_type
+    ON vms (os_type);
+
+CREATE INDEX IF NOT EXISTS idx_vms_location
+    ON vms (location);
+
+CREATE INDEX IF NOT EXISTS idx_vms_resource_group
+    ON vms (resource_group);
+
+CREATE INDEX IF NOT EXISTS idx_vms_tags
+    ON vms USING GIN (tags);
+
+CREATE INDEX IF NOT EXISTS idx_vms_last_synced
+    ON vms (last_synced_at);
+```
+
+### Migration 029 — CVE Table Modifications
+
+```sql
+-- ============================================================
+-- Migration 029: CVE domain FK additions and column changes (P5.2)
+-- Pre-condition: vms table exists (migration 028)
+-- ============================================================
+
+-- Add cached_at to kb_cve_edges (P4.4 LONG_LIVED TTL tracking)
+ALTER TABLE kb_cve_edges ADD COLUMN IF NOT EXISTS cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- Clean up orphan rows before adding FK constraints
+DELETE FROM vm_cve_match_rows
+WHERE vm_id NOT IN (SELECT resource_id FROM vms);
+
+DELETE FROM vm_cve_match_rows
+WHERE cve_id NOT IN (SELECT cve_id FROM cves);
+
+-- Add FK from vm_cve_match_rows to vms
+ALTER TABLE vm_cve_match_rows
+    ADD CONSTRAINT fk_vmcvematch_vm FOREIGN KEY (vm_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+-- Add FK from vm_cve_match_rows to cves
+ALTER TABLE vm_cve_match_rows
+    ADD CONSTRAINT fk_vmcvematch_cve FOREIGN KEY (cve_id)
+    REFERENCES cves(cve_id) ON DELETE CASCADE
+    DEFERRABLE INITIALLY DEFERRED;
+
+-- Clean up orphan rows in cve_vm_detections
+DELETE FROM cve_vm_detections
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+DELETE FROM cve_vm_detections
+WHERE cve_id NOT IN (SELECT cve_id FROM cves);
+
+-- Add FKs to cve_vm_detections
+ALTER TABLE cve_vm_detections
+    ADD CONSTRAINT fk_cvevmdet_vm FOREIGN KEY (resource_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+ALTER TABLE cve_vm_detections
+    ADD CONSTRAINT fk_cvevmdet_cve FOREIGN KEY (cve_id)
+    REFERENCES cves(cve_id) ON DELETE CASCADE;
+
+-- Add unique index to prevent duplicate detections
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cvevmdet_resource_cve
+    ON cve_vm_detections (resource_id, cve_id);
+```
+
+### Migration 030 — Inventory + EOL Tables
+
+```sql
+-- ============================================================
+-- Migration 030: Inventory FK additions + EOL + cache tables (P5.3, P5.4, P4.4)
+-- Pre-condition: vms table exists (migration 028)
+-- ============================================================
+
+-- Type alignment for patch_assessments_cache (metadata-only operation)
+ALTER TABLE patch_assessments_cache ALTER COLUMN resource_id TYPE TEXT;
+
+-- Clean up orphan rows in inventory tables
+DELETE FROM patch_assessments_cache
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+DELETE FROM available_patches
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+DELETE FROM os_inventory_snapshots
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+DELETE FROM arc_software_inventory
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+-- Add FK from inventory tables to vms
+ALTER TABLE patch_assessments_cache
+    ADD CONSTRAINT fk_patchcache_vm FOREIGN KEY (resource_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+ALTER TABLE available_patches
+    DROP CONSTRAINT IF EXISTS available_patches_resource_id_fkey,
+    ADD CONSTRAINT fk_availpatches_vm FOREIGN KEY (resource_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+ALTER TABLE os_inventory_snapshots
+    ADD CONSTRAINT fk_osinvsnap_vm FOREIGN KEY (resource_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+ALTER TABLE arc_software_inventory
+    ADD CONSTRAINT fk_arcswinv_vm FOREIGN KEY (resource_id)
+    REFERENCES vms(resource_id) ON DELETE CASCADE;
+
+-- Create eol_agent_responses (P5.4 — NEW table for eol-searches.html persistence)
+CREATE TABLE IF NOT EXISTS eol_agent_responses (
+    response_id     UUID            NOT NULL DEFAULT gen_random_uuid(),
+    session_id      UUID            NOT NULL,
+    user_query      TEXT            NOT NULL,
+    agent_response  TEXT            NOT NULL,
+    sources         JSONB           NOT NULL DEFAULT '[]'::jsonb,
+    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    response_time_ms INTEGER,
+    CONSTRAINT pk_eol_agent_responses PRIMARY KEY (response_id)
+);
+CREATE INDEX IF NOT EXISTS idx_eol_responses_session ON eol_agent_responses (session_id);
+CREATE INDEX IF NOT EXISTS idx_eol_responses_timestamp ON eol_agent_responses (timestamp DESC);
+
+-- Create cache_ttl_config (P4.4 — TTL admin overrides)
+CREATE TABLE IF NOT EXISTS cache_ttl_config (
+    source_name     VARCHAR(50)     PRIMARY KEY,
+    ttl_tier        VARCHAR(30)     NOT NULL DEFAULT 'medium_lived',
+    ttl_seconds     INTEGER         NOT NULL DEFAULT 3600,
+    updated_at      TIMESTAMP       DEFAULT NOW(),
+    updated_by      VARCHAR(100)    DEFAULT 'system'
+);
+
+-- Seed cache_ttl_config with initial values
+INSERT INTO cache_ttl_config (source_name, ttl_tier, ttl_seconds) VALUES
+    ('arg', 'medium_lived', 3600),
+    ('law', 'medium_lived', 3600),
+    ('msrc', 'long_lived', 86400)
+ON CONFLICT (source_name) DO NOTHING;
+```
+
+### Migration 031 — Alerting Tables (DROP + CREATE)
+
+```sql
+-- ============================================================
+-- Migration 031: Redesign alert tables (P5.5 — I-06 resolution)
+-- Pre-condition: cves table exists
+-- Note: Fresh schema start — no data to preserve (current data is in-memory only)
+-- ============================================================
+
+-- Drop old alert tables (fresh schema start — no data to preserve)
+DROP TABLE IF EXISTS cve_alert_history;
+DROP TABLE IF EXISTS cve_alert_rules;
+
+-- Recreate cve_alert_rules with new schema
+CREATE TABLE IF NOT EXISTS cve_alert_rules (
+    rule_id             UUID            NOT NULL DEFAULT gen_random_uuid(),
+    rule_name           VARCHAR(200)    NOT NULL,
+    severity_threshold  VARCHAR(20)     NOT NULL,
+    cvss_min_score      NUMERIC(3, 1)   NOT NULL DEFAULT 0.0,
+    vendor_filter       VARCHAR(100),
+    product_filter      VARCHAR(100),
+    enabled             BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_cve_alert_rules PRIMARY KEY (rule_id),
+    CONSTRAINT uq_cve_alert_rules_name UNIQUE (rule_name)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON cve_alert_rules (enabled);
+
+-- Recreate cve_alert_history with per-CVE firing model
+CREATE TABLE IF NOT EXISTS cve_alert_history (
+    alert_id            UUID            NOT NULL DEFAULT gen_random_uuid(),
+    rule_id             UUID            NOT NULL,
+    cve_id              VARCHAR(20)     NOT NULL,
+    fired_at            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    severity            VARCHAR(20)     NOT NULL,
+    cvss_score          NUMERIC(3, 1),
+    notification_sent   BOOLEAN         NOT NULL DEFAULT FALSE,
+    notification_channel VARCHAR(50),
+    CONSTRAINT pk_cve_alert_history PRIMARY KEY (alert_id),
+    CONSTRAINT fk_alerthistory_rule FOREIGN KEY (rule_id)
+        REFERENCES cve_alert_rules(rule_id) ON DELETE CASCADE,
+    CONSTRAINT fk_alerthistory_cve FOREIGN KEY (cve_id)
+        REFERENCES cves(cve_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alerthistory_rule ON cve_alert_history (rule_id);
+CREATE INDEX IF NOT EXISTS idx_alerthistory_cve ON cve_alert_history (cve_id);
+CREATE INDEX IF NOT EXISTS idx_alerthistory_fired ON cve_alert_history (fired_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerthistory_rule_cve ON cve_alert_history (rule_id, cve_id);
+```
+
+### Migration 032 — Recreate Modified MV
+
+```sql
+-- ============================================================
+-- Migration 032: Recreate mv_vm_vulnerability_posture with vms as source (P5.6)
+-- Pre-condition: vms table exists and is populated; eol_records exists
+-- ============================================================
+
+-- Recreate mv_vm_vulnerability_posture with vms as source
+DROP MATERIALIZED VIEW IF EXISTS mv_vm_vulnerability_posture;
+
+CREATE MATERIALIZED VIEW mv_vm_vulnerability_posture AS
+SELECT
+  vm.resource_id                                                          AS vm_id,
+  vm.vm_name,
+  vm.vm_type,
+  vm.os_name,
+  vm.os_type,
+  vm.location,
+  vm.resource_group,
+  vm.subscription_id,
+  vm.last_synced_at,
+  COALESCE(agg.total_cves, 0)         AS total_cves,
+  COALESCE(agg.critical, 0)           AS critical,
+  COALESCE(agg.high, 0)               AS high,
+  COALESCE(agg.medium, 0)             AS medium,
+  COALESCE(agg.low, 0)                AS low,
+  COALESCE(agg.unpatched, 0)          AS unpatched,
+  COALESCE(agg.unpatched_critical, 0) AS unpatched_critical,
+  COALESCE(agg.unpatched_high, 0)     AS unpatched_high,
+  CASE
+    WHEN COALESCE(agg.critical, 0) > 0
+     AND COALESCE(agg.unpatched_critical, 0) > 0 THEN 'Critical'
+    WHEN COALESCE(agg.high, 0) > 0
+     AND COALESCE(agg.unpatched_high, 0) > 0     THEN 'High'
+    WHEN COALESCE(agg.total_cves, 0) > 0         THEN 'Medium'
+    ELSE 'Healthy'
+  END AS risk_level,
+  e.is_eol                            AS eol_status,
+  e.eol_date                          AS eol_date,
+  NOW() AS last_updated
+FROM vms vm
+LEFT JOIN (
+  SELECT
+    vm_id,
+    COUNT(DISTINCT cve_id)                                                              AS total_cves,
+    COUNT(DISTINCT CASE WHEN severity = 'CRITICAL' THEN cve_id END)                    AS critical,
+    COUNT(DISTINCT CASE WHEN severity = 'HIGH'     THEN cve_id END)                    AS high,
+    COUNT(DISTINCT CASE WHEN severity = 'MEDIUM'   THEN cve_id END)                    AS medium,
+    COUNT(DISTINCT CASE WHEN severity = 'LOW'      THEN cve_id END)                    AS low,
+    COUNT(DISTINCT CASE WHEN patch_status NOT IN ('installed') THEN cve_id END)        AS unpatched,
+    COUNT(DISTINCT CASE WHEN severity = 'CRITICAL'
+                         AND patch_status NOT IN ('installed') THEN cve_id END)        AS unpatched_critical,
+    COUNT(DISTINCT CASE WHEN severity = 'HIGH'
+                         AND patch_status NOT IN ('installed') THEN cve_id END)        AS unpatched_high
+  FROM vm_cve_match_rows
+  WHERE scan_id = latest_completed_scan_id()
+  GROUP BY vm_id
+) agg ON agg.vm_id = vm.resource_id
+LEFT JOIN eol_records e ON LOWER(vm.os_name) = LOWER(e.software_key);
+
+-- Indexes for CONCURRENT refresh and query performance
+CREATE UNIQUE INDEX mv_vm_vulnerability_posture_vm_id_idx
+    ON mv_vm_vulnerability_posture (vm_id);
+CREATE INDEX mv_vm_vulnerability_posture_risk_total_idx
+    ON mv_vm_vulnerability_posture (risk_level, total_cves DESC);
+CREATE INDEX mv_vm_vulnerability_posture_sub_rg_idx
+    ON mv_vm_vulnerability_posture (subscription_id, resource_group);
+CREATE INDEX mv_vm_vulnerability_posture_vm_type_idx
+    ON mv_vm_vulnerability_posture (vm_type);
+
+-- Fix I-03: Set MV ownership to current role for CONCURRENT refresh
+ALTER MATERIALIZED VIEW mv_vm_vulnerability_posture OWNER TO CURRENT_ROLE;
+```
+
+---
+
 *Phase: 05-unified-schema-design / P5.7*
 *Generated: 2026-03-17*
