@@ -10,12 +10,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Path, Request
 
 try:
-    from models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
+    from models.cve_models import CVESearchRequest
     from utils.response_models import StandardResponse
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
 except ModuleNotFoundError:
-    from app.agentic.eol.models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
+    from app.agentic.eol.models.cve_models import CVESearchRequest
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
@@ -47,27 +47,6 @@ def _format_os_display_name(normalized_name: str, fallback_key: Optional[str] = 
         name_part, _ = key.split("::", 1)
         return " ".join(part.capitalize() for part in name_part.split())
     return key or "Unknown OS"
-
-
-def _build_inventory_cached_filters(identity: dict) -> dict:
-    normalized_name = str(identity.get("normalized_name") or "").strip().lower()
-    normalized_version = str(identity.get("normalized_version") or "").strip()
-
-    keyword_parts = [part for part in [normalized_name, normalized_version] if part]
-    filters = {"keyword": " ".join(keyword_parts).strip()}
-
-    vendor_map = {
-        "ubuntu": "ubuntu",
-        "windows server": "microsoft",
-        "windows": "microsoft",
-        "rhel": "redhat",
-        "centos": "centos",
-        "debian": "debian",
-    }
-    vendor = vendor_map.get(normalized_name)
-    if vendor:
-        filters["vendor"] = vendor
-    return filters
 
 
 @router.get("/cve/stats")
