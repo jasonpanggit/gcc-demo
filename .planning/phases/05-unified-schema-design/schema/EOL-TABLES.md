@@ -166,3 +166,130 @@ RETURNING response_id, timestamp;
 - **Phase 9:** `eol-searches.html` JS switches from `GET /api/eol-agent-responses` (in-memory) to new PG-backed endpoint
 
 ---
+
+## 3. `os_extraction_rules` -- Status: ACTIVE
+
+**Origin:** Migration 001 / bootstrap (DDL identical)
+**Primary Key:** `id TEXT`
+**Purpose:** Custom OS normalization regex rules. Seeded with DEFAULT_OS_EXTRACTION_RULES at bootstrap. Custom rules override defaults by ID. Used by OS normalization pipeline to extract structured OS metadata from raw OS strings (e.g., "Microsoft Windows Server 2019 Datacenter" -> vendor=Microsoft, family=Windows, version=2019).
+
+**DDL (runtime-authoritative -- `pg_database.py`):**
+
+```sql
+CREATE TABLE IF NOT EXISTS os_extraction_rules (
+    id              TEXT            NOT NULL,
+    os_family       TEXT            NOT NULL,
+    pattern         TEXT            NOT NULL,
+    extraction_rule JSONB           NOT NULL DEFAULT '{}',
+    priority        INTEGER         NOT NULL DEFAULT 100,
+    enabled         BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_os_extraction_rules PRIMARY KEY (id)
+);
+```
+
+**Design Notes:**
+
+- Rules are seeded from `DEFAULT_OS_EXTRACTION_RULES` constant in `utils/os_extraction_rules.py` on first startup
+- Custom rules override defaults by matching `id` -- an override replaces the default rule's behavior
+- `os_family` groups rules by OS family (e.g., `windows`, `linux`, `macos`)
+- `pattern` is a regex pattern matched against raw OS strings
+- `extraction_rule` JSONB contains structured extraction configuration (templates, flags, scopes)
+- `priority` controls evaluation order (lower number = higher priority); defaults seed at priority 100
+- `enabled` allows disabling rules without deleting them
+- `os-normalization-rules.html` provides a CRUD interface for managing these rules
+
+### Indexes
+
+| Index Name | Columns | Type | Purpose |
+|------------|---------|------|---------|
+| pk_os_extraction_rules | id | PRIMARY KEY | PK lookup |
+| idx_os_rules_priority | priority ASC | B-tree | Rule evaluation ordering |
+
+---
+
+## 4. `normalization_failures` -- Status: ACTIVE
+
+**Origin:** Migration 015
+**Primary Key:** `id BIGSERIAL`
+**Purpose:** Tracks OS strings that fail the normalization pipeline. Enables detection of new OS variants that need extraction rule coverage. Has a UNIQUE constraint to prevent duplicate rows for the same (source_table, raw_os_name, raw_os_version) combination.
+
+**DDL (migration 015 -- matches bootstrap):**
+
+```sql
+CREATE TABLE IF NOT EXISTS normalization_failures (
+    id              BIGSERIAL       PRIMARY KEY,
+    source_table    TEXT            NOT NULL,
+    raw_os_name     TEXT,
+    raw_os_version  TEXT,
+    first_seen      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    last_seen       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    occurrence_count INTEGER        NOT NULL DEFAULT 1,
+    UNIQUE (source_table, raw_os_name, raw_os_version)
+);
+```
+
+**Design Notes:**
+
+- When an OS string fails normalization, a row is inserted or `occurrence_count` is incremented (upsert on UNIQUE constraint)
+- `source_table` identifies which table the raw string came from (e.g., `eol_records`, `os_inventory_snapshots`)
+- `last_seen` updated on each occurrence to surface recently-failing strings
+- Provides input for `os_extraction_rules` maintenance -- new failures indicate rules need updating
+
+### Indexes
+
+| Index Name | Columns | Type | Purpose |
+|------------|---------|------|---------|
+| normalization_failures_pkey | id | PRIMARY KEY | PK lookup |
+| normalization_failures_source_table_raw_os_name_raw_os_version_key | (source_table, raw_os_name, raw_os_version) | UNIQUE | Upsert dedup |
+| idx_normalization_failures_last_seen | last_seen | B-tree | Recent failures query |
+
+---
+
+## 5. EOL Domain ERD
+
+```mermaid
+erDiagram
+    eol_records {
+        TEXT software_key PK
+        TEXT software_name
+        DATE eol_date
+        BOOLEAN is_eol
+    }
+    eol_agent_responses {
+        UUID response_id PK
+        UUID session_id
+        TEXT user_query
+        TEXT agent_response
+    }
+    os_extraction_rules {
+        TEXT id PK
+        TEXT pattern
+        BOOLEAN enabled
+    }
+    vms }o--o{ eol_records : "os_name matches software_key"
+    normalization_failures }o--|| os_extraction_rules : "failed by rule"
+```
+
+### Relationship Notes
+
+- The `vms` <-> `eol_records` relationship is a **logical many-to-many** (via os_name matching), not enforced by FK. The JOIN is computed at query time per the bulk lookup pattern documented in Section 1 (BH-005 fix). Many VMs can share the same OS; each OS maps to one `eol_records` entry. The matching uses fuzzy LOWER() comparison because ARG os_name strings and endoflife.date software_key values use different naming conventions.
+- `normalization_failures` tracks OS strings that fail to match any `os_extraction_rules` pattern. The relationship is logical -- failures indicate gaps in rule coverage.
+- `eol_agent_responses` is a standalone table with no FK relationships. Sessions are implicit (grouped by `session_id` UUID).
+- `os_extraction_rules` has no FK relationships. It is a configuration/reference table consumed by the normalization pipeline.
+
+### Table Summary
+
+| Table | Status | PK | Columns | Phase 7 Action |
+|-------|--------|----|---------|----------------|
+| `eol_records` | ACTIVE | `software_key` TEXT | 25 | None (unchanged) |
+| `eol_agent_responses` | NEW | `response_id` UUID | 7 | CREATE TABLE + indexes |
+| `os_extraction_rules` | ACTIVE | `id` TEXT | 8 | None (unchanged) |
+| `normalization_failures` | ACTIVE | `id` BIGSERIAL | 7 | None (unchanged) |
+
+---
+
+*Phase: 05-unified-schema-design*
+*Plan: 05-04 -- EOL Tables Design*
+*Completed: 2026-03-17*
