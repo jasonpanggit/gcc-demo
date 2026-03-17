@@ -319,17 +319,20 @@ async def get_vm_vulnerabilities(
 @router.get("/cve/{cve_id}/affected-vms", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
+    request: Request,
     cve_id: str,
-    subscription_filter: Optional[str] = Query(None, description="Filter by subscription ID"),
-    resource_group_filter: Optional[str] = Query(None, description="Filter by resource group"),
+    subscription_filter: Optional[str] = Query(None, alias="subscription_id", description="Filter by subscription ID"),
+    resource_group_filter: Optional[str] = Query(None, alias="resource_group", description="Filter by resource group"),
     limit: int = Query(default=100, le=1000, ge=1, description="Maximum VMs to return (1-1000)"),
-    offset: int = Query(default=0, ge=0, description="Pagination offset")
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
 ):
     """Get VMs affected by a specific CVE.
 
-    Returns list of affected VMs with metadata, patch status, and pagination support.
+    Uses cve_repo.get_cve_affected_vms() which reads from mv_vm_cve_detail + vms
+    with server-side filtering by subscription_id and resource_group.
 
     Args:
+        request: FastAPI request for app.state access
         cve_id: CVE identifier (e.g., CVE-2024-1234)
         subscription_filter: Filter by subscription ID
         resource_group_filter: Filter by resource group name
@@ -337,69 +340,47 @@ async def get_cve_affected_vms(
         offset: Pagination offset
 
     Returns:
-        StandardResponse with CVEAffectedVMsResponse containing:
-            - cve_id, scan metadata
-            - total_vms count
-            - affected_vms list with VM details and patch status
+        StandardResponse with items list, cve_id, total, offset, limit
 
     Raises:
-        HTTPException: 404 if CVE not found, 503 if no scan data available
+        HTTPException: 404 if CVE not found
     """
     try:
         cve_id = cve_id.upper()
-        service = await _get_cve_vm_service()
-        result = await service.get_cve_affected_vms(cve_id)
+        cve_repo = request.app.state.cve_repo
 
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail=f"CVE {cve_id} not found or has no affected VMs"
-            )
-
-        # Apply filters
-        affected_vms = result.affected_vms
-
-        if subscription_filter:
-            affected_vms = [v for v in affected_vms if v.subscription_id == subscription_filter]
-
-        if resource_group_filter:
-            affected_vms = [v for v in affected_vms if v.resource_group.lower() == resource_group_filter.lower()]
-
-        # Apply pagination
-        total_after_filter = len(affected_vms)
-        affected_vms = affected_vms[offset:offset + limit]
-
-        # Update result with filtered/paginated data
-        result.affected_vms = affected_vms
-        result.total_vms = total_after_filter
-
-        logger.info(
-            f"Retrieved {len(affected_vms)} VMs for CVE {cve_id} "
-            f"(offset={offset}, limit={limit}, filters: sub={subscription_filter}, rg={resource_group_filter})"
+        vms = await cve_repo.get_cve_affected_vms(
+            cve_id,
+            subscription_id=subscription_filter,
+            resource_group=resource_group_filter,
+            limit=limit,
+            offset=offset,
         )
 
-        return StandardResponse.success_response(
-            data=[result.dict()],
-            metadata={
-                "cve_id": cve_id,
-                "pagination": {
-                    "offset": offset,
-                    "limit": limit,
-                    "total": total_after_filter,
-                    "has_more": (offset + limit) < total_after_filter
-                },
-                "filters_applied": {
-                    "subscription": subscription_filter,
-                    "resource_group": resource_group_filter
-                }
-            }
+        logger.info(
+            "Retrieved %d affected VMs for CVE %s (offset=%d, limit=%d)",
+            len(vms), cve_id, offset, limit,
+        )
+
+        response_data = {
+            "items": vms,
+            "total": len(vms),
+            "offset": offset,
+            "limit": limit,
+            "cve_id": cve_id,
+        }
+
+        return StandardResponse(
+            success=True,
+            data=response_data,
+            message=f"Retrieved {len(vms)} affected VMs",
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get affected VMs for CVE {cve_id}: {e}")
+        logger.error("Failed to get affected VMs for CVE %s: %s", cve_id, e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to retrieve affected VMs: {str(e)}"
+            detail=f"Failed to retrieve affected VMs: {str(e)}",
         )
