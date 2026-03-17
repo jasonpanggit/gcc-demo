@@ -150,3 +150,150 @@ ALTER TABLE os_inventory_snapshots
 > ```
 
 ---
+
+## 3. `patch_assessments_cache` -- Status: MODIFIED (FK to vms + type change)
+
+### Purpose
+
+Stores per-VM patch assessment summaries from Azure Resource Graph (ARG). One row per VM with aggregate patch counts (critical, high, medium, low, other), assessment status, and reboot state. Populated by `ARGPatchSyncJob` every 15 minutes.
+
+### DDL
+
+```sql
+CREATE TABLE IF NOT EXISTS patch_assessments_cache (
+    resource_id         TEXT            NOT NULL,     -- TYPE CHANGE: was VARCHAR(512)
+    machine_name        TEXT,
+    os_name             TEXT,
+    os_version          TEXT,
+    vm_type             TEXT,
+    assessment_status   TEXT,
+    last_assessment     TIMESTAMPTZ,
+    critical_count      INTEGER         DEFAULT 0,
+    high_count          INTEGER         DEFAULT 0,
+    medium_count        INTEGER         DEFAULT 0,
+    low_count           INTEGER         DEFAULT 0,
+    other_count         INTEGER         DEFAULT 0,
+    total_patches       INTEGER         DEFAULT 0,
+    reboot_pending      BOOLEAN         DEFAULT FALSE,
+    cached_at           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_patch_assessments_cache PRIMARY KEY (resource_id),
+    CONSTRAINT fk_patchcache_vm FOREIGN KEY (resource_id)
+        REFERENCES vms(resource_id) ON DELETE CASCADE          -- NEW
+);
+```
+
+### Modifications
+
+- **TYPE CHANGE:** `resource_id` from VARCHAR(512) to TEXT for consistency with `vms.resource_id TEXT`. PostgreSQL stores TEXT and VARCHAR identically (both use `varlena` storage), so this is a metadata-only operation -- no table rewrite required.
+- **NEW FK:** `fk_patchcache_vm` -- `resource_id` -> `vms(resource_id)` ON DELETE CASCADE
+  - Deleting a VM from the spine automatically removes its cached patch assessment
+- **TTL Tier:** MEDIUM_LIVED (3600s / 1h) per TTL-TIERS-SPEC row #2 -- Pattern B (`cached_at` + TTL comparison)
+  - Staleness check at query time: `WHERE cached_at > NOW() - INTERVAL '3600 seconds'`
+  - Sync job writes every 15 min, so data is always fresher than the 1h TTL
+
+### Phase 7 Migration
+
+```sql
+-- Step 1: Type change (metadata-only for varlena types)
+ALTER TABLE patch_assessments_cache ALTER COLUMN resource_id TYPE TEXT;
+
+-- Step 2: Clean up orphan rows
+DELETE FROM patch_assessments_cache
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+-- Step 3: Add FK constraint
+ALTER TABLE patch_assessments_cache
+    ADD CONSTRAINT fk_patchcache_vm
+    FOREIGN KEY (resource_id) REFERENCES vms(resource_id) ON DELETE CASCADE;
+```
+
+### Indexes
+
+| Index Name | Columns | Type | Purpose |
+|------------|---------|------|---------|
+| pk_patch_assessments_cache | resource_id | PRIMARY KEY | PK lookup |
+| idx_patchcache_cached | cached_at | B-tree | Staleness queries |
+| idx_patchcache_os | os_name | B-tree | OS-based filtering |
+
+### Index DDL
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_patchcache_cached
+    ON patch_assessments_cache (cached_at);
+
+CREATE INDEX IF NOT EXISTS idx_patchcache_os
+    ON patch_assessments_cache (os_name);
+```
+
+---
+
+## 4. `available_patches` -- Status: MODIFIED (FK target change)
+
+### Purpose
+
+Stores per-VM per-patch detail records from Azure Resource Graph (ARG). One row per (VM, patch) combination. Populated by `ARGPatchSyncJob` every 15 minutes alongside `patch_assessments_cache`. Used by `KBCVEInferenceJob` to identify VMs with uninstalled patches for CVE detection.
+
+### DDL
+
+```sql
+CREATE TABLE IF NOT EXISTS available_patches (
+    id                  BIGSERIAL       PRIMARY KEY,
+    resource_id         TEXT            NOT NULL,
+    patch_name          TEXT,
+    kb_number           TEXT,
+    classification      TEXT,
+    severity            TEXT,
+    reboot_required     BOOLEAN         DEFAULT FALSE,
+    published_date      TIMESTAMPTZ,
+    cached_at           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_availpatches_vm FOREIGN KEY (resource_id)
+        REFERENCES vms(resource_id) ON DELETE CASCADE          -- CHANGED: was FK to patch_assessments_cache
+);
+```
+
+### Modifications
+
+- **FK TARGET CHANGE:** Previously `resource_id` FK'd to `patch_assessments_cache(resource_id)` per migration 011. Target schema FKs directly to `vms(resource_id)` -- cleaner relationship, avoids transitive dependency. A patch record is associated with a VM, not with a patch assessment cache entry. If the assessment cache is cleared/repopulated, patches should not be orphaned.
+- **TTL Tier:** MEDIUM_LIVED (3600s / 1h) per TTL-TIERS-SPEC row #3 -- Pattern B (`cached_at` + TTL comparison)
+  - Staleness check: `WHERE cached_at > NOW() - INTERVAL '3600 seconds'`
+
+### Phase 7 Migration
+
+```sql
+-- Step 1: Drop existing FK to patch_assessments_cache (if exists)
+ALTER TABLE available_patches
+    DROP CONSTRAINT IF EXISTS fk_available_patches_resource;
+
+-- Step 2: Clean up orphan rows
+DELETE FROM available_patches
+WHERE resource_id NOT IN (SELECT resource_id FROM vms);
+
+-- Step 3: Add new FK to vms
+ALTER TABLE available_patches
+    ADD CONSTRAINT fk_availpatches_vm
+    FOREIGN KEY (resource_id) REFERENCES vms(resource_id) ON DELETE CASCADE;
+```
+
+### Indexes
+
+| Index Name | Columns | Type | Purpose |
+|------------|---------|------|---------|
+| available_patches_pkey | id | PRIMARY KEY | PK |
+| idx_availpatches_resource | resource_id | B-tree | VM lookup |
+| idx_availpatches_kb | kb_number | B-tree | KB number lookup |
+| idx_availpatches_cached | cached_at | B-tree | Staleness queries |
+
+### Index DDL
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_availpatches_resource
+    ON available_patches (resource_id);
+
+CREATE INDEX IF NOT EXISTS idx_availpatches_kb
+    ON available_patches (kb_number);
+
+CREATE INDEX IF NOT EXISTS idx_availpatches_cached
+    ON available_patches (cached_at);
+```
+
+---
