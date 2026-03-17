@@ -42,9 +42,6 @@ class PHPEOLAgent(BaseEOLAgent):
                 'Chrome/91.0.4472.124 Safari/537.36'
             )
         }
-        
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cosmos_cache = None
 
         # PHP EOL URLs with metadata (single source of truth)
         self.eol_urls = {

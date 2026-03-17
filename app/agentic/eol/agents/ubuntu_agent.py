@@ -48,10 +48,6 @@ class UbuntuEOLAgent(BaseEOLAgent):
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cache_duration_hours = 24 * 30  # 30 days (reference only)
-        self.cosmos_cache = None
-
         # Ubuntu EOL URLs with metadata (single source of truth)
         self.eol_urls = {
             "ubuntu": {

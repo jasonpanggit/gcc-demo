@@ -45,9 +45,6 @@ class NodeJSEOLAgent(BaseEOLAgent):
             )
         }
 
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cosmos_cache = None
-
         # Node.js product EOL URLs
                 # Nodejs EOL URLs with metadata (single source of truth)
         self.eol_urls = {

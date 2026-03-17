@@ -43,9 +43,6 @@ class OracleEOLAgent(BaseEOLAgent):
             )
         }
 
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cosmos_cache = None
-
         # Oracle EOL URLs with metadata (single source of truth)
         self.eol_urls = {
             "oracle-database": {

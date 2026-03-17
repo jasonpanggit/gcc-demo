@@ -31,9 +31,6 @@ class EOLStatusAgent(BaseEOLAgent):
         self.products_url = f"{self.base_url}/products"
         self.timeout = 15
 
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cosmos_cache = None
-
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Agent-level caching disabled - eol_inventory is the single source of truth"""
         return None

@@ -35,9 +35,6 @@ class EndOfLifeAgent(BaseEOLAgent):
 
         self.base_url = "https://endoflife.date/api"
         self.timeout = 10
-        
-        # Agent-level caching disabled - orchestrator uses eol_inventory as single source of truth
-        self.cosmos_cache = None
 
     def get_urls(self):
         """Return empty list since URLs are dynamically generated from usage statistics"""

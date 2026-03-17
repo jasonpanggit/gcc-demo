@@ -364,7 +364,7 @@ class OSInventoryAgent:
                     "cached_at": cached_timestamp,  # Use actual cache timestamp
                     "from_cache": True,
                     "full_dataset": cached_full_dataset,
-                    "source": "cosmos_cache"
+                    "source": "inventory_cache"
                 }
             else:
                 # Record cache miss statistics

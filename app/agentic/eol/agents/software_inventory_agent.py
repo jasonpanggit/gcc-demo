@@ -342,7 +342,7 @@ class SoftwareInventoryAgent:
                         "query_params": query_params,
                         "cached_at": cached_timestamp,
                         "from_cache": True,
-                        "source": "cosmos_cache",
+                        "source": "inventory_cache",
                         "target_computer": computer_filter,
                         "limit_applied": normalized_limit,
                         "full_dataset": cached_full_dataset,

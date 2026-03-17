@@ -7,7 +7,7 @@ CONSOLIDATION NOTE (January 2026):
     EOL data. The orchestrator (eol_orchestrator.py) handles reads from and writes
     to eol_inventory.
 
-    Agent-level caching via cosmos_cache has been disabled across all specialized
+    Agent-level Cosmos caching has been removed across all specialized
     agents (microsoft_agent, endoflife_agent, redhat_agent, etc.).
 
     This module is retained for:
