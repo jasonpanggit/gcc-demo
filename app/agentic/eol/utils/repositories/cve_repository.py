@@ -136,6 +136,45 @@ FROM kb_cve_edges;
 """
 
 # ---------------------------------------------------------------------------
+# SQL Constants -- CVE search + count (Phase 6 Queries 2a-2b)
+# ---------------------------------------------------------------------------
+
+# From: TARGET-SQL-CVE-DOMAIN.md Query 2a (BH-002 fix, offset/limit pagination)
+QUERY_SEARCH_CVES = """
+SELECT c.cve_id, c.description, c.cvss_v3_score, c.cvss_v3_severity,
+       c.published_at, c.affected_products, c.sources,
+       COALESCE(e.affected_vms, 0) AS affected_vms
+FROM cves c
+LEFT JOIN mv_cve_exposure e ON e.cve_id = c.cve_id
+WHERE 1=1
+  AND ($1::text IS NULL OR c.search_vector @@ to_tsquery('english', $1))
+  AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
+  AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
+  AND ($4::text IS NULL OR c.affected_products @> jsonb_build_object('vendor', $4))
+  AND ($5::text IS NULL OR c.affected_products @> jsonb_build_object('product', $5))
+  AND ($6::timestamptz IS NULL OR c.published_at >= $6)
+  AND ($7::timestamptz IS NULL OR c.published_at <= $7)
+  AND ($8::text IS NULL OR $8 = ANY(c.sources))
+ORDER BY c.published_at DESC, c.cve_id DESC
+LIMIT $9 OFFSET $10;
+"""
+
+# From: TARGET-SQL-CVE-DOMAIN.md Query 2b
+QUERY_COUNT_CVES = """
+SELECT COUNT(*) AS total
+FROM cves c
+WHERE 1=1
+  AND ($1::text IS NULL OR c.search_vector @@ to_tsquery('english', $1))
+  AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
+  AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
+  AND ($4::text IS NULL OR c.affected_products @> jsonb_build_object('vendor', $4))
+  AND ($5::text IS NULL OR c.affected_products @> jsonb_build_object('product', $5))
+  AND ($6::timestamptz IS NULL OR c.published_at >= $6)
+  AND ($7::timestamptz IS NULL OR c.published_at <= $7)
+  AND ($8::text IS NULL OR $8 = ANY(c.sources));
+"""
+
+# ---------------------------------------------------------------------------
 # MV refresh tiers (P6.4 AGGREGATION-STRATEGY.md, bootstrap MVs only)
 # ---------------------------------------------------------------------------
 
@@ -325,3 +364,62 @@ class CVERepository:
         except asyncpg.PostgresError:
             logger.error("Failed to fetch MSRC freshness", exc_info=True)
             return {"row_count": 0}
+
+    # ------------------------------------------------------------------
+    # CVE search + count (Queries 2a-2b)
+    # ------------------------------------------------------------------
+
+    async def search_cves(
+        self,
+        keyword: Optional[str] = None,
+        severity: Optional[str] = None,
+        min_score: Optional[float] = None,
+        vendor: Optional[str] = None,
+        product: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        source: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """CVE search with full filters. Phase 6 Query 2a. Eliminates BH-002."""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    QUERY_SEARCH_CVES,
+                    keyword, severity, min_score,
+                    vendor, product,
+                    date_from, date_to,
+                    source,
+                    limit, offset,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to search CVEs", exc_info=True)
+            return []
+
+    async def count_cves(
+        self,
+        keyword: Optional[str] = None,
+        severity: Optional[str] = None,
+        min_score: Optional[float] = None,
+        vendor: Optional[str] = None,
+        product: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        source: Optional[str] = None,
+    ) -> int:
+        """CVE count for pagination. Phase 6 Query 2b."""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    QUERY_COUNT_CVES,
+                    keyword, severity, min_score,
+                    vendor, product,
+                    date_from, date_to,
+                    source,
+                )
+                return row["total"] if row else 0
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to count CVEs", exc_info=True)
+            return 0
