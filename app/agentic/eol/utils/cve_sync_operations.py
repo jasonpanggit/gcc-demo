@@ -11,6 +11,11 @@ except ImportError:
     from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.logging_config import get_logger
 
+try:
+    from utils.repositories.cve_repository import CVERepository
+except ImportError:
+    from app.agentic.eol.utils.repositories.cve_repository import CVERepository
+
 logger = get_logger(__name__)
 
 
@@ -98,35 +103,90 @@ async def sync_msrc_kb_edges(
     vendor_client,
     kb_cve_repo,
     n_months: int = 3,
+    *,
+    pool=None,
 ) -> int:
-    """Sync recent N months of MSRC KB-CVE edges into cve_kb_edges Cosmos container.
+    """Sync recent N months of MSRC KB-CVE edges into PostgreSQL kb_cve_edges table.
 
-    Called after run_delta_sync() completes. Non-blocking — errors are caught and logged.
+    Phase 8: Rewired from Cosmos kb_cve_repo.bulk_upsert() to
+    CVERepository.upsert_kb_cve_edges().
+    Called after run_delta_sync() completes. Non-blocking -- errors are caught
+    and logged.
+
+    Args:
+        vendor_client: MSRC vendor feed client.
+        kb_cve_repo: Legacy Cosmos-backed repo (kept for graceful degradation).
+        n_months: Number of months of MSRC data to fetch.
+        pool: asyncpg.Pool for PostgreSQL writes. Uses CVERepository when set.
+
     Returns count of edges upserted.
     """
     try:
         month_map = await vendor_client.fetch_recent_months_kb_cve_map(n_months)
-        edges: List[Any] = []
+        edges: List[Dict[str, Any]] = []
         for kb_number, cve_ids in month_map.items():
+            # Map kb_id to kb_number for PG schema compatibility (I-01 resolution)
+            kb_with_prefix = (
+                f"KB{kb_number}"
+                if not kb_number.upper().startswith("KB")
+                else kb_number
+            )
             for cve_id in cve_ids:
-                try:
-                    from models.cve_models import PatchAdvisoryEdge
-                except ImportError:
-                    from app.agentic.eol.models.cve_models import PatchAdvisoryEdge
-                kb_with_prefix = f"KB{kb_number}" if not kb_number.upper().startswith("KB") else kb_number
-                edges.append(PatchAdvisoryEdge(
-                    id=f"microsoft:{kb_with_prefix}:{cve_id.upper()}",
-                    kb_number=kb_with_prefix,
-                    advisory_id=kb_with_prefix,
-                    cve_id=cve_id.upper(),
+                edges.append({
+                    "kb_number": kb_with_prefix,
+                    "cve_id": cve_id.upper(),
+                    "source": "microsoft",
+                    "severity": None,
+                    "title": None,
+                    "fixed_version": None,
+                    "last_seen": datetime.now(timezone.utc),
+                })
+
+        if not edges:
+            return 0
+
+        # Phase 8: Prefer PostgreSQL via CVERepository when pool is available
+        if pool is not None:
+            cve_repo = CVERepository(pool)
+            count = await cve_repo.upsert_kb_cve_edges(edges)
+            logger.info(
+                "MSRC SUG sync: upserted %d KB-CVE edges to PostgreSQL (%d months)",
+                count,
+                n_months,
+            )
+
+            # Refresh bootstrap MVs after successful sync
+            result = await cve_repo.refresh_materialized_views()
+            logger.info("MV refresh after MSRC sync: %s", result)
+
+            return count
+
+        # Graceful degradation: fall back to Cosmos-backed repo
+        try:
+            from models.cve_models import PatchAdvisoryEdge
+        except ImportError:
+            from app.agentic.eol.models.cve_models import PatchAdvisoryEdge
+
+        legacy_edges: List[Any] = []
+        for edge in edges:
+            legacy_edges.append(
+                PatchAdvisoryEdge(
+                    id=f"microsoft:{edge['kb_number']}:{edge['cve_id']}",
+                    kb_number=edge["kb_number"],
+                    advisory_id=edge["kb_number"],
+                    cve_id=edge["cve_id"],
                     source="microsoft",
                     os_family="windows",
-                ))
-        if edges:
-            count = await kb_cve_repo.bulk_upsert(edges)
-            logger.info("MSRC SUG sync: upserted %d KB-CVE edges (%d months)", count, n_months)
-            return count
-        return 0
+                )
+            )
+        count = await kb_cve_repo.bulk_upsert(legacy_edges)
+        logger.info(
+            "MSRC SUG sync (legacy): upserted %d KB-CVE edges (%d months)",
+            count,
+            n_months,
+        )
+        return count
+
     except Exception as e:
         logger.warning("MSRC SUG KB-edge sync failed (non-fatal): %s", e)
         return 0
