@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-17T07:09:11Z"
+last_updated: "2026-03-17T07:15:08.797Z"
 progress:
   total_phases: 10
   completed_phases: 3
   total_plans: 45
-  completed_plans: 30
+  completed_plans: 31
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
@@ -21,10 +21,10 @@ progress:
 
 ## Current Phase
 
-**-> Phase 7: Schema Implementation** 🔄 **In progress -- 4 / 7 plans done**
+**-> Phase 7: Schema Implementation** 🔄 **In progress -- 6 / 7 plans done**
 
-**Completed:** P7.1 -- Migration 027: Drop Obsolete Tables + kb_cve_edge Data Migration, P7.2 -- Migration 028: Create VM Identity Spine (subscriptions + vms tables), P7.3 -- Migration 029: CVE Table FK Additions + Orphan Cleanup, P7.4 -- Migration 030: Inventory + EOL Tables (FK, Type Align, New Tables)
-**Next:** P7.5 -- Migration 031: Alerting table redesign
+**Completed:** P7.1 -- Migration 027: Drop Obsolete Tables + kb_cve_edge Data Migration, P7.2 -- Migration 028: Create VM Identity Spine (subscriptions + vms tables), P7.3 -- Migration 029: CVE Table FK Additions + Orphan Cleanup, P7.4 -- Migration 030: Inventory + EOL Tables (FK, Type Align, New Tables), P7.5 -- Migration 031: Alerting Tables (DROP + CREATE with 9 indexes), P7.6 -- Migration 032: MV Re-creation + Optimization Indexes + FTS
+**Next:** P7.7 -- Bootstrap DDL Rewrite (pg_database.py)
 
 ---
 
@@ -38,7 +38,7 @@ progress:
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
 | 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
 | 6 | Index & Query Optimization Design | ✅ Complete | 6 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md, P6.6 TARGET-SQL (3 domain files) done |
-| 7 | Schema Implementation | 🔄 In progress | 4 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables), P7.3 done — Migration 029 (CVE FK additions + orphan cleanup), P7.4 done — Migration 030 (inventory FK + eol_agent_responses + cache_ttl_config) |
+| 7 | Schema Implementation | 🔄 In progress | 5 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables), P7.3 done — Migration 029 (CVE FK additions + orphan cleanup), P7.4 done — Migration 030 (inventory FK + eol_agent_responses + cache_ttl_config), P7.5 done — Migration 031 (alerting tables DROP/CREATE + 9 indexes) |
 | 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
 | 9 | UI Integration Update | ⬜ Not started | 0 / 7 | Depends on Phase 8 |
 | 10 | Validation & Cleanup | ⬜ Not started | 0 / 7 | Depends on Phase 9 |
@@ -292,8 +292,8 @@ The following migrations are already complete and represent the baseline for thi
 
 ## Next Actions
 
-1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 + P7.3 + P7.4 done (migrations 027 + 028 + 029 + 030)
-2. **Next:** P7.5 -- Migration 031 (Alerting table redesign — DROP/CREATE cve_alert_rules + cve_alert_history)
+1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 + P7.3 + P7.4 + P7.5 done (migrations 027 + 028 + 029 + 030 + 031)
+2. **Next:** P7.6 -- Migration 032 (Optimization indexes + modified MV re-creation)
 3. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
 4. **Note:** Migration 029 cached_at safety net confirmed redundant (already in 027) — IF NOT EXISTS makes it harmless
 5. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
@@ -319,7 +319,9 @@ The following migrations are already complete and represent the baseline for thi
 
 | 2026-03-17 | P7.4: Migration 030 created — inventory FK additions + EOL + cache tables | Type alignment VARCHAR(512)->TEXT; 4 FK constraints (fk_patchcache_vm, fk_availpatches_vm, fk_osinvsnap_vm, fk_arcswinv_vm); eol_agent_responses (7 cols, UUID PK); cache_ttl_config (5 cols, 3 seed rows); all orphan cleanup + DO block idempotency |
 
+| 2026-03-17 | P7.5: Migration 031 created — alerting tables DROP + CREATE with 9 indexes | DROP cve_alert_history (child) then cve_alert_rules (parent); recreated cve_alert_rules (9 explicit cols, UUID PK) + cve_alert_history (8 cols, per-CVE firing model); 5 base + 4 Phase 6 optimization indexes; FKs to cve_alert_rules and cves with CASCADE DELETE; I-06 schema foundation complete |
+
 ---
 
-*State version: 7.5*
-*Updated: 2026-03-17 (P7.4 complete -- Migration 030 inventory FK + eol_agent_responses + cache_ttl_config; Phase 7 now 4/7 plans done)*
+*State version: 7.6*
+*Updated: 2026-03-17 (P7.5 complete -- Migration 031 alerting tables DROP/CREATE + 9 indexes; Phase 7 now 5/7 plans done)*
