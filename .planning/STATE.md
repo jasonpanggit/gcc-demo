@@ -3,28 +3,28 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-03-17T02:43:22.000Z"
+last_updated: "2026-03-17T02:57:50.000Z"
 progress:
   total_phases: 10
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 32
-  completed_plans: 30
+  completed_plans: 31
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
 
 **Project:** gcc-demo EOL Platform — Schema & Performance Overhaul
 **Last Updated:** 2026-03-17
-**Status:** Ready to plan
+**Status:** Phase 5 complete, ready for Phase 6
 
 ---
 
 ## Current Phase
 
-**-> Phase 5: Unified Schema Design** 🔄 **In Progress -- 6 / 7 plans done**
+**-> Phase 5: Unified Schema Design** ✅ **Complete -- 7 / 7 plans done**
 
-**Completed:** P5.1 -- VM Identity Spine, P5.2 -- CVE Data Tables, P5.3 -- Inventory Tables (INVENTORY-TABLES.md), P5.4 -- EOL Tables (EOL-TABLES.md), P5.5 -- Alerting Tables, P5.6 -- Materialized View Set Design
-**Next:** P5.7 -- Unified DDL Spec (consolidation of all P5.1-P5.6 outputs)
+**Completed:** P5.1 -- VM Identity Spine, P5.2 -- CVE Data Tables, P5.3 -- Inventory Tables, P5.4 -- EOL Tables, P5.5 -- Alerting Tables, P5.6 -- Materialized View Set Design, P5.7 -- Unified DDL Spec (UNIFIED-SCHEMA-SPEC.md)
+**Next:** Phase 6 -- Index & Query Optimization Design
 
 ---
 
@@ -36,7 +36,7 @@ progress:
 | 2 | Schema & Repository Audit | ✅ Complete | 7 / 7 | P2.1–P2.7 done — BASE-TABLES, MIGRATION-011, MATERIALIZED-VIEWS, VIEWS, REPOSITORY-MAP, INDEX-AUDIT (P2.6), UI-TO-SCHEMA-MAP (P2.7) |
 | 3 | Bad-Hack Catalogue | ✅ Complete | 5 / 5 | P3.1–P3.5 done — 49 bad hacks catalogued, Priority Matrix sorted CRITICAL→LOW, cross-validated against Phase 1-2 |
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
-| 5 | Unified Schema Design | 🔄 In progress | 6 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md |
+| 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
 | 6 | Index & Query Optimization Design | ⬜ Not started | 0 / 6 | Depends on Phase 5 |
 | 7 | Schema Implementation | ⬜ Not started | 0 / 7 | Depends on Phases 5–6 |
 | 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
@@ -199,6 +199,11 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P5.4: BH-005 bulk EOL lookup JOIN pattern documented | LEFT JOIN vms to eol_records via LOWER(os_name) fuzzy matching; replaces N+1 HTTP calls with single SQL query |
 | 2026-03-17 | P5.4: os_extraction_rules and normalization_failures ACTIVE -- unchanged | Seeded with DEFAULT_OS_EXTRACTION_RULES; normalization pipeline supporting tables |
 
+| 2026-03-17 | P5.7: UNIFIED-SCHEMA-SPEC.md is the single authoritative Phase 7 migration blueprint | Consolidates all P5.1-P5.6 outputs; migrations 027-032; complete DDL + ERD + bootstrap updates + forward refs |
+| 2026-03-17 | P5.7: Migrations ordered by dependency (027 drops, 028 spine, 029 CVE, 030 inventory+EOL, 031 alerting, 032 MV) | Ensures parent tables exist before FK constraints are added; orphan cleanup before every ADD CONSTRAINT |
+| 2026-03-17 | P5.7: 8 tables added to _REQUIRED_TABLES (4 NEW + 4 promoted from migration 011) | subscriptions, vms, eol_agent_responses, cache_ttl_config, plus patch_assessments_cache, available_patches, arc_software_inventory, cve_vm_detections |
+| 2026-03-17 | P5.7: Phase 5 complete -- all 7 plans done, ready for Phase 6 | UNIFIED-SCHEMA-SPEC.md ready for direct Phase 7 execution; Phase 6 index design can begin |
+
 ---
 
 ## File Index
@@ -242,20 +247,18 @@ The following migrations are already complete and represent the baseline for thi
 | `.planning/phases/05-unified-schema-design/schema/INVENTORY-TABLES.md` | Inventory domain: 5 active/modified tables (resource_inventory, os_inventory_snapshots, patch_assessments_cache, available_patches, arc_software_inventory), 5 state/cache tables, 2 DROP, 4 DEPRECATE, ERD (P5.3 output) |
 | `.planning/phases/05-unified-schema-design/schema/MATERIALIZED-VIEWS-TARGET.md` | MV target design: 7 retained MVs, updated mv_vm_vulnerability_posture DDL, 3 DROP list, refresh schedule, manual API, I-03 fix, v_unified_vm_inventory deprecation, dependency diagram (P5.6 output) |
 | `.planning/phases/05-unified-schema-design/schema/EOL-TABLES.md` | EOL domain: 4 tables (eol_records ACTIVE, eol_agent_responses NEW 7-column, os_extraction_rules ACTIVE, normalization_failures ACTIVE) + BH-005 bulk lookup pattern + ERD (P5.4 output) |
+| `.planning/phases/05-unified-schema-design/schema/UNIFIED-SCHEMA-SPEC.md` | Authoritative target schema DDL: 39+ tables, migrations 027-032, full Mermaid ERD, bootstrap _REQUIRED_TABLES/RELATIONS updates, Phase 6-10 forward references (P5.7 output) |
 
 ---
 
 ## Next Actions
 
-1. **Phase 5 in progress** -- 6/7 plans done (P5.1 VM Spine, P5.2 CVE Tables, P5.3 Inventory Tables, P5.4 EOL Tables, P5.5 Alerting Tables, P5.6 MV Target Design)
-2. P5.3 INVENTORY-TABLES.md provides target DDL for 10 inventory tables + DROP/DEPRECATE lists + ERD
-3. **Next plan:** P5.7 -- Unified DDL Spec (consolidation of all P5.1-P5.6 outputs)
-4. Remaining Phase 5 plans: P5.7 (Unified DDL spec) -- LAST PLAN in Phase 5
-5. Phase 6 has 4 forward references from P5.2: GAP-01/02 (cves severity indexes), GAP-03/04 (kb_cve_edges source), GAP-05 (latest scan)
-6. Phase 7 migration targets: ALTER kb_cve_edges ADD cached_at, data migration kb_cve_edge->kb_cve_edges, new FK constraints, MV DDL updates
-7. Phase 7 inventory migration: orphan cleanup + ADD CONSTRAINT for 4 new FKs, ALTER patch_assessments_cache resource_id TYPE TEXT
-8. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob refresh list update
-9. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
+1. **Phase 5 COMPLETE** -- All 7/7 plans done. UNIFIED-SCHEMA-SPEC.md is the authoritative Phase 7 migration blueprint.
+2. **Next:** Phase 6 -- Index & Query Optimization Design (6 plans, depends on Phase 5)
+3. Phase 6 forward references from P5.7: GAP-01/02 (cves severity indexes), GAP-05 (latest scan partial index), vms-eol fuzzy JOIN index
+4. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
+5. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
+6. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
 
 ---
 
@@ -268,5 +271,5 @@ The following migrations are already complete and represent the baseline for thi
 
 ---
 
-*State version: 4.5*
-*Updated: 2026-03-17 (P5.3 complete -- Inventory Tables Design -- INVENTORY-TABLES.md with 10 tables, 4 new FKs, 2 DROP, 4 DEPRECATE, ERD)*
+*State version: 5.0*
+*Updated: 2026-03-17 (P5.7 complete -- Unified Schema DDL Specification -- UNIFIED-SCHEMA-SPEC.md with 39+ tables, migrations 027-032, ERD, bootstrap updates, Phase 6-10 forward refs)*

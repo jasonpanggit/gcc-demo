@@ -112,7 +112,7 @@ Plans:
 - [x] P5.4: Design EOL tables — ensure fast EOL lookup by OS key ✅ (2026-03-17)
 - [x] P5.5: Design Alerting tables with foreign keys and query patterns ✅ (2026-03-17)
 - [x] P5.6: Design Materialized View set with refresh schedule ✅ (2026-03-17)
-- [ ] P5.7: Write complete target schema DDL in single spec document
+- [x] P5.7: Write complete target schema DDL in single spec document ✅ (2026-03-17)
 
 ---
 
