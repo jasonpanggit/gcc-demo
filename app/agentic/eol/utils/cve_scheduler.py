@@ -45,6 +45,11 @@ except ImportError:
     from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
 
+try:
+    from utils.repositories.cve_repository import CVERepository
+except ImportError:
+    from app.agentic.eol.utils.repositories.cve_repository import CVERepository
+
 
 logger = get_logger(__name__)
 
@@ -55,6 +60,61 @@ warnings.filterwarnings(
     message="Can not find any timezone configuration, defaulting to UTC\\.",
     category=UserWarning,
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: I-09 column mapping + MV refresh list updated
+# ---------------------------------------------------------------------------
+
+def apply_i09_column_mapping(cve_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply I-09 column mapping from migration-011 names to bootstrap schema.
+
+    # Column mapping (I-09): severity->cvss_v3_severity, cvss_score->cvss_v3_score,
+    # vendor+product->affected_products JSONB, cached_at->synced_at
+    """
+    mapped = dict(cve_data)
+
+    # severity -> cvss_v3_severity
+    if "severity" in mapped and "cvss_v3_severity" not in mapped:
+        mapped["cvss_v3_severity"] = mapped.pop("severity")
+
+    # cvss_score -> cvss_v3_score
+    if "cvss_score" in mapped and "cvss_v3_score" not in mapped:
+        mapped["cvss_v3_score"] = mapped.pop("cvss_score")
+
+    # vendor + product -> affected_products JSONB
+    if ("vendor" in mapped or "product" in mapped) and "affected_products" not in mapped:
+        vendor = mapped.pop("vendor", None)
+        product = mapped.pop("product", None)
+        if vendor or product:
+            affected = {}
+            if vendor:
+                affected["vendor"] = vendor
+            if product:
+                affected["product"] = product
+            mapped["affected_products"] = [affected]
+
+    # cached_at -> synced_at
+    if "cached_at" in mapped and "synced_at" not in mapped:
+        mapped["synced_at"] = mapped.pop("cached_at")
+
+    return mapped
+
+
+async def _refresh_materialized_views_after_sync(pool) -> None:
+    """Refresh bootstrap MVs after sync completes.
+
+    Uses CVERepository.refresh_materialized_views() which refreshes only
+    bootstrap MV names (not the 3 dropped migration-011 MVs).
+    """
+    if pool is None:
+        return
+    try:
+        cve_repo = CVERepository(pool)
+        result = await cve_repo.refresh_materialized_views()
+        logger.info("Post-sync MV refresh: %s", result)
+    except Exception as exc:
+        logger.warning("Post-sync MV refresh failed (non-fatal): %s", exc)
 
 # ---------------------------------------------------------------------------
 # Job execution tracking
@@ -106,8 +166,9 @@ def get_scheduler_stats() -> Dict[str, Any]:
 async def full_sync_job() -> None:
     """Execute a full CVE sync for the configured lookback period.
 
-    Fetches CVEs modified in the last N days (from config.cve_sync.sync_lookback_days)
-    and updates the Cosmos DB repository.
+    Phase 8: Writes CVE data to PostgreSQL via CVERepository. I-09 column
+    mapping applied by CVEService. MV refresh after sync uses bootstrap-only
+    MV list (no migration-011 MV names).
     """
     stats = _job_stats["full_sync"]
     stats["last_run"] = datetime.now(timezone.utc).isoformat()
@@ -160,6 +221,15 @@ async def full_sync_job() -> None:
             stats["inventory_os_processed"],
         )
 
+        # Phase 8: Refresh bootstrap MVs after successful sync
+        try:
+            from utils.pg_client import postgres_client
+        except ImportError:
+            from app.agentic.eol.utils.pg_client import postgres_client
+        await _refresh_materialized_views_after_sync(
+            postgres_client.pool if postgres_client.is_initialized else None
+        )
+
     except Exception as exc:
         elapsed = time.monotonic() - start
         stats["last_duration_seconds"] = round(elapsed, 2)
@@ -174,6 +244,8 @@ async def incremental_sync_job() -> None:
 
     Fetches CVEs modified since the last successful delta-style sync.
     Also bootstraps CVEs for newly discovered OS inventory identities.
+
+    Phase 8: MV refresh after sync uses bootstrap-only MV list.
     """
     stats = _job_stats["incremental_sync"]
     stats["last_run"] = datetime.now(timezone.utc).isoformat()
@@ -217,6 +289,15 @@ async def incremental_sync_job() -> None:
             elapsed,
             stats["inventory_os_new"],
             stats["inventory_os_processed"],
+        )
+
+        # Phase 8: Refresh bootstrap MVs after successful sync
+        try:
+            from utils.pg_client import postgres_client
+        except ImportError:
+            from app.agentic.eol.utils.pg_client import postgres_client
+        await _refresh_materialized_views_after_sync(
+            postgres_client.pool if postgres_client.is_initialized else None
         )
 
     except Exception as exc:
