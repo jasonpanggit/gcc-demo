@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 try:
@@ -63,6 +63,7 @@ def _set_cached_data(cache_key: str, data: dict):
 @router.get("/dashboard")
 @readonly_endpoint(agent_name="cve_dashboard", timeout_seconds=90)
 async def get_dashboard_metrics(
+    request: Request,
     time_range: int = Query(30, description="Days to look back (30, 90, or 365)"),
     severity: Optional[str] = Query(None, description="Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)")
 ) -> StandardResponse:
@@ -110,22 +111,19 @@ async def get_dashboard_metrics(
                 cached=True
             )
 
-        # Import analytics service
-        from main import get_cve_analytics
-
-        analytics = await get_cve_analytics()
+        # Use CVERepository materialized view reads
+        cve_repo = request.app.state.cve_repo
 
         # Execute all queries in parallel
         logger.info(f"Fetching dashboard metrics: time_range={time_range}, severity={severity}")
 
         try:
-            summary_stats, trending_data, top_cves, vm_posture, aging_dist, mttp = await asyncio.gather(
-                analytics.get_summary_stats(time_range, severity),
-                analytics.get_trending_data(time_range, severity),
-                analytics.get_top_cves_by_exposure(severity, limit=10),
-                analytics.get_vm_vulnerability_posture(severity),
-                analytics.get_aging_distribution(severity),
-                asyncio.wait_for(analytics.calculate_mttp(time_range), timeout=5),
+            summary_stats, trending_data, top_cves, vm_posture, os_breakdown = await asyncio.gather(
+                cve_repo.get_dashboard_summary(),
+                cve_repo.get_trending_data(days_back=time_range),
+                cve_repo.get_top_cves_by_score(limit=10),
+                cve_repo.get_vm_posture_summary(limit=20),
+                cve_repo.get_os_cve_breakdown(),
                 return_exceptions=True  # Don't fail entire request if one query fails
             )
 
@@ -151,15 +149,10 @@ async def get_dashboard_metrics(
                 vm_posture = []
                 errors.append("vm_posture")
 
-            if isinstance(aging_dist, Exception):
-                logger.error(f"Aging distribution query failed: {aging_dist}")
-                aging_dist = {"0-7_days": 0, "8-30_days": 0, "31-90_days": 0, "90+_days": 0}
-                errors.append("aging_distribution")
-
-            if isinstance(mttp, Exception):
-                logger.error(f"MTTP calculation failed: {mttp}")
-                mttp = None
-                errors.append("mttp")
+            if isinstance(os_breakdown, Exception):
+                logger.error(f"OS breakdown query failed: {os_breakdown}")
+                os_breakdown = []
+                errors.append("os_breakdown")
 
         except Exception as e:
             logger.error(f"Dashboard query execution failed: {e}")
@@ -168,21 +161,17 @@ async def get_dashboard_metrics(
                 detail=f"Failed to fetch dashboard metrics: {str(e)}"
             )
 
-        # Add MTTP to summary
-        summary_stats["mttp_days"] = mttp
-
         # Build response
         dashboard_data = {
             "summary": summary_stats,
             "trending": trending_data,
             "top_cves": top_cves,
             "vm_posture": vm_posture,
-            "aging": aging_dist,
+            "os_breakdown": os_breakdown,
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "time_range_days": time_range,
                 "severity_filter": severity,
-                "mttp_available": mttp is not None,
                 "partial_errors": errors if errors else None
             }
         }
@@ -232,6 +221,7 @@ async def export_dashboard_csv(
 
 @router.post("/export")
 async def export_dashboard_pdf(
+    request: Request,
     export_request: dict
 ) -> StreamingResponse:
     """
@@ -256,32 +246,25 @@ async def export_dashboard_pdf(
     if format_type != 'pdf':
         raise HTTPException(status_code=400, detail="POST /export only supports format=pdf")
 
-    # Get dashboard data (reuse analytics queries)
+    # Get dashboard data using CVERepository MV reads
     time_range = export_request.get('time_range', 30)
     severity = export_request.get('severity')
 
-    # Import analytics service
-    from main import get_cve_analytics
-
-    analytics = await get_cve_analytics()
+    cve_repo = request.app.state.cve_repo
 
     # Fetch dashboard data
-    summary_stats, top_cves, vm_posture, aging_dist, mttp = await asyncio.gather(
-        analytics.get_summary_stats(time_range, severity),
-        analytics.get_top_cves_by_exposure(severity, limit=10),
-        analytics.get_vm_vulnerability_posture(severity),
-        analytics.get_aging_distribution(severity),
-        analytics.calculate_mttp(time_range)
+    summary_stats, top_cves, vm_posture, os_breakdown = await asyncio.gather(
+        cve_repo.get_dashboard_summary(),
+        cve_repo.get_top_cves_by_score(limit=10),
+        cve_repo.get_vm_posture_summary(limit=20),
+        cve_repo.get_os_cve_breakdown(),
     )
-
-    # Add MTTP to summary
-    summary_stats["mttp_days"] = mttp
 
     dashboard_data = {
         'summary': summary_stats,
         'top_cves': top_cves,
         'vm_posture': vm_posture,
-        'aging': aging_dist
+        'os_breakdown': os_breakdown
     }
 
     chart_images = export_request.get('chart_images', {})

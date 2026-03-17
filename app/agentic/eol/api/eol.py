@@ -29,7 +29,7 @@ import asyncio
 import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request as FastAPIRequest
 from pydantic import BaseModel
 import logging
 
@@ -44,6 +44,11 @@ from utils.eol_inventory import eol_inventory
 from utils.normalization import derive_os_name_version
 from utils.os_extraction_rules import os_extraction_rules_store
 from utils.vendor_url_inventory import vendor_url_inventory
+
+# Phase 8: eol_repo is the new PostgreSQL-backed EOLRepository.
+# It is accessed via app.state in endpoint handlers, with eol_inventory as fallback
+# for non-request contexts (background tasks, schedulers).
+eol_repo = eol_inventory  # Will be replaced by app.state.eol_repo at request time
 from agents.eol_orchestrator import DEFAULT_VENDOR_ROUTING
 
 logger = logging.getLogger(__name__)

@@ -247,6 +247,14 @@ async def _get_cve_vm_service():
 
 
 async def _get_kb_cve_edge_repository():
+    """Get KB-CVE edge repository. Phase 8: prefer CVERepository via pg_client."""
+    try:
+        from utils.pg_client import postgres_client
+        if postgres_client.is_initialized:
+            from utils.repositories.cve_repository import CVERepository
+            return CVERepository(postgres_client.pool)
+    except Exception:
+        pass
     from main import get_kb_cve_edge_repository
     return await get_kb_cve_edge_repository()
 

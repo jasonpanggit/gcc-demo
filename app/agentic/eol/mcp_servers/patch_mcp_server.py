@@ -29,6 +29,18 @@ try:
 except ImportError:
     from app.agentic.eol.utils.patch_assessment_repository import get_patch_assessment_repository
 
+
+async def _get_patch_repo():
+    """Get PatchRepository via pg_client. Falls back to legacy patch_assessment_repository."""
+    try:
+        from utils.pg_client import postgres_client
+        if postgres_client.is_initialized:
+            from utils.repositories.patch_repository import PatchRepository
+            return PatchRepository(postgres_client.pool)
+    except Exception:
+        pass
+    return await get_patch_assessment_repository()
+
 try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.resourcegraph import ResourceGraphClient

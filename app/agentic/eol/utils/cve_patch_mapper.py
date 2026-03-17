@@ -51,12 +51,15 @@ class CVEPatchMapper:
         patch_mcp_client: PatchMCPClient,
         patch_install_history_repository=None,
         kb_cve_edge_repository=None,
+        cve_repo=None,
     ):
         self.cve_service = cve_service
         self.cve_scanner = cve_scanner
         self.patch_mcp_client = patch_mcp_client
         self.patch_install_history_repository = patch_install_history_repository
         self.kb_cve_edge_repository = kb_cve_edge_repository
+        # Phase 8: prefer CVERepository for KB-CVE lookups
+        self.cve_repo = cve_repo
         self.supports_install_history = patch_install_history_repository is not None
         self._mapping_cache: TTLCache = TTLCache(maxsize=256, ttl=300)
         self._available_patches_cache: TTLCache = TTLCache(maxsize=32, ttl=300)

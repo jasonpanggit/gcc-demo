@@ -921,11 +921,9 @@ async def install_patches(request: Request):
             if resp.status == 200:
                 # Synchronous / immediate completion (rare)
                 result_body = await resp.json(content_type=None)
-                from main import get_patch_install_history_repository
-
-                history_repo = await get_patch_install_history_repository()
+                patch_repo = request.app.state.patch_repo
                 sync_result = _extract_install_result(result_body)
-                pending_record = await history_repo.upsert_pending({
+                pending_record = await patch_repo.record_install({
                     "operation_url": install_url,
                     "machine_name": machine_name,
                     "subscription_id": sub_id,
@@ -937,7 +935,7 @@ async def install_patches(request: Request):
                     "status": "Completed",
                     "start_date_time": sync_result.get("start_date_time"),
                 })
-                await history_repo.mark_completed(pending_record["operation_url"], sync_result)
+                # Mark install complete inline since it was a synchronous return
                 return {
                     "success": True,
                     "machine": machine_name,
@@ -968,10 +966,8 @@ async def install_patches(request: Request):
 
     logger.info("Install operation started for %s: %s", machine_name, operation_url)
 
-    from main import get_patch_install_history_repository
-
-    history_repo = await get_patch_install_history_repository()
-    await history_repo.upsert_pending({
+    patch_repo = request.app.state.patch_repo
+    await patch_repo.record_install({
         "operation_url": operation_url,
         "machine_name": machine_name,
         "subscription_id": sub_id,
@@ -999,7 +995,7 @@ async def install_patches(request: Request):
 
 @router.get("/install-status")  # no response_model — returns custom shape: is_done, status, data
 @readonly_endpoint(agent_name="patch_mgmt_install_status", timeout_seconds=20)
-async def get_install_status(operation_url: str = Query(..., description="Azure-AsyncOperation URL from /install")):
+async def get_install_status(request: Request, operation_url: str = Query(..., description="Azure-AsyncOperation URL from /install")):
     """
     Check the status of an in-progress or completed installPatches operation.
 
@@ -1031,10 +1027,8 @@ async def get_install_status(operation_url: str = Query(..., description="Azure-
     }
 
     if is_done and result["data"]:
-        from main import get_patch_install_history_repository
-
-        history_repo = await get_patch_install_history_repository()
-        await history_repo.mark_completed(operation_url, result["data"])
+        patch_repo = request.app.state.patch_repo
+        await patch_repo.record_install({"operation_url": operation_url, "status": "Completed", **result["data"]})
 
     return result
 
