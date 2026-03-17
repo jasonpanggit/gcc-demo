@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, HTTPException, Request
@@ -76,19 +75,6 @@ class RefreshRequest(BaseModel):
 def _default_subscription() -> str:
     sub = getattr(config.azure, "subscription_id", None)
     return sub or os.getenv("AZURE_SUBSCRIPTION_ID", "")
-
-
-def _paginate(items: List[Any], offset: int, limit: int) -> Dict[str, Any]:
-    """Return a slice of *items* plus pagination metadata."""
-    total = len(items)
-    page = items[offset : offset + limit]
-    return {
-        "items": page,
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "has_more": offset + limit < total,
-    }
 
 
 # =====================================================================
