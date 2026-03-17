@@ -344,41 +344,43 @@ async def get_os(request: Request):
 
 @router.get("/api/os/summary", response_model=StandardResponse)
 @readonly_endpoint(agent_name="os_summary", timeout_seconds=30)
-async def get_os_summary(days: int = 90):
+async def get_os_summary(request: Request):
     """
     Get summarized OS counts and top versions.
-    
-    Provides aggregated statistics about operating systems in the environment
-    including version distributions, EOL risk levels, and top OS families.
-    
-    Args:
-        days: Number of days to look back for OS data (default: 90)
-    
+
+    Aggregates OS inventory from inventory_repo (PostgreSQL) instead of
+    calling the orchestrator agent. Groups VMs by os_name with EOL status.
+
     Returns:
-        StandardResponse with OS summary statistics including counts by OS type,
-        version distributions, and EOL risk levels.
-    
-    Example Response:
-        {
-            "success": true,
-            "status": "ok",
-            "summary": {
-                "total_systems": 85,
-                "os_families": {
-                    "Windows Server": 45,
-                    "Windows 10": 30,
-                    "Linux": 10
-                },
-                "eol_risk": {
-                    "high": 5,
-                    "medium": 10,
-                    "low": 70
-                }
-            }
-        }
+        StandardResponse with OS summary statistics including counts by OS type
+        and EOL status.
     """
-    summary = await _get_eol_orchestrator().agents["os_inventory"].get_os_summary(days=days)
-    return {"status": "ok", "summary": summary}
+    inventory_repo = request.app.state.inventory_repo
+
+    # Get all VMs with EOL info (no pagination, we need full set for summary)
+    all_vms = await inventory_repo.get_vm_inventory_with_eol(limit=10000, offset=0)
+
+    # Aggregate summary by OS name
+    os_summary = {}
+    for vm in all_vms:
+        os_name = vm.get("os_name") or "Unknown"
+        if os_name not in os_summary:
+            os_summary[os_name] = {
+                "os_name": os_name,
+                "vm_count": 0,
+                "is_eol": vm.get("is_eol"),
+                "eol_date": str(vm.get("eol_date")) if vm.get("eol_date") else None,
+            }
+        os_summary[os_name]["vm_count"] += 1
+
+    summary_list = sorted(os_summary.values(), key=lambda x: x["vm_count"], reverse=True)
+
+    return StandardResponse(
+        success=True,
+        data=summary_list,
+        count=len(summary_list),
+        message=f"Retrieved {len(summary_list)} OS summary records",
+    )
 
 
 @router.get("/api/inventory/raw/software", response_model=StandardResponse)
