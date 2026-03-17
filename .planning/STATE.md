@@ -208,6 +208,11 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P6.1: search_vector + trigger + idx_cves_fts are all bootstrap gaps for Phase 7 | Migration 006 only; bootstrap deployments lack FTS capability entirely |
 | 2026-03-17 | P6.1: Always prefer search_vector @@ to_tsquery() over ILIKE for user-facing CVE search | GIN index enables O(1) lookup per term; ILIKE forces sequential scan on 8,600+ rows |
 
+| 2026-03-17 | P6.4: GAP-05 resolved with Option A -- rely on existing idx_vmcvematch_scan_severity composite index | No partial index lifecycle needed at demo scale (~22,589 rows); Phase 10 revisits if >100k rows or >5s MV refresh |
+| 2026-03-17 | P6.4: BH-001 fix -- PDF export uses same MV read queries as page load | Eliminates 5-call Python analytics path; same data as rendered page; Phase 8 implementation |
+| 2026-03-17 | P6.4: BH-004 fix -- single mv_vm_vulnerability_posture GROUP BY os_name | Replaces 3-query dual-path with O(N^2) JSONB cross-join fallback; Phase 8 implementation |
+| 2026-03-17 | P6.4: MV refresh order defined as 3 tiers (independent, scan-scoped, detail) | Tier 1: dashboard/trending/top. Tier 2: exposure/posture. Tier 3: vm_cve_detail. Parallel within tiers. |
+
 | 2026-03-17 | P6.5: Only cve-database.html uses keyset pagination (8,608+ growing CVEs) | All other paginated views use offset/limit; 15 views need no pagination |
 | 2026-03-17 | P6.5: Cursor token format is base64url(JSON) with compound key (published_at, cve_id) | Compound key guarantees uniqueness since multiple CVEs can share same published_at |
 | 2026-03-17 | P6.5: COUNT(*) queries cached in L1 for 60s for both keyset and offset/limit views | Avoids per-page re-counting; keyed by filter combination hash |
