@@ -5,12 +5,11 @@ API endpoints for managing CVE alert rules.
 Provides CRUD operations and test alert functionality.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from typing import Dict, Any
 from datetime import datetime, timezone
 
 from utils.response_models import StandardResponse
-from utils.cve_alert_rule_manager import get_cve_alert_rule_manager
 from utils.cve_alert_dispatcher import get_cve_alert_dispatcher
 from models.cve_alert_models import CVEAlertRule, CVEAlertItem, CVEDelta
 from utils.logger import get_logger
@@ -22,7 +21,7 @@ logger = get_logger(__name__, config.app.log_level)
 
 
 @router.get("/alerts")
-async def list_alert_rules(enabled_only: bool = Query(False)) -> StandardResponse:
+async def list_alert_rules(request: Request, enabled_only: bool = Query(False)) -> StandardResponse:
     """
     List all CVE alert rules.
 
@@ -32,21 +31,21 @@ async def list_alert_rules(enabled_only: bool = Query(False)) -> StandardRespons
     Returns:
         List of alert rules
     """
-    rule_manager = get_cve_alert_rule_manager()
-    rules = await rule_manager.list_rules(enabled_only=enabled_only)
+    alert_repo = request.app.state.alert_repo
+    rules = await alert_repo.list_rules(enabled_only=enabled_only)
 
     return StandardResponse(
         success=True,
         message=f"Retrieved {len(rules)} alert rules",
         data={
-            "rules": [rule.to_dict() for rule in rules],
+            "rules": rules,
             "count": len(rules)
         }
     )
 
 
 @router.post("/alerts")
-async def create_alert_rule(rule_data: Dict[str, Any]) -> StandardResponse:
+async def create_alert_rule(request: Request, rule_data: Dict[str, Any]) -> StandardResponse:
     """
     Create new CVE alert rule.
 
@@ -75,17 +74,17 @@ async def create_alert_rule(rule_data: Dict[str, Any]) -> StandardResponse:
                 message="Rule name is required"
             )
 
-        # Create rule object
+        # Create rule object for validation
         rule = CVEAlertRule(**rule_data)
 
-        # Persist via manager
-        rule_manager = get_cve_alert_rule_manager()
-        created_rule = await rule_manager.create_rule(rule)
+        # Persist via repository
+        alert_repo = request.app.state.alert_repo
+        created_rule = await alert_repo.create_rule(rule.to_dict())
 
         return StandardResponse(
             success=True,
-            message=f"Alert rule '{created_rule.name}' created",
-            data={"rule": created_rule.to_dict()}
+            message=f"Alert rule '{rule.name}' created",
+            data={"rule": created_rule}
         )
 
     except ValueError as e:
@@ -102,10 +101,10 @@ async def create_alert_rule(rule_data: Dict[str, Any]) -> StandardResponse:
 
 
 @router.get("/alerts/{rule_id}")
-async def get_alert_rule(rule_id: str) -> StandardResponse:
+async def get_alert_rule(request: Request, rule_id: str) -> StandardResponse:
     """Get alert rule by ID"""
-    rule_manager = get_cve_alert_rule_manager()
-    rule = await rule_manager.get_rule(rule_id)
+    alert_repo = request.app.state.alert_repo
+    rule = await alert_repo.get_rule(rule_id)
 
     if not rule:
         return StandardResponse(
@@ -116,40 +115,40 @@ async def get_alert_rule(rule_id: str) -> StandardResponse:
     return StandardResponse(
         success=True,
         message="Alert rule retrieved",
-        data={"rule": rule.to_dict()}
+        data={"rule": rule}
     )
 
 
 @router.put("/alerts/{rule_id}")
-async def update_alert_rule(rule_id: str, rule_data: Dict[str, Any]) -> StandardResponse:
+async def update_alert_rule(request: Request, rule_id: str, rule_data: Dict[str, Any]) -> StandardResponse:
     """
     Update existing alert rule.
 
     Body: Same fields as create, all optional
     """
     try:
-        rule_manager = get_cve_alert_rule_manager()
+        alert_repo = request.app.state.alert_repo
 
         # Fetch existing rule
-        existing = await rule_manager.get_rule(rule_id)
+        existing = await alert_repo.get_rule(rule_id)
         if not existing:
             return StandardResponse(
                 success=False,
                 message=f"Alert rule {rule_id} not found"
             )
 
-        # Update fields
+        # Update fields (merge new data into existing)
         for key, value in rule_data.items():
-            if hasattr(existing, key) and key not in ["id", "created_at", "created_by"]:
-                setattr(existing, key, value)
+            if key not in ["id", "created_at", "created_by"]:
+                existing[key] = value
 
         # Persist changes
-        updated_rule = await rule_manager.update_rule(existing)
+        updated_rule = await alert_repo.update_rule(existing)
 
         return StandardResponse(
             success=True,
-            message=f"Alert rule '{updated_rule.name}' updated",
-            data={"rule": updated_rule.to_dict()}
+            message=f"Alert rule '{existing.get('name', rule_id)}' updated",
+            data={"rule": updated_rule}
         )
 
     except ValueError as e:
@@ -166,10 +165,10 @@ async def update_alert_rule(rule_id: str, rule_data: Dict[str, Any]) -> Standard
 
 
 @router.delete("/alerts/{rule_id}")
-async def delete_alert_rule(rule_id: str) -> StandardResponse:
+async def delete_alert_rule(request: Request, rule_id: str) -> StandardResponse:
     """Delete alert rule by ID"""
-    rule_manager = get_cve_alert_rule_manager()
-    success = await rule_manager.delete_rule(rule_id)
+    alert_repo = request.app.state.alert_repo
+    success = await alert_repo.delete_rule(rule_id)
 
     if not success:
         return StandardResponse(
@@ -184,15 +183,15 @@ async def delete_alert_rule(rule_id: str) -> StandardResponse:
 
 
 @router.post("/alerts/{rule_id}/test")
-async def test_alert_rule(rule_id: str) -> StandardResponse:
+async def test_alert_rule(request: Request, rule_id: str) -> StandardResponse:
     """
     Send test alert using rule configuration.
 
     Generates sample CVE alert and sends via configured channels.
     """
     try:
-        rule_manager = get_cve_alert_rule_manager()
-        rule = await rule_manager.get_rule(rule_id)
+        alert_repo = request.app.state.alert_repo
+        rule = await alert_repo.get_rule(rule_id)
 
         if not rule:
             return StandardResponse(
@@ -222,10 +221,14 @@ async def test_alert_rule(rule_id: str) -> StandardResponse:
             current_scan_id="test-scan"
         )
 
+        severity_levels = rule.get("severity_levels", ["HIGH"])
+        if isinstance(severity_levels, str):
+            import json as _json
+            severity_levels = _json.loads(severity_levels)
+
         result = await alert_dispatcher.send_cve_alerts(
             delta=mock_delta,
-            severity_threshold=rule.severity_levels[0] if rule.severity_levels else "HIGH",
-            rule=rule  # Pass rule for custom recipients/channels
+            severity_threshold=severity_levels[0] if severity_levels else "HIGH",
         )
 
         return StandardResponse(

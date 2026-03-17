@@ -5,17 +5,15 @@ API endpoints for querying and managing CVE alert history.
 Provides filtering, acknowledge, and dismiss operations.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from typing import Optional, Dict, Any
 
 try:
     from utils.response_models import StandardResponse
-    from utils.cve_alert_history_manager import get_cve_alert_history_manager
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
     from app.agentic.eol.utils.response_models import StandardResponse
-    from app.agentic.eol.utils.cve_alert_history_manager import get_cve_alert_history_manager
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
 
@@ -25,6 +23,7 @@ logger = get_logger(__name__)
 
 @router.get("/alerts/history")
 async def query_alert_history(
+    request: Request,
     alert_type: Optional[str] = Query(None, description="Filter by alert type (critical, high, medium, low)"),
     acknowledged: Optional[bool] = Query(None, description="Filter by acknowledged status"),
     dismissed: Optional[bool] = Query(None, description="Filter by dismissed status"),
@@ -69,14 +68,14 @@ async def query_alert_history(
         if scan_id:
             filters["scan_id"] = scan_id
 
-        history_manager = get_cve_alert_history_manager()
-        records = await history_manager.query_history(filters, limit, offset)
+        alert_repo = request.app.state.alert_repo
+        records = await alert_repo.query_history(filters, limit, offset)
 
         return StandardResponse(
             success=True,
             message=f"Retrieved {len(records)} alert history records",
             data={
-                "records": [r.to_dict() for r in records],
+                "records": records,
                 "count": len(records),
                 "limit": limit,
                 "offset": offset,
@@ -93,7 +92,7 @@ async def query_alert_history(
 
 
 @router.get("/alerts/history/{record_id}")
-async def get_alert_details(record_id: str) -> StandardResponse:
+async def get_alert_details(request: Request, record_id: str) -> StandardResponse:
     """
     Get full alert history record details.
 
@@ -104,8 +103,8 @@ async def get_alert_details(record_id: str) -> StandardResponse:
         StandardResponse with complete record data
     """
     try:
-        history_manager = get_cve_alert_history_manager()
-        record = await history_manager.get_record(record_id)
+        alert_repo = request.app.state.alert_repo
+        record = await alert_repo.get_record(record_id)
 
         if not record:
             return StandardResponse(
@@ -116,7 +115,7 @@ async def get_alert_details(record_id: str) -> StandardResponse:
         return StandardResponse(
             success=True,
             message="Alert details retrieved",
-            data={"record": record.to_dict()}
+            data={"record": record}
         )
 
     except Exception as e:
@@ -129,6 +128,7 @@ async def get_alert_details(record_id: str) -> StandardResponse:
 
 @router.post("/alerts/history/{record_id}/acknowledge")
 async def acknowledge_alert(
+    request: Request,
     record_id: str,
     body: Dict[str, Any]
 ) -> StandardResponse:
@@ -156,8 +156,8 @@ async def acknowledge_alert(
 
         note = body.get("note")
 
-        history_manager = get_cve_alert_history_manager()
-        success = await history_manager.acknowledge(record_id, user, note)
+        alert_repo = request.app.state.alert_repo
+        success = await alert_repo.acknowledge(record_id, user, note)
 
         if not success:
             return StandardResponse(
@@ -187,6 +187,7 @@ async def acknowledge_alert(
 
 @router.post("/alerts/history/{record_id}/dismiss")
 async def dismiss_alert(
+    request: Request,
     record_id: str,
     body: Dict[str, Any]
 ) -> StandardResponse:
@@ -211,8 +212,8 @@ async def dismiss_alert(
                 message="Dismissal reason is required"
             )
 
-        history_manager = get_cve_alert_history_manager()
-        success = await history_manager.dismiss(record_id, reason)
+        alert_repo = request.app.state.alert_repo
+        success = await alert_repo.dismiss(record_id, reason)
 
         if not success:
             return StandardResponse(

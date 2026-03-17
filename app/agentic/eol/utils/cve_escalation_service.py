@@ -10,13 +10,13 @@ from datetime import datetime, timezone, timedelta
 
 try:
     from models.cve_alert_models import CVEAlertHistoryRecord, CVEAlertRule
-    from utils.cve_alert_history_manager import get_cve_alert_history_manager
+    from utils.repositories.alert_repository import AlertRepository
     from utils.alert_manager import alert_manager
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_alert_models import CVEAlertHistoryRecord, CVEAlertRule
-    from app.agentic.eol.utils.cve_alert_history_manager import get_cve_alert_history_manager
+    from app.agentic.eol.utils.repositories.alert_repository import AlertRepository
     from app.agentic.eol.utils.alert_manager import alert_manager
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
@@ -24,7 +24,7 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 
-async def check_and_escalate_alerts() -> Dict[str, Any]:
+async def check_and_escalate_alerts(alert_repo: AlertRepository | None = None) -> Dict[str, Any]:
     """
     Check for unacknowledged critical CVE alerts requiring escalation.
 
@@ -34,18 +34,24 @@ async def check_and_escalate_alerts() -> Dict[str, Any]:
     3. For each alert, send escalation notification
     4. Mark alert as escalated
 
+    Args:
+        alert_repo: AlertRepository instance for DB access.
+
     Returns:
         Summary of escalations sent
     """
     logger.info("Checking for CVE alerts requiring escalation")
+
+    if alert_repo is None:
+        logger.warning("alert_repo not provided for escalation check -- skipping")
+        return {"escalations_sent": 0, "alerts_checked": 0}
 
     # Calculate cutoff time (default 24 hours)
     timeout_hours = getattr(config.cve_monitoring, 'escalation_timeout_hours', 24)
     cutoff_time = (datetime.now(timezone.utc) - timedelta(hours=timeout_hours)).isoformat()
 
     # Query unacknowledged critical alerts
-    history_manager = get_cve_alert_history_manager()
-    alerts_to_escalate = await history_manager.get_unacknowledged_critical(cutoff_time)
+    alerts_to_escalate = await alert_repo.get_unacknowledged_critical(cutoff_time)
 
     if not alerts_to_escalate:
         logger.info("No alerts requiring escalation")
@@ -61,27 +67,35 @@ async def check_and_escalate_alerts() -> Dict[str, Any]:
 
     for alert in alerts_to_escalate:
         try:
+            alert_id = alert.get("id", "")
+            alert_timestamp = alert.get("timestamp", "")
             # Calculate time since alert
-            alert_time = datetime.fromisoformat(alert.timestamp.replace('Z', '+00:00'))
+            alert_time = datetime.fromisoformat(alert_timestamp.replace('Z', '+00:00'))
             hours_elapsed = (datetime.now(timezone.utc) - alert_time).total_seconds() / 3600
+
+            # Build a lightweight CVEAlertHistoryRecord for the notification formatter
+            alert_record = CVEAlertHistoryRecord(**{
+                k: v for k, v in alert.items()
+                if k in CVEAlertHistoryRecord.__dataclass_fields__
+            })
 
             # Send escalation notification
             escalation_result = await send_escalation_notification(
-                alert=alert,
+                alert=alert_record,
                 hours_elapsed=hours_elapsed
             )
 
             if escalation_result["success"]:
                 # Mark as escalated
-                await history_manager.mark_escalated(alert.id)
+                await alert_repo.mark_escalated(alert_id)
                 escalation_summary["escalations_sent"] += 1
-                escalation_summary["escalated_alert_ids"].append(alert.id)
-                logger.info(f"Escalated alert {alert.id} after {hours_elapsed:.1f} hours")
+                escalation_summary["escalated_alert_ids"].append(alert_id)
+                logger.info(f"Escalated alert {alert_id} after {hours_elapsed:.1f} hours")
             else:
-                logger.error(f"Failed to escalate alert {alert.id}: {escalation_result.get('error')}")
+                logger.error(f"Failed to escalate alert {alert_id}: {escalation_result.get('error')}")
 
         except Exception as e:
-            logger.error(f"Error escalating alert {alert.id}: {e}", exc_info=True)
+            logger.error(f"Error escalating alert {alert.get('id', '?')}: {e}", exc_info=True)
 
     logger.info(f"Escalation check complete: {escalation_summary['escalations_sent']} escalations sent")
     return escalation_summary

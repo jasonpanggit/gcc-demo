@@ -11,13 +11,13 @@ from datetime import datetime, timezone
 try:
     from models.cve_alert_models import CVEDelta, CVEAlertItem, CVEAlertHistoryRecord
     from utils.alert_manager import alert_manager, AlertConfiguration, NotificationRecord
-    from utils.cve_alert_history_manager import get_cve_alert_history_manager
+    from utils.repositories.alert_repository import AlertRepository
     from utils.logging_config import get_logger
     from utils.config import config
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_alert_models import CVEDelta, CVEAlertItem, CVEAlertHistoryRecord
     from app.agentic.eol.utils.alert_manager import alert_manager, AlertConfiguration, NotificationRecord
-    from app.agentic.eol.utils.cve_alert_history_manager import get_cve_alert_history_manager
+    from app.agentic.eol.utils.repositories.alert_repository import AlertRepository
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
 
@@ -29,6 +29,9 @@ class CVEAlertDispatcher:
 
     # Severity order for filtering
     SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
+
+    def __init__(self, alert_repo: AlertRepository | None = None) -> None:
+        self.alert_repo = alert_repo
 
     async def send_cve_alerts(
         self,
@@ -95,8 +98,8 @@ class CVEAlertDispatcher:
                 "history_records": []
             }
 
-            # Get history manager
-            history_manager = get_cve_alert_history_manager()
+            # Get alert repository
+            alert_repo = self.alert_repo
 
             for severity, cves in cves_by_severity.items():
                 if not cves:
@@ -172,8 +175,8 @@ class CVEAlertDispatcher:
                     )
 
                     # Persist history record
-                    created_record = await history_manager.create_record(history_record)
-                    results["history_records"].append(created_record.to_dict())
+                    created_record = await alert_repo.create_record(history_record.to_dict())
+                    results["history_records"].append(created_record)
 
                     # Create notification record (existing functionality)
                     notification = await self._create_notification_record(
@@ -184,7 +187,7 @@ class CVEAlertDispatcher:
                     )
                     results["notification_records"].append(notification)
 
-                    logger.info(f"Alert sent for {len(cves)} {severity} CVEs (history ID: {created_record.id})")
+                    logger.info(f"Alert sent for {len(cves)} {severity} CVEs (history ID: {created_record.get('id', 'unknown')})")
 
                 except Exception as e:
                     logger.error(f"Failed to send {severity} CVE alerts: {e}", exc_info=True)
@@ -402,10 +405,12 @@ class CVEAlertDispatcher:
 _cve_alert_dispatcher: CVEAlertDispatcher | None = None
 
 
-def get_cve_alert_dispatcher() -> CVEAlertDispatcher:
+def get_cve_alert_dispatcher(alert_repo: AlertRepository | None = None) -> CVEAlertDispatcher:
     """Return a shared CVE alert dispatcher instance."""
 
     global _cve_alert_dispatcher
     if _cve_alert_dispatcher is None:
-        _cve_alert_dispatcher = CVEAlertDispatcher()
+        _cve_alert_dispatcher = CVEAlertDispatcher(alert_repo=alert_repo)
+    elif alert_repo is not None and _cve_alert_dispatcher.alert_repo is None:
+        _cve_alert_dispatcher.alert_repo = alert_repo
     return _cve_alert_dispatcher
