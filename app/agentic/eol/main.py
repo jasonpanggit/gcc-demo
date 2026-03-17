@@ -1095,22 +1095,22 @@ async def _run_startup_tasks():
             await postgres_client.initialize(dsn=pg_dsn)
             logger.info("asyncpg pool initialized for repositories")
         except Exception as e:
-            logger.warning(f"PostgreSQL pool initialization failed: {e}")
+            logger.critical(f"Application startup failed: PostgreSQL connection unavailable: {e}")
+            raise RuntimeError(f"Application startup failed: PostgreSQL connection unavailable: {e}") from e
 
-        # Create repository instances and store on app.state for router access
-        if postgres_client.is_initialized:
-            from utils.repositories.cve_repository import CVERepository
-            from utils.repositories.inventory_repository import InventoryRepository
-            from utils.repositories.patch_repository import PatchRepository
-            from utils.repositories.alert_repository import AlertRepository
-            from utils.repositories.eol_repository import EOLRepository
+        # Repository initialization -- unconditional (PG pool guaranteed available)
+        from utils.repositories.cve_repository import CVERepository
+        from utils.repositories.inventory_repository import InventoryRepository
+        from utils.repositories.patch_repository import PatchRepository
+        from utils.repositories.alert_repository import AlertRepository
+        from utils.repositories.eol_repository import EOLRepository
 
-            app.state.cve_repo = CVERepository(postgres_client.pool)
-            app.state.inventory_repo = InventoryRepository(postgres_client.pool)
-            app.state.patch_repo = PatchRepository(postgres_client.pool)
-            app.state.alert_repo = AlertRepository(postgres_client.pool)
-            app.state.eol_repo = EOLRepository(postgres_client.pool)
-            logger.info("5 domain repositories initialized on app.state")
+        app.state.cve_repo = CVERepository(postgres_client.pool)
+        app.state.inventory_repo = InventoryRepository(postgres_client.pool)
+        app.state.patch_repo = PatchRepository(postgres_client.pool)
+        app.state.alert_repo = AlertRepository(postgres_client.pool)
+        app.state.eol_repo = EOLRepository(postgres_client.pool)
+        logger.info("5 domain repositories initialized on app.state")
 
         # Initialize specialized caches
         try:
