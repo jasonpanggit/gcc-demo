@@ -9,17 +9,14 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 try:
-    from models.cve_models import VMVulnerabilityResponse, CVEAffectedVMsResponse
     from utils.response_models import StandardResponse
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
 except ModuleNotFoundError:
-    from app.agentic.eol.models.cve_models import VMVulnerabilityResponse, CVEAffectedVMsResponse
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
@@ -116,14 +113,6 @@ async def _build_vm_vulnerability_response(
             },
         },
     )
-
-
-def _normalize_vm_source(vm_type: Optional[str]) -> str:
-    if vm_type == "arc":
-        return "Arc-enabled server"
-    if vm_type == "azure-vm":
-        return "Azure VM"
-    return "Virtual machine"
 
 
 def _calculate_risk_level(
