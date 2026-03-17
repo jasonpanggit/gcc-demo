@@ -27,134 +27,10 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Inventory"])
 
-# Simple in-memory cache for VM metadata lookups
-_vm_metadata_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
-_VM_CACHE_TTL_SECONDS = 60  # 1 minute TTL
-
-
-
-async def _get_cve_vm_service():
-    """Lazy import to avoid circular dependency."""
-    from main import get_cve_vm_service
-    return await get_cve_vm_service()
-
-
-async def _get_machine_by_id(vm_id: str, days: int = 90) -> Optional[Dict[str, Any]]:
-    """Fetch single VM metadata with caching and optimized queries.
-
-    Args:
-        vm_id: The resource ID of the VM to fetch
-        days: Look-back window for Arc VM inventory
-
-    Returns:
-        Machine metadata dict if found, None otherwise
-    """
-    global _vm_metadata_cache
-
-    # Check cache first
-    vm_id_lower = vm_id.lower()
-    if vm_id_lower in _vm_metadata_cache:
-        cached_data, cached_time = _vm_metadata_cache[vm_id_lower]
-        age = (datetime.utcnow() - cached_time).total_seconds()
-        if age < _VM_CACHE_TTL_SECONDS:
-            logger.debug(f"VM metadata cache hit for {vm_id} (age: {age:.1f}s)")
-            return cached_data
-
-    try:
-        from main import get_eol_orchestrator
-        from utils.resource_inventory_client import get_resource_inventory_client
-        from utils.config import config
-
-        # Parallelize Arc and Azure VM lookups
-        async def check_arc_inventory():
-            """Check Arc-enabled servers from OS inventory."""
-            try:
-                orchestrator = get_eol_orchestrator()
-                os_result = await orchestrator.agents["os_inventory"].get_os_inventory(days=days)
-                all_os: List[Dict[str, Any]] = (
-                    os_result.get("data", []) if isinstance(os_result, dict) else []
-                )
-                for item in all_os:
-                    if str(item.get("resource_id", "")).lower() == vm_id_lower:
-                        if (
-                            str(item.get("computer_type", "")).lower() == "arc-enabled server"
-                            or "/microsoft.hybridcompute/machines/" in vm_id_lower
-                        ):
-                            try:
-                                from api.patch_management import _normalize_machine_os_fields
-                            except ModuleNotFoundError:
-                                from app.agentic.eol.api.patch_management import _normalize_machine_os_fields
-                            return _normalize_machine_os_fields({**item, "vm_type": "arc"})
-            except Exception as exc:
-                logger.debug("Failed to check Arc inventory for VM %s: %s", vm_id, exc)
-            return None
-
-        async def check_azure_inventory():
-            """Check Azure VMs using targeted resource query."""
-            try:
-                inv_client = get_resource_inventory_client()
-                # Use targeted API - much faster than scanning all VMs!
-                vm = await inv_client.get_resource_by_id(
-                    vm_id,
-                    resource_type="Microsoft.Compute/virtualMachines",
-                    subscription_id=config.azure.subscription_id
-                )
-
-                if vm:
-                    try:
-                        from api.patch_management import normalize_os_record
-                    except ModuleNotFoundError:
-                        from app.agentic.eol.api.patch_management import normalize_os_record
-
-                    sp = vm.get("selected_properties") or {}
-                    vm_name = vm.get("resource_name") or vm.get("name")
-                    normalized_os = normalize_os_record(
-                        sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
-                        vm.get("os_version"),
-                        sp.get("os_type") or vm.get("os_type"),
-                    )
-
-                    return {
-                        "resource_id": vm.get("resource_id") or vm.get("id"),
-                        "computer": vm_name,
-                        "name": vm_name,
-                        "resource_group": vm.get("resource_group"),
-                        "subscription_id": vm.get("subscription_id"),
-                        "location": vm.get("location"),
-                        "os_type": normalized_os.get("os_type"),
-                        "os_name": normalized_os.get("os_name"),
-                        "os_version": normalized_os.get("os_version"),
-                        "vm_type": "azure",
-                    }
-            except Exception as exc:
-                logger.debug("Failed to check Azure inventory for VM %s: %s", vm_id, exc)
-            return None
-
-        # Run both lookups in parallel
-        arc_result, azure_result = await asyncio.gather(
-            check_arc_inventory(),
-            check_azure_inventory(),
-            return_exceptions=True
-        )
-
-        # Return first non-None, non-exception result
-        result = None
-        for r in [arc_result, azure_result]:
-            if r and not isinstance(r, Exception):
-                result = r
-                break
-
-        # Cache the result for 60 seconds
-        if result:
-            _vm_metadata_cache[vm_id_lower] = (result, datetime.utcnow())
-
-        return result
-    except Exception as exc:
-        logger.warning("Failed to fetch machine %s: %s", vm_id, exc)
-        return None
 
 
 async def _build_vm_vulnerability_response(
+    request: Request,
     vm_id: str,
     severity_filter: Optional[str],
     min_cvss: Optional[float],
@@ -163,91 +39,82 @@ async def _build_vm_vulnerability_response(
     offset: int = 0,
     limit: int = 100,
 ):
-    """Build the VM vulnerability response payload for either route shape."""
-    service = await _get_cve_vm_service()
+    """Build the VM vulnerability response payload using cve_repo + inventory_repo.
 
-    # Parallelize independent API calls
-    result, machine = await asyncio.gather(
-        service.get_vm_vulnerabilities(vm_id, offset=offset, limit=limit),
-        _get_machine_by_id(vm_id, days=90)
+    Eliminates BH-003 (dual Arc+Azure parallel lookup) by using inventory_repo.get_vm_by_id()
+    and cve_repo.get_vm_cve_matches() directly.
+    """
+    cve_repo = request.app.state.cve_repo
+    inventory_repo = request.app.state.inventory_repo
+
+    # Fetch VM metadata from inventory_repo PK lookup
+    vm_data = await inventory_repo.get_vm_by_id(vm_id)
+    if vm_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"VM {vm_id} not found",
+        )
+
+    # Normalize severity filter for SQL
+    severity_sql = severity_filter.upper() if severity_filter else None
+
+    # Parallel: fetch CVE matches + total count
+    matches_result, total_result = await asyncio.gather(
+        cve_repo.get_vm_cve_matches(vm_id, severity=severity_sql, limit=limit, offset=offset),
+        cve_repo.count_vm_cve_matches(vm_id, severity=severity_sql),
     )
 
-    if not result:
-        raise HTTPException(
-            status_code=503,
-            detail="No scan data available. Trigger a scan at /api/cve/scan"
-        )
+    matches: List[Dict[str, Any]] = matches_result
+    total: int = total_result
 
-    try:
-        if machine:
-            result.resource_group = machine.get("resource_group")
-            result.subscription_id = machine.get("subscription_id")
-            result.os_type = machine.get("os_type")
-            result.os_name = machine.get("os_name")
-            result.os_version = machine.get("os_version")
-            result.location = machine.get("location")
-            if not result.vm_name or result.vm_name == vm_id:
-                result.vm_name = machine.get("computer") or machine.get("name") or result.vm_name
-    except Exception as metadata_error:
-        logger.warning(f"Failed to enrich VM {vm_id} metadata: {metadata_error}")
-
-    cve_details = result.cve_details
-
-    if severity_filter:
-        severity_filter = severity_filter.upper()
-        cve_details = [c for c in cve_details if c.severity == severity_filter]
-
+    # Apply min_cvss filter (not supported at SQL level)
     if min_cvss is not None:
-        cve_details = [c for c in cve_details if c.cvss_score and c.cvss_score >= min_cvss]
+        matches = [m for m in matches if (m.get("cvss_score") or 0.0) >= min_cvss]
 
-    reverse = (sort_order.lower() == "desc")
-
+    # Apply sort
+    reverse = sort_order.lower() == "desc"
     if sort_by == "cvss_score":
-        cve_details.sort(key=lambda x: x.cvss_score or 0.0, reverse=reverse)
+        matches.sort(key=lambda x: x.get("cvss_score") or 0.0, reverse=reverse)
     elif sort_by == "published_date":
-        cve_details.sort(
-            key=lambda x: x.published_date or "",
-            reverse=reverse
-        )
+        matches.sort(key=lambda x: x.get("published_date") or "", reverse=reverse)
     elif sort_by == "severity":
         severity_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "UNKNOWN": 0}
-        cve_details.sort(
-            key=lambda x: severity_order.get(x.severity, 0),
-            reverse=reverse
+        matches.sort(
+            key=lambda x: severity_order.get(str(x.get("severity", "UNKNOWN")).upper(), 0),
+            reverse=reverse,
         )
 
-    result.cve_details = cve_details
-
-    # Only recompute stats from the current page when filters are active.
-    # Without filters the service already provides accurate totals (from scan summary /
-    # total_matches metadata), so overwriting them with the page count would show wrong numbers.
-    filters_active = severity_filter or min_cvss is not None
-    if filters_active:
-        result.total_cves = len(cve_details)
-        severity_counts = {}
-        for cve in cve_details:
-            severity = cve.severity
-            severity_counts[severity] = severity_counts.get(severity, 0) + 1
-        result.cves_by_severity = severity_counts
-
     logger.info(
-        f"Retrieved {len(cve_details)} CVEs for VM {vm_id} "
-        f"(filters: severity={severity_filter}, min_cvss={min_cvss})"
+        "Retrieved %d CVEs for VM %s (filters: severity=%s, min_cvss=%s)",
+        len(matches), vm_id, severity_filter, min_cvss,
     )
 
+    response_data = {
+        "vm_id": vm_data["resource_id"],
+        "vm_name": vm_data.get("vm_name", ""),
+        "os_name": vm_data.get("os_name", ""),
+        "os_type": vm_data.get("os_type", ""),
+        "resource_group": vm_data.get("resource_group", ""),
+        "location": vm_data.get("location", ""),
+        "items": matches,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
     return StandardResponse.success_response(
-        data=[result.dict()],
+        data=response_data,
         metadata={
             "vm_id": vm_id,
             "filters_applied": {
                 "severity": severity_filter,
-                "min_cvss": min_cvss
+                "min_cvss": min_cvss,
             },
             "sort": {
                 "by": sort_by,
-                "order": sort_order
-            }
-        }
+                "order": sort_order,
+            },
+        },
     )
 
 
@@ -383,6 +250,7 @@ async def get_vm_vulnerability_overview(
 @router.get("/vm-vulnerability-detail", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities_by_query(
+    request: Request,
     vm_id: str = Query(..., description="Full VM resource ID"),
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
@@ -393,7 +261,7 @@ async def get_vm_vulnerabilities_by_query(
 ):
     """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
     try:
-        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
+        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
     except HTTPException:
         raise
     except Exception as e:
@@ -407,6 +275,7 @@ async def get_vm_vulnerabilities_by_query(
 @router.get("/cve/inventory/{vm_id:path}", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities(
+    request: Request,
     vm_id: str,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
@@ -417,29 +286,25 @@ async def get_vm_vulnerabilities(
 ):
     """Get CVEs affecting a specific VM.
 
-    Returns enriched CVE details with severity breakdown, patch availability,
-    and sorting/filtering options.
-
-    Requirements: CVE-API-05
+    Returns CVE match details from mv_vm_cve_detail with severity breakdown,
+    sorting/filtering options, and pagination.
 
     Args:
-        vm_id: VM identifier
+        request: FastAPI request for app.state access
+        vm_id: VM identifier (Azure resource ID)
         severity_filter: Filter by severity level
         min_cvss: Minimum CVSS score filter
         sort_by: Sort field (cvss_score, published_date, severity)
         sort_order: Sort direction (asc, desc)
 
     Returns:
-        StandardResponse with VMVulnerabilityResponse containing:
-            - vm_id, vm_name, scan metadata
-            - total_cves, cves_by_severity breakdown
-            - cve_details list with enrichment
+        StandardResponse with vm_id, vm_name, os_name, items list, total, offset, limit
 
     Raises:
-        HTTPException: 404 if VM not found, 503 if no scan data available
+        HTTPException: 404 if VM not found
     """
     try:
-        return await _build_vm_vulnerability_response(vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
+        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
 
     except HTTPException:
         raise
