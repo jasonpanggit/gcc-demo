@@ -198,9 +198,10 @@ async def get_dashboard_metrics(
 
 @router.get("/export")
 async def export_dashboard_csv(
+    request: Request,
     format: str = Query("csv", description="Export format: csv or pdf"),
     time_range: int = Query(30, description="Days to look back"),
-    severity: Optional[str] = Query(None, description="Filter by severity")
+    severity: Optional[str] = Query(None, description="Filter by severity"),
 ) -> StreamingResponse:
     """
     Export dashboard data in CSV format.
@@ -216,7 +217,8 @@ async def export_dashboard_csv(
     if format != "csv":
         raise HTTPException(status_code=400, detail="GET /export only supports format=csv")
 
-    return await generate_csv_export(time_range, severity)
+    cve_repo = request.app.state.cve_repo
+    return await generate_csv_export(time_range, severity, cve_repo=cve_repo)
 
 
 @router.post("/export")

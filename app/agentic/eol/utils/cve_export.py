@@ -26,7 +26,8 @@ except ImportError:
 
 async def generate_csv_export(
     time_range_days: int,
-    severity_filter: Optional[str] = None
+    severity_filter: Optional[str] = None,
+    cve_repo=None,
 ) -> StreamingResponse:
     """
     Generate CSV export of filtered CVE data.
@@ -39,6 +40,7 @@ async def generate_csv_export(
     Args:
         time_range_days: Days to look back (30, 90, 365)
         severity_filter: Optional severity filter (CRITICAL, HIGH, MEDIUM, LOW)
+        cve_repo: Optional CVERepository instance for PG fast-path
 
     Returns:
         StreamingResponse with CSV content
@@ -46,71 +48,77 @@ async def generate_csv_export(
     try:
         logger.info(f"Generating CSV export: time_range={time_range_days}, severity={severity_filter}")
 
-        # Collect data
-        scanner = CVEScanner()
+        if cve_repo is None:
+            # Fallback to scanner for backward compatibility
+            scanner = CVEScanner()
+            scan_results = await scanner.get_latest_scan_results()
 
-        # Get latest scan results
-        scan_results = await scanner.get_latest_scan_results()
-
-        # Build CSV in memory
-        output = io.StringIO()
-        writer = csv.writer(output)
-
-        # Write header
-        writer.writerow([
-            'CVE ID',
-            'Severity',
-            'CVSS Score',
-            'Published Date',
-            'Description',
-            'Affected VMs',
-            'VM Names',
-            'Patch Available',
-            'Patch Status'
-        ])
-
-        # Aggregate CVE data
-        cve_data = {}
-        for scan in scan_results:
-            for match in scan.matches:
-                cve_id = match.cve_id
-
-                # Apply severity filter
-                if severity_filter and match.severity != severity_filter:
-                    continue
-
-                if cve_id not in cve_data:
-                    cve_data[cve_id] = {
-                        'cve_id': cve_id,
-                        'severity': match.severity,
-                        'cvss_score': match.cvss_score,
-                        'published_date': match.published_date,
-                        'description': match.description or '',
-                        'vms': [],
-                        'vm_names': []
-                    }
-
-                cve_data[cve_id]['vms'].append(scan.vm_id)
-                cve_data[cve_id]['vm_names'].append(scan.vm_name)
-
-        # Write CVE rows
-        for cve_id, data in cve_data.items():
-            # Get patch info (from Phase 6 patch mapper)
-            # TODO: Integrate with actual patch service
-            patch_available = "Unknown"
-            patch_status = "Unknown"
+            output = io.StringIO()
+            writer = csv.writer(output)
 
             writer.writerow([
-                data['cve_id'],
-                data['severity'],
-                data['cvss_score'],
-                data['published_date'],
-                data['description'][:200] + '...' if len(data['description']) > 200 else data['description'],
-                len(data['vms']),
-                ', '.join(data['vm_names'][:5]) + ('...' if len(data['vm_names']) > 5 else ''),
-                patch_available,
-                patch_status
+                'CVE ID', 'Severity', 'CVSS Score', 'Published Date',
+                'Description', 'Affected VMs', 'VM Names',
+                'Patch Available', 'Patch Status',
             ])
+
+            cve_data = {}
+            for scan in scan_results:
+                for match in scan.matches:
+                    cve_id = match.cve_id
+                    if severity_filter and match.severity != severity_filter:
+                        continue
+                    if cve_id not in cve_data:
+                        cve_data[cve_id] = {
+                            'cve_id': cve_id,
+                            'severity': match.severity,
+                            'cvss_score': match.cvss_score,
+                            'published_date': match.published_date,
+                            'description': match.description or '',
+                            'vms': [],
+                            'vm_names': [],
+                        }
+                    cve_data[cve_id]['vms'].append(scan.vm_id)
+                    cve_data[cve_id]['vm_names'].append(scan.vm_name)
+
+            for cve_id, data in cve_data.items():
+                patch_available = "Unknown"
+                patch_status = "Unknown"
+                writer.writerow([
+                    data['cve_id'],
+                    data['severity'],
+                    data['cvss_score'],
+                    data['published_date'],
+                    data['description'][:200] + '...' if len(data['description']) > 200 else data['description'],
+                    len(data['vms']),
+                    ', '.join(data['vm_names'][:5]) + ('...' if len(data['vm_names']) > 5 else ''),
+                    patch_available,
+                    patch_status,
+                ])
+        else:
+            # Use repository for fast PG path
+            top_cves = await cve_repo.get_top_cves_by_score(limit=5000)
+
+            output = io.StringIO()
+            writer = csv.writer(output)
+
+            writer.writerow([
+                'CVE ID', 'Severity', 'CVSS Score', 'Published Date',
+                'Description', 'Affected VMs',
+            ])
+
+            for cve in top_cves:
+                # Apply severity filter
+                if severity_filter and cve.get("severity") != severity_filter:
+                    continue
+                writer.writerow([
+                    cve.get("cve_id", ""),
+                    cve.get("severity", ""),
+                    cve.get("cvss_v3_score", ""),
+                    str(cve.get("published_at", "")),
+                    (cve.get("description", "") or "")[:200],
+                    cve.get("affected_vms", 0),
+                ])
 
         # Generate filename
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d')
