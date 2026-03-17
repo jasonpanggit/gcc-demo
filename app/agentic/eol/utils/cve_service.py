@@ -28,6 +28,52 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 
+# Cosmos DB indexing policy for CVE data container.
+# Relocated from cve_cosmos_repository.py (BH-042 dead code removal).
+CVE_DATA_INDEXING_POLICY: Dict[str, Any] = {
+    "indexingMode": "consistent",
+    "automatic": True,
+    "includedPaths": [{"path": "/*"}],
+    "excludedPaths": [{"path": "/\"_etag\"/?"}],
+    "compositeIndexes": [
+        [
+            {"path": "/published_date", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/published_date", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/last_modified_date", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/last_modified_date", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_score", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_score", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_severity", "order": "ascending"},
+            {"path": "/cvss_v3/base_score", "order": "ascending"},
+            {"path": "/cve_id", "order": "ascending"},
+        ],
+        [
+            {"path": "/cvss_v3/base_severity", "order": "descending"},
+            {"path": "/cvss_v3/base_score", "order": "descending"},
+            {"path": "/cve_id", "order": "descending"},
+        ],
+    ],
+}
+
+
 def _affected_product_keyword_haystack(cve: UnifiedCVE) -> str:
     parts: List[str] = []
     for product in cve.affected_products:

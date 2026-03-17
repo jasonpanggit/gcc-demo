@@ -258,12 +258,9 @@ async def inventory_health_check() -> Dict[str, Any]:
     except Exception:
         status["cache_statistics"] = {"error": "unavailable"}
 
-    # Add Cosmos DB container status
-    try:
-        from utils.resource_inventory_cosmos import resource_inventory_setup
-        status["cosmos_status"] = resource_inventory_setup.get_status()
-    except Exception:
-        status["cosmos_status"] = {"error": "unavailable"}
+    # Cosmos DB container status removed (BH-042: resource_inventory_cosmos deleted)
+    # TODO(Phase-11): Replace with PostgreSQL inventory health check
+    status["cosmos_status"] = {"status": "removed", "note": "Migrated to PostgreSQL"}
 
     # Add config summary
     status["config"] = {

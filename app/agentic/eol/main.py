@@ -570,14 +570,6 @@ async def _startup_inventory_discovery():
     logger.info("Initializing Resource Inventory Discovery System...")
 
     try:
-        # Initialize Cosmos DB containers for inventory
-        from utils.resource_inventory_cosmos import resource_inventory_setup
-        cosmos_ok = await resource_inventory_setup.initialize()
-        if not cosmos_ok:
-            logger.warning("Cosmos DB not available - inventory discovery skipped")
-            _inventory_discovery_status["status"] = "cosmos_unavailable"
-            return
-
         # Initialize discovery engine
         from utils.resource_discovery_engine import ResourceDiscoveryEngine
         discovery_engine = ResourceDiscoveryEngine()
@@ -893,7 +885,7 @@ async def _startup_cve_system():
         # Initialize Cosmos DB container for CVE data
         try:
             from azure.cosmos import PartitionKey
-            from utils.cve_cosmos_repository import CVE_DATA_INDEXING_POLICY
+            from utils.cve_service import CVE_DATA_INDEXING_POLICY
             from utils.cosmos_cache import base_cosmos
 
             database = base_cosmos.cosmos_client.get_database_client(config.azure.cosmos_database)
@@ -1093,6 +1085,10 @@ async def _run_startup_tasks():
                 pg_pass = os.environ.get("PGPASSWORD", "")
                 pg_dsn = f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
             await postgres_client.initialize(dsn=pg_dsn)
+            from utils.pg_database import PostgresDatabaseManager
+
+            schema_manager = PostgresDatabaseManager(postgres_client.pool)
+            await schema_manager.ensure_runtime_schema()
             logger.info("asyncpg pool initialized for repositories")
         except Exception as e:
             logger.critical(f"Application startup failed: PostgreSQL connection unavailable: {e}")
