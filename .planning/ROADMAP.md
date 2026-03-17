@@ -132,7 +132,7 @@ Plans:
 - [x] P6.3: Design index strategy for cross-table joins (covering indexes, INCLUDE columns) ✅ (2026-03-17)
 - [x] P6.4: Design aggregation strategy (MVs vs inline CTEs vs partial indexes) ✅ (2026-03-17)
 - [x] P6.5: Design pagination strategy (keyset vs offset/limit) ✅ (2026-03-17)
-- [ ] P6.6: Write target SQL for every high-traffic endpoint
+- [x] P6.6: Write target SQL for every high-traffic endpoint ✅ (2026-03-17)
 
 ---
 

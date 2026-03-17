@@ -21,10 +21,10 @@ progress:
 
 ## Current Phase
 
-**-> Phase 6: Index & Query Optimization Design** 🔄 **In Progress -- 5 / 6 plans done**
+**-> Phase 6: Index & Query Optimization Design** ✅ **Complete -- 6 / 6 plans done**
 
-**Completed:** P6.1 -- Search Index Strategy, P6.2 -- Filter Index Strategy, P6.3 -- Join Index Strategy, P6.4 -- Aggregation Strategy, P6.5 -- Pagination Strategy (PAGINATION-STRATEGY.md)
-**Next:** P6.6 -- Target SQL for Every High-Traffic Endpoint
+**Completed:** P6.1 -- Search Index Strategy, P6.2 -- Filter Index Strategy, P6.3 -- Join Index Strategy, P6.4 -- Aggregation Strategy, P6.5 -- Pagination Strategy, P6.6 -- Target SQL for All High-Traffic Endpoints (TARGET-SQL-CVE-DOMAIN.md, TARGET-SQL-INVENTORY-DOMAIN.md, TARGET-SQL-ADMIN-DOMAIN.md)
+**Next:** Phase 7 -- Schema Implementation
 
 ---
 
@@ -37,7 +37,7 @@ progress:
 | 3 | Bad-Hack Catalogue | ✅ Complete | 5 / 5 | P3.1–P3.5 done — 49 bad hacks catalogued, Priority Matrix sorted CRITICAL→LOW, cross-validated against Phase 1-2 |
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
 | 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
-| 6 | Index & Query Optimization Design | 🔄 In progress | 5 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md done |
+| 6 | Index & Query Optimization Design | ✅ Complete | 6 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md, P6.6 TARGET-SQL (3 domain files) done |
 | 7 | Schema Implementation | ⬜ Not started | 0 / 7 | Depends on Phases 5–6 |
 | 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
 | 9 | UI Integration Update | ⬜ Not started | 0 / 7 | Depends on Phase 8 |
@@ -278,17 +278,21 @@ The following migrations are already complete and represent the baseline for thi
 | `.planning/phases/05-unified-schema-design/schema/UNIFIED-SCHEMA-SPEC.md` | Authoritative target schema DDL: 39+ tables, migrations 027-032, full Mermaid ERD, bootstrap _REQUIRED_TABLES/RELATIONS updates, Phase 6-10 forward references (P5.7 output) |
 | `.planning/phases/06-index-query-optimization-design/queries/AGGREGATION-STRATEGY.md` | Aggregation strategy: MV-vs-CTE-vs-Live decision framework, 7 MV read queries, 8 MV refresh index deps, GAP-05 resolution (Option A), BH-001/BH-004 fix designs, 4 CTE patterns (P6.4 output) |
 | `.planning/phases/06-index-query-optimization-design/queries/PAGINATION-STRATEGY.md` | Pagination strategy: 1 keyset (cve-database), 8 offset/limit, 15 none; cursor token format, SQL patterns, BH-009 sorting fix, 11 pagination indexes (P6.5 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/FILTER-INDEX-STRATEGY.md` | Filter index strategy: 11 new indexes (2 GAP resolutions + 4 composites + 5 partials), GAP-01/02/06 resolved, GAP-05 mitigated, 15 existing indexes validated, 25-entry complete registry (P6.2 output) |
 | `.planning/phases/06-index-query-optimization-design/queries/JOIN-INDEX-STRATEGY.md` | Cross-table JOIN index strategy: GAP-03/04 resolved (idx_edges_cve_source), 2 new covering indexes, 11 FK indexes verified, R-01/R-02 redundancy resolved, BH-005 expression indexes cross-referenced, 19-entry registry (P6.3 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/TARGET-SQL-CVE-DOMAIN.md` | Target SQL for 8 CVE views: 16 queries, BH-001/002/003/004/006/007/008 fixes, MV-first read path, keyset pagination for search (P6.6 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/TARGET-SQL-INVENTORY-DOMAIN.md` | Target SQL for 9 Inventory/EOL views: 13 queries, BH-005/009/010 fixes, CTE bulk JOIN, server-side sort (P6.6 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/TARGET-SQL-ADMIN-DOMAIN.md` | Target SQL for 7 Admin views: 2 DB-query + 5 no-DB, cache freshness queries, I-07 fix, 24-view coverage summary (P6.6 output) |
 
 ---
 
 ## Next Actions
 
-1. **Phase 6 IN PROGRESS** -- 5/6 plans done. P6.5 PAGINATION-STRATEGY.md complete.
-2. **Next:** P6.6 -- Target SQL for Every High-Traffic Endpoint (last plan in Phase 6)
+1. **Phase 6 COMPLETE** -- All 6/6 plans done. Target SQL for all 24 views documented.
+2. **Next:** Phase 7 -- Schema Implementation (7 plans, migrations 027-032)
 3. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
-4. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
-5. Phase 8 must implement BH-009 server-side sorting for eol-inventory.html
+4. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
+5. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
 6. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
 7. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
 
@@ -301,7 +305,9 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-16 | P3.2: aggregate_inventory_os_counts() is most complex in-memory pattern | 3-query dual-path with O(N²) JSONB cross-join fallback; 30 profiles × 10k CVEs = 300k row evaluations when MV stale |
 | 2026-03-16 | P3.2: Dict-based joins are common in-memory pattern | 3 of 7 entries use dict comprehension to build lookup tables then loop with .get(); easier to read than nested loops but same perf |
 
+| 2026-03-17 | P6.6: All 24 UI views have target SQL across 3 domain files (CVE, Inventory/EOL, Admin) | 35+ queries documented with asyncpg params, index usage, pagination, BH-001 through BH-010 fixes, Phase 8/9 forward refs |
+
 ---
 
-*State version: 6.6*
-*Updated: 2026-03-17 (P6.3 complete -- JOIN-INDEX-STRATEGY.md with GAP-03/04 resolution, 2 covering indexes, 11 FK verifications, R-01/R-02 redundancy decisions, BH-005 cross-reference)*
+*State version: 6.7*
+*Updated: 2026-03-17 (P6.6 complete -- TARGET-SQL-CVE-DOMAIN.md, TARGET-SQL-INVENTORY-DOMAIN.md, TARGET-SQL-ADMIN-DOMAIN.md with 35+ queries covering all 24 views, 10 bad-hack fixes, Phase 6 complete)*
