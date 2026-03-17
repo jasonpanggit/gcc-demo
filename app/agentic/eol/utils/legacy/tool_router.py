@@ -52,7 +52,7 @@ class ToolRouter:
     Design goals:
     - Low latency: uses substring matching (no LLM call, no embeddings)
     - Bounded fallback: when intent is unclear, returns best-match subset
-    - Composable: works with the existing CompositeMCPClient source filtering
+    - Composable: works with the existing MCPHost source filtering
     - Observable: logs which domains matched and how many tools were pruned
 
     The router does NOT replace the system prompt or tool descriptions — it only
@@ -84,7 +84,7 @@ class ToolRouter:
     ) -> None:
         """
         Args:
-            composite_client: The CompositeMCPClient instance — used to access
+            composite_client: The MCPHost instance — used to access
                 ``get_tools_by_sources()`` for source-level filtering.  If None,
                 the router falls back to tool-name-based filtering on the
                 pre-built tool definitions list.

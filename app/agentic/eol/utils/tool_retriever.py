@@ -4,7 +4,7 @@ Given a list of DomainMatch results from the Router, retrieves a focused set of
 ≤15 semantically ranked tools for the Planner / Executor to work with.
 
 Two-stage retrieval:
-  Stage 1 (source filter): CompositeMCPClient.get_tools_by_sources(sources)
+  Stage 1 (source filter): MCPHost.get_tools_by_sources(sources)
                            → domain pool (all tools for the matched domains)
   Stage 2 (semantic rank): ToolEmbedder.retrieve_from_pool(query, pool, top_k)
                            → ≤top_k best-matching tools
@@ -215,7 +215,7 @@ class ToolRetriever:
     ) -> None:
         """
         Args:
-            composite_client:  CompositeMCPClient instance with
+            composite_client:  MCPHost instance with
                                ``get_tools_by_sources(sources)`` available.
             embedder:          ToolEmbedder instance for Stage 2 semantic ranking.
                                Defaults to the module singleton.
@@ -658,7 +658,7 @@ class ToolRetriever:
         if not sources:
             return []
         try:
-            # CompositeMCPClient.get_tools_by_sources() already exists
+            # MCPHost.get_tools_by_sources() already exists
             return list(self._client.get_tools_by_sources(sources))
         except AttributeError:
             # Fallback: if composite_client doesn't support get_tools_by_sources,

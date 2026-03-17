@@ -1840,7 +1840,7 @@ FORMATTING:
         # Get monitor + azure_cli tools only
         get_by_sources = getattr(self._mcp_client, "get_tools_by_sources", None)
         if not callable(get_by_sources):
-            logger.warning("CompositeMCPClient missing get_tools_by_sources — cannot init MonitorAgent")
+            logger.warning("MCPHost missing get_tools_by_sources — cannot init MonitorAgent")
             return
 
         monitor_tools = get_by_sources(["monitor", "azure_cli"])
@@ -1939,7 +1939,7 @@ FORMATTING:
 
         get_by_sources = getattr(self._mcp_client, "get_tools_by_sources", None)
         if not callable(get_by_sources):
-            logger.warning("CompositeMCPClient missing get_tools_by_sources — cannot init SRESubAgent")
+            logger.warning("MCPHost missing get_tools_by_sources — cannot init SRESubAgent")
             return
 
         sre_tools = get_by_sources(["sre", "azure_cli"])

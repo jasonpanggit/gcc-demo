@@ -35,7 +35,7 @@ class DomainRegistryEntry:
     """Configuration for a single operational domain."""
 
     domain: UnifiedDomain
-    sources: FrozenSet[str]           # MCP source labels (matches CompositeMCPClient labels)
+    sources: FrozenSet[str]           # MCP source labels (matches MCPHost labels)
     max_tools: int                    # Max tools sent to LLM for this domain
     sub_agent_class_path: Optional[str] = None  # "module.ClassName" — lazy-imported
     notes: str = ""

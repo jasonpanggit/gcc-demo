@@ -1,14 +1,13 @@
 """MCP Host that coordinates multiple MCP clients and manages tool registry integration.
 
-This module replaces the former CompositeMCPClient with an MCP spec-aligned
-host pattern that manages multiple MCP client connections and integrates with
-the centralized MCPToolRegistry.
+This module provides an MCP spec-aligned host pattern that manages multiple
+MCP client connections and integrates with the centralized MCPToolRegistry.
 
-Key Changes from CompositeMCPClient:
-- Renamed to MCPHost (aligns with MCP specification terminology)
+Key features:
+- MCPHost (aligns with MCP specification terminology)
 - Integrates with MCPToolRegistry for centralized tool management
 - Async registration pattern via ensure_registered()
-- Maintains backward compatibility with get_available_tools()
+- get_available_tools() for full tool catalog access
 """
 from __future__ import annotations
 
@@ -195,8 +194,8 @@ class MCPHost:
         """
         Build legacy tool catalog for backward compatibility.
 
-        This maintains the original CompositeMCPClient behavior while we
-        transition to registry-based tool management.
+        This maintains the legacy tool catalog for backward compatibility while
+        transitioning to registry-based tool management.
         """
         self._tool_definitions.clear()
         self._tool_map.clear()
@@ -457,5 +456,3 @@ class MCPHost:
                     continue
 
 
-# Backward compatibility alias
-CompositeMCPClient = MCPHost

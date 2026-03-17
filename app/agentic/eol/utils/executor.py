@@ -3,7 +3,7 @@
 Executes an ``ExecutionPlan`` produced by the Planner:
 
   - Per step: resolve parameters via ``ResourceInventoryService``, then call
-    the MCP tool through ``CompositeMCPClient``.
+    the MCP tool through ``MCPHost``.
   - Independent steps (``is_parallel=True`` and no ``depends_on``) are run
     concurrently via ``asyncio.gather``.
   - Each step is bounded to ``_MAX_STEP_RETRIES`` retries with exponential
@@ -164,7 +164,7 @@ class Executor:
     """Executes an ``ExecutionPlan`` step by step (or in parallel where safe).
 
     Args:
-        composite_client: ``CompositeMCPClient`` instance for tool dispatch.
+        composite_client: ``MCPHost`` instance for tool dispatch.
         inventory_service: ``ResourceInventoryService`` for parameter resolution.
         push_event: Optional coroutine-returning callback with the same
             signature as ``MCPOrchestratorAgent._push_event``.  Used to emit
@@ -581,14 +581,14 @@ class Executor:
             RuntimeError: if client is unavailable or tool call fails.
         """
         if self._client is None:
-            raise RuntimeError("CompositeMCPClient not initialised in Executor")
+            raise RuntimeError("MCPHost not initialised in Executor")
 
-        # CompositeMCPClient exposes call_tool(tool_name, arguments)
+        # MCPHost exposes call_tool(tool_name, arguments)
         if hasattr(self._client, "call_tool"):
             return await self._client.call_tool(tool_name, params)  # type: ignore[return-value]
 
         raise RuntimeError(
-            f"CompositeMCPClient has no call_tool method (type={type(self._client).__name__})"
+            f"MCPHost has no call_tool method (type={type(self._client).__name__})"
         )
 
     async def _emit(self, event_type: str, message: str, **kwargs: Any) -> None:

@@ -2,7 +2,7 @@
 
 Provides per-tool metadata (affordance, tags, conflicts, examples) that was
 previously scattered across _TOOL_DISAMBIGUATION strings and _SOURCE_GUIDANCE
-dicts in mcp_composite_client.py.
+dicts in the former mcp_composite_client module (now consolidated in mcp_host).
 
 Usage:
     from app.agentic.eol.utils.tool_manifest_index import (
