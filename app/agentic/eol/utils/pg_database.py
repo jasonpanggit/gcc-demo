@@ -6,7 +6,7 @@ When any table in _REQUIRED_TABLES is missing, _bootstrap_runtime_schema()
 creates ALL tables with IF NOT EXISTS, ensuring fresh deployments have
 identical schema to migrated deployments.
 
-Phase 7 rewrite (P7.7): Aligned bootstrap DDL with migrations 027-032.
+Phase 10 cleanup: deprecated tables removed, aligned with final schema.
 """
 from __future__ import annotations
 
@@ -23,8 +23,9 @@ class PostgresDatabaseManager:
 
     # ------------------------------------------------------------------ #
     # Tables checked at every startup.  If ANY is missing, the full
-    # bootstrap DDL runs.  Deprecated tables remain until Phase 10
-    # consumer migration is complete.
+    # bootstrap DDL runs.
+    # Phase 10: deprecated tables removed (inventory_vm_metadata,
+    # patch_assessments, arg_cache, law_cache) — see migration 033.
     # ------------------------------------------------------------------ #
     _REQUIRED_TABLES: List[str] = [
         # --- Core CVE ---
@@ -44,14 +45,12 @@ class PostgresDatabaseManager:
         "inventory_os_profiles",
         "inventory_software_cache",
         "inventory_os_cache",
-        "inventory_vm_metadata",               # DEPRECATED — replaced by vms (Phase 10 DROP)
         # --- Inventory (promoted from migration 011) ---
         "patch_assessments_cache",
         "available_patches",
         "arc_software_inventory",
         "cve_vm_detections",
         # --- Patch ---
-        "patch_assessments",                    # DEPRECATED (Phase 10 DROP)
         "patch_installs",
         # --- EOL ---
         "eol_records",
@@ -75,9 +74,6 @@ class PostgresDatabaseManager:
         "sre_incidents",
         # --- Reference ---
         "vendor_urls",
-        # --- Cache (deprecated, kept until Phase 10) ---
-        "arg_cache",                            # DEPRECATED
-        "law_cache",                            # DEPRECATED
     ]
 
     # ------------------------------------------------------------------ #
@@ -523,35 +519,6 @@ class PostgresDatabaseManager:
                 );
             """)
 
-            # --- inventory_vm_metadata (DEPRECATED — kept until Phase 10) ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS inventory_vm_metadata (
-                    resource_id     TEXT        NOT NULL,
-                    vm_name         TEXT,
-                    vm_type         TEXT,
-                    os_name         TEXT,
-                    os_version      TEXT,
-                    os_type         TEXT,
-                    location        TEXT,
-                    resource_group  TEXT,
-                    subscription_id TEXT,
-                    eol_status      TEXT,
-                    eol_date        DATE,
-                    tags            JSONB       NOT NULL DEFAULT '{}',
-                    last_synced_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    CONSTRAINT pk_inventory_vm_metadata PRIMARY KEY (resource_id)
-                );
-            """)
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_invmeta_sub_rg ON inventory_vm_metadata (subscription_id, resource_group);"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_invmeta_vmtype_ostype ON inventory_vm_metadata (vm_type, os_type);"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_invmeta_last_synced ON inventory_vm_metadata (last_synced_at DESC);"
-            )
-
             # --- Promoted migration 011 tables ---
 
             # --- patch_assessments_cache ---
@@ -647,16 +614,6 @@ class PostgresDatabaseManager:
             # ==========================================================
             # PATCH TABLES
             # ==========================================================
-
-            # --- patch_assessments (DEPRECATED — kept until Phase 10) ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS patch_assessments (
-                    resource_id     TEXT PRIMARY KEY,
-                    assessment_data JSONB,
-                    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    ttl_seconds     INTEGER NOT NULL DEFAULT 3600
-                );
-            """)
 
             # --- patch_installs ---
             await conn.execute("""
@@ -1003,74 +960,6 @@ class PostgresDatabaseManager:
                     parser_type TEXT DEFAULT 'endoflife.date',
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
-            """)
-
-            # ==========================================================
-            # DEPRECATED CACHE TABLES (kept until Phase 10)
-            # ==========================================================
-
-            # --- arg_cache ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS arg_cache (
-                    cache_key   TEXT PRIMARY KEY,
-                    data        JSONB NOT NULL,
-                    cached_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    ttl_seconds INTEGER NOT NULL DEFAULT 3600
-                );
-            """)
-
-            # --- law_cache ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS law_cache (
-                    cache_key   TEXT PRIMARY KEY,
-                    data        JSONB NOT NULL,
-                    cached_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    ttl_seconds INTEGER NOT NULL DEFAULT 3600
-                );
-            """)
-
-            # ==========================================================
-            # UNIFIED VM VIEW (DEPRECATED — kept until Phase 10)
-            # ==========================================================
-            await conn.execute("""
-                CREATE OR REPLACE VIEW v_unified_vm_inventory AS
-                WITH latest_os AS (
-                    SELECT DISTINCT ON (resource_id)
-                        resource_id,
-                        computer_name,
-                        os_name,
-                        os_version,
-                        os_type,
-                        last_heartbeat,
-                        cached_at
-                    FROM os_inventory_snapshots
-                    ORDER BY resource_id, cached_at DESC
-                )
-                SELECT
-                    ri.id AS resource_id,
-                    ri.name,
-                    ri.subscription_id,
-                    ri.resource_type,
-                    ri.location,
-                    ri.resource_group,
-                    ri.properties,
-                    ri.tags,
-                    ri.discovered_at,
-                    ri.normalized_os_name,
-                    ri.normalized_os_version,
-                    ri.derivation_strategy,
-                    ri.eol_status,
-                    ri.eol_date,
-                    ri.risk_level,
-                    ri.eol_confidence,
-                    ri.eol_source,
-                    los.os_name AS law_os_name,
-                    los.os_version AS law_os_version,
-                    los.last_heartbeat
-                FROM resource_inventory ri
-                LEFT JOIN latest_os los ON LOWER(ri.name) = LOWER(los.computer_name)
-                WHERE ri.resource_type = 'microsoft.compute/virtualmachines'
-                   OR ri.resource_type = 'microsoft.hybridcompute/machines';
             """)
 
             # ==========================================================
