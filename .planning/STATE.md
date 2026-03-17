@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-17T05:00:33.449Z"
+last_updated: "2026-03-17T05:01:40.661Z"
 progress:
   total_phases: 10
   completed_phases: 2
   total_plans: 38
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
@@ -208,6 +208,13 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P6.1: search_vector + trigger + idx_cves_fts are all bootstrap gaps for Phase 7 | Migration 006 only; bootstrap deployments lack FTS capability entirely |
 | 2026-03-17 | P6.1: Always prefer search_vector @@ to_tsquery() over ILIKE for user-facing CVE search | GIN index enables O(1) lookup per term; ILIKE forces sequential scan on 8,600+ rows |
 
+| 2026-03-17 | P6.2: GAP-01 resolved with standalone idx_cves_severity retained alongside GAP-02 composite | Equality-only severity filter more efficient with single-column index; composite idx_cves_severity_published adds unnecessary published_at overhead for severity-only queries |
+| 2026-03-17 | P6.2: GAP-02 resolved with composite (cvss_v3_severity, published_at) equality-first ordering | Equality prefix on severity allows B-tree descent, then range scan on published_at; reverse order would force full date range scan before severity filter |
+| 2026-03-17 | P6.2: GAP-06 resolved with idx_wfctx_expires partial index added to bootstrap DDL | Bootstrap-migration parity restored; migration 006 index now also in bootstrap + migration 032 |
+| 2026-03-17 | P6.2: GAP-05 mitigated with idx_scans_completed partial index (WHERE status = 'completed') | O(1) access for latest_completed_scan_id() function; true dynamic partial index impossible in PostgreSQL |
+| 2026-03-17 | P6.2: 11 new filter indexes designed (2 GAP resolutions, 4 composites, 5 partials) | Alerting indexes in migration 031; optimization indexes in migration 032; all added to bootstrap DDL |
+| 2026-03-17 | P6.2: idx_alert_rules_enabled marked RETAIN-BUT-REVIEW for Phase 10 | Partially subsumed by partial idx_alert_rules_active; Phase 10 should verify if disabled-rule queries exist |
+
 | 2026-03-17 | P6.4: GAP-05 resolved with Option A -- rely on existing idx_vmcvematch_scan_severity composite index | No partial index lifecycle needed at demo scale (~22,589 rows); Phase 10 revisits if >100k rows or >5s MV refresh |
 | 2026-03-17 | P6.4: BH-001 fix -- PDF export uses same MV read queries as page load | Eliminates 5-call Python analytics path; same data as rendered page; Phase 8 implementation |
 | 2026-03-17 | P6.4: BH-004 fix -- single mv_vm_vulnerability_posture GROUP BY os_name | Replaces 3-query dual-path with O(N^2) JSONB cross-join fallback; Phase 8 implementation |
@@ -269,7 +276,9 @@ The following migrations are already complete and represent the baseline for thi
 | `.planning/phases/05-unified-schema-design/schema/MATERIALIZED-VIEWS-TARGET.md` | MV target design: 7 retained MVs, updated mv_vm_vulnerability_posture DDL, 3 DROP list, refresh schedule, manual API, I-03 fix, v_unified_vm_inventory deprecation, dependency diagram (P5.6 output) |
 | `.planning/phases/05-unified-schema-design/schema/EOL-TABLES.md` | EOL domain: 4 tables (eol_records ACTIVE, eol_agent_responses NEW 7-column, os_extraction_rules ACTIVE, normalization_failures ACTIVE) + BH-005 bulk lookup pattern + ERD (P5.4 output) |
 | `.planning/phases/05-unified-schema-design/schema/UNIFIED-SCHEMA-SPEC.md` | Authoritative target schema DDL: 39+ tables, migrations 027-032, full Mermaid ERD, bootstrap _REQUIRED_TABLES/RELATIONS updates, Phase 6-10 forward references (P5.7 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/AGGREGATION-STRATEGY.md` | Aggregation strategy: MV-vs-CTE-vs-Live decision framework, 7 MV read queries, 8 MV refresh index deps, GAP-05 resolution (Option A), BH-001/BH-004 fix designs, 4 CTE patterns (P6.4 output) |
 | `.planning/phases/06-index-query-optimization-design/queries/PAGINATION-STRATEGY.md` | Pagination strategy: 1 keyset (cve-database), 8 offset/limit, 15 none; cursor token format, SQL patterns, BH-009 sorting fix, 11 pagination indexes (P6.5 output) |
+| `.planning/phases/06-index-query-optimization-design/queries/JOIN-INDEX-STRATEGY.md` | Cross-table JOIN index strategy: GAP-03/04 resolved (idx_edges_cve_source), 2 new covering indexes, 11 FK indexes verified, R-01/R-02 redundancy resolved, BH-005 expression indexes cross-referenced, 19-entry registry (P6.3 output) |
 
 ---
 
@@ -294,5 +303,5 @@ The following migrations are already complete and represent the baseline for thi
 
 ---
 
-*State version: 6.5*
-*Updated: 2026-03-17 (P6.5 complete -- PAGINATION-STRATEGY.md with keyset pagination for cve-database, offset/limit for 8 views, BH-009 sorting fix, 11 pagination indexes)*
+*State version: 6.6*
+*Updated: 2026-03-17 (P6.3 complete -- JOIN-INDEX-STRATEGY.md with GAP-03/04 resolution, 2 covering indexes, 11 FK verifications, R-01/R-02 redundancy decisions, BH-005 cross-reference)*
