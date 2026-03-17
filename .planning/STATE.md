@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-17T05:01:40.661Z"
+last_updated: "2026-03-17T07:02:00.940Z"
 progress:
   total_phases: 10
-  completed_phases: 2
-  total_plans: 38
-  completed_plans: 25
+  completed_phases: 3
+  total_plans: 45
+  completed_plans: 28
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
@@ -21,10 +21,10 @@ progress:
 
 ## Current Phase
 
-**-> Phase 6: Index & Query Optimization Design** ✅ **Complete -- 6 / 6 plans done**
+**-> Phase 7: Schema Implementation** 🔄 **In progress -- 2 / 7 plans done**
 
-**Completed:** P6.1 -- Search Index Strategy, P6.2 -- Filter Index Strategy, P6.3 -- Join Index Strategy, P6.4 -- Aggregation Strategy, P6.5 -- Pagination Strategy, P6.6 -- Target SQL for All High-Traffic Endpoints (TARGET-SQL-CVE-DOMAIN.md, TARGET-SQL-INVENTORY-DOMAIN.md, TARGET-SQL-ADMIN-DOMAIN.md)
-**Next:** Phase 7 -- Schema Implementation
+**Completed:** P7.1 -- Migration 027: Drop Obsolete Tables + kb_cve_edge Data Migration, P7.2 -- Migration 028: Create VM Identity Spine (subscriptions + vms tables)
+**Next:** P7.3 -- Migration 029: Finalize CVE tables
 
 ---
 
@@ -38,7 +38,7 @@ progress:
 | 4 | Cache Layer Specification | ✅ Complete | 6 / 6 | P4.1 ARG-CACHE-SPEC, P4.2 LAW-CACHE-SPEC, P4.3 MSRC-CACHE-SPEC, P4.4 TTL-TIERS-SPEC, P4.5 INVALIDATION-SPEC, P4.6 CACHE-GAPS-SUMMARY |
 | 5 | Unified Schema Design | ✅ Complete | 7 / 7 | P5.1 VM-IDENTITY-SPINE.md, P5.2 CVE-TABLES.md, P5.3 INVENTORY-TABLES.md, P5.4 EOL-TABLES.md, P5.5 ALERTING-TABLES.md, P5.6 MATERIALIZED-VIEWS-TARGET.md, P5.7 UNIFIED-SCHEMA-SPEC.md |
 | 6 | Index & Query Optimization Design | ✅ Complete | 6 / 6 | P6.1 SEARCH-INDEX-STRATEGY.md, P6.2 FILTER-INDEX-STRATEGY.md, P6.3 JOIN-INDEX-STRATEGY.md, P6.4 AGGREGATION-STRATEGY.md, P6.5 PAGINATION-STRATEGY.md, P6.6 TARGET-SQL (3 domain files) done |
-| 7 | Schema Implementation | ⬜ Not started | 0 / 7 | Depends on Phases 5–6 |
+| 7 | Schema Implementation | 🔄 In progress | 2 / 7 | P7.1 done — Migration 027 (drop obsolete + data migration), P7.2 done — Migration 028 (subscriptions + vms tables) |
 | 8 | Repository Layer Update | ⬜ Not started | 0 / 7 | Depends on Phase 7 |
 | 9 | UI Integration Update | ⬜ Not started | 0 / 7 | Depends on Phase 8 |
 | 10 | Validation & Cleanup | ⬜ Not started | 0 / 7 | Depends on Phase 9 |
@@ -232,6 +232,10 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P6.3: All 11 FK child columns verified to have supporting indexes | No new FK indexes needed; covering indexes on vm_cve_match_rows serve double duty as FK support |
 | 2026-03-17 | P6.3: idx_vms_subscription_covering deferred -- 100-500 VMs too small to benefit | Write amplification on upsert-heavy vms table outweighs index-only scan benefit at current scale |
 
+| 2026-03-17 | P7.1: cached_at column added to kb_cve_edges in migration 027 (moved from 029) | Keeps kb_cve_edge data migration self-contained; INSERT references cached_at in both source and destination (07-RESEARCH Risk 3 resolution) |
+| 2026-03-17 | P7.1: WHERE NOT EXISTS used for kb_cve_edge data migration (not ON CONFLICT) | PK is 3-column composite (kb_number, cve_id, source); WHERE NOT EXISTS is more explicit for multi-column duplicate check |
+| 2026-03-17 | P7.1: Migration 029 should skip ALTER TABLE kb_cve_edges ADD COLUMN cached_at | Already added in migration 027; IF NOT EXISTS makes it safe but redundant |
+
 ---
 
 ## File Index
@@ -288,13 +292,14 @@ The following migrations are already complete and represent the baseline for thi
 
 ## Next Actions
 
-1. **Phase 6 COMPLETE** -- All 6/6 plans done. Target SQL for all 24 views documented.
-2. **Next:** Phase 7 -- Schema Implementation (7 plans, migrations 027-032)
+1. **Phase 7 IN PROGRESS** -- P7.1 + P7.2 done (migrations 027 + 028)
+2. **Next:** P7.3 -- Migration 029 (CVE table FK additions + cached_at already in 027)
 3. Phase 7 executes migrations 027-032 directly from UNIFIED-SCHEMA-SPEC.md
-4. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
-5. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
-6. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
-7. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
+4. **Note:** Migration 029 should skip ALTER TABLE kb_cve_edges ADD COLUMN cached_at (already done in 027)
+5. Phase 8 uses TARGET-SQL-*.md files as the definitive query reference for repository rewrites
+6. Phase 8 must implement pagination patterns from P6.5: keyset for cve-database, offset/limit for 8 other views
+7. Phase 8 rewiring: cve_metadata_sync_job.py (I-09), MSRCKBCVESyncJob, KBCVEInferenceJob, AlertPostgresRepository
+8. Phase 9 must remove `INVENTORY_USE_UNIFIED_VIEW` feature flag (I-02)
 
 ---
 
@@ -308,7 +313,9 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P6.6: All 24 UI views have target SQL across 3 domain files (CVE, Inventory/EOL, Admin) | 35+ queries documented with asyncpg params, index usage, pagination, BH-001 through BH-010 fixes, Phase 8/9 forward refs |
 | 2026-03-17 | P6.3 gap closure: JOIN-INDEX-STRATEGY.md restored (was 0 bytes) | File write failed during original P6.3 execution; all decisions were already recorded in STATE.md and 06-03-SUMMARY.md; gap closure re-executed the write |
 
+| 2026-03-17 | P7.2: Migration 028 created — subscriptions + vms tables (VM identity spine) | Exact DDL from UNIFIED-SCHEMA-SPEC.md and VM-IDENTITY-SPINE.md; subscriptions 7 cols + 2 idx, vms 12 cols + 7 idx, FK ON DELETE RESTRICT; migrations/versions/ directory created |
+
 ---
 
-*State version: 6.8*
-*Updated: 2026-03-17 (P6.3 gap closure -- JOIN-INDEX-STRATEGY.md restored with 6 sections, 209 lines; Phase 6 now 100% complete with all deliverable files populated)*
+*State version: 7.3*
+*Updated: 2026-03-17 (P7.1 complete -- Migration 027 drop obsolete tables + kb_cve_edge data migration; Phase 7 now 2/7 plans done)*
