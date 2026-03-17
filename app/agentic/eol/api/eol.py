@@ -29,7 +29,7 @@ import asyncio
 import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Request as FastAPIRequest
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import logging
 
@@ -45,10 +45,6 @@ from utils.normalization import derive_os_name_version
 from utils.os_extraction_rules import os_extraction_rules_store
 from utils.vendor_url_inventory import vendor_url_inventory
 
-# Phase 8: eol_repo is the new PostgreSQL-backed EOLRepository.
-# It is accessed via app.state in endpoint handlers, with eol_inventory as fallback
-# for non-request contexts (background tasks, schedulers).
-eol_repo = eol_inventory  # Will be replaced by app.state.eol_repo at request time
 from agents.eol_orchestrator import DEFAULT_VENDOR_ROUTING
 
 logger = logging.getLogger(__name__)
@@ -1264,80 +1260,75 @@ async def cache_eol_result(request: CacheEOLRequest):
 @router.get("/api/eol-inventory", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_inventory_list", timeout_seconds=20)
 async def list_eol_inventory_records(
-    limit: int = 100,
-    page: int = 1,
-    page_size: int = 25,
-    software_name: Optional[str] = None,
-    version: Optional[str] = None,
+    request: Request,
+    search: Optional[str] = None,
+    sort_column: str = "updated_at",
+    sort_direction: str = "DESC",
+    limit: int = 25,
+    offset: int = 0,
 ):
-    """Return recent Cosmos EOL table entries for UI browsing."""
+    """Return EOL inventory records for UI browsing."""
     try:
-        safe_page = max(1, page)
-        safe_page_size = max(1, min(page_size, 500))
-
-        # Backward compatibility: if legacy `limit` provided without pagination params,
-        # respect it by serving first page with that size.
-        if page == 1 and page_size == 25 and limit != 100:
-            safe_page_size = max(1, min(limit, 500))
-
-        offset = (safe_page - 1) * safe_page_size
-
-        # list_recent returns a tuple (records, total_count)
-        records, total_count = await eol_inventory.list_recent(
-            limit=safe_page_size,
-            offset=offset,
-            software_name=software_name,
-            version=version,
+        eol_repo = request.app.state.eol_repo
+        records = await eol_repo.list_records(
+            search=search, sort_column=sort_column,
+            sort_direction=sort_direction, limit=limit, offset=offset,
         )
-
-        total_pages = (total_count + safe_page_size - 1) // safe_page_size if total_count > 0 else 1
-
-        response = StandardResponse.success_response(
-            data=records,
-            metadata={
-                "limit": safe_page_size,
-                "page": safe_page,
-                "page_size": safe_page_size,
-                "offset": offset,
-                "total_pages": total_pages,
-                "total_count": total_count,
-                "returned_count": len(records) if isinstance(records, list) else 0,
-                "software_name": software_name,
-                "version": version,
-            },
+        return StandardResponse(
+            success=True,
+            data={"items": records, "total": len(records), "offset": offset, "limit": limit},
+            count=len(records),
+            message=f"Retrieved {len(records)} EOL records" if records else "No EOL records found",
         )
-        payload = response.to_dict()
-        payload["total_records"] = total_count
-        payload["returned_records"] = len(records) if isinstance(records, list) else 0
-        return payload
     except Exception as exc:
         logger.debug("EOL inventory list failed: %s", exc)
         response = StandardResponse.error_response(error=str(exc))
         return response.to_dict()
+
+
+@router.get("/api/eol-inventory/{software_key}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_inventory_get", timeout_seconds=15)
+async def get_eol_record(request: Request, software_key: str):
+    """Retrieve a single EOL record by software_key."""
+    eol_repo = request.app.state.eol_repo
+    record = await eol_repo.get_by_key(software_key)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"EOL record not found: {software_key}")
+    return StandardResponse(success=True, data=record, message="EOL record retrieved")
+
 
 @router.put("/api/eol-inventory/{record_id}", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_update", timeout_seconds=20)
 async def update_eol_inventory_record(
     record_id: str,
     software_key: str,
-    request: UpdateEolRecordRequest,
+    request: Request,
+    body: UpdateEolRecordRequest = None,
 ):
-    """Update a stored EOL record in Cosmos."""
-    updates: Dict[str, Any] = {k: v for k, v in request.dict(exclude_unset=True).items()}
-    if not updates:
+    """Update a stored EOL record via eol_repo upsert."""
+    eol_repo = request.app.state.eol_repo
+    record_data = body.dict(exclude_unset=True) if body else {}
+    if not record_data:
         response = StandardResponse.error_response("No update fields provided")
         return response.to_dict()
 
-    updated = await eol_inventory.update_record(record_id, software_key, updates)
-    if not updated:
-        response = StandardResponse.error_response("Record not found or update failed")
-        return response.to_dict()
-
-    response = StandardResponse.success_response(
-        data=[updated],
-        metadata={"operation": "update", "id": record_id},
-    )
-    return response.to_dict()
+    try:
+        await eol_repo.upsert_eol_record(
+            software_key=software_key,
+            software_name=record_data.get("software_name", ""),
+            version_key=record_data.get("version"),
+            status=record_data.get("status"),
+            risk_level=record_data.get("risk_level"),
+            eol_date=record_data.get("eol_date"),
+            extended_end_date=record_data.get("support_end_date"),
+            is_eol=record_data.get("status") in ("expired", "eol") if record_data.get("status") else False,
+            item_type=None,
+            lifecycle_url=record_data.get("source_url"),
+        )
+        return StandardResponse(success=True, data=record_data, message="EOL record saved")
+    except Exception as e:
+        logger.error("Failed to upsert EOL record: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"EOL record save failed: {str(e)}")
 
 
 @router.delete("/api/eol-inventory/{record_id}", response_model=StandardResponse)
