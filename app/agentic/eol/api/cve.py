@@ -125,7 +125,7 @@ async def get_cve_stats(request: Request) -> StandardResponse:
 
 @router.post("/cve/search")
 @readonly_endpoint(agent_name="cve_search", timeout_seconds=30)
-async def search_cves(request: CVESearchRequest) -> StandardResponse:
+async def search_cves(search_request: CVESearchRequest, request: Request) -> StandardResponse:
     """Search CVEs with advanced filtering.
 
     Supports multiple filter types:
@@ -136,126 +136,57 @@ async def search_cves(request: CVESearchRequest) -> StandardResponse:
     - Date Range: Published date filters
     - Vendor/Product: Affected product filters
     - Source: Filter by data source
-    - Exploit: Filter by exploit availability
 
-    Pagination and sorting supported.
+    Pagination supported.
 
     Args:
-        request: CVESearchRequest with filters, pagination, and sorting
+        search_request: CVESearchRequest with filters, pagination, and sorting
+        request: FastAPI request for app.state access
 
     Returns:
-        StandardResponse with CVESearchResponse data
+        StandardResponse with search results
     """
-    try:
-        # Import here to get singleton
-        from main import get_cve_service
+    cve_repo = request.app.state.cve_repo
 
-        cve_service = await get_cve_service()
+    # Extract filters from search_request (CVESearchRequest Pydantic model)
+    keyword = search_request.keyword
+    severity = search_request.severity.upper() if search_request.severity else None
+    min_score = search_request.min_score
+    vendor = search_request.vendor
+    product = search_request.product
+    date_from = search_request.published_after
+    date_to = search_request.published_before
+    source = search_request.source
+    limit = search_request.limit or 100
+    offset = search_request.offset or 0
 
-        # Build filters dict for repository
-        filters = {}
+    # Parallel: search + count
+    results, total = await asyncio.gather(
+        cve_repo.search_cves(
+            keyword=keyword, severity=severity, min_score=min_score,
+            vendor=vendor, product=product,
+            date_from=date_from, date_to=date_to,
+            source=source, limit=limit, offset=offset,
+        ),
+        cve_repo.count_cves(
+            keyword=keyword, severity=severity, min_score=min_score,
+            vendor=vendor, product=product,
+            date_from=date_from, date_to=date_to,
+            source=source,
+        ),
+    )
 
-        if request.cve_id:
-            # Direct ID lookup - use get_cve instead of search
-            cve = await cve_service.get_cve(request.cve_id)
-            if cve is None:
-                return StandardResponse(
-                    success=False,
-                    message=f"CVE {request.cve_id} not found",
-                    data=CVESearchResponse(
-                        results=[],
-                        total_count=0,
-                        offset=0,
-                        limit=request.limit,
-                        has_more=False
-                    ).model_dump()
-                )
-
-            return StandardResponse(
-                success=True,
-                message="CVE found",
-                data=CVESearchResponse(
-                    results=[cve],
-                    total_count=1,
-                    offset=0,
-                    limit=request.limit,
-                    has_more=False
-                ).model_dump()
-            )
-
-        # Text search
-        if request.keyword:
-            filters["keyword"] = request.keyword
-
-        # Severity filter
-        if request.severity:
-            filters["severity"] = request.severity.upper()
-
-        # CVSS score range
-        if request.min_score is not None:
-            filters["min_score"] = request.min_score
-        if request.max_score is not None:
-            filters["max_score"] = request.max_score
-
-        # Date range
-        if request.published_after:
-            filters["published_after"] = request.published_after
-        if request.published_before:
-            filters["published_before"] = request.published_before
-
-        # Vendor/product filters
-        if request.vendor:
-            filters["vendor"] = request.vendor
-        if request.product:
-            filters["product"] = request.product
-
-        # Source filter
-        if request.source:
-            filters["source"] = request.source
-
-        # Exploit filter (if supported by repository)
-        if request.exploit_available is not None:
-            filters["exploit_available"] = request.exploit_available
-
-        # Execute search
-        results = await cve_service.search_cves(
-            filters=filters,
-            limit=request.limit,
-            offset=request.offset,
-            sort_by=request.sort_by,
-            sort_order=request.sort_order,
-        )
-
-        total_count = await cve_service.count_cves(filters)
-        total_count = max(total_count, request.offset + len(results))
-        has_more = request.offset + len(results) < total_count
-
-        response_data = CVESearchResponse(
-            results=results,
-            total_count=total_count,
-            offset=request.offset,
-            limit=request.limit,
-            has_more=has_more
-        )
-
-        logger.info(
-            "CVE search: %d results (filters=%d, offset=%d, sort=%s %s)",
-            len(results),
-            len(filters),
-            request.offset,
-            request.sort_by,
-            request.sort_order,
-        )
-
-        return StandardResponse(
-            success=True,
-            message=f"Found {len(results)} CVE(s)",
-            data=response_data.model_dump()
-        )
-
-    except Exception as e:
-        logger.error(f"CVE search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StandardResponse(
+        success=True,
+        data={
+            "items": results,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        },
+        count=len(results),
+        message=f"Retrieved {len(results)} CVEs" if results else "No CVEs found matching your criteria",
+    )
 
 
 @router.get("/cve/{cve_id}")
