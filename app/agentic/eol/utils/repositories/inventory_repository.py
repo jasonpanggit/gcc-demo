@@ -54,6 +54,15 @@ WHERE ($1::uuid IS NULL OR v.subscription_id = $1)
   AND ($2::text IS NULL OR v.os_name ILIKE '%' || $2 || '%');
 """
 
+# PK lookup on vms table (used by cve_inventory.py)
+QUERY_VM_BY_ID = """
+SELECT resource_id, subscription_id, resource_group, vm_name,
+       os_name, os_type, vm_type, location, tags,
+       created_at, updated_at, last_synced_at
+FROM vms
+WHERE resource_id = $1;
+"""
+
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 9c
 QUERY_SOFTWARE_FOR_VM = """
 SELECT software_name, software_type, software_version, publisher, cached_at
@@ -185,6 +194,16 @@ class InventoryRepository:
         except asyncpg.PostgresError as exc:
             logger.error("get_vm_inventory_with_eol failed: %s", exc)
             return []
+
+    async def get_vm_by_id(self, resource_id: str) -> Optional[Dict]:
+        """Single VM by resource_id PK lookup. Used by cve_inventory.py."""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(QUERY_VM_BY_ID, resource_id)
+                return dict(row) if row else None
+        except asyncpg.PostgresError as exc:
+            logger.error("get_vm_by_id failed for %s: %s", resource_id, exc)
+            return None
 
     async def count_vm_inventory(
         self,
