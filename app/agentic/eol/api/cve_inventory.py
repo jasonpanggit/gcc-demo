@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 try:
     from models.cve_models import VMVulnerabilityResponse, CVEAffectedVMsResponse
@@ -288,238 +288,95 @@ def _calculate_risk_level(
 @router.get("/cve/inventory/overview", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
 async def get_vm_vulnerability_overview(
-    days: int = Query(default=90, ge=1, le=365, description="Look-back window for Arc VM inventory")
+    request: Request,
+    days: int = Query(default=90, ge=1, le=365, description="Look-back window (kept for API compat)"),
 ):
-    """Return vulnerability counts for all Azure VMs and Arc-enabled servers."""
+    """Return vulnerability counts for all Azure VMs and Arc-enabled servers.
+
+    Uses mv_vm_vulnerability_posture materialized view via cve_repo.
+    Eliminates BH-002 (3-query aggregate with O(N) in-memory loop) and
+    BH-003 (dual Arc+Azure parallel lookup).
+    """
     try:
-        try:
-            from api.patch_management import _list_machines_inventory
-        except ModuleNotFoundError:
-            from app.agentic.eol.api.patch_management import _list_machines_inventory
+        cve_repo = request.app.state.cve_repo
 
-        service = await _get_cve_vm_service()
-
-        # Parallelize independent API calls
-        machine_result, scan = await asyncio.gather(
-            _list_machines_inventory(days=days, include_eol=False),
-            service.get_latest_scan()
-        )
-        machines: List[Dict[str, Any]] = machine_result.get("data", []) if isinstance(machine_result, dict) else []
-
-        match_counts: Dict[str, Dict[str, Any]] = {}
-        total_matches = 0
-
-        if scan:
-            scan_summaries = getattr(scan, "vm_match_summaries", {}) or {}
-            if scan_summaries:
-                for vm_id, summary in scan_summaries.items():
-                    patch_summary = summary.get("patch_summary") or {}
-                    match_counts[vm_id] = {
-                        "vm_id": vm_id,
-                        "vm_name": summary.get("vm_name") or vm_id,
-                        "total_cves": int(summary.get("total_cves", 0)),
-                        "critical": int(summary.get("critical", 0)),
-                        "high": int(summary.get("high", 0)),
-                        "medium": int(summary.get("medium", 0)),
-                        "low": int(summary.get("low", 0)),
-                        "unpatched_critical": int(patch_summary.get("unpatched_critical", 0)),
-                        "unpatched_high": int(patch_summary.get("unpatched_high", 0)),
-                        "unpatched_medium": int(patch_summary.get("unpatched_medium", 0)),
-                        "unpatched_low": int(patch_summary.get("unpatched_low", 0)),
-                        "covered_cves": int(patch_summary.get("covered_cves", 0)),
-                        "fixable_cves": int(patch_summary.get("fixable_cves", 0)),
-                        "total_unpatched": int(patch_summary.get("total_unpatched", 0)),
-                        "has_patch_data": bool(patch_summary),
-                    }
-                total_matches = sum(int(summary.get("total_cves", 0)) for summary in scan_summaries.values())
-            else:
-                for match in scan.matches:
-                    vm_bucket = match_counts.setdefault(
-                        match.vm_id,
-                        {
-                            "vm_id": match.vm_id,
-                            "vm_name": match.vm_name or match.vm_id,
-                            "total_cves": 0,
-                            "critical": 0,
-                            "high": 0,
-                            "medium": 0,
-                            "low": 0,
-                        }
-                    )
-                    vm_bucket["total_cves"] += 1
-                    total_matches += 1
-
-                    severity = str(match.severity or "UNKNOWN").upper()
-                    if severity == "CRITICAL":
-                        vm_bucket["critical"] += 1
-                    elif severity == "HIGH":
-                        vm_bucket["high"] += 1
-                    elif severity == "MEDIUM":
-                        vm_bucket["medium"] += 1
-                    else:
-                        vm_bucket["low"] += 1
-
-        zero_match_ids = [
-            resource_id
-            for resource_id in (str(machine.get("resource_id") or "") for machine in machines)
-            if resource_id and not (match_counts.get(resource_id) or match_counts.get(resource_id.lower()))
-        ]
-        fallback_summaries: Dict[str, Dict[str, Any]] = {}
-
-        if zero_match_ids:
-            try:
-                fallback_summaries = await service.get_vm_vulnerability_summaries(
-                    zero_match_ids,
-                    allow_live_cve_fallback=False,
-                    scan=scan,
-                )
-            except Exception as fallback_error:
-                logger.warning("Failed batched inventory-backed summaries for overview: %s", fallback_error)
-                fallback_summaries = {}
-
-        overview_rows: List[Dict[str, Any]] = []
-
-        for machine in machines:
-            resource_id = str(machine.get("resource_id") or "")
-            counts = match_counts.pop(resource_id, None) or match_counts.pop(resource_id.lower(), None) or {
-                "vm_id": resource_id,
-                "vm_name": machine.get("computer") or machine.get("name") or resource_id,
-                "total_cves": 0,
-                "critical": 0,
-                "high": 0,
-                "medium": 0,
-                "low": 0,
-            }
-
-            if counts["total_cves"] == 0 and resource_id:
-                fallback = fallback_summaries.get(resource_id.lower()) or fallback_summaries.get(resource_id)
-                if fallback and int(fallback.get("total_cves", 0)) > 0:
-                    counts = {
-                        **counts,
-                        "total_cves": int(fallback.get("total_cves", 0)),
-                        "critical": int(fallback.get("critical", 0)),
-                        "high": int(fallback.get("high", 0)),
-                        "medium": int(fallback.get("medium", 0)),
-                        "low": int(fallback.get("low", 0)),
-                    }
-
-            risk_level = _calculate_risk_level(
-                total_cves=counts.get("total_cves", 0),
-                critical=counts.get("critical", 0),
-                high=counts.get("high", 0),
-                medium=counts.get("medium", 0),
-                low=counts.get("low", 0),
-                unpatched_critical=counts.get("unpatched_critical", 0),
-                unpatched_high=counts.get("unpatched_high", 0),
-                total_unpatched=counts.get("total_unpatched", 0),
-                has_patch_data=counts.get("has_patch_data", False),
-            )
-
-            overview_rows.append(
-                {
-                    "vm_id": resource_id,
-                    "vm_name": machine.get("computer") or machine.get("name") or counts["vm_name"],
-                    "resource_group": machine.get("resource_group"),
-                    "subscription_id": machine.get("subscription_id"),
-                    "location": machine.get("location"),
-                    "os_type": machine.get("os_type"),
-                    "os_name": machine.get("os_name"),
-                    "os_version": machine.get("os_version"),
-                    "vm_type": machine.get("vm_type"),
-                    "source_label": _normalize_vm_source(machine.get("vm_type")),
-                    "total_cves": counts["total_cves"],
-                    "critical": counts["critical"],
-                    "high": counts["high"],
-                    "medium": counts["medium"],
-                    "low": counts["low"],
-                    "unpatched_critical": counts.get("unpatched_critical", 0),
-                    "unpatched_high": counts.get("unpatched_high", 0),
-                    "unpatched_medium": counts.get("unpatched_medium", 0),
-                    "unpatched_low": counts.get("unpatched_low", 0),
-                    "total_unpatched": counts.get("total_unpatched", 0),
-                    "covered_cves": counts.get("covered_cves", 0),
-                    "fixable_cves": counts.get("fixable_cves", 0),
-                    "has_patch_data": counts.get("has_patch_data", False),
-                    "risk_level": risk_level,
-                    "has_scan_data": scan is not None,
-                    "last_synced": (scan.completed_at or scan.started_at) if scan else None,
-                }
-            )
-
-        for unmatched in match_counts.values():
-            risk_level = _calculate_risk_level(
-                total_cves=unmatched.get("total_cves", 0),
-                critical=unmatched.get("critical", 0),
-                high=unmatched.get("high", 0),
-                medium=unmatched.get("medium", 0),
-                low=unmatched.get("low", 0),
-                unpatched_critical=unmatched.get("unpatched_critical", 0),
-                unpatched_high=unmatched.get("unpatched_high", 0),
-                total_unpatched=unmatched.get("total_unpatched", 0),
-                has_patch_data=unmatched.get("has_patch_data", False),
-            )
-            overview_rows.append(
-                {
-                    "vm_id": unmatched["vm_id"],
-                    "vm_name": unmatched["vm_name"],
-                    "resource_group": None,
-                    "subscription_id": None,
-                    "location": None,
-                    "os_type": None,
-                    "os_name": None,
-                    "os_version": None,
-                    "vm_type": None,
-                    "source_label": "Virtual machine",
-                    "total_cves": unmatched["total_cves"],
-                    "critical": unmatched["critical"],
-                    "high": unmatched["high"],
-                    "medium": unmatched["medium"],
-                    "low": unmatched["low"],
-                    "unpatched_critical": unmatched.get("unpatched_critical", 0),
-                    "unpatched_high": unmatched.get("unpatched_high", 0),
-                    "unpatched_medium": unmatched.get("unpatched_medium", 0),
-                    "unpatched_low": unmatched.get("unpatched_low", 0),
-                    "total_unpatched": unmatched.get("total_unpatched", 0),
-                    "covered_cves": unmatched.get("covered_cves", 0),
-                    "fixable_cves": unmatched.get("fixable_cves", 0),
-                    "has_patch_data": unmatched.get("has_patch_data", False),
-                    "risk_level": risk_level,
-                    "has_scan_data": True,
-                    "last_synced": (scan.completed_at or scan.started_at) if scan else None,
-                }
-            )
-
-        overview_rows.sort(
-            key=lambda item: (
-                -int(item.get("total_cves", 0)),
-                -int(item.get("critical", 0)),
-                -int(item.get("high", 0)),
-                str(item.get("vm_name") or "").lower(),
-            )
+        # Parallel MV reads -- partial success pattern
+        posture_result, os_breakdown_result = await asyncio.gather(
+            cve_repo.get_vm_posture_summary(limit=500),
+            cve_repo.get_os_cve_breakdown(),
+            return_exceptions=True,
         )
 
-        vulnerable_vms = sum(1 for item in overview_rows if int(item.get("total_cves", 0)) > 0)
-        summary = {
-            "scan_available": scan is not None,
-            "scan_id": scan.scan_id if scan else None,
-            "scan_date": (scan.completed_at or scan.started_at) if scan else None,
-            "total_vms": len(overview_rows),
-            "vulnerable_vms": vulnerable_vms,
-            "healthy_vms": len(overview_rows) - vulnerable_vms,
-            "total_cves": sum(int(item.get("total_cves", 0)) for item in overview_rows),
-            "arc_count": sum(1 for item in overview_rows if item.get("vm_type") == "arc"),
-            "azure_vm_count": sum(1 for item in overview_rows if item.get("vm_type") == "azure-vm"),
+        errors: List[str] = []
+
+        if isinstance(posture_result, Exception):
+            logger.error("VM posture query failed: %s", posture_result)
+            posture_result = []
+            errors.append("vm_posture")
+
+        if isinstance(os_breakdown_result, Exception):
+            logger.error("OS CVE breakdown query failed: %s", os_breakdown_result)
+            os_breakdown_result = []
+            errors.append("os_breakdown")
+
+        posture_data: List[Dict[str, Any]] = posture_result
+
+        # Build frozen-key response: machines list
+        machines: List[Dict[str, Any]] = []
+        for row in posture_data:
+            risk_level = row.get("risk_level") or _calculate_risk_level(
+                total_cves=row.get("total_cves", 0),
+                critical=row.get("critical", 0),
+                high=row.get("high", 0),
+                medium=row.get("medium", 0),
+                low=row.get("low", 0),
+            )
+            machines.append({
+                "vm_id": row.get("vm_id", ""),
+                "vm_name": row.get("vm_name", ""),
+                "os_name": row.get("os_name", ""),
+                "risk_level": risk_level,
+                "total_cves": row.get("total_cves", 0),
+                "critical": row.get("critical", 0),
+                "high": row.get("high", 0),
+                "eol_status": row.get("eol_status"),
+            })
+
+        # Build scan_summary aggregate
+        scan_summary: Dict[str, Any] = {
+            "total_machines": len(posture_data),
+            "total_cves": sum(m.get("total_cves", 0) for m in posture_data),
+            "critical": sum(m.get("critical", 0) for m in posture_data),
+            "high": sum(m.get("high", 0) for m in posture_data),
         }
 
-        return StandardResponse.success_response(data=overview_rows, metadata=summary)
+        response_data: Dict[str, Any] = {
+            "machines": machines,
+            "scan_summary": scan_summary,
+            "total_machines": len(posture_data),
+        }
+
+        msg = "VM vulnerability overview retrieved"
+        if errors:
+            msg += " (partial data)"
+
+        return StandardResponse(
+            success=True,
+            data=response_data,
+            message=msg,
+            metadata={
+                "partial_errors": errors if errors else None,
+                "os_breakdown": os_breakdown_result,
+            },
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to build VM vulnerability overview: {e}")
+        logger.error("Failed to build VM vulnerability overview: %s", e)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to retrieve VM vulnerability overview: {str(e)}"
+            detail=f"Failed to retrieve VM vulnerability overview: {str(e)}",
         )
 
 
