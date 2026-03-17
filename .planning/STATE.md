@@ -268,5 +268,5 @@ The following migrations are already complete and represent the baseline for thi
 
 ---
 
-*State version: 4.4*
-*Updated: 2026-03-17 (P5.4 complete -- EOL Tables Design -- EOL-TABLES.md with 4 tables, BH-005 bulk lookup, eol_agent_responses NEW, ERD)*
+*State version: 4.5*
+*Updated: 2026-03-17 (P5.3 complete -- Inventory Tables Design -- INVENTORY-TABLES.md with 10 tables, 4 new FKs, 2 DROP, 4 DEPRECATE, ERD)*
