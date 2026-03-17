@@ -175,9 +175,10 @@ class OSExtractionReapplyRequest(BaseModel):
 
 @router.get("/api/os-extraction-rules", response_model=StandardResponse)
 @readonly_endpoint(agent_name="os_extraction_rules_list", timeout_seconds=15)
-async def list_os_extraction_rules():
-    rules = os_extraction_rules_store.get_rules()
-    return StandardResponse.success_response(data=rules, metadata={"count": len(rules)}).to_dict()
+async def list_os_extraction_rules(request: Request):
+    eol_repo = request.app.state.eol_repo
+    rules = await eol_repo.list_extraction_rules()
+    return StandardResponse(success=True, data=rules, count=len(rules))
 
 
 @router.post("/api/os-extraction-rules", response_model=StandardResponse)
@@ -1406,80 +1407,36 @@ async def purge_all_eol_inventory_records():
 
 @router.get("/api/eol-agent-responses", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
-async def get_eol_agent_responses():
+async def get_eol_agent_responses(request: Request, limit: int = 10, offset: int = 0):
     """
-    Get all tracked EOL agent responses from both Inventory Assistant and EOL orchestrators.
-    
-    Retrieves historical EOL search results from all orchestrators, including
-    which agents were used, confidence scores, and timestamps.
-    
+    Get tracked EOL agent responses from the database.
+
+    Retrieves historical EOL search results stored in eol_agent_responses table.
+
     Returns:
-        StandardResponse with list of EOL responses from all sources,
-        sorted by timestamp (newest first).
-    
-    Example Response:
-        {
-            "success": true,
-            "responses": [
-                {
-                    "software_name": "Windows Server 2012 R2",
-                    "agent_used": "microsoft_lifecycle",
-                    "confidence": 0.95,
-                    "timestamp": "2025-10-15T11:15:00Z",
-                    "orchestrator_type": "eol_orchestrator"
-                }
-            ],
-            "count": 45,
-            "sources": {
-                "inventory_asst_orchestrator": 20,
-                "eol_orchestrator": 25
-            }
-        }
+        StandardResponse with list of agent responses, sorted by timestamp (newest first).
     """
-    all_responses = []
-    
-    # Get responses from Inventory Assistant orchestrator
-    inventory_orchestrator = _get_inventory_asst_orchestrator()
-    if inventory_orchestrator and hasattr(inventory_orchestrator, 'get_eol_agent_responses'):
-        inventory_responses = inventory_orchestrator.get_eol_agent_responses()
-        # Mark these as from the inventory assistant orchestrator
-        for response in inventory_responses:
-            response['orchestrator_type'] = 'inventory_asst_orchestrator'
-        all_responses.extend(inventory_responses)
-        logger.info(f"🔍 [API] Inventory assistant orchestrator returned {len(inventory_responses)} EOL responses")
-    else:
-        logger.warning("🔍 [API] Inventory assistant orchestrator not available or missing get_eol_agent_responses method")
-    
-    # Get responses from EOL orchestrator
-    eol_orchestrator = _get_eol_orchestrator()
-    if eol_orchestrator and hasattr(eol_orchestrator, 'get_eol_agent_responses'):
-        eol_responses = eol_orchestrator.get_eol_agent_responses()
-        # Mark these as from eol orchestrator
-        for response in eol_responses:
-            response['orchestrator_type'] = 'eol_orchestrator'
-        all_responses.extend(eol_responses)
-        logger.info(f"🔍 [API] EOL orchestrator returned {len(eol_responses)} EOL responses")
-    else:
-        logger.warning("🔍 [API] EOL orchestrator not available or missing get_eol_agent_responses method")
-    
-    # Sort by timestamp (newest first)
-    all_responses.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-    
-    logger.info(f"🔍 [API] Total EOL responses returned: {len(all_responses)}")
-    
-    # Return in StandardResponse format - data field contains the responses
-    return {
-        "success": True,
-        "data": all_responses,  # Changed from "responses" to "data" for StandardResponse compatibility
-        "count": len(all_responses),
-        "timestamp": datetime.utcnow().isoformat(),
-        "metadata": {
-            "sources": {
-                "inventory_asst_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'inventory_asst_orchestrator']),
-                "eol_orchestrator": len([r for r in all_responses if r.get('orchestrator_type') == 'eol_orchestrator'])
-            }
-        }
-    }
+    eol_repo = request.app.state.eol_repo
+    responses = await eol_repo.list_recent_responses(limit=limit, offset=offset)
+    return StandardResponse(
+        success=True,
+        data=responses,
+        count=len(responses),
+        message=f"Retrieved {len(responses)} agent responses",
+    )
+
+
+@router.get("/api/eol-agent-responses/session/{session_id}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_session_responses", timeout_seconds=15)
+async def get_session_responses(request: Request, session_id: str):
+    """Return all agent responses for a given session, ordered ASC."""
+    eol_repo = request.app.state.eol_repo
+    responses = await eol_repo.get_responses_by_session(session_id)
+    return StandardResponse(
+        success=True,
+        data=responses,
+        count=len(responses),
+    )
 
 
 @router.post("/api/eol-agent-responses/clear", response_model=StandardResponse)
@@ -1656,3 +1613,28 @@ async def batch_enrich_eol(request: BatchEOLRequest):
         "total_items": len(clean_results),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# ============================================================================
+# EOL MANAGEMENT VIEW ENDPOINT
+# ============================================================================
+
+@router.get("/api/eol-management", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_management", timeout_seconds=20)
+async def get_eol_management(
+    request: Request,
+    subscription_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Return VMs with their EOL status for the management view."""
+    eol_repo = request.app.state.eol_repo
+    vms = await eol_repo.get_vm_eol_management(
+        subscription_id=subscription_id, limit=limit, offset=offset,
+    )
+    return StandardResponse(
+        success=True,
+        data={"items": vms, "total": len(vms), "offset": offset, "limit": limit},
+        count=len(vms),
+        message=f"Retrieved {len(vms)} VMs with EOL status" if vms else "No VM EOL management data available",
+    )
