@@ -175,6 +175,62 @@ WHERE 1=1
 """
 
 # ---------------------------------------------------------------------------
+# SQL Constants -- CVE detail + affected VMs (Phase 6 Queries 3a-3b)
+# ---------------------------------------------------------------------------
+
+# From: TARGET-SQL-CVE-DOMAIN.md Query 3a (PK lookup)
+QUERY_CVE_DETAIL = """
+SELECT cve_id, description, cvss_v3_score, cvss_v3_severity, cvss_v2_score, cvss_v2_severity,
+       cvss_v3_vector, cvss_v2_vector, cwe_ids, "references", affected_products,
+       sources, published_at, modified_at, synced_at,
+       cvss_v3_exploitability, cvss_v3_impact
+FROM cves
+WHERE cve_id = $1;
+"""
+
+# From: TARGET-SQL-CVE-DOMAIN.md Query 3b (BH-006 fix)
+QUERY_CVE_AFFECTED_VMS = """
+SELECT d.vm_id, d.vm_name, d.severity, d.cvss_score, d.patch_status, d.kb_ids,
+       v.resource_group, v.subscription_id, v.os_type, v.location
+FROM mv_vm_cve_detail d
+LEFT JOIN vms v ON d.vm_id = v.resource_id
+WHERE d.cve_id = $1
+  AND ($2::text IS NULL OR v.subscription_id::text = $2)
+  AND ($3::text IS NULL OR v.resource_group = $3)
+ORDER BY CASE d.severity
+    WHEN 'CRITICAL' THEN 1
+    WHEN 'HIGH' THEN 2
+    WHEN 'MEDIUM' THEN 3
+    WHEN 'LOW' THEN 4
+    ELSE 5
+END, d.cvss_score DESC
+LIMIT $4 OFFSET $5;
+"""
+
+# ---------------------------------------------------------------------------
+# SQL Constants -- VM CVE detail (Phase 6 Queries 4a-4b)
+# ---------------------------------------------------------------------------
+
+# From: TARGET-SQL-CVE-DOMAIN.md Query 4b
+QUERY_VM_CVE_MATCHES = """
+SELECT scan_id, vm_id, vm_name, cve_id, severity, cvss_score,
+       patch_status, kb_ids, description, published_date
+FROM mv_vm_cve_detail
+WHERE vm_id = $1
+  AND ($2::text IS NULL OR severity = $2)
+ORDER BY cvss_score DESC
+LIMIT $3 OFFSET $4;
+"""
+
+# Count companion for QUERY_VM_CVE_MATCHES (pagination support)
+QUERY_COUNT_VM_CVE_MATCHES = """
+SELECT COUNT(*) AS total
+FROM mv_vm_cve_detail
+WHERE vm_id = $1
+  AND ($2::text IS NULL OR severity = $2);
+"""
+
+# ---------------------------------------------------------------------------
 # MV refresh tiers (P6.4 AGGREGATION-STRATEGY.md, bootstrap MVs only)
 # ---------------------------------------------------------------------------
 
@@ -422,4 +478,76 @@ class CVERepository:
                 return row["total"] if row else 0
         except asyncpg.PostgresError as e:
             logger.error("Failed to count CVEs", exc_info=True)
+            return 0
+
+    # ------------------------------------------------------------------
+    # CVE detail + affected VMs (Queries 3a-3b)
+    # ------------------------------------------------------------------
+
+    async def get_cve_detail(self, cve_id: str) -> Optional[Dict]:
+        """Single CVE by ID with full columns. Phase 6 Query 3a."""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(QUERY_CVE_DETAIL, cve_id)
+                return dict(row) if row else None
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to fetch CVE detail for %s", cve_id, exc_info=True)
+            return None
+
+    async def get_cve_affected_vms(
+        self,
+        cve_id: str,
+        subscription_id: Optional[str] = None,
+        resource_group: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """VMs affected by a specific CVE. Phase 6 Query 3b. Eliminates BH-006."""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    QUERY_CVE_AFFECTED_VMS,
+                    cve_id, subscription_id, resource_group, limit, offset,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to fetch affected VMs for %s", cve_id, exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # VM CVE detail (Queries 4a-4b)
+    # ------------------------------------------------------------------
+
+    async def get_vm_cve_matches(
+        self,
+        vm_id: str,
+        severity: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """CVEs affecting a specific VM. Phase 6 Query 4b."""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    QUERY_VM_CVE_MATCHES, vm_id, severity, limit, offset,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to fetch CVE matches for VM %s", vm_id, exc_info=True)
+            return []
+
+    async def count_vm_cve_matches(
+        self,
+        vm_id: str,
+        severity: Optional[str] = None,
+    ) -> int:
+        """Count CVEs affecting a specific VM (pagination support)."""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    QUERY_COUNT_VM_CVE_MATCHES, vm_id, severity,
+                )
+                return row["total"] if row else 0
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to count CVE matches for VM %s", vm_id, exc_info=True)
             return 0
