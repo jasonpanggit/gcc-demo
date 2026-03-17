@@ -207,15 +207,15 @@ Plans:
 
 **Depends on**: Phase 9
 
-**Status**: 🔄 In Progress (1 / 7 plans)
+**Status**: 🔄 In Progress (4 / 7 plans)
 
 **Plans**: 7 plans
 
 Plans:
-- [x] P10.1: Baseline + post-optimization query timing with EXPLAIN ANALYZE
-- [ ] P10.2: Validate index usage — confirm index scans on all large tables
-- [ ] P10.3: Remove `cve_in_memory_repository.py` callers
-- [ ] P10.4: Remove dead Cosmos stubs
+- [x] P10.1: Baseline + post-optimization query timing with EXPLAIN ANALYZE ✅ (2026-03-17)
+- [x] P10.2: Performance validation suite — index usage, join performance tests ✅ (2026-03-17)
+- [x] P10.3: Dead code removal — Cosmos stubs, deprecated endpoints, dead cache.html JS ✅ (2026-03-17)
+- [x] P10.4: Dead code removal — dual-path consolidation, deprecated aliases, legacy shims ✅ (2026-03-17)
 - [ ] P10.5: Remove workaround code from Phase 3 catalogue
 - [ ] P10.6: Run full test suite and fix failures
 - [ ] P10.7: Update `pg_database.py` final verification
@@ -243,6 +243,6 @@ Plans:
 ---
 
 *Roadmap created: 2026-03-16*
-*Last updated: 2026-03-17T14:17Z*
+*Last updated: 2026-03-17T15:55Z*
 *Total phases: 11*
 *Total plans: 64*

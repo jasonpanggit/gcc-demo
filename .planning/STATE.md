@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-last_updated: "2026-03-17T15:04:14Z"
+status: executing
+last_updated: "2026-03-17T15:55:25Z"
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 52
-  completed_plans: 48
+  completed_plans: 51
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
@@ -21,10 +21,10 @@ progress:
 
 ## Current Phase
 
-**-> Phase 10: Validation & Cleanup** 🔄 **In Progress -- 1 / 7 plans done**
+**-> Phase 10: Validation & Cleanup** 🔄 **In Progress -- 4 / 7 plans done**
 
-**Completed:** P10.1 (Performance Test Infrastructure)
-**Next:** P10.2 -- Performance test files consuming P10.1 infrastructure
+**Completed:** P10.1 (Performance Test Infrastructure), P10.2 (Performance Validation Suite), P10.3 (Dead Code Removal — Cosmos Stubs), P10.4 (Dead Code Removal — Dual-Path, Duplicates, Legacy)
+**Next:** P10.5
 
 ---
 
@@ -41,7 +41,7 @@ progress:
 | 7 | Schema Implementation | ✅ Complete | 7 / 7 | P7.1–P7.6 done (migrations 027-032), P7.7 done (pg_database.py bootstrap DDL rewrite) |
 | 8 | Repository Layer Update | ✅ Complete | 7 / 7 | P8.1–P8.7 done — pg_client, 5 domain repos, aliases, consumer rewiring |
 | 9 | UI Integration Update | ✅ Complete | 7 / 7 | P9.1-P9.7 done — all 10 affected files use app.state repos; BH-001 through BH-005 eliminated; PG pool fatal at startup |
-| 10 | Validation & Cleanup | 🔄 In progress | 1 / 7 | P10.1 done — performance test infrastructure (conftest, EXPLAIN helper, seed data) |
+| 10 | Validation & Cleanup | 🔄 In progress | 4 / 7 | P10.1–P10.4 done — perf test infra, perf validation suite, Cosmos stub removal, dual-path/duplicate dead code removal |
 
 **Legend:** ⬜ Not started | 🔄 In progress | ✅ Complete | ⚠️ Blocked
 
@@ -62,9 +62,9 @@ The following migrations are already complete and represent the baseline for thi
 | ID | Issue | Affects | Priority |
 |----|-------|---------|----------|
 | I-01 | Dual KB-CVE table conflict: `kb_cve_edges` (original, snake_plural) vs `kb_cve_edge` (migration 011, singular) — both exist | Phase 2, 5, 7 | High |
-| I-02 | `INVENTORY_USE_UNIFIED_VIEW` feature flag still in place — unified VM view not the default path | Phase 3, 9 | Medium |
+| I-02 | ~~`INVENTORY_USE_UNIFIED_VIEW` feature flag still in place~~ — **Resolved P10.4**: verified zero references, removed by Phase 9 | Phase 3, 9 | ~~Medium~~ |
 | I-03 | `mv_vm_cve_detail` ownership issues causing refresh failures (migrations 025–026 patched but startup-time only) | Phase 7 | Medium |
-| I-04 | `cve_dashboard.py` has both PG fast-path and Python analytics fallback — dual code paths cause confusion | Phase 3, 9 | High |
+| I-04 | ~~`cve_dashboard.py` has both PG fast-path and Python analytics fallback~~ — **Resolved P10.4**: verified MV fast-path only | Phase 3, 9 | ~~High~~ |
 | I-05 | Cosmos stubs (`cve_cosmos_repository`, `resource_inventory_cosmos`, `cosmos_cache`) still present — not yet removed | Phase 10 | Low |
 | I-06 | CVE alert rules and history stored in-memory only (`cve_alert_rule_manager`, `cve_alert_history_manager`) — lost on restart | Phase 5, 7 | High |
 | I-07 | `index.html` "Database Load" metric is hardcoded at 35% — not a real measurement | Phase 3, 9 | Medium |
@@ -239,6 +239,9 @@ The following migrations are already complete and represent the baseline for thi
 | 2026-03-17 | P7.1: cached_at column added to kb_cve_edges in migration 027 (moved from 029) | Keeps kb_cve_edge data migration self-contained; INSERT references cached_at in both source and destination (07-RESEARCH Risk 3 resolution) |
 | 2026-03-17 | P7.1: WHERE NOT EXISTS used for kb_cve_edge data migration (not ON CONFLICT) | PK is 3-column composite (kb_number, cve_id, source); WHERE NOT EXISTS is more explicit for multi-column duplicate check |
 | 2026-03-17 | P7.1: Migration 029 should skip ALTER TABLE kb_cve_edges ADD COLUMN cached_at | Already added in migration 027; IF NOT EXISTS makes it safe but redundant |
+
+| 2026-03-17 | P10.4: legacy/tool_router.py and legacy/tool_embedder.py retained — active callers | mcp_orchestrator.py and tool_retriever.py import ToolEmbedder; non-trivial refactor needed for deletion |
+| 2026-03-17 | P10.4: cve_in_memory_repository.py retained — required for mock mode | main.py creates CVEInMemoryRepository() when USE_MOCK_DATA=true; deferred to Phase 11 |
 
 ---
 
