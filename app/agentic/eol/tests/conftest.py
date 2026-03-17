@@ -202,6 +202,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "smoke: Smoke tests against deployed application"
     )
+    config.addinivalue_line(
+        "markers", "performance: Performance validation tests requiring PostgreSQL"
+    )
 
     # Expose application configuration to pytest skip expressions
     config.inventory_assistant = app_config.inventory_assistant

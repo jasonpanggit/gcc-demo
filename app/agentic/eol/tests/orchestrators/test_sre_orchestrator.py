@@ -14,6 +14,12 @@ Created: 2026-02-27 (Phase 1, Task 2.2)
 import contextlib
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
+
+pytest.importorskip(
+    "mcp.client.stdio",
+    reason="Pre-existing: mcp client package not installed locally",
+)
+
 from agents.sre_orchestrator import SREOrchestratorAgent
 
 

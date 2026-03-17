@@ -14,6 +14,11 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import List, Dict, Any
 
+pytest.importorskip(
+    "azure.mgmt.resourcegraph",
+    reason="Pre-existing: azure-mgmt-resourcegraph not installed locally",
+)
+
 from utils.cve_analytics import CVEAnalytics
 from models.cve_models import UnifiedCVE, CVSSScore, ApplicablePatch, CVEPatchMapping
 

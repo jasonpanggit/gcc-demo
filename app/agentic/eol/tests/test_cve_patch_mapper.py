@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+pytest.importorskip(
+    "azure.mgmt.resourcegraph",
+    reason="Pre-existing: azure-mgmt-resourcegraph not installed locally",
+)
+
 from models.cve_models import CVEReference, CVEVendorMetadata, UnifiedCVE
 from utils.cve_patch_mapper import CVEPatchMapper
 from utils.kb_cve_edge_repository import InMemoryKBCVEEdgeRepository

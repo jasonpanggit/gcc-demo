@@ -6,6 +6,12 @@ Tests CSV and PDF export functionality with filtering and formatting.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+pytest.importorskip(
+    "azure.mgmt.resourcegraph",
+    reason="Pre-existing: azure-mgmt-resourcegraph not installed locally",
+)
+
 from utils.cve_export import generate_csv_export, generate_pdf_export
 
 

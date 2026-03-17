@@ -9,6 +9,11 @@ This module tests:
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+pytest.importorskip(
+    "mcp.client.stdio",
+    reason="Pre-existing: mcp client package not installed locally",
+)
+
 # Import modules to test
 try:
     from app.agentic.eol.utils.sre_response_formatter import (
