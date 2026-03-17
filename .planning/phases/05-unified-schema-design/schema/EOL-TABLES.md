@@ -98,3 +98,71 @@ ORDER BY v.vm_name;
 **Impact:** Replaces N+1 HTTP calls with a single SQL JOIN, reducing page load from 15s+ to sub-second for the inventory EOL enrichment use case.
 
 ---
+
+## 2. `eol_agent_responses` -- Status: NEW
+
+**Origin:** Does not exist today; Phase 7 must CREATE
+**Primary Key:** `response_id UUID`
+**Purpose:** Persists EOL agent search results for `eol-searches.html`. Without this table, all agent response history is lost on application restart (documented in P1.4 eol-views.md problem P1). Currently, `EolOrchestrator.get_eol_agent_responses()` and `InventoryOrchestrator.get_eol_agent_responses()` store responses in Python lists (in-memory only).
+
+**DDL (NEW -- Phase 7 will CREATE):**
+
+```sql
+CREATE TABLE IF NOT EXISTS eol_agent_responses (
+    response_id     UUID            NOT NULL DEFAULT gen_random_uuid(),
+    session_id      UUID            NOT NULL,
+    user_query      TEXT            NOT NULL,
+    agent_response  TEXT            NOT NULL,
+    sources         JSONB           NOT NULL DEFAULT '[]'::jsonb,
+    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    response_time_ms INTEGER,
+    CONSTRAINT pk_eol_agent_responses PRIMARY KEY (response_id)
+);
+```
+
+Per 05-CONTEXT, this table persists EOL agent search results for `eol-searches.html`. Without it, all agent response history is lost on application restart.
+
+### Key Design Decisions
+
+- **response_id UUID with gen_random_uuid()** -- no dependency on external sequence; generated at INSERT time
+- **session_id UUID NOT NULL** -- groups messages into conversations; enables "load previous session" in UI
+- **sources JSONB DEFAULT '[]'** -- array of `{title: string, url: string}` objects; enables "where did this come from?" traceability
+- **response_time_ms nullable** -- allows tracking slow queries; NULL if timing not captured
+- **No FK to any other table** -- standalone chat history; sessions are implicit (any UUID groups messages)
+- **No deleted_at** -- hard DELETE of old sessions is acceptable; no audit requirement per 05-CONTEXT
+
+### Indexes
+
+| Index Name | Columns | Type | Purpose |
+|------------|---------|------|---------|
+| pk_eol_agent_responses | response_id | PRIMARY KEY (B-tree) | PK lookup |
+| idx_eol_responses_session | session_id | B-tree | Conversation retrieval |
+| idx_eol_responses_timestamp | timestamp DESC | B-tree | Recent queries listing |
+
+### Query Patterns
+
+```sql
+-- Load conversation history for a session
+SELECT response_id, user_query, agent_response, sources, timestamp, response_time_ms
+FROM eol_agent_responses
+WHERE session_id = $1
+ORDER BY timestamp ASC;
+
+-- List recent sessions (distinct session_ids with latest timestamp)
+SELECT DISTINCT ON (session_id) session_id, user_query, timestamp
+FROM eol_agent_responses
+ORDER BY session_id, timestamp DESC;
+
+-- Insert new response
+INSERT INTO eol_agent_responses (session_id, user_query, agent_response, sources, response_time_ms)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING response_id, timestamp;
+```
+
+### Phase Integration
+
+- **Phase 7:** CREATE TABLE + indexes in migration DDL; add to `_REQUIRED_TABLES`
+- **Phase 8:** New `EolAgentResponseRepository` class with `save()`, `get_by_session()`, `list_recent_sessions()`, `delete_session()` methods; wire into `EolOrchestrator` and `InventoryOrchestrator` to persist responses on each search
+- **Phase 9:** `eol-searches.html` JS switches from `GET /api/eol-agent-responses` (in-memory) to new PG-backed endpoint
+
+---
