@@ -192,74 +192,31 @@ async def search_cves(search_request: CVESearchRequest, request: Request) -> Sta
 @router.get("/cve/{cve_id}")
 @readonly_endpoint(agent_name="cve_detail", timeout_seconds=15)
 async def get_cve_detail(
+    request: Request,
     cve_id: str = Path(..., description="CVE identifier (e.g., CVE-2024-1234)")
 ) -> StandardResponse:
     """Get detailed information for a specific CVE.
 
-    Uses L1/L2 cache for fast retrieval. Cache hit indicator included in response.
-
     Args:
+        request: FastAPI request for app.state access
         cve_id: CVE identifier
 
     Returns:
-        StandardResponse with CVEDetailResponse data
+        StandardResponse with CVE detail data
     """
-    try:
-        # Import here to get singleton
-        from main import get_cve_service
+    # Validate CVE ID format
+    cve_id = cve_id.upper()
+    if not re.match(r'^CVE-\d{4}-\d+$', cve_id):
+        raise HTTPException(status_code=400, detail=f"Invalid CVE ID format: {cve_id}")
 
-        cve_service = await get_cve_service()
-        cve_id = cve_id.upper()
+    cve_repo = request.app.state.cve_repo
 
-        # Check L1 cache first
-        cache_hit = False
-        cve = cve_service.cache.get(cve_id)
-        if cve:
-            cache_hit = True
-            logger.debug(f"CVE {cve_id} served from L1 cache")
-        else:
-            # Will check L2 (Cosmos) and APIs
-            cve = await cve_service.get_cve(cve_id)
-            # L2 cache hit logged by service
+    cve_data = await cve_repo.get_cve_detail(cve_id)
+    if cve_data is None:
+        raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-        if cve is None:
-            return StandardResponse(
-                success=False,
-                message=f"CVE {cve_id} not found",
-                data=None
-            )
-
-        # Find related CVEs (optional - same vendor/product)
-        related_cves = []
-        if cve.affected_products:
-            # Get first product for related search
-            first_product = cve.affected_products[0]
-            try:
-                related = await cve_service.search_cves(
-                    filters={
-                        "vendor": first_product.vendor,
-                        "product": first_product.product
-                    },
-                    limit=6  # Get 6, exclude self, return 5
-                )
-                related_cves = [r.cve_id for r in related if r.cve_id != cve_id][:5]
-            except Exception as e:
-                logger.warning(f"Failed to find related CVEs: {e}")
-
-        response_data = CVEDetailResponse(
-            cve=cve,
-            related_cves=related_cves,
-            cache_hit=cache_hit
-        )
-
-        logger.info(f"CVE detail: {cve_id} (cache_hit={cache_hit}, related={len(related_cves)})")
-
-        return StandardResponse(
-            success=True,
-            message=f"CVE {cve_id} retrieved",
-            data=response_data.model_dump()
-        )
-
-    except Exception as e:
-        logger.error(f"CVE detail retrieval failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StandardResponse(
+        success=True,
+        data=cve_data,
+        message=f"CVE {cve_id} retrieved",
+    )
