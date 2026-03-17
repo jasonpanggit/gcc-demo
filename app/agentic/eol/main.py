@@ -103,6 +103,7 @@ from api.cve_alerts import router as cve_alerts_router
 from api.cve_alert_history import router as cve_alert_history_router
 from utils.linux_advisory_sync_service import LinuxAdvisorySyncService
 from utils.cve_sync_operations import sync_msrc_kb_edges
+from utils.pg_client import postgres_client
 
 # Note: Inventory assistant orchestrator is available in separate inventory-asst.html interface
 # This EOL interface uses the standard EOL orchestrator only
@@ -1080,6 +1081,37 @@ async def _run_startup_tasks():
         except Exception as e:
             logger.warning(f"Cosmos base initialization failed during startup: {e}")
 
+        # Initialize asyncpg connection pool for PostgreSQL repositories
+        try:
+            pg_dsn = os.environ.get("DATABASE_URL")
+            if not pg_dsn:
+                # Construct from individual env vars
+                pg_host = os.environ.get("PGHOST", "localhost")
+                pg_port = os.environ.get("PGPORT", "5432")
+                pg_db = os.environ.get("PGDATABASE", "eol")
+                pg_user = os.environ.get("PGUSER", "eol")
+                pg_pass = os.environ.get("PGPASSWORD", "")
+                pg_dsn = f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
+            await postgres_client.initialize(dsn=pg_dsn)
+            logger.info("asyncpg pool initialized for repositories")
+        except Exception as e:
+            logger.warning(f"PostgreSQL pool initialization failed: {e}")
+
+        # Create repository instances and store on app.state for router access
+        if postgres_client.is_initialized:
+            from utils.repositories.cve_repository import CVERepository
+            from utils.repositories.inventory_repository import InventoryRepository
+            from utils.repositories.patch_repository import PatchRepository
+            from utils.repositories.alert_repository import AlertRepository
+            from utils.repositories.eol_repository import EOLRepository
+
+            app.state.cve_repo = CVERepository(postgres_client.pool)
+            app.state.inventory_repo = InventoryRepository(postgres_client.pool)
+            app.state.patch_repo = PatchRepository(postgres_client.pool)
+            app.state.alert_repo = AlertRepository(postgres_client.pool)
+            app.state.eol_repo = EOLRepository(postgres_client.pool)
+            logger.info("5 domain repositories initialized on app.state")
+
         # Initialize specialized caches
         try:
             await eol_cache.initialize()
@@ -1333,6 +1365,13 @@ async def _run_shutdown_tasks():
             logger.debug("Playwright pool cleanup cancelled")
         except Exception as e:
             logger.debug(f"Playwright pool cleanup: {e}")
+
+        # Close asyncpg pool
+        try:
+            await postgres_client.close()
+            logger.info("asyncpg pool closed")
+        except Exception as e:
+            logger.warning(f"asyncpg pool close failed: {e}")
 
         # Close Azure SDK manager (releases async connection pools and credential)
         try:
