@@ -7,7 +7,7 @@ import asyncio
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Request
 
 try:
     from models.cve_models import CVESearchRequest, CVESearchResponse, CVEDetailResponse, UnifiedCVE
@@ -72,83 +72,55 @@ def _build_inventory_cached_filters(identity: dict) -> dict:
 
 @router.get("/cve/stats")
 @readonly_endpoint(agent_name="cve_stats", timeout_seconds=15)
-async def get_cve_stats() -> StandardResponse:
+async def get_cve_stats(request: Request) -> StandardResponse:
     """Get cached CVE statistics for the UI."""
-    try:
-        from main import get_cve_scanner, get_cve_service, get_eol_orchestrator
-        from utils.cve_inventory_sync import CVEInventorySyncStateStore, discover_inventory_os_identities
+    cve_repo = request.app.state.cve_repo
 
-        cve_service = await get_cve_service()
-        cached_count = await cve_service.count_cves({})
-        inventory_state = await CVEInventorySyncStateStore().load()
-        discovered_identities = await discover_inventory_os_identities(
-            eol_orchestrator=get_eol_orchestrator(),
-            cve_scanner=await get_cve_scanner(),
-        )
+    summary, os_breakdown = await asyncio.gather(
+        cve_repo.get_dashboard_summary(),
+        cve_repo.get_os_cve_breakdown(),
+        return_exceptions=True,
+    )
 
-        state_entries = {
-            str(entry.get("key") or "").strip(): entry
-            for entry in inventory_state.get("os_entries") or []
-            if str(entry.get("key") or "").strip()
-        }
+    errors = []
+    if isinstance(summary, Exception):
+        logger.error("Summary query failed: %s", summary, exc_info=True)
+        summary = {"total_cves": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
+        errors.append("summary")
 
-        identities = []
-        seen_keys = set()
-        for identity in discovered_identities:
-            key = str(identity.get("key") or "").strip()
-            if not key or key in seen_keys:
-                continue
-            seen_keys.add(key)
-            merged = {**state_entries.get(key, {}), **identity}
-            identities.append(merged)
+    if isinstance(os_breakdown, Exception):
+        logger.error("OS breakdown query failed: %s", os_breakdown, exc_info=True)
+        os_breakdown = []
+        errors.append("os_breakdown")
 
-        for key, entry in state_entries.items():
-            if key in seen_keys:
-                continue
-            identities.append(dict(entry))
+    # Build per-OS identity stats from os_breakdown (replaces N+1 count_cves)
+    os_identities = []
+    for entry in os_breakdown:
+        os_identities.append({
+            "key": entry.get("os_name", "Unknown"),
+            "display_name": _format_os_display_name(entry.get("os_name", "")),
+            "cached_cve_count": entry.get("total_cve_count", 0),
+            "vm_count": entry.get("vm_count", 0),
+            "critical_count": entry.get("critical_count", 0),
+            "high_count": entry.get("high_count", 0),
+        })
 
-        semaphore = asyncio.Semaphore(6)
+    response_data = {
+        "cached_count": summary.get("total_cves", 0) if isinstance(summary, dict) else 0,
+        "severity_breakdown": {
+            "critical": summary.get("critical", 0) if isinstance(summary, dict) else 0,
+            "high": summary.get("high", 0) if isinstance(summary, dict) else 0,
+            "medium": summary.get("medium", 0) if isinstance(summary, dict) else 0,
+            "low": summary.get("low", 0) if isinstance(summary, dict) else 0,
+        },
+        "os_identities": os_identities,
+        "metadata": {
+            "partial_errors": errors if errors else None,
+        },
+    }
 
-        async def build_os_count(identity: dict) -> dict:
-            async with semaphore:
-                filters = _build_inventory_cached_filters(identity)
-                match_count = await cve_service.count_cves(filters) if filters.get("keyword") else 0
-                key = str(identity.get("key") or "").strip()
-                normalized_name = str(identity.get("normalized_name") or "").strip()
-                normalized_version = str(identity.get("normalized_version") or "").strip()
-                state_entry = state_entries.get(key, {})
-
-                return {
-                    "key": key,
-                    "display_name": _format_os_display_name(normalized_name, fallback_key=key),
-                    "version": normalized_version or None,
-                    "match_count": int(match_count),
-                    "query_mode": state_entry.get("query_mode"),
-                    "synced_at": state_entry.get("synced_at"),
-                }
-
-        inventory_os_counts = await asyncio.gather(
-            *(build_os_count(identity) for identity in identities),
-            return_exceptions=False,
-        )
-
-        inventory_os_counts.sort(
-            key=lambda item: (-item["match_count"], item["display_name"].lower(), str(item.get("version") or ""))
-        )
-
-        return StandardResponse(
-            success=True,
-            message="CVE stats retrieved",
-            data={
-                "cached_count": cached_count,
-                "l1_cache": cve_service.get_cache_stats(),
-                "inventory_os_counts": inventory_os_counts,
-                "inventory_os_last_synced_at": inventory_state.get("last_synced_at"),
-            }
-        )
-    except Exception as e:
-        logger.error(f"CVE stats retrieval failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    msg = "CVE statistics retrieved (partial data)" if errors else "CVE statistics retrieved"
+    return StandardResponse(success=True, data=response_data, message=msg)
 
 
 @router.post("/cve/search")
