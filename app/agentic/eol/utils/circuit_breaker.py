@@ -15,7 +15,7 @@ HALF_OPEN A probe window: up to half_open_max_calls are allowed through.
 
 Usage
 -----
-    cb = CircuitBreaker(failure_threshold=3, recovery_timeout=30.0, name="cosmos")
+    cb = CircuitBreaker(failure_threshold=3, recovery_timeout=30.0, name="database")
 
     try:
         result = await cb.call(my_async_func, arg1, kwarg=value)

@@ -2,7 +2,7 @@
 Azure SDK Manager — singleton for credential and client caching with connection pooling.
 
 Creates DefaultAzureCredential once at startup, caches Azure SDK clients (Compute,
-Network, Storage, Cosmos, Monitor, etc.), and configures connection pooling for both
+Network, Storage, Monitor, etc.), and configures connection pooling for both
 sync and async clients.
 
 Usage:

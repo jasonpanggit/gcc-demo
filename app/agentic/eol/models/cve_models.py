@@ -321,7 +321,7 @@ class ScanResult(BaseModel):
 
 
 class VMCVEMatchDocument(BaseModel):
-    """Per-VM CVE match document stored separately in Cosmos DB.
+    """Per-VM CVE match document stored separately in PostgreSQL.
 
     Document ID format: "{scan_id}--{vm_name}"
     Partition key: scan_id (same partition as main scan document)

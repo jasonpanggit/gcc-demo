@@ -1,6 +1,6 @@
 """PostgreSQL domain repositories for the EOL platform.
 
-Phase 8: Consolidated from 22 scattered Cosmos/in-memory repos into 5 domain repos.
+Phase 8: Consolidated from 22 scattered in-memory repos into 5 domain repos.
 All repos accept asyncpg.Pool in constructor, return List[Dict] or Dict.
 """
 

@@ -1,7 +1,7 @@
 """
 Cache TTL Configuration — single source of truth for all cache time-to-live values.
 
-Strategy: L1 (in-memory) + L2 (Cosmos DB persistence)
+Strategy: L1 (in-memory) + L2 (PostgreSQL persistence)
 - L1: Fast, ephemeral, per-process. Miss falls through to L2.
 - L2: Persistent, shared across instances. Miss triggers fresh data fetch.
 

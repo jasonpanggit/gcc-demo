@@ -714,7 +714,7 @@ class EOLOrchestratorAgent:
                 f"EOL orchestrator normalized: '{software_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
             )
 
-            # Orchestrator-level Cosmos cache lookup (eol_inventory is single source of truth)
+            # Orchestrator-level cache lookup (eol_inventory is single source of truth)
             if not effective_ignore_cache:
                 _db_timeout = (
                     _app_config.timeouts.db_query_timeout
@@ -753,7 +753,7 @@ class EOLOrchestratorAgent:
                     else:
                         cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
                         cached_eol["cache_hit"] = True
-                        cached_eol["cache_source"] = "cosmos_eol_table"
+                        cached_eol["cache_source"] = "eol_cache"
                         cached_eol["elapsed_seconds"] = time.time() - start_time_main
                         cached_eol["communications"] = self.get_recent_communications()
 
@@ -768,7 +768,7 @@ class EOLOrchestratorAgent:
                             software_version=version,
                             eol_result=cached_eol,
                             response_time=time.time() - start_time_main,
-                            query_type="cosmos_eol_table",
+                            query_type="eol_cache",
                         )
 
                         logger.info(
@@ -1104,17 +1104,17 @@ class EOLOrchestratorAgent:
                     query_type="autonomous_search"
                 )
 
-                # Only persist to Cosmos when we have high confidence results
+                # Only persist to database when we have high confidence results
                 confidence_threshold = self.high_confidence_threshold
-                persist_to_cosmos = (
+                persist_to_db = (
                     best_confidence >= confidence_threshold
                     and best_result.get("success")
                     and best_result.get("data")
                     and not search_ignore_cache  # honor cache skip for reads but still avoid writes when requested
                 )
 
-                if persist_to_cosmos:
-                    best_result.setdefault("cache_source", "cosmos_eol_table")
+                if persist_to_db:
+                    best_result.setdefault("cache_source", "eol_cache")
                     best_result.setdefault("cached", False)
                     # Capture locals for the closure before spawning
                     _nn, _nv, _res = normalized_name, normalized_version, best_result
@@ -1142,10 +1142,10 @@ class EOLOrchestratorAgent:
                         except Exception as exc:
                             logger.debug("EOL inventory upsert skipped: %s", exc)
 
-                    self._spawn_background(_do_upsert(), name=f"cosmos_upsert_{normalized_name}")
+                    self._spawn_background(_do_upsert(), name=f"db_upsert_{normalized_name}")
                 else:
                     logger.info(
-                        "Skipping Cosmos save for %s %s due to low confidence %.2f (< %.2f)",
+                        "Skipping database save for %s %s due to low confidence %.2f (< %.2f)",
                         software_name,
                         version or "(any)",
                         best_confidence,

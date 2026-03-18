@@ -138,7 +138,7 @@ class CVEAlertRule:
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Cosmos DB"""
+        """Convert to dictionary for database storage"""
         return {
             "id": self.id,
             "name": self.name,
@@ -167,7 +167,7 @@ class CVEAlertRule:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CVEAlertRule":
-        """Create from Cosmos DB document"""
+        """Create from database document"""
         return cls(**data)
 
     def __post_init__(self):
@@ -229,7 +229,7 @@ class CVEAlertHistoryRecord:
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Cosmos DB"""
+        """Convert to dictionary for database storage"""
         return {
             "id": self.id,
             "alert_rule_id": self.alert_rule_id,
@@ -261,5 +261,5 @@ class CVEAlertHistoryRecord:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CVEAlertHistoryRecord":
-        """Create from Cosmos DB document"""
+        """Create from database document"""
         return cls(**data)

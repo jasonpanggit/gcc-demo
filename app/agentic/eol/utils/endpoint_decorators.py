@@ -211,9 +211,9 @@ def require_service(
     Usage:
         @app.get("/api/example")
         @require_service(
-            service_name="Cosmos DB",
-            check_func=lambda: base_cosmos.is_available(),
-            error_message="Cosmos DB is not configured"
+            service_name="PostgreSQL",
+            check_func=lambda: pool.is_available(),
+            error_message="PostgreSQL is not configured"
         )
         async def example_endpoint():
             # Service is guaranteed to be available here
