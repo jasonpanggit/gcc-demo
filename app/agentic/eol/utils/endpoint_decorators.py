@@ -4,6 +4,7 @@ Provides reusable decorators for common endpoint functionality like
 timeout handling, error handling, and cache statistics tracking.
 """
 import asyncio
+import inspect
 import time
 from functools import wraps
 from typing import Any, Callable, Optional
@@ -54,7 +55,7 @@ def with_timeout_and_stats(
             start_time = time.time()
             cache_hit = False
             had_error = False
-            
+
             try:
                 # Execute with timeout
                 result = await asyncio.wait_for(
@@ -136,7 +137,9 @@ def with_timeout_and_stats(
                         status_code=500,
                         detail=f"Error in {agent_name}: {str(e)}"
                     )
-        
+
+        # Preserve the original function signature for FastAPI dependency injection
+        wrapper.__signature__ = inspect.signature(func)
         return wrapper
     return decorator
 
