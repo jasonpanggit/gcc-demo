@@ -140,13 +140,11 @@ class CacheStatsManager:
     def __init__(self):
         self.agent_stats: Dict[str, AgentPerformanceStats] = defaultdict(lambda: AgentPerformanceStats())
         self.inventory_stats = CacheHitMissStats()
-        self.cosmos_stats = CacheHitMissStats()
         self.session_start_time = datetime.now(timezone.utc)
-        
+
         # Recent activity tracking (last 100 requests per type)
         self.recent_agent_requests: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         self.recent_inventory_requests = deque(maxlen=100)
-        self.recent_cosmos_requests = deque(maxlen=100)
         
         # Performance tracking
         self.performance_metrics = {
@@ -283,27 +281,6 @@ class CacheStatsManager:
         except Exception as e:
             print(f"Error recording inventory request stats: {e}")
     
-    def record_cosmos_request(self, response_time_ms: float, was_cache_hit: bool = False,
-                            operation: str = "query"):
-        """Record a Cosmos DB cache request"""
-        try:
-            if was_cache_hit:
-                self.cosmos_stats.record_hit()
-            else:
-                self.cosmos_stats.record_miss()
-            
-            # Track recent activity
-            request_info = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "operation": operation,
-                "response_time_ms": response_time_ms,
-                "cache_hit": was_cache_hit
-            }
-            self.recent_cosmos_requests.append(request_info)
-            
-        except Exception as e:
-            print(f"Error recording cosmos request stats: {e}")
-    
     def get_agent_statistics(self) -> Dict[str, Any]:
         """Get comprehensive agent statistics"""
         try:
@@ -378,23 +355,6 @@ class CacheStatsManager:
         except Exception as e:
             return {"error": f"Error getting inventory statistics: {e}"}
     
-    def get_cosmos_statistics(self) -> Dict[str, Any]:
-        """Get Cosmos DB cache statistics"""
-        try:
-            recent_activity = list(self.recent_cosmos_requests)[-20:]  # Last 20 requests
-            avg_response_time = sum(r["response_time_ms"] for r in recent_activity) / len(recent_activity) if recent_activity else 0
-            
-            return {
-                "hit_rate": self.cosmos_stats.hit_rate,
-                "hits": self.cosmos_stats.hits,
-                "misses": self.cosmos_stats.misses,
-                "total_requests": self.cosmos_stats.total_requests,
-                "avg_response_time_ms": avg_response_time,
-                "recent_activity": recent_activity
-            }
-        except Exception as e:
-            return {"error": f"Error getting cosmos statistics: {e}"}
-    
     def get_performance_summary(self) -> Dict[str, Any]:
         """Get overall performance summary"""
         try:
@@ -461,7 +421,6 @@ class CacheStatsManager:
         return {
             "agent_stats": self.get_agent_statistics(),
             "inventory_stats": self.get_inventory_statistics(),
-            "cosmos_stats": self.get_cosmos_statistics(),
             "performance_summary": self.get_performance_summary(),
             "last_updated": datetime.now(timezone.utc).isoformat()
         }
@@ -470,7 +429,6 @@ class CacheStatsManager:
         """Reset all statistics (useful for testing or fresh start)"""
         self.agent_stats.clear()
         self.inventory_stats = CacheHitMissStats()
-        self.cosmos_stats = CacheHitMissStats()
         self.session_start_time = datetime.now(timezone.utc)
         self.performance_metrics = {
             "total_requests_served": 0,
@@ -482,7 +440,6 @@ class CacheStatsManager:
         for deque_obj in self.recent_agent_requests.values():
             deque_obj.clear()
         self.recent_inventory_requests.clear()
-        self.recent_cosmos_requests.clear()
 
     def reset_all_stats(self) -> None:
         """Backward compatible alias for reset_statistics."""

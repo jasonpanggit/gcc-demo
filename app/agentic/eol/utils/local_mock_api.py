@@ -410,7 +410,6 @@ def build_mock_response(path: str, method: str, query_string: str = "") -> Optio
                         "enhanced_stats": {
                             "agent_stats": {},
                             "inventory_stats": {},
-                            "cosmos_stats": {},
                             "performance_summary": {},
                             "last_updated": _now_iso(),
                         },

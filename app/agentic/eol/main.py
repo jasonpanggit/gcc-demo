@@ -2690,8 +2690,6 @@ async def get_cosmos_cache_stats():
     was_cache_hit = False
     
     if not getattr(base_cosmos, 'initialized', False):
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(response_time_ms, False, "stats_query_failed")
         raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
     
     try:
@@ -2731,30 +2729,14 @@ async def get_cosmos_cache_stats():
         except Exception as inv_err:
             logger.warning("Could not get inventory cache stats for Cosmos DB section: %s", inv_err)
             stats['inventory_containers'] = {'error': str(inv_err)}
-        
-        # Record performance metrics
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(
-            response_time_ms=response_time_ms,
-            was_cache_hit=was_cache_hit,
-            operation="stats_query"
-        )
-        
-        # Add enhanced statistics
-        enhanced_cosmos_stats = cache_stats_manager.get_cosmos_statistics()
-        stats["enhanced_stats"] = enhanced_cosmos_stats
-        
+
         # Return in proper format for StandardResponse wrapper
         # Remove 'success' key as it will be added by the wrapper
         stats_data = {k: v for k, v in stats.items() if k != 'success'}
-        
+
         return stats_data
-        
+
     except Exception as e:
-        # Record error
-        response_time_ms = (time.time() - start_time) * 1000
-        cache_stats_manager.record_cosmos_request(response_time_ms, False, "stats_query_error")
-        
         logger.error("Error getting Cosmos cache stats: %s", e)
         raise HTTPException(status_code=500, detail=f"Error getting cache stats: {str(e)}")
 

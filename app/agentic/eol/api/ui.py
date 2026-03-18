@@ -280,7 +280,6 @@ async def cache_ui(request: Request):
         cache_stats = {
             "agents": agents_stats,
             "inventory": all_stats.get("inventory_stats", {}),
-            "cosmos": all_stats.get("cosmos_stats", {}),
             "performance": all_stats.get("performance_summary", {}),
             "last_updated": all_stats.get("last_updated")
         }
