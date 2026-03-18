@@ -19,7 +19,7 @@ class StandardResponse:
         response = StandardResponse.success_response(
             data=[{"id": 1, "name": "test"}],
             cached=True,
-            metadata={"source": "cosmos_db"}
+            metadata={"source": "database"}
         )
         
         # Error response

@@ -7,7 +7,7 @@ Captures routing decisions with full context to enable:
 - User behavior tracking
 
 Simple JSON log implementation (no external dependencies).
-Can be upgraded to Application Insights or Cosmos DB later.
+Can be upgraded to Application Insights or PostgreSQL later.
 """
 from __future__ import annotations
 

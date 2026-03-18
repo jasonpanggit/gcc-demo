@@ -1810,7 +1810,7 @@ MANIFESTS: list[ToolManifest] = [
         ),
         conflicts_with=frozenset(),
         conflict_note=(
-            "define_slo stores SLO definitions in Cosmos DB. "
+            "define_slo stores SLO definitions in PostgreSQL. "
             "Use calculate_error_budget to check compliance after defining."
         ),
         preferred_over=frozenset(),
