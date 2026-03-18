@@ -207,7 +207,7 @@ Plans:
 
 **Depends on**: Phase 9
 
-**Status**: 🔄 In Progress (4 / 7 plans)
+**Status**: ✅ Complete (7 / 7 plans) (2026-03-18)
 
 **Plans**: 7 plans
 
@@ -216,9 +216,9 @@ Plans:
 - [x] P10.2: Performance validation suite — index usage, join performance tests ✅ (2026-03-17)
 - [x] P10.3: Dead code removal — Cosmos stubs, deprecated endpoints, dead cache.html JS ✅ (2026-03-17)
 - [x] P10.4: Dead code removal — dual-path consolidation, deprecated aliases, legacy shims ✅ (2026-03-17)
-- [ ] P10.5: Remove workaround code from Phase 3 catalogue
-- [ ] P10.6: Run full test suite and fix failures
-- [ ] P10.7: Update `pg_database.py` final verification
+- [x] P10.5: Remove workaround code from Phase 3 catalogue ✅ (2026-03-17)
+- [x] P10.6: Run full test suite and fix failures ✅ (2026-03-17)
+- [x] P10.7: Final test suite execution + phase sign-off ✅ (2026-03-18)
 
 ---
 
@@ -235,14 +235,20 @@ Plans:
 **Goal:** Audit the entire codebase for any remaining Cosmos DB references, legacy fallback code, or dual-path logic. Validate all data flows now use PostgreSQL exclusively, then delete all Cosmos-related code so no Cosmos dependency remains in the repository.
 **Requirements**: TBD
 **Depends on:** Phase 10
-**Plans:** 5/7 plans executed
+**Status:** 🔄 In Progress — 1 / 7 plans done
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 11 to break down)
+- [x] P11.1: Cosmos Audit & Fallback Catalogue — Dependency Graph + FALLBACK-CATALOGUE.md
+- [ ] P11.2: TBD
+- [ ] P11.3: TBD
+- [ ] P11.4: TBD
+- [ ] P11.5: TBD
+- [ ] P11.6: TBD
+- [ ] P11.7: TBD
 
 ---
 
 *Roadmap created: 2026-03-16*
-*Last updated: 2026-03-17T15:55Z*
+*Last updated: 2026-03-18T02:19Z*
 *Total phases: 11*
-*Total plans: 64*
+*Total plans: 66*

@@ -2,29 +2,39 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-03-17T16:07:59.879Z"
+status: planning
+last_updated: "2026-03-18T02:19:45Z"
 progress:
   total_phases: 11
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 66
-  completed_plans: 52
+  completed_plans: 55
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
 
 **Project:** gcc-demo EOL Platform — Schema & Performance Overhaul
-**Last Updated:** 2026-03-17
-**Status:** In progress
+**Last Updated:** 2026-03-18
+**Status:** In progress — Phase 11
 
 ---
 
 ## Current Phase
 
-**-> Phase 10: Validation & Cleanup** 🔄 **In Progress -- 5 / 7 plans done**
+**Phase 11: Cosmos DB Removal & PostgreSQL Migration Validation** 🔄 **In Progress — 1 / 7 plans done**
 
-**Completed:** P10.1 (Performance Test Infrastructure), P10.2 (Performance Validation Suite), P10.3 (Dead Code Removal — Cosmos Stubs), P10.4 (Dead Code Removal — Dual-Path, Duplicates, Legacy), P10.5 (Deprecated Table/View Cleanup)
-**Next:** P10.6
+**Completed:** P11.1 (Cosmos Audit & Fallback Catalogue)
+**In Progress:** P11.2 (next)
+**Next:** Phase 11 continuation
+
+---
+
+### Previous Phase
+
+**Phase 10: Validation & Cleanup** ✅ **Complete -- 7 / 7 plans done**
+
+**Completed:** P10.1 (Performance Test Infrastructure), P10.2 (Performance Validation Suite), P10.3 (Dead Code Removal — Cosmos Stubs), P10.4 (Dead Code Removal — Dual-Path, Duplicates, Legacy), P10.5 (Deprecated Table/View Cleanup), P10.6 (Fresh DB Bootstrap Verification), P10.7 (Final Test Suite Execution + Phase Sign-Off)
+**Next:** Phase 11 (if planned)
 
 ---
 
@@ -41,7 +51,8 @@ progress:
 | 7 | Schema Implementation | ✅ Complete | 7 / 7 | P7.1–P7.6 done (migrations 027-032), P7.7 done (pg_database.py bootstrap DDL rewrite) |
 | 8 | Repository Layer Update | ✅ Complete | 7 / 7 | P8.1–P8.7 done — pg_client, 5 domain repos, aliases, consumer rewiring |
 | 9 | UI Integration Update | ✅ Complete | 7 / 7 | P9.1-P9.7 done — all 10 affected files use app.state repos; BH-001 through BH-005 eliminated; PG pool fatal at startup |
-| 10 | Validation & Cleanup | 🔄 In progress | 4 / 7 | P10.1–P10.4 done — perf test infra, perf validation suite, Cosmos stub removal, dual-path/duplicate dead code removal |
+| 10 | Validation & Cleanup | ✅ Complete | 7 / 7 | P10.1–P10.7 done — perf test infra, validation suite, Cosmos stub removal, dual-path/duplicate cleanup, deprecated table cleanup, bootstrap verification, final test suite execution + phase sign-off |
+| 11 | Cosmos DB Removal | 🔄 In Progress | 1 / 7 | P11.1 done — Cosmos dependency graph (24 consumers) + Fallback catalogue (137 entries, 18 COSMOS-related) |
 
 **Legend:** ⬜ Not started | 🔄 In progress | ✅ Complete | ⚠️ Blocked
 
