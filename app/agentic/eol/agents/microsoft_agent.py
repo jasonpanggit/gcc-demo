@@ -1,5 +1,5 @@
 """
-Microsoft EOL Agent - Scrapes Microsoft official sources for EOL information with Cosmos DB caching
+Microsoft EOL Agent - Scrapes Microsoft official sources for EOL information
 """
 import asyncio
 import json
@@ -31,7 +31,7 @@ except ImportError:
 
 
 class MicrosoftEOLAgent(BaseEOLAgent):
-    """Agent for scraping Microsoft official EOL information with Cosmos DB caching"""
+    """Agent for scraping Microsoft official EOL information"""
 
     def __init__(self):
         super().__init__("microsoft")

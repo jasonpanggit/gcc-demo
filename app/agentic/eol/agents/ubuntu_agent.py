@@ -36,7 +36,7 @@ except ImportError:
 
 
 class UbuntuEOLAgent(BaseEOLAgent):
-    """Agent for scraping Ubuntu official EOL information with Cosmos DB caching"""
+    """Agent for scraping Ubuntu official EOL information"""
 
     def __init__(self):
         super().__init__("ubuntu")
@@ -130,17 +130,17 @@ class UbuntuEOLAgent(BaseEOLAgent):
 
     async def _get_cached_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Agent-level caching disabled - eol_inventory is the single source of truth"""
-        # Cosmos caching consolidated to orchestrator via eol_inventory
+        # Caching consolidated to orchestrator via eol_inventory
         return None
 
     async def _cache_data(self, software_name: str, version: Optional[str], data: Dict[str, Any], source_url: Optional[str] = None):
         """Agent-level caching disabled - eol_inventory is the single source of truth"""
-        # Cosmos caching consolidated to orchestrator via eol_inventory
+        # Caching consolidated to orchestrator via eol_inventory
         pass
 
     async def purge_cache(self, software_name: Optional[str] = None, version: Optional[str] = None) -> Dict[str, Any]:
         """Agent-level caching disabled - use eol_inventory for cache management"""
-        # Cosmos caching consolidated to orchestrator via eol_inventory
+        # Caching consolidated to orchestrator via eol_inventory
         return {"success": True, "deleted_count": 0, "message": "Agent-level caching disabled - use eol_inventory"}
 
     async def fetch_all_from_url(self, url: str, software_hint: str, version: Optional[str] = None) -> list[Dict[str, Any]]:

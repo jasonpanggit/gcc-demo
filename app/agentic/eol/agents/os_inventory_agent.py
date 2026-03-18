@@ -85,7 +85,7 @@ class OSInventoryAgent:
         self._cache_has_full_dataset: bool = False
 
     async def _fetch_eol(self, os_name: str, version: Optional[str], skip_enrichment: bool = False) -> Optional[Dict[str, Any]]:
-        """Resolve EOL for OS using Cosmos cache first, then agent orchestrator with confidence logic.
+        """Resolve EOL for OS using database cache first, then agent orchestrator with confidence logic.
         
         Args:
             os_name: Operating system name
@@ -497,7 +497,7 @@ class OSInventoryAgent:
 
             logger.info(f"🖥️ Retrieved {len(results)} OS inventory items from LAW")
 
-            # Enrich with EOL data (Cosmos first, then agents with confidence logic)
+            # Enrich with EOL data (cache first, then agents with confidence logic)
             await self._enrich_with_eol(results)
 
             # Ensure Windows Server entries receive EOL data from static Microsoft mappings when missing

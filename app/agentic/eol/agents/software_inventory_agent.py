@@ -101,7 +101,7 @@ class SoftwareInventoryAgent:
         logger.info(f"✅ SoftwareInventoryAgent initialized with workspace: {self.workspace_id}")
 
     async def _fetch_eol(self, software_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
-        """Resolve EOL data using Cosmos cache first, then agent orchestrator with confidence logic."""
+        """Resolve EOL data using database cache first, then agent orchestrator with confidence logic."""
         if not software_name:
             return None
 
@@ -207,7 +207,7 @@ class SoftwareInventoryAgent:
 
     async def clear_cache(self) -> Dict[str, Any]:
         """Clear cached software inventory data"""
-        logger.info(f"🗑️ Attempting to clear cached software inventory data from Cosmos DB")
+        logger.info(f"🗑️ Attempting to clear cached software inventory data from database")
         # logger.debug(f"Clear cache parameters - type: 'software', agent: '{self.agent_name}'")
         
         try:
@@ -219,12 +219,12 @@ class SoftwareInventoryAgent:
             clear_end_time = datetime.utcnow()
             clear_duration = (clear_end_time - clear_start_time).total_seconds()
             
-            logger.info(f"✅ Successfully cleared cached software inventory data from Cosmos DB in {clear_duration:.2f}s")
+            logger.info(f"✅ Successfully cleared cached software inventory data from database in {clear_duration:.2f}s")
             # logger.debug(f"Clear cache result: {result}")
             return result
             
         except Exception as clear_err:
-            logger.error(f"❌ Failed to clear cached software inventory data from Cosmos DB: {clear_err}")
+            logger.error(f"❌ Failed to clear cached software inventory data from database: {clear_err}")
             # logger.debug(f"Clear cache exception details: {type(clear_err).__name__}: {str(clear_err)}")
             return {
                 "success": False,
@@ -296,7 +296,7 @@ class SoftwareInventoryAgent:
         cache_allowed = use_cache and (not full_dataset_requested or cache_has_full)
 
         if cache_allowed:
-            logger.debug("🔍 Attempting to retrieve cached software inventory data from Cosmos DB%s", scope_note)
+            logger.debug("🔍 Attempting to retrieve cached software inventory data from database%s", scope_note)
             try:
                 cache_start_time = datetime.utcnow()
                 cache_result = inventory_cache.get_cached_data_with_metadata(
@@ -321,7 +321,7 @@ class SoftwareInventoryAgent:
                         self._full_cache_scopes[cache_scope] = True
                     cached_count = len(cached_data) if isinstance(cached_data, list) else 0
                     logger.info(
-                        "✅ Successfully retrieved cached software inventory data from Cosmos DB%s: %d items (cached at %s)",
+                        "✅ Successfully retrieved cached software inventory data from database%s: %d items (cached at %s)",
                         scope_note,
                         cached_count,
                         cached_timestamp,
@@ -357,10 +357,10 @@ class SoftwareInventoryAgent:
                     version="unified",
                     url=f"cache://software/{cache_key}",
                 )
-                logger.info("❌ No cached software inventory data found in Cosmos DB%s", scope_note)
+                logger.info("❌ No cached software inventory data found in database%s", scope_note)
             except Exception as cache_err:  # pragma: no cover - defensive logging
                 logger.error(
-                    "❌ Error retrieving cached software inventory data from Cosmos DB%s: %s",
+                    "❌ Error retrieving cached software inventory data from database%s: %s",
                     scope_note,
                     cache_err,
                 )
@@ -492,7 +492,7 @@ class SoftwareInventoryAgent:
                 failed_rows,
             )
 
-            # Enrich with EOL data (Cosmos first, then agents with confidence logic)
+            # Enrich with EOL data (cache first, then agents with confidence logic)
             # Skip enrichment if requested for fast initial load
             await self._enrich_with_eol(results, skip_enrichment=skip_eol_enrichment)
 
@@ -510,7 +510,7 @@ class SoftwareInventoryAgent:
 
             if use_cache:
                 logger.info(
-                    "💾 Attempting to cache %d software inventory items to Cosmos DB%s",
+                    "💾 Attempting to cache %d software inventory items to database%s",
                     len(results),
                     scope_note,
                 )
@@ -532,7 +532,7 @@ class SoftwareInventoryAgent:
                     cache_duration = (cache_end_time - cache_start_time).total_seconds()
                     total_response_time = (cache_end_time - query_start_time).total_seconds() * 1000
                     logger.info(
-                        "✅ Successfully cached software inventory data to Cosmos DB in %.2fs%s",
+                        "✅ Successfully cached software inventory data to database in %.2fs%s",
                         cache_duration,
                         scope_note,
                     )
@@ -547,7 +547,7 @@ class SoftwareInventoryAgent:
                     )
                 except Exception as cache_err:  # pragma: no cover - cache failures shouldn't break flow
                     logger.error(
-                        "❌ Failed to cache software inventory data to Cosmos DB%s: %s",
+                        "❌ Failed to cache software inventory data to database%s: %s",
                         scope_note,
                         cache_err,
                     )
