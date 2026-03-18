@@ -1,9 +1,15 @@
 """
-Unified Inventory Cache - Handles both software and OS inventory with memory-only persistence
+Unified Inventory Cache - Handles both software and OS inventory with memory + PostgreSQL persistence
 """
+import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
+
+try:
+    from utils.pg_client import postgres_client
+except ImportError:
+    from app.agentic.eol.utils.pg_client import postgres_client
 
 
 class InventoryRawCache:
@@ -96,7 +102,7 @@ class InventoryRawCache:
 
     def store_cached_data(self, cache_key: str, data: List[Dict], cache_type: str = "software", metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Store inventory data in memory cache.
+        Store inventory data in memory cache and PostgreSQL (for OS data).
 
         Args:
             cache_key: Unique identifier for the cached data
@@ -117,7 +123,73 @@ class InventoryRawCache:
             'metadata': metadata
         }
 
+        # For OS data, also persist to PostgreSQL os_inventory_snapshots table
+        if cache_type == "os" and data:
+            try:
+                asyncio.create_task(self._persist_os_inventory_to_postgres(data, metadata))
+            except Exception as e:
+                # Log but don't fail - memory cache still works
+                print(f"Warning: Failed to persist OS inventory to PostgreSQL: {e}")
+
         return True
+
+    async def _persist_os_inventory_to_postgres(self, os_data: List[Dict], metadata: Optional[Dict[str, Any]]):
+        """Persist OS inventory data to os_inventory_snapshots table for database joins."""
+        pool = postgres_client.get_pool()
+        if not pool:
+            return
+
+        workspace_id = metadata.get("workspace_id", "default") if metadata else "default"
+
+        async with pool.acquire() as conn:
+            # Start transaction
+            async with conn.transaction():
+                for item in os_data:
+                    resource_id = item.get("resource_id")
+                    if not resource_id:
+                        continue
+
+                    # Check if VM exists in vms table first
+                    vm_exists = await conn.fetchval(
+                        "SELECT 1 FROM vms WHERE resource_id = $1 LIMIT 1",
+                        resource_id
+                    )
+
+                    if not vm_exists:
+                        # Skip if VM not in vms table (FK constraint would fail)
+                        continue
+
+                    # Upsert into os_inventory_snapshots
+                    await conn.execute("""
+                        INSERT INTO os_inventory_snapshots (
+                            resource_id,
+                            snapshot_version,
+                            workspace_id,
+                            computer_name,
+                            os_name,
+                            os_version,
+                            os_type,
+                            last_heartbeat,
+                            cached_at,
+                            ttl_seconds
+                        ) VALUES ($1, 1, $2, $3, $4, $5, $6, $7, NOW(), 14400)
+                        ON CONFLICT (resource_id, snapshot_version, workspace_id)
+                        DO UPDATE SET
+                            computer_name = EXCLUDED.computer_name,
+                            os_name = EXCLUDED.os_name,
+                            os_version = EXCLUDED.os_version,
+                            os_type = EXCLUDED.os_type,
+                            last_heartbeat = EXCLUDED.last_heartbeat,
+                            cached_at = EXCLUDED.cached_at
+                    """,
+                        resource_id,
+                        workspace_id,
+                        item.get("computer_name") or item.get("computer"),
+                        item.get("os_name") or item.get("name"),
+                        item.get("os_version") or item.get("version"),
+                        item.get("os_type"),
+                        item.get("last_heartbeat")
+                    )
 
     def clear_cache(self, cache_key: str, cache_type: str = "software") -> bool:
         """

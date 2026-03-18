@@ -422,3 +422,39 @@ class InventoryRepository:
         except asyncpg.PostgresError as exc:
             logger.error("get_ttl_config failed: %s", exc)
             return []
+
+    async def sync_vms_os_data_from_snapshots(self) -> Dict[str, Any]:
+        """Update vms table OS data from os_inventory_snapshots using resource_id join.
+
+        Returns:
+            Dict with sync statistics (updated_count, skipped_count, errors)
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute("""
+                    UPDATE vms
+                    SET
+                        os_name = COALESCE(osi.os_name, vms.os_name),
+                        os_type = COALESCE(osi.os_type, vms.os_type)
+                    FROM os_inventory_snapshots osi
+                    WHERE vms.resource_id = osi.resource_id
+                      AND (vms.os_name IS NULL OR vms.os_name = 'Unknown'
+                           OR vms.os_type IS NULL OR vms.os_type = 'Unknown')
+                """)
+
+                # Parse result like "UPDATE 2"
+                updated_count = int(result.split()[-1]) if result and result.split() else 0
+
+                logger.info("Synced OS data from snapshots to vms table: %d rows updated", updated_count)
+
+                return {
+                    "updated_count": updated_count,
+                    "status": "success"
+                }
+        except asyncpg.PostgresError as exc:
+            logger.error("sync_vms_os_data_from_snapshots failed: %s", exc)
+            return {
+                "updated_count": 0,
+                "status": "error",
+                "error": str(exc)
+            }
