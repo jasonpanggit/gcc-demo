@@ -1,8 +1,8 @@
 """
-Cosmos-backed table for standardized EOL results.
+Persistent storage for standardized EOL results.
 
-This module provides persistent storage and retrieval for End-of-Life (EOL) data
-using Azure Cosmos DB. It serves as the single source of truth for all EOL records.
+This module provides storage and retrieval for End-of-Life (EOL) data.
+It serves as the single source of truth for all EOL records.
 
 Key Features:
     - Normalized EOL data storage with consistent schema
@@ -11,22 +11,12 @@ Key Features:
     - Support for pagination and filtering
     - Automatic timestamp tracking for created/updated records
 
-Constants:
-    DEFAULT_CONTAINER_ID: Default Cosmos DB container name
-    DEFAULT_TTL_DAYS: Default time-to-live in days (30)
-    DEFAULT_OFFER_THROUGHPUT: Default RU/s for container (400)
-    PARTITION_PATH: Partition key path for the container
-    DEFAULT_CONFIDENCE: Default confidence value when missing (0.0)
-    DEFAULT_LIST_LIMIT: Default number of records to return (100)
-    MIN_LIST_LIMIT: Minimum allowed list limit (1)
-    MIN_LIST_OFFSET: Minimum allowed list offset (0)
-
 Usage:
     from utils.eol_inventory import eol_inventory
-    
+
     # Get EOL data
     result = await eol_inventory.get('Python', '3.9')
-    
+
     # Store EOL data
     success = await eol_inventory.upsert('Python', '3.9', response_data)
 """
@@ -37,7 +27,6 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List
 
-from .cosmos_cache import base_cosmos
 from .normalization import derive_os_name_version
 
 logger = logging.getLogger(__name__)
@@ -56,10 +45,10 @@ MIN_LIST_OFFSET: int = 0
 @dataclass
 class EolRecord:
     """Data structure for standardized EOL records.
-    
+
     This class represents a complete EOL record with all relevant fields
     for tracking software end-of-life information.
-    
+
     Attributes:
         id (str): Unique identifier (software_name:version)
         software_key (str): Normalized software name for querying
@@ -75,8 +64,19 @@ class EolRecord:
         source (Optional[str]): Data source identifier
         source_url (Optional[str]): URL of the source
         agent_used (Optional[str]): Agent that provided the data
-        data (Dict[str, Any]): Complete raw response data
-        created_at (str): ISO timestamp when created
+        data (Dict[str, Any]): Full response data dictionary
+        created_at (str): ISO timestamp when record was created
+        raw_software_name (Optional[str]): Original software name before normalization
+        raw_version (Optional[str]): Original version before normalization
+        normalized_software_name (Optional[str]): Normalized software name
+        normalized_version (Optional[str]): Normalized version string
+        derivation_strategy (Optional[str]): Strategy used for name/version derivation
+        derivation_rule_id (Optional[str]): ID of the rule used for derivation
+        derivation_rule_name (Optional[str]): Name of the derivation rule
+        derivation_source_scope (Optional[str]): Scope of the derivation source
+        derivation_pattern (Optional[str]): Pattern used for derivation
+        derivation_notes (Optional[str]): Additional derivation notes
+        item_type (Optional[str]): Type of item (e.g., 'os', 'software')
         updated_at (Optional[str]): ISO timestamp when last updated
         ttl (Optional[int]): Time-to-live in seconds (None = no expiry)
     """
@@ -112,7 +112,7 @@ class EolRecord:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the record to a dictionary for storage.
-        
+
         Returns:
             Dict[str, Any]: Dictionary representation, excluding None ttl
         """
@@ -123,11 +123,11 @@ class EolRecord:
 
     @classmethod
     def from_dict(cls, doc: Dict[str, Any]) -> "EolRecord":
-        """Create an EolRecord from a Cosmos DB document.
-        
+        """Create an EolRecord from a storage document.
+
         Args:
-            doc (Dict[str, Any]): Document from Cosmos DB
-            
+            doc (Dict[str, Any]): Document from storage
+
         Returns:
             EolRecord: Instance created from the dictionary
         """
@@ -138,10 +138,10 @@ class EolRecord:
 
     def to_cached_response(self) -> Dict[str, Any]:
         """Return orchestrator-friendly cached response format.
-        
+
         Converts the internal record format to the format expected by
         the EOL orchestrator and other consuming services.
-        
+
         Returns:
             Dict[str, Any]: Response dictionary with standard fields
         """
@@ -161,28 +161,32 @@ class EolRecord:
             response_data.setdefault("derivation_pattern", self.derivation_pattern)
             response_data.setdefault("derivation_notes", self.derivation_notes)
             response_data.setdefault("item_type", self.item_type)
-        
+
         return {
             "success": True,
             "source": self.source or "eol_inventory",
             "agent_used": self.agent_used or self.source or "eol_inventory",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "cached": True,
-            "cache_source": "cosmos_eol_table",
+            "cache_source": "eol_table",
             "cache_created_at": self.created_at,
             "data": response_data,
         }
 
 
 class EolInventory:
-    """Lightweight Cosmos helper for standardized EOL records."""
+    """In-memory store for standardized EOL records.
+
+    Uses an in-memory dictionary for fast lookups. For persistent storage,
+    the PostgreSQL EOLRepository (repositories/eol_repository.py) is the
+    canonical path.
+    """
 
     def __init__(self, container_id: str = "eol_table", default_ttl_days: int = 30):
         self.container_id = container_id
         self.default_ttl_days = default_ttl_days
-        # Disable TTL-based expiration in Cosmos; keep defaults for backward compatibility.
         self.default_ttl_seconds: Optional[int] = None
-        self.container = None
+        self._store: Dict[str, Dict[str, Any]] = {}  # In-memory store
         self.initialized = False
         self.hit_count = 0
         self.miss_count = 0
@@ -190,26 +194,15 @@ class EolInventory:
     async def initialize(self) -> None:
         if self.initialized:
             return
-        try:
-            await base_cosmos._initialize_async()
-            self.container = base_cosmos.get_container(
-                self.container_id,
-                partition_path="/software_key",
-                offer_throughput=400,
-                default_ttl=self.default_ttl_seconds,
-            )
-            self.initialized = True
-            logger.info("✅ EOL table ready (container %s)", self.container_id)
-        except Exception as exc:
-            logger.warning("EOL table initialization failed: %s", exc)
-            self.initialized = False
+        self.initialized = True
+        logger.info("EOL inventory initialized (in-memory store)")
 
     def _normalize_name(self, name: str) -> str:
         """Normalize software name for consistent querying.
-        
+
         Args:
             name (str): Software name to normalize
-            
+
         Returns:
             str: Lowercase, trimmed software name
         """
@@ -217,10 +210,10 @@ class EolInventory:
 
     def _normalize_version(self, version: Optional[str]) -> str:
         """Normalize version string for consistent querying.
-        
+
         Args:
             version (Optional[str]): Version string to normalize
-            
+
         Returns:
             str: Lowercase, trimmed version or 'any' if None
         """
@@ -228,11 +221,11 @@ class EolInventory:
 
     def _build_id(self, software_name: str, version: Optional[str]) -> str:
         """Build a unique record ID from software name and version.
-        
+
         Args:
             software_name (str): Software name
             version (Optional[str]): Version string
-            
+
         Returns:
             str: Unique ID in format 'name:version'
         """
@@ -240,10 +233,10 @@ class EolInventory:
 
     def _confidence_value(self, value: Optional[float]) -> float:
         """Extract and validate confidence value.
-        
+
         Args:
             value (Optional[float]): Confidence value to validate
-            
+
         Returns:
             float: Valid confidence value or 0.0 if invalid
         """
@@ -327,19 +320,16 @@ class EolInventory:
 
     def _persist_updated_doc(self, original_doc: Dict[str, Any], updated_doc: Dict[str, Any]) -> None:
         if self._doc_has_key_change(original_doc, updated_doc):
-            self.container.upsert_item(updated_doc)
-            self.container.delete_item(
-                item=original_doc["id"],
-                partition_key=original_doc["software_key"],
-            )
+            self._store[updated_doc["id"]] = updated_doc
+            self._store.pop(original_doc["id"], None)
             return
 
-        self.container.replace_item(item=original_doc["id"], body=updated_doc)
+        self._store[original_doc["id"]] = updated_doc
 
     def _standardize_data(
-        self, 
-        software_name: str, 
-        version: Optional[str], 
+        self,
+        software_name: str,
+        version: Optional[str],
         result: Dict[str, Any],
         *,
         raw_software_name: Optional[str] = None,
@@ -347,49 +337,15 @@ class EolInventory:
         item_type: Optional[str] = None,
         derivation_details: Optional[Dict[str, Any]] = None,
     ) -> Optional[EolRecord]:
-        """Convert raw result data into standardized EolRecord format.
-        
-        This method extracts and normalizes all relevant fields from the
-        raw response data into a consistent EolRecord structure.
-        
-        Args:
-            software_name (str): Software name
-            version (Optional[str]): Version string
-            result (Dict[str, Any]): Raw result data from agent
-            
-        Returns:
-            Optional[EolRecord]: Standardized record or None if invalid
-        """
+        """Convert raw result data into standardized EolRecord format."""
         if not result or not result.get("success"):
             return None
-        """Insert or update an EOL record with confidence-based replacement.
-        
-        This method only updates existing records if the incoming data has
-        higher confidence than the current record.
-        
-        Args:
-            software_name (str): Software name
-            version (Optional[str]): Version string
-            result (Dict[str, Any]): Raw result data from agent
-            
-        Returns:
-            bool: True if upsert succeeded, False otherwise
-        
-        Example:
-            >>> success = await inventory.upsert('Python', '3.9', {
-            >>>     'success': True,
-            >>>     'data': {'eol_date': '2025-10-05', 'confidence': 95}
-            >>> })
-        """
 
         data = result.get("data") or {}
         if not isinstance(data, dict):
             return None
 
         # Strip runtime-only / ephemeral fields that must NOT be persisted.
-        # These are generated fresh on every live query and would become stale
-        # if stored in Cosmos, causing the UI to replay outdated per-agent
-        # comparison breakdowns on subsequent cache-hit responses.
         _EPHEMERAL_KEYS = {
             "agent_comparisons",
             "agents_considered",
@@ -464,40 +420,30 @@ class EolInventory:
 
     async def get(self, software_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
         await self.initialize()
-        if not self.container:
-            return None
         try:
             software_key = self._normalize_name(software_name)
             version_key = self._normalize_version(version)
-            
+            record_id = self._build_id(software_name, version)
+
             logger.debug(
                 f"EOL cache query: software_name='{software_name}' -> key='{software_key}', "
                 f"version='{version}' -> key='{version_key}'"
             )
-            
-            query = (
-                "SELECT * FROM c WHERE c.software_key = @software_key "
-                "AND c.version_key = @version_key"
-            )
-            params = [
-                {"name": "@software_key", "value": software_key},
-                {"name": "@version_key", "value": version_key},
-            ]
-            items = list(
-                self.container.query_items(
-                    query=query,
-                    parameters=params,
-                    enable_cross_partition_query=True,
-                )
-            )
-            if not items:
+
+            doc = self._store.get(record_id)
+            if not doc:
+                # Try searching by key/version
+                for rid, rdoc in self._store.items():
+                    if rdoc.get("software_key") == software_key and rdoc.get("version_key") == version_key:
+                        doc = rdoc
+                        break
+
+            if not doc:
                 self.miss_count += 1
                 logger.debug("EOL table miss for %s %s", software_name, version or "(any)")
                 return None
 
-            items.sort(key=lambda doc: doc.get("created_at", ""), reverse=True)
-            record = EolRecord.from_dict(items[0])
-            # Basic expiration check in case TTL is not enforced yet
+            record = EolRecord.from_dict(doc)
             self.hit_count += 1
             logger.debug(
                 f"EOL table hit for {software_name} {version or '(any)'}: "
@@ -519,23 +465,8 @@ class EolInventory:
         item_type: Optional[str] = None,
         derivation_details: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Upsert an EOL record with confidence-based overwrite logic.
-        
-        Stores or updates an EOL record in the database. Only overwrites
-        existing records if the new data has higher confidence.
-        
-        Args:
-            software_name (str): Name of the software product
-            version (Optional[str]): Version string
-            result (Dict[str, Any]): EOL data to store
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Upsert an EOL record with confidence-based overwrite logic."""
         await self.initialize()
-        if not self.container:
-            logger.warning("EOL table upsert skipped: container not initialized")
-            return False
 
         record = self._standardize_data(
             software_name,
@@ -550,59 +481,38 @@ class EolInventory:
             return False
 
         try:
-            existing = None
-            try:
-                existing = self.container.read_item(
-                    item=record.id,
-                    partition_key=record.software_key,
-                )
-            except Exception:
-                existing = None
+            existing = self._store.get(record.id)
 
             if existing:
                 existing_confidence = self._confidence_value(existing.get("confidence"))
                 incoming_confidence = self._confidence_value(record.confidence)
-                
+
                 # Only overwrite if incoming confidence is strictly higher
                 if incoming_confidence <= existing_confidence:
                     logger.info(
-                        f"⏭️ Skipping EOL upsert for {record.software_name} {record.version or 'any'}: "
+                        f"Skipping EOL upsert for {record.software_name} {record.version or 'any'}: "
                         f"existing confidence ({existing_confidence:.2f}) >= incoming ({incoming_confidence:.2f})"
                     )
                     return True
-                
+
                 logger.info(
-                    f"📝 Updating EOL record for {record.software_name} {record.version or 'any'}: "
+                    f"Updating EOL record for {record.software_name} {record.version or 'any'}: "
                     f"confidence improved from {existing_confidence:.2f} to {incoming_confidence:.2f}"
                 )
 
             record_dict = record.to_dict()
             if existing:
                 record_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
-                self.container.replace_item(item=record.id, body=record_dict)
-                logger.info(f"✅ Updated EOL record: {record.software_name} {record.version or 'any'}")
-            else:
-                self.container.upsert_item(record_dict)
-                logger.info(f"✅ Created new EOL record: {record.software_name} {record.version or 'any'} (confidence: {record.confidence or 0:.2f})")
+            self._store[record.id] = record_dict
+            logger.info(f"Stored EOL record: {record.software_name} {record.version or 'any'} (confidence: {record.confidence or 0:.2f})")
             return True
         except Exception as exc:
             logger.debug("EOL table upsert failed: %s", exc)
             return False
 
     async def update_record(self, record_id: str, software_key: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Update specific fields in an existing EOL record.
-        
-        Args:
-            record_id (str): Unique record identifier
-            software_key (str): Partition key
-            updates (Dict[str, Any]): Fields to update
-            
-        Returns:
-            Optional[Dict[str, Any]]: Updated record or None if failed
-        """
+        """Update specific fields in an existing EOL record."""
         await self.initialize()
-        if not self.container:
-            return None
 
         allowed = {
             "software_name",
@@ -628,10 +538,9 @@ class EolInventory:
             "derivation_notes",
         }
 
-        try:
-            doc = self.container.read_item(item=record_id, partition_key=software_key)
-        except Exception as exc:
-            logger.debug("EOL table update read failed: %s", exc)
+        doc = self._store.get(record_id)
+        if not doc:
+            logger.debug("EOL table update read failed: record %s not found", record_id)
             return None
 
         filtered_updates = {key: value for key, value in updates.items() if key in allowed}
@@ -654,33 +563,10 @@ class EolInventory:
         preview_limit: int = 100,
     ) -> Dict[str, Any]:
         await self.initialize()
-        if not self.container:
-            return {
-                "scanned": 0,
-                "changed": 0,
-                "updated": 0,
-                "errors": [{"error": "Container not initialized"}],
-                "items": [],
-            }
 
         safe_preview_limit = max(1, min(preview_limit, 500))
 
-        try:
-            docs = list(
-                self.container.query_items(
-                    query="SELECT * FROM c WHERE c.item_type = 'os'",
-                    enable_cross_partition_query=True,
-                )
-            )
-        except Exception as exc:
-            logger.warning("OS normalization reapply query failed: %s", exc)
-            return {
-                "scanned": 0,
-                "changed": 0,
-                "updated": 0,
-                "errors": [{"error": str(exc)}],
-                "items": [],
-            }
+        docs = [doc for doc in self._store.values() if doc.get("item_type") == "os"]
 
         results: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
@@ -771,74 +657,36 @@ class EolInventory:
 
     def get_stats(self) -> Dict[str, int]:
         """Get cache hit/miss statistics.
-        
+
         Returns:
             Dict[str, int]: Dictionary with 'hits' and 'misses' counts
         """
         return {"hits": self.hit_count, "misses": self.miss_count}
 
-    async def count_records(
-        self,
-        *,
-        software_name: Optional[str] = None,
-        version: Optional[str] = None,
-    ) -> int:
-        """Count total EOL records matching the filters.
-        
-        Args:
-            software_name (Optional[str]): Filter by software name
-            version (Optional[str]): Filter by version
-            
-        Returns:
-            int: Number of matching records
-        
-        Example:
-            >>> count = await inventory.count_records(software_name='Python')
-            >>> print(f"Found {count} Python records")
-        """
-        await self.initialize()
-        if not self.container:
-            return False
-        try:
-            self.container.delete_item(item=record_id, partition_key=software_key)
-            return True
-        except Exception as exc:
-            logger.debug("EOL table delete failed: %s", exc)
-            return False
-
     async def delete_record(self, record_id: str, software_key: str) -> bool:
-        """Delete a single EOL record from Cosmos DB.
-        
+        """Delete a single EOL record.
+
         Args:
             record_id (str): The record ID to delete
             software_key (str): The partition key (software_key)
-            
+
         Returns:
             bool: True if deleted successfully, False otherwise
         """
         await self.initialize()
-        if not self.container:
-            logger.warning("EOL table delete skipped: container not initialized")
-            return False
-        
+
         try:
-            self.container.delete_item(item=record_id, partition_key=software_key)
-            logger.info(f"✅ Deleted EOL record: {record_id}")
-            return True
+            if record_id in self._store:
+                del self._store[record_id]
+                logger.info(f"Deleted EOL record: {record_id}")
+                return True
+            return False
         except Exception as exc:
             logger.debug("EOL table delete failed for %s: %s", record_id, exc)
             return False
 
     async def delete_records(self, items: List[Dict[str, str]]) -> Dict[str, Any]:
         await self.initialize()
-        if not self.container:
-            return {
-                "deleted": 0,
-                "failed": [
-                    {"item": item, "error": "Container not initialized"}
-                    for item in items
-                ],
-            }
 
         deleted = 0
         failed = []
@@ -849,8 +697,11 @@ class EolInventory:
                 failed.append({"item": item, "error": "Missing record_id or software_key"})
                 continue
             try:
-                self.container.delete_item(item=record_id, partition_key=software_key)
-                deleted += 1
+                if record_id in self._store:
+                    del self._store[record_id]
+                    deleted += 1
+                else:
+                    failed.append({"item": item, "error": "Record not found"})
             except Exception as exc:
                 logger.debug("EOL table bulk delete failed for %s: %s", record_id, exc)
                 failed.append({"item": item, "error": str(exc)})
@@ -860,120 +711,36 @@ class EolInventory:
     async def invalidate(
         self, software_name: str, version: Optional[str] = None
     ) -> int:
-        """Query-based invalidation: find and delete all records that match
-        *software_name* (CONTAINS match on ``software_key``) and optionally
-        *version* (exact match on ``version_key``).
-
-        This is more robust than direct ID-based deletion because the stored
-        ``software_key`` may differ from what the caller constructs (e.g. the
-        agent may have embedded the version in the product name before storing).
-
-        Args:
-            software_name: Software name to match (case-insensitive, partial).
-            version:        Version to match, or ``None`` to match any version.
-
-        Returns:
-            Number of records deleted.
-        """
+        """Query-based invalidation: find and delete matching records."""
         await self.initialize()
-        if not self.container:
-            logger.warning("EOL table invalidate skipped: container not initialized")
-            return 0
 
         name_key = self._normalize_name(software_name)
-        try:
-            # Use CONTAINS so that "windows server" matches stored keys like
-            # "windows server 2016", "windows server 2019", etc.
-            if version:
-                ver_key = self._normalize_version(version)
-                query = (
-                    "SELECT c.id, c.software_key FROM c "
-                    "WHERE CONTAINS(c.software_key, @name_key) "
-                    "AND c.version_key = @ver_key"
-                )
-                params = [
-                    {"name": "@name_key", "value": name_key},
-                    {"name": "@ver_key", "value": ver_key},
-                ]
-            else:
-                query = (
-                    "SELECT c.id, c.software_key FROM c "
-                    "WHERE CONTAINS(c.software_key, @name_key)"
-                )
-                params = [{"name": "@name_key", "value": name_key}]
+        ver_key = self._normalize_version(version) if version else None
 
-            items = list(
-                self.container.query_items(
-                    query=query,
-                    parameters=params,
-                    enable_cross_partition_query=True,
-                )
-            )
-        except Exception as exc:
-            logger.warning("EOL table invalidate query failed: %s", exc)
-            return 0
+        to_delete = []
+        for record_id, doc in self._store.items():
+            if name_key in (doc.get("software_key") or ""):
+                if ver_key is None or doc.get("version_key") == ver_key:
+                    to_delete.append(record_id)
 
-        deleted = 0
-        for doc in items:
-            try:
-                self.container.delete_item(
-                    item=doc["id"], partition_key=doc["software_key"]
-                )
-                deleted += 1
-                logger.info(
-                    "✅ Invalidated EOL record id=%s key=%s",
-                    doc["id"], doc["software_key"]
-                )
-            except Exception as exc:
-                logger.debug("EOL table invalidate delete failed for %s: %s", doc.get("id"), exc)
+        for record_id in to_delete:
+            self._store.pop(record_id, None)
+            logger.info("Invalidated EOL record id=%s", record_id)
 
-        return deleted
+        return len(to_delete)
 
     async def purge_all(self) -> int:
-        """Delete **every** record in the eol_table container.
-
-        Fetches all record IDs/partition keys in one query then deletes them
-        individually (Cosmos SDK does not support a bulk-delete statement).
+        """Delete every record in the store.
 
         Returns:
             Number of records deleted.
         """
         await self.initialize()
-        if not self.container:
-            logger.warning("EOL table purge_all skipped: container not initialized")
-            return 0
 
-        try:
-            docs = list(
-                self.container.query_items(
-                    query="SELECT c.id, c.software_key FROM c",
-                    enable_cross_partition_query=True,
-                )
-            )
-        except Exception as exc:
-            logger.warning("EOL table purge_all query failed: %s", exc)
-            return 0
-
-        deleted = 0
-        for doc in docs:
-            try:
-                self.container.delete_item(
-                    item=doc["id"], partition_key=doc["software_key"]
-                )
-                deleted += 1
-            except Exception as exc:
-                logger.debug("EOL table purge_all delete failed for %s: %s", doc.get("id"), exc)
-
-        logger.info("🗑️ EOL table purge_all: deleted %d record(s)", deleted)
-        return deleted
-
-    def get_stats(self) -> Dict[str, int]:
-        """Get cache hit/miss statistics.
-        
-        Returns:
-            Dict[str, int]: Dictionary with 'hits' and 'misses' counts
-        """
-        return {"hits": self.hit_count, "misses": self.miss_count}
+        count = len(self._store)
+        self._store.clear()
+        logger.info("EOL table purge_all: deleted %d record(s)", count)
+        return count
 
     async def count_records(
         self,
@@ -981,47 +748,24 @@ class EolInventory:
         software_name: Optional[str] = None,
         version: Optional[str] = None,
     ) -> int:
-        """Count total EOL records matching the filters.
-        
-        Args:
-            software_name (Optional[str]): Filter by software name
-            version (Optional[str]): Filter by version
-            
-        Returns:
-            int: Number of matching records
-        """
+        """Count total EOL records matching the filters."""
         await self.initialize()
-        if not self.container:
-            return 0
 
-        conditions = []
-        params = []
+        if not software_name and not version:
+            return len(self._store)
 
-        if software_name:
-            software_key = self._normalize_name(software_name)
-            conditions.append("c.software_key = @software_key")
-            params.append({"name": "@software_key", "value": software_key})
+        count = 0
+        software_key = self._normalize_name(software_name) if software_name else None
+        version_key = self._normalize_version(version) if version else None
 
-        if version:
-            version_key = self._normalize_version(version)
-            conditions.append("c.version_key = @version_key")
-            params.append({"name": "@version_key", "value": version_key})
+        for doc in self._store.values():
+            if software_key and doc.get("software_key") != software_key:
+                continue
+            if version_key and doc.get("version_key") != version_key:
+                continue
+            count += 1
 
-        query = "SELECT VALUE COUNT(1) FROM c"
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-
-        try:
-            items_iter = self.container.query_items(
-                query=query,
-                parameters=params,
-                enable_cross_partition_query=True,
-            )
-            result = list(items_iter)
-            return result[0] if result else 0
-        except Exception as exc:
-            logger.debug("EOL table count query failed: %s", exc)
-            return 0
+        return count
 
     async def list_recent(
         self,
@@ -1031,66 +775,39 @@ class EolInventory:
         software_name: Optional[str] = None,
         version: Optional[str] = None,
     ) -> tuple[list[Dict[str, Any]], int]:
-        """Return recent EOL records for UI/debug views with pagination.
-        
-        Args:
-            limit: Number of records to return
-            offset: Number of records to skip (for pagination)
-            software_name: Filter by software name
-            version: Filter by version
-            
-        Returns:
-            Tuple of (records list, total count matching filters)
-        """
+        """Return recent EOL records for UI/debug views with pagination."""
         await self.initialize()
-        if not self.container:
-            return [], 0
 
         safe_limit = max(1, limit)
         safe_offset = max(0, offset)
 
-        conditions = []
-        params = []
+        software_key = self._normalize_name(software_name) if software_name else None
+        version_key = self._normalize_version(version) if version else None
 
-        if software_name:
-            software_key = self._normalize_name(software_name)
-            conditions.append("c.software_key = @software_key")
-            params.append({"name": "@software_key", "value": software_key})
+        # Filter
+        filtered = []
+        for doc in self._store.values():
+            if software_key and doc.get("software_key") != software_key:
+                continue
+            if version_key and doc.get("version_key") != version_key:
+                continue
+            filtered.append(doc)
 
-        if version:
-            version_key = self._normalize_version(version)
-            conditions.append("c.version_key = @version_key")
-            params.append({"name": "@version_key", "value": version_key})
+        total_count = len(filtered)
 
-        # Get total count
-        total_count = await self.count_records(
-            software_name=software_name,
-            version=version,
-        )
+        # Sort by updated_at descending
+        filtered.sort(key=lambda d: d.get("updated_at") or d.get("created_at") or "", reverse=True)
 
-        query = "SELECT * FROM c"
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY c._ts DESC"
-        query += f" OFFSET {safe_offset} LIMIT {safe_limit}"
+        # Paginate
+        page = filtered[safe_offset:safe_offset + safe_limit]
 
-        records: list[Dict[str, Any]] = []
-        try:
-            items_iter = self.container.query_items(
-                query=query,
-                parameters=params,
-                enable_cross_partition_query=True,
-            )
-
-            for doc in items_iter:
-
-                try:
-                    records.append(self._record_to_summary(doc))
-                except Exception as record_exc:
-                    logger.debug("EOL table record parse failed: %s", record_exc)
-                    continue
-        except Exception as exc:
-            logger.debug("EOL table query failed: %s", exc)
+        records = []
+        for doc in page:
+            try:
+                records.append(self._record_to_summary(doc))
+            except Exception as record_exc:
+                logger.debug("EOL table record parse failed: %s", record_exc)
+                continue
 
         return records, total_count
 

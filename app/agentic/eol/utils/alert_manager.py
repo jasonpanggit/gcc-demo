@@ -23,7 +23,6 @@ import asyncio
 from pathlib import Path
 
 from utils import get_logger, config
-from utils.cosmos_cache import base_cosmos
 
 # Import Teams notification client for webhook-based alerts
 from utils.teams_notification_client import TeamsNotificationClient
@@ -147,128 +146,38 @@ class NotificationHistory(BaseModel):
 # ============================================================================
 
 class AlertManager:
-    """Manages EOL alerts and SMTP configuration with Cosmos DB persistence"""
-    
+    """Manages EOL alerts and SMTP configuration with file-based persistence"""
+
     def __init__(self):
-        # Keep file-based config as fallback
+        # File-based config storage
         self.config_file = Path(__file__).parent / "data" / "alert_config.json"
         self.config_file.parent.mkdir(exist_ok=True)
         self._config: Optional[AlertConfiguration] = None
-        
-        # Cosmos DB configuration - following pattern from other cache modules
-        self.config_container_name = "alert_configuration"
-        self.config_document_id = "global_alert_config"
-        self.partition_path = "/config_type"
-        self.container = None
+
+        # In-memory notification store
+        self._notification_store: List[Dict[str, Any]] = []
         self.initialized = False
-        
-        # Notification tracking container configuration
-        self.notification_container_name = "notification_history"
-        self.notification_partition_path = "/alert_type"
-        self.notification_container = None
-        
-    def _ensure_container(self):
-        """Ensure containers are available, get them if needed - following eol_cache pattern"""
-        if not self.container and hasattr(base_cosmos, 'initialized') and base_cosmos.initialized:
-            try:
-                self.container = base_cosmos.get_container(
-                    container_id=self.config_container_name,
-                    partition_path=self.partition_path,
-                    offer_throughput=400
-                )
-                logger.debug(f"✅ Alert manager container {self.config_container_name} obtained")
-            except Exception as e:
-                logger.error(f"❌ Error getting alert configuration container: {e}")
-                self.container = None
-        
-        # Ensure notification tracking container
-        if not self.notification_container and hasattr(base_cosmos, 'initialized') and base_cosmos.initialized:
-            try:
-                self.notification_container = base_cosmos.get_container(
-                    container_id=self.notification_container_name,
-                    partition_path=self.notification_partition_path,
-                    offer_throughput=400
-                )
-                logger.debug(f"Notification tracking container {self.notification_container_name} obtained")
-            except Exception as e:
-                logger.error(f"Error getting notification tracking container: {e}")
-                self.notification_container = None
-    
+
     async def initialize(self):
-        """Initialize the alert manager and ensure Cosmos DB is ready - following eol_cache pattern"""
-        if self.initialized and self.container:
-            return  # Already initialized
-            
-        try:
-            # Ensure base cosmos is initialized
-            await base_cosmos._initialize_async()
-            
-            # Get container if not already available
-            if not self.container:
-                self._ensure_container()
-                
-            self.initialized = True
-            logger.debug(f"AlertManager initialized with container {self.config_container_name}")
-        except Exception as e:
-            logger.debug(f"AlertManager initialize failed: {e}")
-    
-    async def _get_cosmos_container(self):
-        """Get or create Cosmos DB container for alert configuration"""
-        try:
-            # Ensure initialization
-            await self.initialize()
-            self._ensure_container()
-            return self.container
-        except Exception as e:
-            logger.error(f"Error getting Cosmos container for alert config: {e}")
-            return None
+        """Initialize the alert manager"""
+        if self.initialized:
+            return
+        self.initialized = True
+        logger.debug("AlertManager initialized")
     
     async def load_configuration(self) -> AlertConfiguration:
-        """Load alert configuration from Cosmos DB with file fallback - following inventory_cache pattern"""
+        """Load alert configuration from file storage"""
         if self._config is not None:
             return self._config
-            
-        # Try loading from Cosmos DB first
-        try:
-            container = await self._get_cosmos_container()
-            if container:
-                logger.info("Loading alert configuration from Cosmos DB...")
-                
-                # Query for the configuration document - following inventory_cache pattern
-                query = "SELECT * FROM c WHERE c.id = @config_id"
-                params = [{"name": "@config_id", "value": self.config_document_id}]
-                items = list(container.query_items(
-                    query=query, 
-                    parameters=params, 
-                    enable_cross_partition_query=True
-                ))
-                
-                if items:
-                    config_data = items[0]
-                    # Remove Cosmos DB metadata - following eol_cache pattern
-                    cosmos_metadata_fields = ['id', '_rid', '_self', '_etag', '_attachments', '_ts', 'config_type', 'created_at', 'updated_at']
-                    for field in cosmos_metadata_fields:
-                        config_data.pop(field, None)
-                    
-                    self._config = AlertConfiguration(**config_data)
-                    logger.info("Alert configuration loaded successfully from Cosmos DB")
-                    return self._config
-                else:
-                    logger.info("No alert configuration found in Cosmos DB, will create default")
-        except Exception as e:
-            logger.warning(f"Error loading alert configuration from Cosmos DB: {e}")
-            
-        # Fallback to file-based configuration
+
+        # Load from file
         try:
             if self.config_file.exists():
-                logger.warning("Loading alert configuration from file (fallback)...")
+                logger.info("Loading alert configuration from file...")
                 async with aiofiles.open(self.config_file, 'r') as f:
                     data = json.loads(await f.read())
                     self._config = AlertConfiguration(**data)
                     logger.info("Alert configuration loaded successfully from file")
-                    
-                    # Save to Cosmos DB for future use
-                    await self.save_configuration(self._config)
             else:
                 logger.info("No configuration file found, creating default")
                 self._config = AlertConfiguration()
@@ -276,125 +185,35 @@ class AlertManager:
         except Exception as e:
             logger.error(f"Error loading alert configuration from file: {e}")
             self._config = AlertConfiguration()
-            
+
         return self._config
     
     async def save_configuration(self, config: AlertConfiguration) -> bool:
-        """Save alert configuration to Cosmos DB with file fallback - following inventory_cache pattern"""
-        success = False
-        
-        # Try saving to Cosmos DB first
-        try:
-            container = await self._get_cosmos_container()
-            if container:
-                logger.info("Saving alert configuration to Cosmos DB...")
-                
-                # Prepare document for Cosmos DB - following inventory_cache pattern
-                config_data = config.dict()
-                config_doc = {
-                    "id": self.config_document_id,
-                    "config_type": "alert_configuration",  # This is the partition key
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                    **config_data
-                }
-                
-                # Validate document before upserting - following eol_cache pattern
-                if not config_doc.get('id'):
-                    logger.error("Alert configuration document missing required 'id' field")
-                    raise ValueError("Document missing required 'id' field")
-                    
-                if not config_doc.get('config_type'):
-                    logger.error("Alert configuration document missing required 'config_type' partition key")
-                    raise ValueError("Document missing required 'config_type' partition key")
-                
-                # Clean any invalid characters that might cause BadRequest - following eol_cache pattern
-                if isinstance(config_doc.get('id'), str):
-                    invalid_chars = ['/', '\\', '?', '#']
-                    clean_id = config_doc['id']
-                    for char in invalid_chars:
-                        clean_id = clean_id.replace(char, '_')
-                    config_doc['id'] = clean_id
-                
-                # Log document structure for debugging
-                logger.debug(f"Upserting alert config with ID: {config_doc['id']}, config_type: {config_doc['config_type']}")
-                
-                # Upsert the configuration document
-                try:
-                    result = container.upsert_item(config_doc)
-                    if result:
-                        self._config = config
-                        logger.info("Alert configuration saved successfully to Cosmos DB")
-                        success = True
-                    else:
-                        logger.error("Failed to save alert configuration to Cosmos DB")
-                except Exception as upsert_error:
-                    logger.error(f"Cosmos DB upsert failed for alert config {config_doc['id']}: {upsert_error}")
-                    logger.error(f"Alert config document structure: {config_doc}")
-                    # Continue with file fallback even if Cosmos fails
-        except Exception as e:
-            logger.error(f"Error saving alert configuration to Cosmos DB: {e}")
-            
-        # Also save to file as backup - following inventory_cache pattern
+        """Save alert configuration to file"""
         try:
             data = config.dict()
             async with aiofiles.open(self.config_file, 'w') as f:
                 await f.write(json.dumps(data, indent=2, default=str))
-            logger.info("Alert configuration also saved to file as backup")
-            
-            # If Cosmos DB failed but file succeeded, consider it a success
-            if not success:
-                self._config = config
-                success = True
-                
+            self._config = config
+            logger.info("Alert configuration saved to file")
+            return True
         except Exception as e:
             logger.error(f"Error saving alert configuration to file: {e}")
-            
-        return success
+            return False
     
     async def clear_configuration(self) -> bool:
-        """Clear alert configuration from both Cosmos DB and file - following inventory_cache pattern"""
-        success = False
-        
-        # Clear from Cosmos DB
-        try:
-            container = await self._get_cosmos_container()
-            if container:
-                logger.info("Clearing alert configuration from Cosmos DB...")
-                try:
-                    container.delete_item(
-                        item=self.config_document_id, 
-                        partition_key="alert_configuration"
-                    )
-                    logger.info("Alert configuration cleared from Cosmos DB")
-                    success = True
-                except Exception as e:
-                    # Check if it's a "NotFound" error - this is OK, means already cleared
-                    if "NotFound" in str(e) or "does not exist" in str(e):
-                        logger.info("Alert configuration already cleared - document not found in Cosmos DB")
-                        success = True
-                    else:
-                        logger.error(f"Error clearing alert configuration from Cosmos DB: {e}")
-        except Exception as e:
-            logger.error(f"Error accessing Cosmos DB for alert configuration clearing: {e}")
-        
-        # Clear from file
+        """Clear alert configuration from file storage"""
         try:
             if self.config_file.exists():
                 self.config_file.unlink()
                 logger.info("Alert configuration file deleted")
-            
-            # If file clear succeeded, consider it a success even if Cosmos failed
-            if not success:
-                success = True
-                
         except Exception as e:
             logger.error(f"Error deleting alert configuration file: {e}")
-        
+            return False
+
         # Clear cached configuration
         self._config = None
-        
-        return success
+        return True
     
     def convert_to_days(self, period: int, unit: str) -> int:
         """Convert period to days"""
@@ -1169,117 +988,87 @@ class AlertManager:
 
     async def save_notification_record(self, notification: NotificationRecord) -> bool:
         """
-        Save a notification record to Cosmos DB for tracking and history.
-        
+        Save a notification record to in-memory store for tracking and history.
+
         Args:
             notification: NotificationRecord to save
-            
+
         Returns:
             bool: True if saved successfully, False otherwise
         """
         try:
-            # Ensure notification container is available
             await self.initialize()
-            if not self.notification_container:
-                logger.error("Notification container not available")
-                return False
-            
-            # Prepare document for Cosmos DB
+
+            # Prepare document
             notification_dict = notification.dict()
             notification_dict['id'] = notification.id
-            notification_dict['alert_type'] = notification.alert_type  # This is the partition key
-            
+            notification_dict['alert_type'] = notification.alert_type
+
             # Add metadata
             now = datetime.utcnow().isoformat() + "Z"
             notification_dict['created_at'] = notification_dict.get('created_at', now)
             notification_dict['updated_at'] = now
-            
-            # Save to Cosmos DB
-            self.notification_container.create_item(notification_dict)
+
+            # Save to in-memory store
+            self._notification_store.append(notification_dict)
+            # Keep bounded to last 1000 records
+            if len(self._notification_store) > 1000:
+                self._notification_store = self._notification_store[-1000:]
             logger.info(f"Notification record saved: {notification.id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error saving notification record {notification.id}: {e}")
             return False
 
-    async def get_notification_history(self, 
+    async def get_notification_history(self,
                                      alert_type: Optional[str] = None,
                                      limit: int = 100,
                                      offset: int = 0) -> NotificationHistory:
         """
-        Retrieve notification history from Cosmos DB.
-        
+        Retrieve notification history from in-memory store.
+
         Args:
             alert_type: Filter by alert type ('critical', 'warning', 'info') or None for all
             limit: Maximum number of records to return
             offset: Number of records to skip
-            
+
         Returns:
             NotificationHistory object with notifications and statistics
         """
         try:
-            # Ensure notification container is available
             await self.initialize()
-            if not self.notification_container:
-                logger.warning("Notification container not available, returning empty history")
-                return NotificationHistory()
-            
-            # Build query
+
+            # Filter from in-memory store
+            items = self._notification_store
             if alert_type:
-                query = """
-                    SELECT * FROM c 
-                    WHERE c.alert_type = @alert_type 
-                    ORDER BY c.timestamp DESC 
-                    OFFSET @offset LIMIT @limit
-                """
-                params = [
-                    {"name": "@alert_type", "value": alert_type},
-                    {"name": "@offset", "value": offset},
-                    {"name": "@limit", "value": limit}
-                ]
-            else:
-                query = """
-                    SELECT * FROM c 
-                    ORDER BY c.timestamp DESC 
-                    OFFSET @offset LIMIT @limit
-                """
-                params = [
-                    {"name": "@offset", "value": offset},
-                    {"name": "@limit", "value": limit}
-                ]
-            
-            # Query notifications
-            items = list(self.notification_container.query_items(
-                query=query,
-                parameters=params,
-                enable_cross_partition_query=True
-            ))
-            
+                items = [i for i in items if i.get("alert_type") == alert_type]
+
+            # Sort by timestamp descending
+            items = sorted(items, key=lambda x: x.get("timestamp", ""), reverse=True)
+
+            # Apply pagination
+            page = items[offset:offset + limit]
+
             # Convert to NotificationRecord objects
             notifications = []
-            for item in items:
-                # Remove Cosmos DB metadata
-                cosmos_metadata_fields = ['_rid', '_self', '_etag', '_attachments', '_ts']
-                for field in cosmos_metadata_fields:
-                    item.pop(field, None)
-                
+            for item in page:
                 try:
                     notification = NotificationRecord(**item)
                     notifications.append(notification)
                 except Exception as e:
                     logger.warning(f"Error parsing notification record: {e}")
                     continue
-            
+
             # Calculate statistics
             total_count = len(notifications)
             successful_count = len([n for n in notifications if n.status == 'success'])
             failed_count = len([n for n in notifications if n.status == 'failed'])
-            
+
             last_notification_date = None
             if notifications:
-                last_notification_date = notifications[0].timestamp  # Already sorted by timestamp DESC
-            
+                last_notification_date = notifications[0].timestamp
+
             return NotificationHistory(
                 notifications=notifications,
                 total_count=total_count,
@@ -1287,7 +1076,7 @@ class AlertManager:
                 failed_count=failed_count,
                 last_notification_date=last_notification_date
             )
-            
+
         except Exception as e:
             logger.error(f"Error retrieving notification history: {e}")
             return NotificationHistory()
@@ -1499,7 +1288,7 @@ class AlertManager:
                         notification_record.status = "success"
                         notification_record.updated_at = now.isoformat() + "Z"
                         
-                        # Save notification record to Cosmos DB
+                        # Save notification record
                         await self.save_notification_record(notification_record)
                         
                         # Update last_sent timestamp
@@ -1579,7 +1368,7 @@ class AlertManager:
 alert_manager = AlertManager()
 
 async def initialize_alert_manager():
-    """Initialize the alert manager and load configuration from Cosmos DB - following eol_cache pattern"""
+    """Initialize the alert manager and load configuration"""
     try:
         logger.info("Initializing alert manager...")
         

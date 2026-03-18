@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-18T02:38:38Z"
+last_updated: "2026-03-18T02:47:20.334Z"
 progress:
   total_phases: 11
   completed_phases: 7
   total_plans: 73
-  completed_plans: 57
+  completed_plans: 58
 ---
 
 # STATE: PostgreSQL Schema & Data Architecture Optimization
@@ -21,10 +21,10 @@ progress:
 
 ## Current Phase
 
-**Phase 11: Cosmos DB Removal & PostgreSQL Migration Validation** 🔄 **In Progress — 3 / 7 plans done**
+**Phase 11: Cosmos DB Removal & PostgreSQL Migration Validation** 🔄 **In Progress — 4 / 7 plans done**
 
-**Completed:** P11.1 (Cosmos Audit & Fallback Catalogue), P11.2 (Cosmos Test File Cleanup), P11.3 (Comment, Docstring & Template Cleanup)
-**In Progress:** P11.4 (next)
+**Completed:** P11.1 (Cosmos Audit & Fallback Catalogue), P11.2 (Cosmos Test File Cleanup), P11.3 (Comment, Docstring & Template Cleanup), P11.4 (Configuration Cleanup)
+**In Progress:** P11.5 (next)
 **Next:** Phase 11 continuation
 
 ---
@@ -52,7 +52,7 @@ progress:
 | 8 | Repository Layer Update | ✅ Complete | 7 / 7 | P8.1–P8.7 done — pg_client, 5 domain repos, aliases, consumer rewiring |
 | 9 | UI Integration Update | ✅ Complete | 7 / 7 | P9.1-P9.7 done — all 10 affected files use app.state repos; BH-001 through BH-005 eliminated; PG pool fatal at startup |
 | 10 | Validation & Cleanup | ✅ Complete | 7 / 7 | P10.1–P10.7 done — perf test infra, validation suite, Cosmos stub removal, dual-path/duplicate cleanup, deprecated table cleanup, bootstrap verification, final test suite execution + phase sign-off |
-| 11 | Cosmos DB Removal | 🔄 In Progress | 1 / 7 | P11.1 done — Cosmos dependency graph (24 consumers) + Fallback catalogue (137 entries, 18 COSMOS-related) |
+| 11 | Cosmos DB Removal | 🔄 In Progress | 4 / 7 | P11.1-P11.4 done — Cosmos audit, test cleanup, comment/docstring cleanup, config/stats cleanup |
 
 **Legend:** ⬜ Not started | 🔄 In progress | ✅ Complete | ⚠️ Blocked
 

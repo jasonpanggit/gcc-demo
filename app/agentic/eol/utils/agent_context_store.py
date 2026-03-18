@@ -1,7 +1,7 @@
 """Agent context store for shared state across multi-agent workflows.
 
 Provides workflow-level and agent-level context management with
-Cosmos DB persistence and Redis caching for performance.
+in-memory storage for session-scoped workflow state.
 """
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 try:
-    from app.agentic.eol.utils.cosmos_cache import base_cosmos
     from app.agentic.eol.utils.logger import get_logger
 except ModuleNotFoundError:
-    from utils.cosmos_cache import base_cosmos
     from utils.logger import get_logger
 
 
@@ -30,18 +28,16 @@ class AgentContextStore:
     - Step context: Specific to a workflow step
 
     Storage:
-    - Primary: Cosmos DB (persistent, cross-instance)
-    - Cache: Redis (fast access, TTL-based)
+    - In-memory dictionary (session-scoped, no persistence needed)
     """
 
     def __init__(self):
         """Initialize context store."""
         self._initialized = False
-        self._container = None
-        self._cache: Dict[str, Any] = {}  # In-memory fallback
+        self._cache: Dict[str, Any] = {}  # In-memory store
 
     async def initialize(self) -> bool:
-        """Initialize Cosmos DB container for context storage.
+        """Initialize the context store.
 
         Returns:
             True if initialization successful
@@ -49,33 +45,9 @@ class AgentContextStore:
         if self._initialized:
             return True
 
-        try:
-            # Ensure Cosmos is initialized
-            base_cosmos._ensure_initialized()
-
-            if not base_cosmos.initialized:
-                logger.warning(
-                    "Cosmos DB not available - using in-memory context store only"
-                )
-                self._initialized = True
-                return True
-
-            # Create or get workflow_contexts container
-            self._container = base_cosmos.get_container(
-                container_id="workflow_contexts",
-                partition_path="/workflow_id",
-                offer_throughput=400,
-                default_ttl=86400  # 24 hours default TTL
-            )
-
-            self._initialized = True
-            logger.info("✓ Agent context store initialized with Cosmos DB")
-            return True
-
-        except Exception as exc:
-            logger.error(f"Failed to initialize context store: {exc}")
-            self._initialized = True  # Use in-memory fallback
-            return False
+        self._initialized = True
+        logger.info("Agent context store initialized (in-memory)")
+        return True
 
     def _ensure_initialized(self) -> None:
         """Ensure store is initialized (sync check)."""
@@ -116,14 +88,6 @@ class AgentContextStore:
             }
         }
 
-        # Save to Cosmos DB
-        if self._container:
-            try:
-                self._container.upsert_item(body=context)
-                logger.debug(f"Created workflow context in Cosmos: {workflow_id}")
-            except Exception as exc:
-                logger.error(f"Failed to save workflow context to Cosmos: {exc}")
-
         # Cache in memory
         self._cache[workflow_id] = context
 
@@ -143,24 +107,8 @@ class AgentContextStore:
         """
         self._ensure_initialized()
 
-        # Try memory cache first
-        if workflow_id in self._cache:
-            return self._cache[workflow_id]
-
-        # Try Cosmos DB
-        if self._container:
-            try:
-                context = self._container.read_item(
-                    item=workflow_id,
-                    partition_key=workflow_id
-                )
-                # Update cache
-                self._cache[workflow_id] = context
-                return context
-            except Exception as exc:
-                logger.debug(f"Workflow context {workflow_id} not found in Cosmos: {exc}")
-
-        return None
+        # Return from memory cache
+        return self._cache.get(workflow_id)
 
     async def update_workflow_context(
         self,
@@ -196,15 +144,6 @@ class AgentContextStore:
                 context[key] = value
 
         context["updated_at"] = datetime.utcnow().isoformat()
-
-        # Save to Cosmos DB
-        if self._container:
-            try:
-                self._container.upsert_item(body=context)
-                logger.debug(f"Updated workflow context in Cosmos: {workflow_id}")
-            except Exception as exc:
-                logger.error(f"Failed to update workflow context in Cosmos: {exc}")
-                return False
 
         # Update cache
         self._cache[workflow_id] = context
@@ -291,14 +230,6 @@ class AgentContextStore:
 
         context["updated_at"] = datetime.utcnow().isoformat()
 
-        # Save to Cosmos DB
-        if self._container:
-            try:
-                self._container.upsert_item(body=context)
-            except Exception as exc:
-                logger.error(f"Failed to save agent context: {exc}")
-                return False
-
         # Update cache
         self._cache[workflow_id] = context
 
@@ -371,14 +302,6 @@ class AgentContextStore:
         context["metadata"]["current_step"] = len(context["step_results"])
         context["updated_at"] = datetime.utcnow().isoformat()
 
-        # Save to Cosmos DB
-        if self._container:
-            try:
-                self._container.upsert_item(body=context)
-            except Exception as exc:
-                logger.error(f"Failed to save step result: {exc}")
-                return False
-
         # Update cache
         self._cache[workflow_id] = context
 
@@ -427,18 +350,6 @@ class AgentContextStore:
         """
         self._ensure_initialized()
 
-        # Remove from Cosmos DB
-        if self._container:
-            try:
-                self._container.delete_item(
-                    item=workflow_id,
-                    partition_key=workflow_id
-                )
-                logger.debug(f"Deleted workflow context from Cosmos: {workflow_id}")
-            except Exception as exc:
-                logger.error(f"Failed to delete workflow context from Cosmos: {exc}")
-                return False
-
         # Remove from cache
         if workflow_id in self._cache:
             del self._cache[workflow_id]
@@ -452,27 +363,8 @@ class AgentContextStore:
             Number of contexts deleted
         """
         self._ensure_initialized()
-
-        if not self._container:
-            return 0
-
-        deleted_count = 0
-
-        try:
-            # Query for expired contexts (Cosmos TTL handles this automatically)
-            # This is just for reporting
-            query = "SELECT c.id FROM c WHERE c.ttl > 0"
-            items = list(self._container.query_items(
-                query=query,
-                enable_cross_partition_query=True
-            ))
-
-            logger.info(f"Found {len(items)} active workflow contexts")
-
-        except Exception as exc:
-            logger.error(f"Failed to cleanup expired contexts: {exc}")
-
-        return deleted_count
+        logger.info(f"Found {len(self._cache)} active workflow contexts")
+        return 0
 
     def get_stats(self) -> Dict[str, Any]:
         """Get context store statistics.
@@ -482,9 +374,8 @@ class AgentContextStore:
         """
         return {
             "initialized": self._initialized,
-            "cosmos_available": self._container is not None,
             "cached_contexts": len(self._cache),
-            "storage_backend": "cosmos_db" if self._container else "memory_only"
+            "storage_backend": "memory_only"
         }
 
 
