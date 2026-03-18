@@ -15,17 +15,12 @@ class AzureConfig:
     # Azure OpenAI
     aoai_endpoint: str
     aoai_deployment: str
-    
+
     # Azure Log Analytics
     log_analytics_workspace_id: str
     tenant_id: str
     subscription_id: str
     resource_group_name: str
-    
-    # Azure Cosmos DB
-    cosmos_endpoint: str
-    cosmos_database: str
-    cosmos_container: str
 
 
 
@@ -148,12 +143,6 @@ class InventoryConfig:
     skip_failed_subscriptions: bool = True
     max_retry_attempts: int = 3
 
-    # Cosmos DB
-    cosmos_container_inventory: str = "resource_inventory"
-    cosmos_container_metadata: str = "resource_inventory_metadata"
-    cosmos_autoscale_min_ru: int = 400
-    cosmos_autoscale_max_ru: int = 4000
-
 
 
 @dataclass
@@ -185,10 +174,6 @@ class CVEDataConfig:
     # Cache configuration
     l1_cache_size: int = 1000  # Max CVEs in memory
     l1_cache_ttl_seconds: int = 3600  # 1 hour
-    cosmos_container_name: str = "cve_data"
-    cosmos_kb_edge_container_name: str = field(
-        default_factory=lambda: os.getenv("CVE_KB_EDGE_COSMOS_CONTAINER", "cve_kb_edges")
-    )
 
     # Source priority for conflict resolution (lower number = higher priority)
     source_priority: Dict[str, int] = field(default_factory=lambda: {
@@ -258,14 +243,6 @@ class CVEScannerConfig:
     # Package extraction
     package_extraction_timeout_seconds: int = field(
         default_factory=lambda: int(os.getenv("CVE_SCAN_PACKAGE_TIMEOUT", "10"))
-    )
-
-    # Persistence
-    cosmos_scan_container_name: str = field(
-        default_factory=lambda: os.getenv("CVE_SCAN_COSMOS_CONTAINER", "cve_scans")
-    )
-    cosmos_patch_install_container_name: str = field(
-        default_factory=lambda: os.getenv("CVE_PATCH_INSTALL_COSMOS_CONTAINER", "cve_patch_installs")
     )
 
 
@@ -459,9 +436,6 @@ class ConfigManager:
             app_subscription = self._get_appsettings_value("Azure", "SubscriptionId")
             app_tenant = self._get_appsettings_value("Azure", "TenantId")
             app_resource_group = self._get_appsettings_value("Azure", "ResourceGroup")
-            app_cosmos_endpoint = self._get_appsettings_value("AzureServices", "CosmosDB", "Endpoint")
-            app_cosmos_database = self._get_appsettings_value("AzureServices", "CosmosDB", "Database")
-            app_cosmos_container = self._get_appsettings_value("AzureServices", "CosmosDB", "Container")
 
             self._azure_config = AzureConfig(
                 aoai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
@@ -470,9 +444,6 @@ class ConfigManager:
                 tenant_id=os.getenv("AZURE_TENANT_ID", os.getenv("TENANT_ID", app_tenant or "")),
                 subscription_id=os.getenv("SUBSCRIPTION_ID", app_subscription or ""),
                 resource_group_name=os.getenv("RESOURCE_GROUP_NAME", app_resource_group or ""),
-                cosmos_endpoint=os.getenv("AZURE_COSMOS_DB_ENDPOINT", app_cosmos_endpoint or ""),
-                cosmos_database=os.getenv("AZURE_COSMOS_DB_DATABASE", app_cosmos_database or ""),
-                cosmos_container=os.getenv("AZURE_COSMOS_DB_CONTAINER", app_cosmos_container or "")
             )
         return self._azure_config
     
@@ -553,23 +524,6 @@ class ConfigManager:
             if max_retries is not None:
                 inv.max_retry_attempts = int(max_retries)
 
-            # Cosmos DB container overrides
-            container_inv = os.getenv("INVENTORY_COSMOS_CONTAINER")
-            if container_inv is not None:
-                inv.cosmos_container_inventory = container_inv
-
-            container_meta = os.getenv("INVENTORY_COSMOS_METADATA_CONTAINER")
-            if container_meta is not None:
-                inv.cosmos_container_metadata = container_meta
-
-            min_ru = os.getenv("INVENTORY_COSMOS_AUTOSCALE_MIN_RU")
-            if min_ru is not None:
-                inv.cosmos_autoscale_min_ru = int(min_ru)
-
-            max_ru = os.getenv("INVENTORY_COSMOS_AUTOSCALE_MAX_RU")
-            if max_ru is not None:
-                inv.cosmos_autoscale_max_ru = int(max_ru)
-
             self._inventory_config = inv
         return self._inventory_config
 
@@ -611,7 +565,7 @@ class ConfigManager:
     def validate_config(self) -> Dict[str, Any]:
         """
         Validate configuration and return status
-        
+
         Returns:
             Dictionary containing validation results
         """
@@ -621,20 +575,19 @@ class ConfigManager:
             "warnings": [],
             "services": {}
         }
-        
-        # Check required Azure services (Cosmos DB now added for caching)
+
+        # Check required Azure services
         azure_services = {
             "aoai_endpoint": self.azure.aoai_endpoint,
             "log_analytics_workspace_id": self.azure.log_analytics_workspace_id,
         }
-        
-        # Check optional Cosmos DB service for caching
+
+        # Check optional services
         optional_services = {
             "subscription_id": self.azure.subscription_id,
             "resource_group_name": self.azure.resource_group_name,
-            "cosmos_endpoint": self.azure.cosmos_endpoint
         }
-        
+
         for service, value in optional_services.items():
             is_configured = bool(value)
             validation_results["services"][service] = is_configured
@@ -647,10 +600,6 @@ class ConfigManager:
         inv = self.inventory
         validation_results["services"]["inventory_enabled"] = inv.enable_inventory
         if inv.enable_inventory:
-            if not self.azure.cosmos_endpoint:
-                validation_results["warnings"].append(
-                    "Resource inventory enabled but Cosmos DB endpoint not configured"
-                )
             validation_results["services"]["inventory_startup_blocking"] = inv.startup_blocking
 
         return validation_results
@@ -660,7 +609,6 @@ class ConfigManager:
         return {
             "AZURE_OPENAI_ENDPOINT": "✅" if self.azure.aoai_endpoint else "❌",
             "LOG_ANALYTICS_WORKSPACE_ID": "✅" if self.azure.log_analytics_workspace_id else "❌",
-            "AZURE_COSMOS_DB_ENDPOINT": "✅" if self.azure.cosmos_endpoint else "❌",
             "DEBUG_MODE": "✅" if self.app.debug_mode else "❌",
             "INVENTORY_ENABLED": "✅" if self.inventory.enable_inventory else "❌",
             "INVENTORY_STARTUP_BLOCKING": "✅" if self.inventory.startup_blocking else "❌",
