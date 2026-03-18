@@ -155,61 +155,74 @@ class InventoryRawCache:
 
     async def _persist_os_inventory_to_postgres(self, os_data: List[Dict], metadata: Optional[Dict[str, Any]]):
         """Persist OS inventory data to os_inventory_snapshots table for database joins."""
-        pool = postgres_client.get_pool()
-        if not pool:
-            return
+        try:
+            pool = postgres_client.get_pool()
+            if not pool:
+                print("Warning: PostgreSQL pool not available for OS inventory persistence")
+                return
 
-        workspace_id = metadata.get("workspace_id", "default") if metadata else "default"
+            workspace_id = metadata.get("workspace_id", "default") if metadata else "default"
+            persisted_count = 0
+            skipped_count = 0
 
-        async with pool.acquire() as conn:
-            # Start transaction
-            async with conn.transaction():
-                for item in os_data:
-                    resource_id = item.get("resource_id")
-                    if not resource_id:
-                        continue
+            async with pool.acquire() as conn:
+                # Start transaction
+                async with conn.transaction():
+                    for item in os_data:
+                        resource_id = item.get("resource_id")
+                        if not resource_id:
+                            continue
 
-                    # Check if VM exists in vms table first
-                    vm_exists = await conn.fetchval(
-                        "SELECT 1 FROM vms WHERE resource_id = $1 LIMIT 1",
-                        resource_id
-                    )
+                        # Check if VM exists in vms table first
+                        vm_exists = await conn.fetchval(
+                            "SELECT 1 FROM vms WHERE resource_id = $1 LIMIT 1",
+                            resource_id
+                        )
 
-                    if not vm_exists:
-                        # Skip if VM not in vms table (FK constraint would fail)
-                        continue
+                        if not vm_exists:
+                            # Skip if VM not in vms table (FK constraint would fail)
+                            skipped_count += 1
+                            continue
 
-                    # Upsert into os_inventory_snapshots
-                    await conn.execute("""
-                        INSERT INTO os_inventory_snapshots (
+                        # Upsert into os_inventory_snapshots
+                        await conn.execute("""
+                            INSERT INTO os_inventory_snapshots (
+                                resource_id,
+                                snapshot_version,
+                                workspace_id,
+                                computer_name,
+                                os_name,
+                                os_version,
+                                os_type,
+                                last_heartbeat,
+                                cached_at,
+                                ttl_seconds
+                            ) VALUES ($1, 1, $2, $3, $4, $5, $6, $7, NOW(), 14400)
+                            ON CONFLICT (resource_id, snapshot_version, workspace_id)
+                            DO UPDATE SET
+                                computer_name = EXCLUDED.computer_name,
+                                os_name = EXCLUDED.os_name,
+                                os_version = EXCLUDED.os_version,
+                                os_type = EXCLUDED.os_type,
+                                last_heartbeat = EXCLUDED.last_heartbeat,
+                                cached_at = EXCLUDED.cached_at
+                        """,
                             resource_id,
-                            snapshot_version,
                             workspace_id,
-                            computer_name,
-                            os_name,
-                            os_version,
-                            os_type,
-                            last_heartbeat,
-                            cached_at,
-                            ttl_seconds
-                        ) VALUES ($1, 1, $2, $3, $4, $5, $6, $7, NOW(), 14400)
-                        ON CONFLICT (resource_id, snapshot_version, workspace_id)
-                        DO UPDATE SET
-                            computer_name = EXCLUDED.computer_name,
-                            os_name = EXCLUDED.os_name,
-                            os_version = EXCLUDED.os_version,
-                            os_type = EXCLUDED.os_type,
-                            last_heartbeat = EXCLUDED.last_heartbeat,
-                            cached_at = EXCLUDED.cached_at
-                    """,
-                        resource_id,
-                        workspace_id,
-                        item.get("computer_name") or item.get("computer"),
-                        item.get("os_name") or item.get("name"),
-                        item.get("os_version") or item.get("version"),
-                        item.get("os_type"),
-                        item.get("last_heartbeat")
-                    )
+                            item.get("computer_name") or item.get("computer"),
+                            item.get("os_name") or item.get("name"),
+                            item.get("os_version") or item.get("version"),
+                            item.get("os_type"),
+                            item.get("last_heartbeat")
+                        )
+                        persisted_count += 1
+
+            print(f"✅ Persisted {persisted_count} OS inventory records to PostgreSQL (skipped {skipped_count})")
+
+        except Exception as e:
+            print(f"❌ Error persisting OS inventory to PostgreSQL: {e}")
+            import traceback
+            traceback.print_exc()
 
     def clear_cache(self, cache_key: str, cache_type: str = "software") -> bool:
         """
