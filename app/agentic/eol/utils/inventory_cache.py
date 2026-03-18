@@ -113,16 +113,21 @@ class InventoryRawCache:
         Returns:
             True if successfully stored, False otherwise
         """
+        print(f"🔵 store_cached_data_async called: cache_type={cache_type}, data_count={len(data) if data else 0}")
+
         # Store in memory first
         self.store_cached_data(cache_key, data, cache_type, metadata)
 
         # For OS data, also persist to PostgreSQL os_inventory_snapshots table
         if cache_type == "os" and data:
             try:
+                print(f"🔵 Calling _persist_os_inventory_to_postgres with {len(data)} records")
                 await self._persist_os_inventory_to_postgres(data, metadata)
             except Exception as e:
                 # Log but don't fail - memory cache still works
                 print(f"Warning: Failed to persist OS inventory to PostgreSQL: {e}")
+                import traceback
+                traceback.print_exc()
 
         return True
 
