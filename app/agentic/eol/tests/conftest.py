@@ -8,7 +8,6 @@ so that application imports resolve without any sys.path manipulation here.
 import pytest
 import pytest_asyncio
 import os
-from types import SimpleNamespace
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
 
@@ -165,7 +164,7 @@ def pytest_configure(config):
 
     Markers registered here should mirror those listed in ``pytest.ini`` so that
     ``--strict-markers`` mode does not reject them when running the full suite.
-    Application feature flags (e.g. Cosmos enabled state) are attached to the
+    Application feature flags are attached to the
     ``config`` object so that test modules can reference them in ``pytest.mark.skipif``
     expressions without importing application code at collection time.
     """
@@ -208,7 +207,3 @@ def pytest_configure(config):
 
     # Expose application configuration to pytest skip expressions
     config.inventory_assistant = app_config.inventory_assistant
-    config.cosmos = SimpleNamespace(
-        enabled=bool(app_config.azure.cosmos_endpoint),
-        endpoint=app_config.azure.cosmos_endpoint,
-    )
