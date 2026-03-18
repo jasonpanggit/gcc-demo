@@ -312,13 +312,12 @@ if not root_logger.handlers:
         "azure.core.pipeline.policies.http_logging_policy",
         "azure.identity",
         "azure.core",
-        "azure.cosmos",
         "urllib3.connectionpool"
     ]
     for azure_logger_name in azure_loggers:
         azure_logger = logging.getLogger(azure_logger_name)
         azure_logger.setLevel(logging.WARNING)
-    
+
     logger.info("🔧 Azure App Service logging configured - logs will appear in App Service log stream")
 else:
     # Also suppress Azure SDK logging in local development
@@ -327,7 +326,6 @@ else:
         "azure.core.pipeline.policies.http_logging_policy",
         "azure.identity",
         "azure.core",
-        "azure.cosmos",
         "urllib3.connectionpool"
     ]
     for azure_logger_name in azure_loggers:
@@ -661,15 +659,12 @@ async def get_cve_service():
             repository = CVEInMemoryRepository()
             logger.info("🧪 CVE service using in-memory repository (mock mode)")
         else:
-            from utils.cve_cosmos_repository import CVECosmosRepository
-            from utils.cosmos_cache import base_cosmos
-
-            repository = CVECosmosRepository(
-                cosmos_client=base_cosmos.cosmos_client,
-                database_name=config.azure.cosmos_database,
-                container_name=config.cve_data.cosmos_container_name
-            )
-            logger.info("✅ CVE service using Cosmos repository")
+            # Use PostgreSQL repository via app.state (initialized at startup)
+            repository = getattr(app.state, 'cve_repo', None)
+            if repository is None:
+                logger.warning("⚠️ CVE PostgreSQL repository not yet initialized on app.state")
+            else:
+                logger.info("✅ CVE service using PostgreSQL repository")
 
         aggregator = await create_aggregator(config)
 
@@ -695,16 +690,13 @@ async def get_kb_cve_edge_repository():
             await _kb_cve_edge_repository.initialize()
             logger.info("🧪 KB-to-CVE edge repository using in-memory storage (mock mode)")
         else:
-            from utils.cosmos_cache import base_cosmos
             from utils.kb_cve_edge_repository import KBCVEEdgeRepository
 
             _kb_cve_edge_repository = KBCVEEdgeRepository(
-                cosmos_client=base_cosmos.cosmos_client,
-                database_name=config.azure.cosmos_database,
-                container_name=config.cve_data.cosmos_kb_edge_container_name,
+                pool=postgres_client.pool,
             )
             await _kb_cve_edge_repository.initialize()
-            logger.info("✅ KB-to-CVE edge repository initialized")
+            logger.info("✅ KB-to-CVE edge repository initialized (PostgreSQL)")
 
     return _kb_cve_edge_repository
 
@@ -745,15 +737,12 @@ async def get_cve_scan_repository():
     global _cve_scan_repository
     if _cve_scan_repository is None:
         from utils.cve_scanner import CVEScanRepository
-        from utils.cosmos_cache import base_cosmos
 
         _cve_scan_repository = CVEScanRepository(
-            cosmos_client=base_cosmos.cosmos_client,
-            database_name=config.azure.cosmos_database,
-            container_name=config.cve_scanner.cosmos_scan_container_name,
+            pool=postgres_client.pool,
         )
         await _cve_scan_repository.initialize()
-        logger.info("✅ CVE scan repository singleton initialized")
+        logger.info("✅ CVE scan repository singleton initialized (PostgreSQL)")
 
     return _cve_scan_repository
 
@@ -763,15 +752,12 @@ async def get_vm_cve_match_repository():
     global _vm_cve_match_repository
     if _vm_cve_match_repository is None:
         from utils.vm_cve_match_repository import VMCVEMatchRepository
-        from utils.cosmos_cache import base_cosmos
 
         _vm_cve_match_repository = VMCVEMatchRepository(
-            cosmos_client=base_cosmos.cosmos_client,
-            database_name=config.azure.cosmos_database,
-            container_name=config.cve_scanner.cosmos_scan_container_name,
+            pool=postgres_client.pool,
         )
         await _vm_cve_match_repository.initialize()
-        logger.info("✅ VM CVE match repository singleton initialized")
+        logger.info("✅ VM CVE match repository singleton initialized (PostgreSQL)")
 
     return _vm_cve_match_repository
 
@@ -810,16 +796,13 @@ async def get_patch_install_history_repository():
             await _patch_install_history_repository.initialize()
             logger.info("🧪 Patch install history using in-memory repository (mock mode)")
         else:
-            from utils.cosmos_cache import base_cosmos
             from utils.patch_install_history_repository import PatchInstallHistoryRepository
 
             _patch_install_history_repository = PatchInstallHistoryRepository(
-                cosmos_client=base_cosmos.cosmos_client,
-                database_name=config.azure.cosmos_database,
-                container_name=config.cve_scanner.cosmos_patch_install_container_name,
+                pool=postgres_client.pool,
             )
             await _patch_install_history_repository.initialize()
-            logger.info("✅ Patch install history repository initialized")
+            logger.info("✅ Patch install history repository initialized (PostgreSQL)")
 
     return _patch_install_history_repository
 
@@ -878,57 +861,9 @@ async def _startup_cve_system():
 
         if mock_mode_enabled():
             await get_cve_service()
-            logger.info("🧪 Mock mode: skipping Cosmos-backed CVE scanner and scheduler startup")
+            logger.info("🧪 Mock mode: skipping CVE scanner and scheduler startup")
             logger.info("✅ CVE Data System initialized")
             return
-
-        # Initialize Cosmos DB container for CVE data
-        try:
-            from azure.cosmos import PartitionKey
-            from utils.cve_service import CVE_DATA_INDEXING_POLICY
-            from utils.cosmos_cache import base_cosmos
-
-            database = base_cosmos.cosmos_client.get_database_client(config.azure.cosmos_database)
-            await asyncio.to_thread(
-                database.create_container_if_not_exists,
-                id=config.cve_data.cosmos_container_name,
-                partition_key=PartitionKey(path="/cve_id"),
-                indexing_policy=CVE_DATA_INDEXING_POLICY,
-            )
-            logger.info(f"✅ CVE data container '{config.cve_data.cosmos_container_name}' initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ CVE container initialization failed: {e}")
-
-        # Initialize Cosmos DB container for CVE scan results (Phase 5)
-        try:
-            await asyncio.to_thread(
-                database.create_container_if_not_exists,
-                id=config.cve_scanner.cosmos_scan_container_name,
-                partition_key=PartitionKey(path="/scan_id")
-            )
-            logger.info(f"✅ CVE scan container '{config.cve_scanner.cosmos_scan_container_name}' initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ CVE scan container initialization failed: {e}")
-
-        try:
-            await asyncio.to_thread(
-                database.create_container_if_not_exists,
-                id=config.cve_data.cosmos_kb_edge_container_name,
-                partition_key=PartitionKey(path="/kb_number")
-            )
-            logger.info(f"✅ KB-to-CVE edge container '{config.cve_data.cosmos_kb_edge_container_name}' initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ KB-to-CVE edge container initialization failed: {e}")
-
-        try:
-            await asyncio.to_thread(
-                database.create_container_if_not_exists,
-                id=config.cve_scanner.cosmos_patch_install_container_name,
-                partition_key=PartitionKey(path="/subscription_id")
-            )
-            logger.info(f"✅ Patch install history container '{config.cve_scanner.cosmos_patch_install_container_name}' initialized")
-        except Exception as e:
-            logger.warning(f"⚠️ Patch install history container initialization failed: {e}")
 
         # Initialize CVE service
         try:
@@ -1064,14 +999,6 @@ async def _run_startup_tasks():
         logger.info("📊 Environment check:")
         for service, status in env_summary.items():
             logger.info(f"   - {service}: {status}")
-        # Initialize base cosmos client and preload caches
-        try:
-            # import locally to ensure we always reference the shared singleton
-            from utils.cosmos_cache import base_cosmos as _base_cosmos
-            if getattr(_base_cosmos, 'initialized', False) is False:
-                await _base_cosmos._initialize_async()
-        except Exception as e:
-            logger.warning(f"Cosmos base initialization failed during startup: {e}")
 
         # Initialize asyncpg connection pool for PostgreSQL repositories
         try:
@@ -1119,7 +1046,7 @@ async def _run_startup_tasks():
         except Exception as e:
             logger.warning(f"Cache initialization warning: {e}")
         
-        # Initialize alert manager and load configuration from Cosmos DB
+        # Initialize alert manager and load configuration
         try:
             from utils.alert_manager import initialize_alert_manager
             await initialize_alert_manager()
@@ -1896,7 +1823,7 @@ async def get_alert_configuration_OLD():
     """
     Get current alert configuration.
     
-    Retrieves the alert configuration from Cosmos DB including SMTP settings,
+    Retrieves the alert configuration including SMTP settings,
     recipient lists, and notification preferences.
     
     Returns:
@@ -1915,8 +1842,8 @@ async def get_alert_configuration_OLD():
 # @write_endpoint(agent_name="save_alert_config", timeout_seconds=30)
 async def save_alert_configuration_OLD(config_data: dict):
     """
-    Save alert configuration to Cosmos DB.
-    
+    Save alert configuration.
+
     Updates the alert configuration with new SMTP settings, recipients,
     and notification preferences. Validates configuration before saving.
     
@@ -1944,9 +1871,9 @@ async def save_alert_configuration_OLD(config_data: dict):
 # @write_endpoint(agent_name="reload_alert_config", timeout_seconds=30)
 async def reload_alert_configuration_OLD():
     """
-    Reload alert configuration from Cosmos DB (force refresh).
-    
-    Clears cached configuration and loads fresh settings from Cosmos DB.
+    Reload alert configuration (force refresh).
+
+    Clears cached configuration and loads fresh settings.
     Useful after external configuration changes or troubleshooting.
     
     Returns:
@@ -1957,92 +1884,14 @@ async def reload_alert_configuration_OLD():
     # Clear cached configuration to force reload
     alert_manager._config = None
     
-    # Load fresh configuration from Cosmos DB
+    # Load fresh configuration
     config = await alert_manager.load_configuration()
-    
+
     return {
         "success": True,
-        "message": "Configuration reloaded successfully from Cosmos DB",
+        "message": "Configuration reloaded successfully",
         "data": config.dict(),
         "timestamp": datetime.utcnow().isoformat()
-    }
-
-
-# @app.get("/api/cosmos/test", response_model=StandardResponse)
-# @readonly_endpoint(agent_name="cosmos_connection_test", timeout_seconds=30)
-async def test_cosmos_connection_OLD():
-    """
-    Test Cosmos DB connection for diagnostic purposes.
-    
-    Performs a comprehensive test of Cosmos DB connectivity including initialization
-    check, container access, and basic read operations. Useful for troubleshooting
-    Cosmos DB connection issues.
-    
-    Returns:
-        StandardResponse with connection test results and detailed diagnostic information.
-    """
-    from utils.cosmos_cache import base_cosmos
-    
-    # Check if base client is initialized
-    if not base_cosmos.initialized:
-        logger.info("🔄 Base Cosmos client not initialized, attempting initialization...")
-        await base_cosmos._initialize_async()
-    
-    if not base_cosmos.initialized:
-        return {
-            "success": False,
-            "message": f"Cosmos DB initialization failed: {base_cosmos.last_error}",
-            "details": {
-                "initialized": False,
-                "last_error": base_cosmos.last_error,
-                "cosmos_client": str(type(base_cosmos.cosmos_client)),
-                "database": str(type(base_cosmos.database))
-            }
-        }
-    
-    # Try to create/get a test container
-    try:
-        test_container = base_cosmos.get_container(
-            container_id="test_connection",
-            partition_path="/test_key",
-            offer_throughput=400
-        )
-        
-        # Try a simple operation
-        test_result = test_container.read_item(
-            item="nonexistent",
-            partition_key="test"
-        )
-        
-    except Exception as container_error:
-        # This is expected for nonexistent item, but it proves connection works
-        if "NotFound" in str(container_error) or "404" in str(container_error):
-            return {
-                "success": True,
-                "message": "Cosmos DB connection successful",
-                "details": {
-                    "initialized": True,
-                    "test_operation": "Container access successful",
-                    "note": "NotFound error for test item is expected"
-                }
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"Cosmos DB container operation failed: {str(container_error)}",
-                "details": {
-                    "initialized": True,
-                    "container_error": str(container_error)
-                }
-            }
-    
-    return {
-        "success": True,
-        "message": "Cosmos DB connection and operations successful",
-        "details": {
-            "initialized": True,
-            "test_operation": "Full test successful"
-        }
     }
 
 
@@ -2671,212 +2520,6 @@ async def get_webscraping_cache_details():
     }
 
 
-@app.get("/api/cache/cosmos/stats", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_cache_stats", timeout_seconds=20)
-async def get_cosmos_cache_stats():
-    """
-    Get Cosmos DB cache statistics with enhanced metrics.
-    
-    Retrieves comprehensive statistics about Cosmos DB cache usage including
-    EOL cache stats, inventory cache stats, and performance metrics.
-    
-    Returns:
-        StandardResponse with Cosmos cache statistics and enhanced performance data.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    
-    start_time = time.time()
-    was_cache_hit = False
-    
-    if not getattr(base_cosmos, 'initialized', False):
-        raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-    
-    try:
-        # Get EOL cache stats
-        stats = await eol_cache.get_cache_stats()
-        was_cache_hit = stats.get('success', False)
-        
-        # Add inventory cache statistics to the Cosmos DB section
-        try:
-            # Get statistics from the unified inventory cache system
-            from utils.inventory_cache import inventory_cache
-            
-            # Get stats from unified inventory cache
-            cache_stats = inventory_cache.get_cache_stats()
-            
-            # Calculate memory cache entries from the unified cache system
-            software_memory_count = cache_stats.get('memory_cache_entries', {}).get('software', 0)
-            os_memory_count = cache_stats.get('memory_cache_entries', {}).get('os', 0)
-            
-            # Add inventory cache info to the stats
-            if 'success' not in stats:
-                stats['success'] = True
-            
-            # Add inventory container information with actual counts from unified cache
-            stats['inventory_containers'] = {
-                'software_container': 'inventory_software',
-                'os_container': 'inventory_os',
-                'memory_cache_entries': {
-                    'software': software_memory_count,
-                    'os': os_memory_count
-                },
-                'total_memory_entries': software_memory_count + os_memory_count,
-                'cache_duration_hours': cache_stats.get('cache_duration_hours', 4),
-                'supported_cache_types': cache_stats.get('supported_cache_types', ['software', 'os'])
-            }
-            
-        except Exception as inv_err:
-            logger.warning("Could not get inventory cache stats for Cosmos DB section: %s", inv_err)
-            stats['inventory_containers'] = {'error': str(inv_err)}
-
-        # Return in proper format for StandardResponse wrapper
-        # Remove 'success' key as it will be added by the wrapper
-        stats_data = {k: v for k, v in stats.items() if k != 'success'}
-
-        return stats_data
-
-    except Exception as e:
-        logger.error("Error getting Cosmos cache stats: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error getting cache stats: {str(e)}")
-
-
-@app.post("/api/cache/cosmos/clear", response_model=StandardResponse)
-@write_endpoint(agent_name="clear_cosmos_cache", timeout_seconds=30)
-async def clear_cosmos_cache(agent_name: Optional[str] = None, software_name: Optional[str] = None):
-    """
-    Clear Cosmos DB cache with optional filters.
-    
-    Clears EOL cache entries from Cosmos DB. Can filter by software name
-    and/or agent name, or clear all if no filters provided.
-    
-    Args:
-        agent_name: Optional filter to clear only specific agent's cache entries
-        software_name: Optional filter to clear only specific software's cache entries
-    
-    Returns:
-        StandardResponse with clear operation results and count of cleared items.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    if not getattr(base_cosmos, 'initialized', False):
-        raise HTTPException(status_code=503, detail="Cosmos DB base client not initialized")
-    
-    result = await eol_cache.clear_cache(software_name=software_name, agent_name=agent_name)
-    logger.info("Cosmos cache cleared: %s", result)
-    return result
-
-
-@app.post("/api/cache/cosmos/initialize", response_model=StandardResponse)
-@write_endpoint(agent_name="initialize_cosmos", timeout_seconds=45)
-async def initialize_cosmos_cache():
-    """
-    Initialize Cosmos DB cache manually.
-    
-    Forces initialization of Cosmos DB base client and specialized caches
-    (EOL cache, inventory cache). Useful for troubleshooting or recovery
-    after connection failures.
-    
-    Returns:
-        StandardResponse with initialization status and message.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    if getattr(base_cosmos, 'initialized', False):
-        return {"success": True, "message": "Cosmos DB base client already initialized"}
-    await base_cosmos._initialize_async()
-    # initialize specialized caches
-    try:
-        await eol_cache.initialize()
-    except Exception:
-        pass
-    if getattr(base_cosmos, 'initialized', False):
-        return {"success": True, "message": "Cosmos DB base client initialized successfully"}
-    return {"success": False, "error": "Failed to initialize Cosmos DB base client"}
-
-
-@app.get("/api/cache/cosmos/config", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_config", timeout_seconds=15)
-async def get_cosmos_config():
-    """
-    Get Cosmos DB configuration and status.
-    
-    Retrieves Cosmos DB connection configuration including endpoint, database,
-    container names, authentication method, and initialization status.
-    
-    Returns:
-        StandardResponse with Cosmos DB configuration and error details if applicable.
-    """
-    from utils.config import config
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-
-    cosmos_config = {
-        "endpoint": config.azure.cosmos_endpoint if hasattr(config.azure, 'cosmos_endpoint') else None,
-        "database": config.azure.cosmos_database if hasattr(config.azure, 'cosmos_database') else None,
-        "container": getattr(eol_cache, 'container_id', 'eol_cache'),
-        "auth_method": "DefaultAzureCredential (Managed Identity)",
-        "base_initialized": getattr(base_cosmos, 'initialized', False),
-        "eol_cache_initialized": getattr(eol_cache, 'initialized', False),
-        "cache_duration_days": getattr(eol_cache, 'cache_duration_days', 30),
-        "min_confidence_threshold": getattr(eol_cache, 'min_confidence_threshold', 80),
-        "error": None,
-        "error_details": None,
-        "debug": None
-    }
-
-    # Add error details if base cosmos not initialized
-    if not getattr(base_cosmos, 'initialized', False):
-        cosmos_config["error"] = "Base Cosmos client failed to initialize"
-        if getattr(base_cosmos, 'last_error', None):
-            cosmos_config["error_details"] = base_cosmos.last_error
-    
-    # Include any structured details present on base_cosmos (backwards compatible)
-    if getattr(base_cosmos, 'last_error_details', None):
-        try:
-            cosmos_config["debug"] = base_cosmos.last_error_details
-        except Exception:
-            cosmos_config["debug"] = {"note": "Failed to serialize last_error_details"}
-        
-    return cosmos_config
-
-@app.get("/api/cache/cosmos/debug", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_debug", timeout_seconds=15)
-async def get_cosmos_debug_info():
-    """
-    Get debug information about Cosmos DB container caching.
-    
-    Provides detailed debugging information about Cosmos DB cache state
-    including base client, EOL cache, and inventory cache initialization
-    and container availability.
-    
-    Returns:
-        StandardResponse with comprehensive Cosmos DB debug information.
-    """
-    from utils.cosmos_cache import base_cosmos
-    from utils.eol_cache import eol_cache
-    from utils.inventory_cache import inventory_cache
-    
-    debug_info = {
-        "base_cosmos": {
-            "cache_info": base_cosmos.get_cache_info(),
-            "initialization_attempted": getattr(base_cosmos, '_initialization_attempted', False)
-        },
-        "eol_cache": {
-            "initialized": getattr(eol_cache, 'initialized', False),
-            "container_available": eol_cache.container is not None,
-            "container_id": getattr(eol_cache, 'container_id', None)
-        },
-        "inventory_cache": {
-            "cosmos_initialized": inventory_cache.cosmos_client.initialized,
-            "cache_stats": inventory_cache.get_cache_stats(),
-            "container_mapping": inventory_cache.container_mapping
-        }
-    }
-    
-    return debug_info
-
-
 class CachedEOLRequest(BaseModel):
     """Request model for testing cache retrieval"""
     software_name: str
@@ -2908,7 +2551,7 @@ async def get_enhanced_cache_stats():
     Get comprehensive cache statistics with real performance data.
     
     Returns aggregated statistics including agent performance metrics,
-    inventory cache stats, Cosmos DB usage, and overall performance summary.
+    inventory cache stats, and overall performance summary.
     
     Returns:
         StandardResponse with comprehensive cache statistics.
@@ -3001,27 +2644,25 @@ async def verify_eol_result_OLD(request: VerifyEOLRequest):
     # If we have a result, cache it with appropriate verification status
     if result.get('success') and result.get('data'):
         # Use eol_cache to handle verification status
-        from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
-        if getattr(base_cosmos, 'initialized', False):
-            if is_failed:
-                # For failed verifications, delete the cache entry to clear it completely
-                await eol_cache.delete_failed_cache_entry(
-                    software_name=request.software_name,
-                    version=request.software_version,
-                    agent_name=request.agent_name
-                )
-            else:
-                # For verified results, update the cache with verification status
-                await eol_cache.cache_response(
-                    software_name=request.software_name,
-                    version=request.software_version,
-                    agent_name=request.agent_name,
-                    response_data=result,
-                    verified=is_verified,
-                    source_url=request.source_url,
-                    verification_status=verification_status
-                )
+        if is_failed:
+            # For failed verifications, delete the cache entry to clear it completely
+            await eol_cache.delete_failed_cache_entry(
+                software_name=request.software_name,
+                version=request.software_version,
+                agent_name=request.agent_name
+            )
+        else:
+            # For verified results, update the cache with verification status
+            await eol_cache.cache_response(
+                software_name=request.software_name,
+                version=request.software_version,
+                agent_name=request.agent_name,
+                response_data=result,
+                verified=is_verified,
+                source_url=request.source_url,
+                verification_status=verification_status
+            )
         
         # Return appropriate response based on verification status
         if is_failed:
@@ -3097,19 +2738,19 @@ async def cache_eol_result_OLD(request: CacheEOLRequest):
         }
 
 
-@app.post("/api/cache/cosmos/test", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_cache_test", timeout_seconds=20)
-async def test_cosmos_cache(req: CachedEOLRequest):
+@app.post("/api/cache/eol/test", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_cache_test", timeout_seconds=20)
+async def test_eol_cache(req: CachedEOLRequest):
     """
-    Test Cosmos DB cache retrieval for a specific request.
-    
+    Test EOL cache retrieval for a specific request.
+
     Tests the EOL cache retrieval functionality by attempting to fetch cached
     data for a specific software/version/agent combination. Useful for verifying
     cache operations are working correctly.
-    
+
     Args:
         req: CachedEOLRequest containing software_name, version, and agent_name
-    
+
     Returns:
         StandardResponse with cache hit status and retrieved data if found.
     """
@@ -3546,19 +3187,19 @@ async def validate_cache_system_OLD():
     Comprehensive validation of cache system functionality.
     
     Performs thorough validation including:
-    - Dependency availability (requests, aiohttp, azure.cosmos, etc.)
-    - Cache module status (base_cosmos, eol_cache, inventory_cache)
+    - Dependency availability (requests, aiohttp, azure.identity, etc.)
+    - Cache module status (eol_cache, inventory_cache)
     - Agent functionality and cache support
     - Environment variable configuration
     - Overall system health scoring
-    
+
     Returns:
         StandardResponse with detailed validation results and component health scores.
     """
     import sys
     import os
     from datetime import datetime
-    
+
     validation_results = {
         "timestamp": datetime.now().isoformat(),
         "environment": {
@@ -3570,9 +3211,9 @@ async def validate_cache_system_OLD():
         "agents": {},
         "summary": {}
     }
-    
+
     # Test dependencies
-    dependencies = ['requests', 'aiohttp', 'beautifulsoup4', 'azure.cosmos', 'azure.identity', 'fastapi']
+    dependencies = ['requests', 'aiohttp', 'beautifulsoup4', 'azure.identity', 'fastapi']
     working_deps = 0
     
     for dep in dependencies:
@@ -3593,25 +3234,19 @@ async def validate_cache_system_OLD():
     cache_results = {}
     
     try:
-        from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
-        validation_results["cache_modules"]["base_cosmos"] = {
-            "status": "available",
-            "initialized": getattr(base_cosmos, 'initialized', False),
-            "last_error": getattr(base_cosmos, 'last_error', None)
-        }
         validation_results["cache_modules"]["eol_cache"] = {
             "status": "available",
             "initialized": getattr(eol_cache, 'initialized', False),
             "memory_cache_size": len(getattr(eol_cache, 'memory_cache', {}))
         }
-        cache_results['cosmos'] = True
+        cache_results['eol'] = True
     except Exception as e:
-        validation_results["cache_modules"]["base_cosmos"] = {
+        validation_results["cache_modules"]["eol_cache"] = {
             "status": "failed",
             "error": str(e)
         }
-        cache_results['cosmos'] = False
+        cache_results['eol'] = False
     
     try:
         from utils.inventory_cache import inventory_cache
@@ -3663,11 +3298,11 @@ async def validate_cache_system_OLD():
             }
     
     # Environment variables
-    env_vars = ['AZURE_COSMOS_ENDPOINT', 'AZURE_COSMOS_DATABASE', 'AZURE_COSMOS_CONTAINER']
+    env_vars = ['PGHOST', 'PGDATABASE', 'PGUSER']
     env_status = {}
     for var in env_vars:
         env_status[var] = bool(os.getenv(var))
-    
+
     validation_results["environment"]["variables"] = env_status
     
     # Calculate summary scores
@@ -3706,7 +3341,7 @@ async def get_notification_history_OLD(
     """
     Get notification history with optional filtering.
     
-    Retrieves historical notification records from Cosmos DB with support
+    Retrieves historical notification records with support
     for filtering by alert type and pagination.
     
     Args:
