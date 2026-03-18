@@ -1,9 +1,9 @@
-"""Tests for SREIncidentMemory — Cosmos-backed incident store.
+"""Tests for SREIncidentMemory — PostgreSQL-backed incident store.
 
 Markers:
     unit: No Azure dependencies — uses in-memory fallback.
     asyncio: Async tests.
-    azure: Tests that require a live Cosmos DB connection.
+    azure: Tests that require a live database connection.
 """
 from __future__ import annotations
 
@@ -189,11 +189,11 @@ class TestSREIncidentMemoryFallback:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_cosmos_failure_falls_back_to_memory(self):
-        """When Cosmos raises, store() silently falls back to in-memory."""
+    async def test_persistence_failure_falls_back_to_memory(self):
+        """When persistence raises, store() silently falls back to in-memory."""
         memory = _make_memory_with_fallback()
         broken_container = MagicMock()
-        broken_container.upsert_item.side_effect = RuntimeError("Cosmos unavailable")
+        broken_container.upsert_item.side_effect = RuntimeError("Database unavailable")
         memory._container = broken_container
 
         record_id = await memory.store(

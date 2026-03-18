@@ -33,7 +33,7 @@ class TestEOLInventory:
     def test_eol_inventory_description(self):
         """Test page description is present."""
         description = self.page.get_by_text(
-            "Cached EOL records (high confidence) stored in the Cosmos-backed EOL inventory"
+            "Cached EOL records (high confidence) stored in the PostgreSQL-backed EOL inventory"
         )
         expect(description).to_be_visible()
 
@@ -63,7 +63,7 @@ class TestEOLInventory:
     def test_eol_inventory_record_count_display(self):
         """Test record count is displayed."""
         # Check for record count text
-        record_text = self.page.locator("text=/Loaded.*record\\(s\\) from Cosmos/")
+        record_text = self.page.locator("text=/Loaded.*record\\(s\\) from database/")
         expect(record_text).to_be_visible()
 
     def test_eol_inventory_table_headers(self):

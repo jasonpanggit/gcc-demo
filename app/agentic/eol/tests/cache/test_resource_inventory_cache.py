@@ -1,7 +1,7 @@
 """
 Resource Inventory Cache Tests
 
-Tests for dual-layer (L1 memory + L2 Cosmos) Azure resource inventory cache.
+Tests for dual-layer (L1 memory + L2 PostgreSQL) Azure resource inventory cache.
 Created: 2026-02-27 (Phase 3, Week 3, Day 1)
 """
 
@@ -260,11 +260,10 @@ class TestL1Eviction:
         assert "new-key" in cache._l1
 
 
-class TestL2CosmosInitialization:
-    """Tests for L2 Cosmos DB initialization."""
+class TestL2Initialization:
+    """Tests for L2 persistence initialization."""
 
-    @patch('utils.resource_inventory_cache.base_cosmos')
-    def test_ensure_l2_already_ready(self, mock_cosmos):
+    def test_ensure_l2_already_ready(self):
         """Test _ensure_l2 returns True when already initialized."""
         from utils.resource_inventory_cache import ResourceInventoryCache
 
@@ -276,36 +275,16 @@ class TestL2CosmosInitialization:
 
         assert result is True
 
-    @patch('utils.resource_inventory_cache.base_cosmos')
-    def test_ensure_l2_cosmos_not_initialized(self, mock_cosmos):
-        """Test _ensure_l2 handles Cosmos not initialized."""
+    def test_ensure_l2_not_initialized(self):
+        """Test _ensure_l2 handles persistence not initialized."""
         from utils.resource_inventory_cache import ResourceInventoryCache
 
         cache = ResourceInventoryCache()
-        mock_cosmos.initialized = False
-        mock_cosmos._ensure_initialized.side_effect = Exception("Not configured")
 
         result = cache._ensure_l2()
 
         assert result is False
         assert cache._l2_ready is False
-
-    @patch('utils.resource_inventory_cache.base_cosmos')
-    def test_ensure_l2_success(self, mock_cosmos):
-        """Test _ensure_l2 successfully initializes container."""
-        from utils.resource_inventory_cache import ResourceInventoryCache
-
-        cache = ResourceInventoryCache()
-        mock_cosmos.initialized = True
-        mock_container = MagicMock()
-        mock_cosmos.get_container.return_value = mock_container
-
-        result = cache._ensure_l2()
-
-        assert result is True
-        assert cache._l2_ready is True
-        assert cache._l2_container == mock_container
-        mock_cosmos.get_container.assert_called_once()
 
 
 class TestStatistics:
@@ -410,18 +389,6 @@ class TestResourceInventoryCacheModule:
 
         assert DEFAULT_L1_TTL == 300  # 5 minutes
         assert DEFAULT_L2_TTL == 3600  # 1 hour
-
-    def test_cosmos_container_constant(self):
-        """Test Cosmos container ID constant."""
-        from utils.resource_inventory_cache import COSMOS_CONTAINER_ID
-
-        assert COSMOS_CONTAINER_ID == "resource_inventory"
-
-    def test_cosmos_exceptions_flag(self):
-        """Test COSMOS_EXCEPTIONS_OK flag exists."""
-        from utils.resource_inventory_cache import COSMOS_EXCEPTIONS_OK
-
-        assert isinstance(COSMOS_EXCEPTIONS_OK, bool)
 
     def test_specific_resource_type_ttls(self):
         """Test specific Azure resource types have TTL overrides."""

@@ -154,14 +154,14 @@ class TestDiscoverAllSubscriptions:
 class TestFullResourceDiscovery:
     """Tests for full_resource_discovery()."""
 
-    async def test_returns_cosmos_ready_documents(self, engine, mock_resource_graph_row):
-        """Should return documents with Cosmos DB fields."""
+    async def test_returns_persistence_ready_documents(self, engine, mock_resource_graph_row):
+        """Should return documents with persistence-layer fields."""
         with patch.object(engine, "_execute_graph_query", return_value=[mock_resource_graph_row]):
             docs = await engine.full_resource_discovery(MOCK_SUB_ID)
 
         assert len(docs) == 1
         doc = docs[0]
-        # Cosmos DB fields
+        # Persistence fields
         assert "id" in doc
         assert "partition_key" in doc
         assert doc["partition_key"] == MOCK_SUB_ID

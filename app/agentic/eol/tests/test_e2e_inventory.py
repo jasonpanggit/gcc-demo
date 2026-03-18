@@ -113,7 +113,7 @@ def fresh_cache():
     """Create a fresh ResourceInventoryCache for each test."""
     from utils.resource_inventory_cache import ResourceInventoryCache
     cache = ResourceInventoryCache(default_l1_ttl=300, default_l2_ttl=3600, max_l1_entries=100)
-    # Disable L2 for unit/e2e tests (no real Cosmos)
+    # Disable L2 for unit/e2e tests (no real database)
     cache._l2_ready = False
     return cache
 

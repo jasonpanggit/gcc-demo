@@ -1,7 +1,7 @@
 """
 Test suite for ResourceInventoryCache.
 
-Tests L1 (in-memory) cache, L2 (Cosmos DB) fallback, per-resource-type
+Tests L1 (in-memory) cache, L2 (PostgreSQL) fallback, per-resource-type
 TTL overrides, batch operations, invalidation, and statistics tracking.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ def cache():
 
 @pytest.fixture
 def cache_with_l2():
-    """Create a ResourceInventoryCache with a mocked L2 Cosmos container."""
+    """Create a ResourceInventoryCache with a mocked L2 PostgreSQL container."""
     from utils.resource_inventory_cache import ResourceInventoryCache
     c = ResourceInventoryCache(default_l1_ttl=300, default_l2_ttl=3600, max_l1_entries=100)
     c._l2_container = MagicMock()
@@ -124,7 +124,7 @@ class TestL1CacheHitMiss:
 # ---------------------------------------------------------------------------
 
 class TestL2Fallback:
-    """Tests for L2 (Cosmos DB) cache fallback."""
+    """Tests for L2 (PostgreSQL) cache fallback."""
 
     async def test_l2_hit_promotes_to_l1(self, cache_with_l2):
         """A L2 hit should populate L1 for future requests."""
@@ -158,7 +158,7 @@ class TestL2Fallback:
     async def test_l2_error_handled_gracefully(self, cache_with_l2):
         """L2 query errors should be caught and return None."""
         cache = cache_with_l2
-        cache._l2_container.query_items.side_effect = Exception("Cosmos unavailable")
+        cache._l2_container.query_items.side_effect = Exception("Database unavailable")
 
         result = await cache.get(MOCK_SUB_ID, MOCK_RESOURCE_TYPE)
         assert result is None

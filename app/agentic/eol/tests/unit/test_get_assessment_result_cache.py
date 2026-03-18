@@ -1,4 +1,4 @@
-"""Tests that get_assessment_result reads from and writes to Cosmos cache."""
+"""Tests that get_assessment_result reads from and writes to the assessment cache."""
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,7 +38,7 @@ async def test_get_assessment_result_returns_cached_data():
 
 @pytest.mark.asyncio
 async def test_get_assessment_result_stores_to_cache_on_arg_hit():
-    """get_assessment_result should store fresh ARG result to Cosmos cache."""
+    """get_assessment_result should store fresh ARG result to the assessment cache."""
     mock_repo = AsyncMock()
     mock_repo.get_assessment.return_value = None  # cache miss
 

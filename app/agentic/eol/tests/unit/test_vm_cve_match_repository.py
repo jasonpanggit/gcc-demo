@@ -17,7 +17,7 @@ def mock_container():
 
 
 @pytest.fixture
-def mock_cosmos_client(mock_container):
+def mock_db_client(mock_container):
     client = MagicMock()
     db = MagicMock()
     db.get_container_client.return_value = mock_container
@@ -26,14 +26,14 @@ def mock_cosmos_client(mock_container):
 
 
 @pytest.fixture
-def repo(mock_cosmos_client):
+def repo(mock_db_client):
     from utils.vm_cve_match_repository import VMCVEMatchRepository
     r = VMCVEMatchRepository(
-        cosmos_client=mock_cosmos_client,
+        mock_db_client,
         database_name="test-db",
         container_name="cve-scans",
     )
-    r.container = mock_cosmos_client.get_database_client("x").get_container_client("y")
+    r.container = mock_db_client.get_database_client("x").get_container_client("y")
     return r
 
 

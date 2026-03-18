@@ -2,7 +2,7 @@
 Integration tests for CVE dashboard API endpoint.
 
 NOTE: These tests document the API contract. Full end-to-end testing requires:
-- CVE data populated in Cosmos DB
+- CVE data populated in the database
 - Scan results available from scanner
 - Patch history from patch orchestrator
 

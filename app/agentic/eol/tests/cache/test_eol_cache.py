@@ -165,15 +165,10 @@ class TestEolMemoryCacheOperations:
 
         cache = EolMemoryCache()
 
-        # Mock base_cosmos to avoid actual Cosmos initialization
-        with patch('utils.eol_cache.base_cosmos') as mock_cosmos:
-            mock_cosmos.initialized = False
-            mock_cosmos._initialize_async = AsyncMock()
+        await cache.initialize()
 
-            await cache.initialize()
-
-            # Should mark as initialized
-            assert cache.initialized is True
+        # Should mark as initialized
+        assert cache.initialized is True
 
     async def test_initialize_idempotent(self):
         """Test initialize can be called multiple times safely."""
@@ -181,16 +176,13 @@ class TestEolMemoryCacheOperations:
 
         cache = EolMemoryCache()
 
-        with patch('utils.eol_cache.base_cosmos') as mock_cosmos:
-            mock_cosmos.initialized = True
+        await cache.initialize()
+        first_init = cache.initialized
 
-            await cache.initialize()
-            first_init = cache.initialized
+        await cache.initialize()  # Second call
 
-            await cache.initialize()  # Second call
-
-            # Should remain in same state
-            assert cache.initialized == first_init
+        # Should remain in same state
+        assert cache.initialized == first_init
 
 
 class TestEolCacheModule:

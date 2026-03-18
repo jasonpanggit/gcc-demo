@@ -1,7 +1,7 @@
 """Integration test: scanner saves per-VM docs, service reads them back.
 
 Tests the full pipeline from VMCVEMatchRepository.save_vm_matches()
-through VMCVEMatchRepository.get_vm_matches() with an in-memory Cosmos mock.
+through VMCVEMatchRepository.get_vm_matches() with an in-memory mock.
 """
 import asyncio
 import pytest
@@ -39,7 +39,7 @@ async def test_scanner_saves_and_service_reads():
     """Full pipeline: scanner saves match docs, service reads with pagination."""
     from utils.vm_cve_match_repository import VMCVEMatchRepository
 
-    # In-memory Cosmos mock
+    # In-memory storage mock
     stored_docs: dict = {}
 
     def mock_upsert(body):
@@ -54,11 +54,11 @@ async def test_scanner_saves_and_service_reads():
     mock_container = MagicMock()
     mock_container.upsert_item = MagicMock(side_effect=mock_upsert)
     mock_container.read_item = MagicMock(side_effect=mock_read_item)
-    mock_cosmos = MagicMock()
-    mock_cosmos.get_database_client.return_value.get_container_client.return_value = mock_container
+    mock_db_client = MagicMock()
+    mock_db_client.get_database_client.return_value.get_container_client.return_value = mock_container
 
     # Set up repository (bypass initialize(), inject container directly)
-    repo = VMCVEMatchRepository(mock_cosmos, "db", "cve-scans")
+    repo = VMCVEMatchRepository(mock_db_client, "db", "cve-scans")
     repo.container = mock_container
 
     # Simulate scanner saving 150 matches for VM1
