@@ -83,7 +83,7 @@ class CVEVMService:
         self._scan_cache: TTLCache = TTLCache(maxsize=10, ttl=300)  # 5 min TTL
         self._cve_cache: TTLCache = TTLCache(maxsize=1000, ttl=900)  # 15 min TTL
         self._vm_patch_context_cache: TTLCache = TTLCache(maxsize=128, ttl=300)
-        self._patch_assessment_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)  # 1h, matches Cosmos TTL
+        self._patch_assessment_cache: TTLCache = TTLCache(maxsize=128, ttl=3600)  # 1h TTL
 
         # Patch mapping cache: cve_id -> (patches_result, cached_at_timestamp)
         self._patch_mapping_cache: Dict[str, tuple] = {}
@@ -796,7 +796,7 @@ class CVEVMService:
         """Fast path: retrieve VM vulnerabilities from the per-VM match repository.
 
         Used when scan.matches_stored_separately=True to bypass the truncated
-        scan.matches list and read directly from Cosmos per-VM documents.
+        scan.matches list and read directly from PostgreSQL per-VM documents.
 
         Args:
             vm_id: VM resource ID

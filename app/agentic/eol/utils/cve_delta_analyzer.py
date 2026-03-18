@@ -117,7 +117,7 @@ class CVEDeltaAnalyzer:
 
     async def _get_baseline_scan(self, current_scan_time: str) -> Optional[ScanResult]:
         """
-        Query Cosmos for most recent scan before current.
+        Query scan repository for most recent scan before current.
 
         Args:
             current_scan_time: ISO timestamp of current scan

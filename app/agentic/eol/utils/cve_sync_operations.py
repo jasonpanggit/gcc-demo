@@ -108,14 +108,14 @@ async def sync_msrc_kb_edges(
 ) -> int:
     """Sync recent N months of MSRC KB-CVE edges into PostgreSQL kb_cve_edges table.
 
-    Phase 8: Rewired from Cosmos kb_cve_repo.bulk_upsert() to
+    Phase 8: Rewired from legacy bulk_upsert() to
     CVERepository.upsert_kb_cve_edges().
     Called after run_delta_sync() completes. Non-blocking -- errors are caught
     and logged.
 
     Args:
         vendor_client: MSRC vendor feed client.
-        kb_cve_repo: Legacy Cosmos-backed repo (kept for graceful degradation).
+        kb_cve_repo: PostgreSQL-backed repository.
         n_months: Number of months of MSRC data to fetch.
         pool: asyncpg.Pool for PostgreSQL writes. Uses CVERepository when set.
 
@@ -161,7 +161,7 @@ async def sync_msrc_kb_edges(
 
             return count
 
-        # Graceful degradation: fall back to Cosmos-backed repo
+        # PostgreSQL repository fallback path
         try:
             from models.cve_models import PatchAdvisoryEdge
         except ImportError:

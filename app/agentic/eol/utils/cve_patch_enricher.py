@@ -2,7 +2,7 @@
 
 Responsibilities:
 - Bulk-fetch patch assessments per subscription (one ARG query pair per subscription)
-- Map KB IDs → CVE IDs via KBCVEEdgeRepository (batched Cosmos point reads)
+- Map KB IDs → CVE IDs via KBCVEEdgeRepository (batched PostgreSQL queries)
 - Cross-reference with a VM's matched CVEs to compute patch_status per CVE
 - Return VMPatchEnrichment dataclass with pre-computed summary counts
 
@@ -74,7 +74,7 @@ class CVEPatchEnricher:
 
         Fires one query_patch_assessments(subscription_id, machine_name=None) per
         subscription in parallel. Each call fetches ALL VMs in that subscription via
-        a single ARG query pair, cached in Cosmos as '__all__' key (1hr TTL).
+        a single ARG query pair, cached with '__all__' key (1hr TTL).
 
         Returns:
             Dict mapping machine_name.lower() → patch_data dict from the MCP response.
@@ -226,7 +226,7 @@ class CVEPatchEnricher:
             return VMPatchEnrichment()
 
     async def _batch_map_kbs_to_cves(self, kb_ids: List[str]) -> Dict[str, List[str]]:
-        """Batch-fetch CVE IDs for a list of KB IDs via Cosmos point reads.
+        """Batch-fetch CVE IDs for a list of KB IDs via PostgreSQL queries.
 
         Uses asyncio.gather for all lookups in parallel.
         Returns Dict[kb_id → [cve_ids]]. Missing KBs map to [].

@@ -392,7 +392,7 @@ class CVEAlertDispatcher:
             updated_at=now
         )
 
-        # Save to Cosmos via AlertManager
+        # Save notification record
         try:
             await alert_manager.save_notification_record(record)
             logger.info(f"Notification record saved: {record.id}")

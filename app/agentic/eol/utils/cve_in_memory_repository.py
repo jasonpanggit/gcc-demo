@@ -7,7 +7,7 @@ In-memory repository for CVE data persistence in mock mode.
 # CVERepository, this file can be deleted.
 
 Implements the same async interface used by CVEService so local/mock runs can
-persist sync/search results without Cosmos DB.
+persist sync/search results without external dependencies.
 """
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ class CVEInMemoryRepository:
     ) -> List[UnifiedCVE]:
         """Apply repository-like filters in-memory for search and count."""
 
-        # Apply filter semantics close to Cosmos query behavior.
+        # Apply filter semantics similar to PostgreSQL query behavior.
         severity = filters.get("severity")
         if severity:
             target = str(severity).upper()
