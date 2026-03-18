@@ -76,9 +76,9 @@
         </div>
         <div class="stat-content">
             <div class="stat-label">Database Items</div>
-            <div class="stat-value" id="dash-cosmos-items">—</div>
+            <div class="stat-value" id="dash-db-items">—</div>
             <div class="stat-change positive">
-                <i class="fas fa-arrow-up"></i> <span id="cosmos-change">—</span>
+                <i class="fas fa-arrow-up"></i> <span id="db-change">—</span>
             </div>
         </div>
     </div>
@@ -305,12 +305,12 @@
         document.getElementById('sessions-change').textContent = `${sessions} total`;
 
         // Database Items
-        let cosmosItems = 0;
-        if (enhancedData?.cosmos_stats) {
-            cosmosItems = enhancedData.cosmos_stats.total_requests || 0;
+        let dbItems = 0;
+        if (enhancedData?.db_stats) {
+            dbItems = enhancedData.db_stats.total_requests || 0;
         }
-        document.getElementById('dash-cosmos-items').textContent = cosmosItems.toLocaleString();
-        document.getElementById('cosmos-change').textContent = `${cosmosItems} requests`;
+        document.getElementById('dash-db-items').textContent = dbItems.toLocaleString();
+        document.getElementById('db-change').textContent = `${dbItems} requests`;
     }
 
     function updateHealth(health, enhancedStats) {
@@ -431,7 +431,7 @@
             'os_inventory': 'OS',
             'endoflife': 'EOL',
             'microsoft': 'Microsoft',
-            'cosmos_db': 'Database'
+            'database': 'Database'
         };
         return nameMap[agentName] || agentName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }

@@ -129,19 +129,19 @@
 
         <div class="modern-card fade-in mt-3">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-database me-2"></i>Cached Cosmos Re-Normalization</h5>
+                <h5 class="mb-0"><i class="fas fa-database me-2"></i>Cached Re-Normalization</h5>
                 <div class="d-flex gap-2">
                     <button id="previewCachedRulesBtn" class="btn btn-outline-primary btn-sm">
                         <i class="fas fa-play me-2"></i>Preview Cached Items
                     </button>
                     <button id="applyCachedRulesBtn" class="btn btn-primary btn-sm">
-                        <i class="fas fa-save me-2"></i>Apply to Cosmos
+                        <i class="fas fa-save me-2"></i>Apply to Database
                     </button>
                 </div>
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    Re-run the current rule set against cached OS EOL rows in Cosmos. Preview shows proposed normalized values and whether a record needs to move to a new canonical key. Apply writes the normalized name, version, derivation metadata, and any required key migration back to Cosmos.
+                    Re-run the current rule set against cached OS EOL rows in the database. Preview shows proposed normalized values and whether a record needs to move to a new canonical key. Apply writes the normalized name, version, derivation metadata, and any required key migration back to the database.
                 </p>
                 <div class="row g-3 align-items-end mb-3">
                     <div class="col-md-3">
@@ -360,7 +360,7 @@
 
     async function runCachedRuleReapply(applyChanges) {
         const previewLimit = Math.max(1, Math.min(500, parseInt(cachedPreviewLimitInput.value, 10) || 100));
-        cachedRulesStatus.textContent = applyChanges ? 'Applying rule results to Cosmos...' : 'Running cached preview against Cosmos rows...';
+        cachedRulesStatus.textContent = applyChanges ? 'Applying rule results to database...' : 'Running cached preview against database rows...';
         previewCachedRulesBtn.disabled = true;
         applyCachedRulesBtn.disabled = true;
 
@@ -436,7 +436,7 @@
     testRuleBtn.addEventListener('click', testRuleExtraction);
     previewCachedRulesBtn.addEventListener('click', () => runCachedRuleReapply(false));
     applyCachedRulesBtn.addEventListener('click', () => {
-        if (!window.confirm('Apply the currently matched normalized values back to cached Cosmos OS rows?')) {
+        if (!window.confirm('Apply the currently matched normalized values back to cached OS rows?')) {
             return;
         }
         runCachedRuleReapply(true);

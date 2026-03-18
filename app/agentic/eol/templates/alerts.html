@@ -1908,7 +1908,7 @@
             }
         }
 
-        // Save to backend (Cosmos DB)
+        // Save to backend (database)
         fetch('/api/alerts/config', {
             method: 'POST',
             headers: {
@@ -1928,17 +1928,17 @@
                     showSaveSuccess();
                     // Also save to localStorage as backup
                     localStorage.setItem('eol_alert_config', JSON.stringify(alertConfig));
-                    // console.log('Configuration saved successfully to Cosmos DB');
+                    // console.log('Configuration saved successfully to database');
                 } else {
-                    throw new Error(data.message || 'Failed to save configuration to Cosmos DB');
+                    throw new Error(data.message || 'Failed to save configuration to database');
                 }
             })
             .catch(error => {
-                console.error('Error saving to Cosmos DB:', error);
+                console.error('Error saving to database:', error);
 
-                let errorMessage = 'Error saving configuration to Cosmos DB.';
+                let errorMessage = 'Error saving configuration to database.';
                 if (error.message.includes('500')) {
-                    errorMessage += ' Server error - check Cosmos DB connection.';
+                    errorMessage += ' Server error - check database connection.';
                 } else if (error.message.includes('400')) {
                     errorMessage += ' Invalid configuration data.';
                 } else {
@@ -1949,7 +1949,7 @@
                 try {
                     localStorage.setItem('eol_alert_config', JSON.stringify(alertConfig));
                     showSaveSuccess();
-                    console.warn('Saved to localStorage as fallback after Cosmos DB error');
+                    console.warn('Saved to localStorage as fallback after database error');
                     errorMessage += ' Configuration saved to local storage as backup.';
                     alert(errorMessage);
                 } catch (localError) {
@@ -1988,7 +1988,7 @@
     }
 
     async function reloadAlertConfiguration() {
-        // console.log('Reloading alert configuration from Cosmos DB...');
+        // console.log('Reloading alert configuration from database...');
 
         const btn = document.getElementById('reload-config-btn');
         if (!btn) return;
@@ -2027,7 +2027,7 @@
                 // Extract configuration from the response structure (same as loadAlertConfiguration)
                 const configData = data.data[0].configuration || data.data[0];
 
-                // Reset alertConfig to fresh data from Cosmos DB
+                // Reset alertConfig to fresh data from database
                 alertConfig = {
                     enabled: configData.enabled !== undefined ? configData.enabled : true,
                     critical: configData.critical || { period: 3, unit: 'months', frequency: 'weekly' },
@@ -2049,7 +2049,7 @@
                     last_sent: configData.last_sent || {}
                 };
 
-                // console.log('Configuration reloaded from Cosmos DB:', alertConfig);
+                // console.log('Configuration reloaded from database:', alertConfig);
 
                 // Repopulate the form with fresh data
                 populateConfigForm();
@@ -2068,7 +2068,7 @@
                 }, 2000);
 
             } else {
-                throw new Error(data.message || 'Failed to reload configuration from Cosmos DB');
+                throw new Error(data.message || 'Failed to reload configuration from database');
             }
 
         } catch (error) {
@@ -2088,7 +2088,7 @@
             }, 3000);
 
             // Show detailed error message with more debugging info
-            let errorMessage = 'Error reloading configuration from Cosmos DB.\n\n';
+            let errorMessage = 'Error reloading configuration from database.\n\n';
             
             if (error.message) {
                 errorMessage += `Error Message: ${error.message}\n`;
@@ -2096,12 +2096,12 @@
             
             if (error.message && error.message.includes('500')) {
                 errorMessage += '\nThis is a server error. Possible causes:\n';
-                errorMessage += '• Cosmos DB connection issues\n';
-                errorMessage += '• Invalid Cosmos DB configuration\n';
+                errorMessage += '• Database connection issues\n';
+                errorMessage += '• Invalid database configuration\n';
                 errorMessage += '• Authentication problems\n';
                 errorMessage += '• Container not found\n';
             } else if (error.message && error.message.includes('404')) {
-                errorMessage += '\nConfiguration not found in Cosmos DB.\n';
+                errorMessage += '\nConfiguration not found in database.\n';
                 errorMessage += 'This might be the first time using the system.\n';
             } else if (error.message && error.message.includes('Failed to fetch')) {
                 errorMessage += '\nNetwork error - cannot reach the server.\n';

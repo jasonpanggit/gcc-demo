@@ -462,7 +462,7 @@
     }
 
     function buildCacheBadge(response) {
-        if (!response.cached && response.cache_source !== 'cosmos_eol_table') {
+        if (!response.cached && response.cache_source !== 'eol_cache') {
             return '';
         }
         const updated = response.cache_created_at ? new Date(response.cache_created_at).toLocaleString() : 'unknown';

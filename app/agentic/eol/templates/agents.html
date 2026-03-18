@@ -1720,7 +1720,7 @@
         }
 
         setupEventListeners() {
-            // Auto-refresh every 3 minutes (reduced from 60 seconds to minimize Cosmos DB load)
+            // Auto-refresh every 3 minutes (reduced from 60 seconds to minimize database load)
             setInterval(() => this.loadAgents(true), 180000);
 
             // Note: urlForm is not present in this template, only add listener if it exists

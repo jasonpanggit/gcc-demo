@@ -11,7 +11,7 @@
                     <span class="hero-icon me-3"><i class="fab fa-microsoft"></i></span>EOL Dates Database
                 </h1>
                 <p class="hero-subtitle">
-                    Cached EOL records (high confidence) stored in the Cosmos-backed EOL inventory. Filter by software/version and inspect source, agent, and cache freshness.
+                    Cached EOL records (high confidence) stored in the database-backed EOL inventory. Filter by software/version and inspect source, agent, and cache freshness.
                 </p>
             </div>
             <div class="hero-action">
@@ -94,7 +94,7 @@
                 <div id="emptyState" class="empty-state" style="display: none;">
                     <i class="fas fa-box-open"></i>
                     <h5>No Records Found</h5>
-                    <p>Adjust filters or refresh to load the latest Cosmos entries.</p>
+                    <p>Adjust filters or refresh to load the latest entries.</p>
                 </div>
 
                 <div id="tableWrapper" class="table-responsive" style="display: none;">
@@ -177,7 +177,7 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p>This will <strong>permanently delete every record</strong> from the Azure Cosmos EOL inventory table.</p>
+        <p>This will <strong>permanently delete every record</strong> from the EOL inventory table.</p>
         <p class="mb-0 text-danger"><i class="fas fa-exclamation-circle me-1"></i>This action cannot be undone. Records will be re-populated as agents run fresh queries.</p>
       </div>
       <div class="modal-footer">
@@ -233,7 +233,7 @@
     };
 
     async function loadTable() {
-        setStatus('Loading Cosmos records...', 'bg-secondary');
+        setStatus('Loading EOL records...', 'bg-secondary');
         const params = new URLSearchParams();
         // Server-side pagination
         params.append('page', String(pagingState.currentPage));
@@ -276,7 +276,7 @@
             updatePagination(total, totalPages);
             updateCounts(total);
             lastUpdatedEl.textContent = new Date().toLocaleString();
-            setStatus(`Loaded ${total} total record(s) from Cosmos (showing page ${pagingState.currentPage} of ${totalPages})`, 'bg-success');
+            setStatus(`Loaded ${total} total record(s) from database (showing page ${pagingState.currentPage} of ${totalPages})`, 'bg-success');
         } catch (err) {
             console.error('Error loading EOL table', err);
             showErrorRow('Error loading EOL table. Check console for details.');
@@ -838,7 +838,7 @@
                 purgeAllModal.show();
             } else {
                 // Fallback if Bootstrap JS not loaded
-                if (confirm('Delete ALL EOL inventory records from Azure Cosmos? This cannot be undone.')) {
+                if (confirm('Delete ALL EOL inventory records? This cannot be undone.')) {
                     executePurgeAll();
                 }
             }
