@@ -91,6 +91,11 @@ COPY main.py ./
 COPY *.py ./
 COPY startup.txt ./
 
+# Remove any Python bytecode cache that may have been copied
+RUN find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
+    && find . -type f -name '*.pyc' -delete 2>/dev/null || true \
+    && find . -type f -name '*.pyo' -delete 2>/dev/null || true
+
 # Create necessary directories with proper permissions for Azure App Service
 RUN mkdir -p /home/site/ms-playwright /home/site/antenv /tmp/ms-playwright /tmp/antenv || true \
     && chmod -R 755 /home/site/ms-playwright /home/site/antenv /tmp/ms-playwright /tmp/antenv || true \
