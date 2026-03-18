@@ -105,6 +105,7 @@ _RELATIONSHIP_KQL: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 _ENRICHMENT_TYPE_MAP: Dict[str, str] = {
     "microsoft.compute/virtualmachines": "_enrich_vm",
+    "microsoft.hybridcompute/machines": "_enrich_arc_machine",
     "microsoft.web/sites": "_enrich_app_service",
     "microsoft.storage/storageaccounts": "_enrich_storage",
     "microsoft.sql/servers/databases": "_enrich_sql",
@@ -808,6 +809,56 @@ class ResourceDiscoveryEngine:
             "provisioning_state": vm.provisioning_state,
         }
 
+    async def _enrich_arc_machine(self, resource_id: str) -> Dict[str, Any]:
+        """Fetch Arc-enabled server details including OS info and agent status.
+
+        Arc machines use the Hybrid Compute API instead of regular Compute API.
+        This method enriches the basic ARG data with detailed machine properties.
+        """
+        try:
+            from azure.mgmt.hybridcompute import HybridComputeManagementClient
+        except ImportError:
+            logger.warning("azure-mgmt-hybridcompute not installed, skipping Arc enrichment")
+            return {"error": "azure-mgmt-hybridcompute not installed"}
+
+        sub_id, rg, machine_name = _parse_resource_id(resource_id)
+        credential = self._get_credential()
+        loop = asyncio.get_event_loop()
+
+        def _get_arc_machine():
+            client = HybridComputeManagementClient(credential, sub_id)
+            return client.machines.get(rg, machine_name)
+
+        try:
+            machine = await loop.run_in_executor(None, _get_arc_machine)
+        except Exception as e:
+            logger.error("Failed to fetch Arc machine %s: %s", resource_id, e)
+            return {"error": str(e)}
+
+        # Extract OS information
+        os_profile = machine.os_profile if hasattr(machine, 'os_profile') else None
+
+        return {
+            "status": machine.status if hasattr(machine, 'status') else None,
+            "provisioning_state": machine.provisioning_state if hasattr(machine, 'provisioning_state') else None,
+            "os_name": machine.os_name if hasattr(machine, 'os_name') else None,
+            "os_version": machine.os_version if hasattr(machine, 'os_version') else None,
+            "os_type": machine.os_type if hasattr(machine, 'os_type') else None,
+            "os_sku": machine.os_sku if hasattr(machine, 'os_sku') else None,
+            "computer_name": os_profile.computer_name if os_profile and hasattr(os_profile, 'computer_name') else None,
+            "agent_version": machine.agent_version if hasattr(machine, 'agent_version') else None,
+            "vm_id": machine.vm_id if hasattr(machine, 'vm_id') else None,
+            "last_status_change": (
+                machine.last_status_change.isoformat()
+                if hasattr(machine, 'last_status_change') and machine.last_status_change
+                else None
+            ),
+            "error_details": (
+                machine.error_details if hasattr(machine, 'error_details')
+                else None
+            ),
+        }
+
     async def _enrich_app_service(self, resource_id: str) -> Dict[str, Any]:
         """Fetch App Service availability state, runtime, and config."""
         if WebSiteManagementClient is None:
@@ -1295,6 +1346,15 @@ class ResourceDiscoveryEngine:
                 selected["os_image"] = None
             
             selected["provisioning_state"] = properties.get("provisioningState")
+        elif "hybridcompute/machines" in rtype:
+            # Arc-enabled servers - extract OS information
+            selected["os_name"] = properties.get("osName")
+            selected["os_version"] = properties.get("osVersion")
+            selected["os_sku"] = properties.get("osSku")
+            selected["os_type"] = properties.get("osType")
+            selected["provisioning_state"] = properties.get("provisioningState")
+            selected["status"] = properties.get("status")
+            selected["agent_version"] = properties.get("agentVersion")
         elif "microsoft.web/sites" in rtype:
             selected["kind"] = properties.get("kind")
             selected["state"] = properties.get("state")

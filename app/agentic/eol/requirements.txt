@@ -31,6 +31,7 @@ azure-mgmt-resourcegraph==8.0.1  # For dependency mapping in SRE MCP server
 azure-mgmt-web==7.0.0  # For App Service operations in SRE MCP server
 azure-mgmt-redis==14.0.0  # For Redis cache operations in SRE MCP server
 azure-mgmt-containerservice==20.0.0  # For AKS operations in SRE MCP server
+azure-mgmt-hybridcompute==9.0.0  # For Arc-enabled server operations
 openai==2.21.0
 tiktoken==0.12.0
 a2a-sdk==0.3.12
