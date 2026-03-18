@@ -11,6 +11,7 @@ Phase 10 cleanup: deprecated tables removed, aligned with final schema.
 from __future__ import annotations
 
 import logging
+import os
 from typing import List, Optional, Tuple
 
 import asyncpg
@@ -20,6 +21,27 @@ logger = logging.getLogger(__name__)
 
 class PostgresDatabaseManager:
     """Manages PostgreSQL schema bootstrap and validation."""
+
+    @staticmethod
+    def _is_container_mode() -> bool:
+        return os.getenv("CONTAINER_MODE", "false").lower() == "true"
+
+    @staticmethod
+    def _is_nonfatal_container_schema_error(exc: Exception) -> bool:
+        if not PostgresDatabaseManager._is_container_mode():
+            return False
+
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "must be owner of table",
+                "must be owner of relation",
+                "must be owner of function",
+                "permission denied",
+                "insufficient privilege",
+            )
+        )
 
     # ------------------------------------------------------------------ #
     # Tables checked at every startup.  If ANY is missing, the full
@@ -32,6 +54,7 @@ class PostgresDatabaseManager:
         "cves",
         "kb_cve_edges",
         "cve_scans",
+        "vm_cve_match_documents",
         "vm_cve_match_rows",
         # --- VM Identity Spine (NEW P5.1) ---
         "subscriptions",
@@ -113,19 +136,6 @@ class PostgresDatabaseManager:
         already-migrated database.  Aligned with migrations 001-032.
         """
         async with self._pool.acquire() as conn:
-            # ----------------------------------------------------------
-            # latest_completed_scan_id() function
-            # ----------------------------------------------------------
-            await conn.execute("""
-                CREATE OR REPLACE FUNCTION latest_completed_scan_id()
-                RETURNS TEXT LANGUAGE sql STABLE AS $$
-                    SELECT scan_id FROM cve_scans
-                    WHERE status = 'completed'
-                    ORDER BY completed_at DESC
-                    LIMIT 1;
-                $$;
-            """)
-
             # ==========================================================
             # CORE CVE TABLES
             # ==========================================================
@@ -171,14 +181,27 @@ class PostgresDatabaseManager:
 
             # --- FTS infrastructure (migration 006 bootstrap gap) ---
             await conn.execute("""
-                CREATE OR REPLACE FUNCTION cves_search_vector_update() RETURNS trigger AS $$
+                DO $bootstrap$
                 BEGIN
-                    NEW.search_vector := to_tsvector('english',
-                        COALESCE(NEW.cve_id, '') || ' ' ||
-                        COALESCE(NEW.description, '')
-                    );
-                    RETURN NEW;
-                END $$ LANGUAGE plpgsql;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE p.proname = 'cves_search_vector_update'
+                          AND n.nspname = 'public'
+                          AND pg_get_function_identity_arguments(p.oid) = ''
+                    ) THEN
+                        CREATE FUNCTION cves_search_vector_update() RETURNS trigger AS $fn$
+                        BEGIN
+                            NEW.search_vector := to_tsvector('english',
+                                COALESCE(NEW.cve_id, '') || ' ' ||
+                                COALESCE(NEW.description, '')
+                            );
+                            RETURN NEW;
+                        END $fn$ LANGUAGE plpgsql;
+                    END IF;
+                END
+                $bootstrap$;
             """)
             await conn.execute("""
                 DO $$ BEGIN
@@ -253,11 +276,37 @@ class PostgresDatabaseManager:
                     total_vms     INT         NOT NULL DEFAULT 0,
                     scanned_vms   INT         NOT NULL DEFAULT 0,
                     total_matches INT         NOT NULL DEFAULT 0,
+                    matches       JSONB       NOT NULL DEFAULT '[]'::jsonb,
+                    vm_match_summaries JSONB  NOT NULL DEFAULT '{}'::jsonb,
+                    vm_installed_kbs JSONB    NOT NULL DEFAULT '{}'::jsonb,
+                    vm_installed_packages JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    vm_os_family  JSONB       NOT NULL DEFAULT '{}'::jsonb,
+                    truncated     BOOLEAN     NOT NULL DEFAULT FALSE,
+                    total_matches_before_truncation INT,
+                    matches_stored_separately BOOLEAN NOT NULL DEFAULT FALSE,
                     error         TEXT,
                     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     CONSTRAINT pk_cve_scans PRIMARY KEY (scan_id)
                 );
             """)
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS matches JSONB;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS vm_match_summaries JSONB;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS vm_installed_kbs JSONB;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS vm_installed_packages JSONB;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS vm_os_family JSONB;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS truncated BOOLEAN;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS total_matches_before_truncation INT;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS matches_stored_separately BOOLEAN;")
+            await conn.execute("ALTER TABLE cve_scans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;")
+            await conn.execute("UPDATE cve_scans SET matches = COALESCE(matches, '[]'::jsonb);")
+            await conn.execute("UPDATE cve_scans SET vm_match_summaries = COALESCE(vm_match_summaries, '{}'::jsonb);")
+            await conn.execute("UPDATE cve_scans SET vm_installed_kbs = COALESCE(vm_installed_kbs, '{}'::jsonb);")
+            await conn.execute("UPDATE cve_scans SET vm_installed_packages = COALESCE(vm_installed_packages, '{}'::jsonb);")
+            await conn.execute("UPDATE cve_scans SET vm_os_family = COALESCE(vm_os_family, '{}'::jsonb);")
+            await conn.execute("UPDATE cve_scans SET truncated = COALESCE(truncated, FALSE);")
+            await conn.execute("UPDATE cve_scans SET matches_stored_separately = COALESCE(matches_stored_separately, FALSE);")
+            await conn.execute("UPDATE cve_scans SET updated_at = COALESCE(updated_at, created_at, NOW());")
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cve_scans_status_completed ON cve_scans (status, completed_at DESC);"
             )
@@ -266,41 +315,55 @@ class PostgresDatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_scans_completed ON cve_scans (completed_at DESC, scan_id) WHERE status = 'completed';"
             )
 
-            # --- vm_cve_match_rows ---
+            # --- vm_cve_match_documents ---
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS vm_cve_match_rows (
-                    scan_id        TEXT        NOT NULL,
-                    vm_id          TEXT        NOT NULL,
-                    vm_name        TEXT,
-                    cve_id         TEXT        NOT NULL,
-                    severity       TEXT,
-                    cvss_score     NUMERIC(4,2),
-                    published_date TIMESTAMPTZ,
-                    patch_status   TEXT,
-                    kb_ids         TEXT[],
-                    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    CONSTRAINT pk_vm_cve_match_rows PRIMARY KEY (scan_id, vm_id, cve_id),
-                    CONSTRAINT fk_vmcvematch_scan FOREIGN KEY (scan_id)
-                        REFERENCES cve_scans (scan_id) ON DELETE CASCADE,
-                    CONSTRAINT fk_vmcvematch_vm FOREIGN KEY (vm_id)
-                        REFERENCES vms (resource_id) ON DELETE CASCADE,
-                    CONSTRAINT fk_vmcvematch_cve FOREIGN KEY (cve_id)
-                        REFERENCES cves (cve_id) ON DELETE CASCADE
-                        DEFERRABLE INITIALLY DEFERRED
+                CREATE TABLE IF NOT EXISTS vm_cve_match_documents (
+                    doc_id             TEXT        NOT NULL,
+                    scan_id            TEXT        NOT NULL,
+                    vm_id              TEXT        NOT NULL,
+                    vm_name            TEXT,
+                    total_matches      INT         NOT NULL DEFAULT 0,
+                    matches            JSONB       NOT NULL DEFAULT '[]'::jsonb,
+                    installed_kb_ids   TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    available_kb_ids   TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    installed_cve_ids  TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    available_cve_ids  TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    patch_summary      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+                    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT pk_vm_cve_match_documents PRIMARY KEY (doc_id),
+                    CONSTRAINT fk_vm_cve_match_documents_scan FOREIGN KEY (scan_id)
+                        REFERENCES cve_scans (scan_id) ON DELETE CASCADE
                 );
             """)
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_scan_severity ON vm_cve_match_rows (scan_id, severity);"
+                "CREATE INDEX IF NOT EXISTS idx_vm_cve_match_documents_scan_vm ON vm_cve_match_documents (scan_id, vm_id);"
             )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_cve_scan ON vm_cve_match_rows (cve_id, scan_id) INCLUDE (vm_id, vm_name, patch_status);"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_vm_scan ON vm_cve_match_rows (vm_id, scan_id) INCLUDE (cve_id, severity, cvss_score, patch_status);"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_kb_ids ON vm_cve_match_rows USING GIN (kb_ids);"
-            )
+
+            # ----------------------------------------------------------
+            # latest_completed_scan_id() function
+            # ----------------------------------------------------------
+            await conn.execute("""
+                DO $bootstrap$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE p.proname = 'latest_completed_scan_id'
+                          AND n.nspname = 'public'
+                          AND pg_get_function_identity_arguments(p.oid) = ''
+                    ) THEN
+                        CREATE FUNCTION latest_completed_scan_id()
+                        RETURNS TEXT LANGUAGE sql STABLE AS $fn$
+                            SELECT scan_id FROM cve_scans
+                            WHERE status = 'completed'
+                            ORDER BY completed_at DESC
+                            LIMIT 1;
+                        $fn$;
+                    END IF;
+                END
+                $bootstrap$;
+            """)
 
             # ==========================================================
             # VM IDENTITY SPINE (NEW — P5.1 / migration 028)
@@ -373,6 +436,42 @@ class PostgresDatabaseManager:
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_vms_subscription_os ON vms (subscription_id, os_name);"
+            )
+
+            # --- vm_cve_match_rows ---
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS vm_cve_match_rows (
+                    scan_id        TEXT        NOT NULL,
+                    vm_id          TEXT        NOT NULL,
+                    vm_name        TEXT,
+                    cve_id         TEXT        NOT NULL,
+                    severity       TEXT,
+                    cvss_score     NUMERIC(4,2),
+                    published_date TIMESTAMPTZ,
+                    patch_status   TEXT,
+                    kb_ids         TEXT[],
+                    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT pk_vm_cve_match_rows PRIMARY KEY (scan_id, vm_id, cve_id),
+                    CONSTRAINT fk_vmcvematch_scan FOREIGN KEY (scan_id)
+                        REFERENCES cve_scans (scan_id) ON DELETE CASCADE,
+                    CONSTRAINT fk_vmcvematch_vm FOREIGN KEY (vm_id)
+                        REFERENCES vms (resource_id) ON DELETE CASCADE,
+                    CONSTRAINT fk_vmcvematch_cve FOREIGN KEY (cve_id)
+                        REFERENCES cves (cve_id) ON DELETE CASCADE
+                        DEFERRABLE INITIALLY DEFERRED
+                );
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_scan_severity ON vm_cve_match_rows (scan_id, severity);"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_cve_scan ON vm_cve_match_rows (cve_id, scan_id) INCLUDE (vm_id, vm_name, patch_status);"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_vm_scan ON vm_cve_match_rows (vm_id, scan_id) INCLUDE (cve_id, severity, cvss_score, patch_status);"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vmcvematch_kb_ids ON vm_cve_match_rows USING GIN (kb_ids);"
             )
 
             # ==========================================================
@@ -618,16 +717,60 @@ class PostgresDatabaseManager:
             # --- patch_installs ---
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS patch_installs (
-                    install_id  TEXT PRIMARY KEY,
-                    resource_id TEXT NOT NULL,
-                    kb_number   TEXT,
-                    status      TEXT,
-                    started_at  TIMESTAMPTZ,
-                    completed_at TIMESTAMPTZ,
-                    error       TEXT,
-                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    install_id                   TEXT PRIMARY KEY,
+                    resource_id                  TEXT,
+                    operation_url                TEXT,
+                    machine_name                 TEXT,
+                    subscription_id              TEXT,
+                    resource_group               TEXT,
+                    vm_type                      TEXT,
+                    os_type                      TEXT,
+                    classifications              TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    requested_patch_ids          TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
+                    status                       TEXT,
+                    is_done                      BOOLEAN     NOT NULL DEFAULT FALSE,
+                    installed_patch_count        INTEGER     NOT NULL DEFAULT 0,
+                    failed_patch_count           INTEGER     NOT NULL DEFAULT 0,
+                    pending_patch_count          INTEGER     NOT NULL DEFAULT 0,
+                    patches                      JSONB       NOT NULL DEFAULT '[]'::jsonb,
+                    start_date_time              TIMESTAMPTZ,
+                    completed_at                 TIMESTAMPTZ,
+                    reboot_status                TEXT,
+                    maintenance_window_exceeded  BOOLEAN     NOT NULL DEFAULT FALSE,
+                    error                        TEXT,
+                    created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
             """)
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS operation_url TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS machine_name TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS subscription_id TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS resource_group TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS vm_type TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS os_type TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS classifications TEXT[];")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS requested_patch_ids TEXT[];")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS is_done BOOLEAN;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS installed_patch_count INTEGER;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS failed_patch_count INTEGER;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS pending_patch_count INTEGER;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS patches JSONB;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS start_date_time TIMESTAMPTZ;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS reboot_status TEXT;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS maintenance_window_exceeded BOOLEAN;")
+            await conn.execute("ALTER TABLE patch_installs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;")
+            await conn.execute("UPDATE patch_installs SET classifications = COALESCE(classifications, ARRAY[]::TEXT[]);")
+            await conn.execute("UPDATE patch_installs SET requested_patch_ids = COALESCE(requested_patch_ids, ARRAY[]::TEXT[]);")
+            await conn.execute("UPDATE patch_installs SET is_done = COALESCE(is_done, FALSE);")
+            await conn.execute("UPDATE patch_installs SET installed_patch_count = COALESCE(installed_patch_count, 0);")
+            await conn.execute("UPDATE patch_installs SET failed_patch_count = COALESCE(failed_patch_count, 0);")
+            await conn.execute("UPDATE patch_installs SET pending_patch_count = COALESCE(pending_patch_count, 0);")
+            await conn.execute("UPDATE patch_installs SET patches = COALESCE(patches, '[]'::jsonb);")
+            await conn.execute("UPDATE patch_installs SET maintenance_window_exceeded = COALESCE(maintenance_window_exceeded, FALSE);")
+            await conn.execute("UPDATE patch_installs SET updated_at = COALESCE(updated_at, created_at, NOW());")
+            await conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_patch_installs_operation_url ON patch_installs (operation_url) WHERE operation_url IS NOT NULL;"
+            )
 
             # ==========================================================
             # EOL TABLES
@@ -1260,6 +1403,129 @@ class PostgresDatabaseManager:
             for idx_ddl in index_ddls:
                 await conn.execute(idx_ddl)
 
+    def _build_fk_repair_sql(
+        self,
+        child_table: str,
+        child_column: str,
+        parent_table: str,
+        parent_column: str,
+    ) -> tuple[str, str, str]:
+        """Return orphan cleanup SQL, constraint name, and ALTER TABLE DDL."""
+        relation_key = (child_table, child_column, parent_table, parent_column)
+
+        definitions = {
+            ("kb_cve_edges", "cve_id", "cves", "cve_id"): (
+                "fk_kb_cve_edges_cve",
+                "ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED",
+            ),
+            ("vm_cve_match_rows", "scan_id", "cve_scans", "scan_id"): (
+                "fk_vmcvematch_scan",
+                "ON DELETE CASCADE",
+            ),
+            ("slo_measurements", "slo_id", "slo_definitions", "slo_id"): (
+                "slo_measurements_slo_id_fkey",
+                "ON DELETE CASCADE",
+            ),
+            ("vms", "subscription_id", "subscriptions", "subscription_id"): (
+                "fk_vms_subscription",
+                "ON DELETE RESTRICT",
+            ),
+            ("vm_cve_match_rows", "vm_id", "vms", "resource_id"): (
+                "fk_vmcvematch_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("vm_cve_match_rows", "cve_id", "cves", "cve_id"): (
+                "fk_vmcvematch_cve",
+                "ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED",
+            ),
+            ("patch_assessments_cache", "resource_id", "vms", "resource_id"): (
+                "fk_patchcache_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("available_patches", "resource_id", "vms", "resource_id"): (
+                "fk_availpatches_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("os_inventory_snapshots", "resource_id", "vms", "resource_id"): (
+                "fk_osinvsnap_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("cve_vm_detections", "resource_id", "vms", "resource_id"): (
+                "fk_cvevmdet_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("cve_vm_detections", "cve_id", "cves", "cve_id"): (
+                "fk_cvevmdet_cve",
+                "ON DELETE CASCADE",
+            ),
+            ("arc_software_inventory", "resource_id", "vms", "resource_id"): (
+                "fk_arcswinv_vm",
+                "ON DELETE CASCADE",
+            ),
+            ("cve_alert_history", "rule_id", "cve_alert_rules", "rule_id"): (
+                "fk_alerthistory_rule",
+                "ON DELETE CASCADE",
+            ),
+            ("cve_alert_history", "cve_id", "cves", "cve_id"): (
+                "fk_alerthistory_cve",
+                "ON DELETE CASCADE",
+            ),
+        }
+
+        constraint_name, options = definitions[relation_key]
+        cleanup_sql = f"""
+            DELETE FROM {child_table} AS child
+            WHERE child.{child_column} IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM {parent_table} AS parent
+                  WHERE parent.{parent_column} = child.{child_column}
+              );
+        """
+        alter_sql = f"""
+            ALTER TABLE {child_table}
+            ADD CONSTRAINT {constraint_name}
+            FOREIGN KEY ({child_column})
+            REFERENCES {parent_table} ({parent_column})
+            {options};
+        """
+        return cleanup_sql, constraint_name, alter_sql
+
+    async def _repair_missing_foreign_key(
+        self,
+        conn: asyncpg.Connection,
+        child_table: str,
+        child_column: str,
+        parent_table: str,
+        parent_column: str,
+    ) -> None:
+        """Repair a missing FK constraint on an existing table."""
+        cleanup_sql, constraint_name, alter_sql = self._build_fk_repair_sql(
+            child_table,
+            child_column,
+            parent_table,
+            parent_column,
+        )
+
+        delete_result = await conn.execute(cleanup_sql)
+        deleted_rows = int(delete_result.split()[-1])
+        if deleted_rows:
+            logger.warning(
+                "Removed %d orphan row(s) from %s before adding FK %s",
+                deleted_rows,
+                child_table,
+                constraint_name,
+            )
+
+        try:
+            await conn.execute(alter_sql)
+        except asyncpg.DuplicateObjectError:
+            logger.info(
+                "FK constraint %s already exists on %s, continuing",
+                constraint_name,
+                child_table,
+            )
+
     # ================================================================== #
     #  Schema Validation
     # ================================================================== #
@@ -1310,10 +1576,56 @@ class PostgresDatabaseManager:
 
                 if has_fk is None:
                     logger.warning(
-                        "Missing FK: %s.%s -> %s.%s — re-running bootstrap",
+                        "Missing FK: %s.%s -> %s.%s — repairing in place",
                         child_tbl, child_col, parent_tbl, parent_col,
                     )
-                    await self._bootstrap_runtime_schema()
-                    break  # Full bootstrap covers all FKs
+                    try:
+                        await self._repair_missing_foreign_key(
+                            conn,
+                            child_tbl,
+                            child_col,
+                            parent_tbl,
+                            parent_col,
+                        )
+                    except Exception as exc:
+                        if self._is_nonfatal_container_schema_error(exc):
+                            logger.warning(
+                                "Skipping FK repair for %s.%s -> %s.%s in container mode: %s",
+                                child_tbl,
+                                child_col,
+                                parent_tbl,
+                                parent_col,
+                                exc,
+                            )
+                            continue
+                        raise
+
+                    has_fk = await conn.fetchval("""
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                            ON tc.constraint_name = kcu.constraint_name
+                        JOIN information_schema.constraint_column_usage ccu
+                            ON tc.constraint_name = ccu.constraint_name
+                        WHERE tc.constraint_type = 'FOREIGN KEY'
+                          AND tc.table_name = $1
+                          AND kcu.column_name = $2
+                          AND ccu.table_name = $3
+                          AND ccu.column_name = $4
+                    """, child_tbl, child_col, parent_tbl, parent_col)
+                    if has_fk is None:
+                        if self._is_container_mode():
+                            logger.warning(
+                                "FK %s.%s -> %s.%s still missing or noncanonical after repair attempt; continuing in container mode",
+                                child_tbl,
+                                child_col,
+                                parent_tbl,
+                                parent_col,
+                            )
+                            continue
+                        raise RuntimeError(
+                            "Failed to repair FK "
+                            f"{child_tbl}.{child_col} -> {parent_tbl}.{parent_col}"
+                        )
 
             logger.info("Schema validation complete")

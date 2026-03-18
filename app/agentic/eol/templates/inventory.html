@@ -2597,85 +2597,81 @@
         const eolDetailContent = document.getElementById('eol-detail-content');
         const noEolItemsDiv = document.getElementById('no-eol-items');
         const eolItemsTbody = document.getElementById('eol-items-tbody');
-        
+
         if (!eolDetailSection) return;
 
-        // Show the EOL detail section with loading state
-        eolDetailSection.style.display = 'block';
-        if (eolLoading) eolLoading.style.display = 'block';
-        if (eolDetailContent) eolDetailContent.style.display = 'none';
-
         try {
-            // Add a minimum delay to prevent flashing for fast responses
-            const [eolResponse] = await Promise.all([
-                fetch('/api/os'), // Changed from /api/os/eol-analysis to existing endpoint
-                new Promise(resolve => setTimeout(resolve, 500)) // Minimum 500ms loading
-            ]);
+            // Filter osInventory for Arc-enabled servers with OS type
+            const arcEnabledOSItems = osInventory.filter(item => {
+                const resourceId = (item.resource_id || '').toLowerCase();
+                const isArcEnabled = resourceId.includes('/microsoft.hybridcompute/machines/');
+                const softwareType = (item.software_type || '').toLowerCase();
+                return isArcEnabled && softwareType === 'operating system';
+            });
 
-            const eolData = await eolResponse.json();
-            
-            let eolItems = [];
-            
-            if (eolData.success && eolData.data && eolData.data.length > 0) {
-                // Process the EOL data
-                eolItems = eolData.data.filter(item => item.eol_date);
-            } else {
-                // Fallback: try to extract EOL items from current OS inventory
-                eolItems = osInventory.filter(item => {
-                    return item.eol_date || item.eol_status === 'EOL' || item.eol_status === 'End of Life';
-                });
-            }
-
-            // Hide loading and show content
-            if (eolLoading) eolLoading.style.display = 'none';
-            
-            if (eolItems.length === 0) {
+            if (arcEnabledOSItems.length === 0) {
                 eolDetailSection.style.display = 'none';
                 return;
             }
 
+            // Show section immediately with Arc VMs (before EOL data loads)
+            eolDetailSection.style.display = 'block';
+            if (eolLoading) eolLoading.style.display = 'none';
             if (eolDetailContent) {
                 eolDetailContent.style.display = 'block';
                 eolDetailContent.classList.add('eol-content-fade-in');
             }
 
-            // Calculate EOL statistics
-            const now = new Date();
-            const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
-            
-            let expiredCount = 0;
-            let soonCount = 0;
-            let futureCount = 0;
+            // Render table immediately with "Loading..." status
+            populateEOLTableWithLoadingStatus(arcEnabledOSItems);
 
-            eolItems.forEach(item => {
-                if (item.eol_date) {
-                    const eolDate = new Date(item.eol_date);
-                    if (eolDate < now) {
-                        expiredCount++;
-                    } else if (eolDate <= oneYearFromNow) {
-                        soonCount++;
-                    } else {
-                        futureCount++;
+            // Load EOL data asynchronously for each VM (updates happen in real-time)
+            const eolPromises = arcEnabledOSItems.map(async (item, index) => {
+                const osName = item.normalized_os_name || '';
+                const osVersion = item.normalized_os_version || '';
+
+                if (!osName) return null;
+
+                try {
+                    // Fetch EOL data with 30s timeout
+                    const response = await fetch('/api/search/eol', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            software_name: osName,
+                            software_version: osVersion || undefined
+                        }),
+                        signal: AbortSignal.timeout(30000)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data?.result?.success && data?.result?.data?.eol_date) {
+                            // Update the specific row with EOL data
+                            updateEOLRow(index, item, data.result.data);
+                            return { ...item, eol_date: data.result.data.eol_date, eol_info: data.result.data };
+                        }
                     }
+
+                    // No EOL data found
+                    updateEOLRow(index, item, null);
+                    return null;
+
+                } catch (error) {
+                    console.warn(`Failed to fetch EOL for ${osName}:`, error.message);
+                    // Update row with error status
+                    updateEOLRow(index, item, { error: error.message });
+                    return null;
                 }
             });
 
-            // Update EOL statistics cards
-            const expiredEl = document.getElementById('eol-expired-count');
-            const soonEl = document.getElementById('eol-soon-count');
-            const futureEl = document.getElementById('eol-future-count');
-            
-            if (expiredEl) expiredEl.textContent = expiredCount;
-            if (soonEl) soonEl.textContent = soonCount;
-            if (futureEl) futureEl.textContent = futureCount;
-
-            // Populate EOL items table
-            populateEOLTable(eolItems);
+            // Wait for all EOL lookups to complete, then update statistics
+            const results = await Promise.all(eolPromises);
+            updateEOLStatistics(results.filter(r => r !== null));
 
         } catch (error) {
             console.error('Error loading EOL analysis:', error);
-            
-            // Hide loading and show error state
+
             if (eolLoading) eolLoading.style.display = 'none';
             if (eolDetailContent) {
                 eolDetailContent.style.display = 'block';
@@ -2693,97 +2689,137 @@
         }
     }
 
-    function populateEOLTable(eolItems) {
+    function populateEOLTableWithLoadingStatus(arcEnabledItems) {
         const tbody = document.getElementById('eol-items-tbody');
-        const noEolItems = document.getElementById('no-eol-items');
-        
         if (!tbody) return;
 
-        if (eolItems.length === 0) {
-            tbody.innerHTML = '';
-            if (noEolItems) noEolItems.style.display = 'block';
-            return;
-        }
-
-        if (noEolItems) noEolItems.style.display = 'none';
-
-        const now = new Date();
-        
-        // Sort items by EOL urgency (expired first, then soonest EOL dates)
-        eolItems.sort((a, b) => {
-            const dateA = a.eol_date ? new Date(a.eol_date) : new Date('2099-12-31');
-            const dateB = b.eol_date ? new Date(b.eol_date) : new Date('2099-12-31');
-            return dateA - dateB;
-        });
-
-        tbody.innerHTML = eolItems.map(item => {
-            const eolDate = item.eol_date ? new Date(item.eol_date) : null;
-            let daysUntilEOL = 'Unknown';
-            let daysBadgeClass = 'eol-days-info';
-            let priorityClass = 'eol-priority-low';
-            let priorityText = 'Low';
-
-            if (eolDate) {
-                const timeDiff = eolDate - now;
-                const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-                
-                if (daysDiff < 0) {
-                    daysUntilEOL = `${Math.abs(daysDiff)} days ago`;
-                    daysBadgeClass = 'eol-days-expired';
-                    priorityClass = 'eol-priority-critical';
-                    priorityText = 'Critical';
-                } else if (daysDiff <= 90) {
-                    daysUntilEOL = `${daysDiff} days`;
-                    daysBadgeClass = 'eol-days-expired';
-                    priorityClass = 'eol-priority-critical';
-                    priorityText = 'Critical';
-                } else if (daysDiff <= 365) {
-                    daysUntilEOL = `${daysDiff} days`;
-                    daysBadgeClass = 'eol-days-warning';
-                    priorityClass = 'eol-priority-high';
-                    priorityText = 'High';
-                } else {
-                    daysUntilEOL = `${daysDiff} days`;
-                    daysBadgeClass = 'eol-days-info';
-                    priorityClass = daysDiff <= 730 ? 'eol-priority-medium' : 'eol-priority-low';
-                    priorityText = daysDiff <= 730 ? 'Medium' : 'Low';
-                }
-            }
-
-            const lastSeen = item.last_heartbeat ? 
-                new Date(item.last_heartbeat).toLocaleDateString() : 
-                (item.days_since_heartbeat !== undefined ? 
-                    `${item.days_since_heartbeat} days ago` : 'Unknown');
+        tbody.innerHTML = arcEnabledItems.map((item, index) => {
+            const displayOSName = item.os_name || 'Unknown';
+            const displayOSVersion = item.os_version || 'N/A';
+            const lastSeen = item.last_heartbeat ?
+                new Date(item.last_heartbeat).toLocaleDateString() :
+                (item.days_since_heartbeat !== undefined ? `${item.days_since_heartbeat} days ago` : 'Unknown');
 
             return `
-                <tr>
-                    <td>
-                        <strong>${item.computer_name || item.computer || 'Unknown'}</strong>
-                    </td>
+                <tr id="eol-row-${index}" data-loading="true">
+                    <td><strong>${item.computer_name || item.computer || 'Unknown'}</strong></td>
                     <td>
                         <div class="d-flex align-items-center">
-                            <i class="fab fa-${getOSIcon(item.os_name || item.name)} me-2"></i>
-                            ${item.os_name || item.name || 'Unknown'}
+                            <i class="fab fa-${getOSIcon(displayOSName)} me-2"></i>
+                            ${displayOSName}
                         </div>
                     </td>
-                    <td>
-                        <span class="badge bg-secondary">${item.os_version || item.version || 'N/A'}</span>
-                    </td>
-                    <td>
-                        <strong>${eolDate ? eolDate.toLocaleDateString() : 'Unknown'}</strong>
-                    </td>
-                    <td>
-                        <span class="eol-days-badge ${daysBadgeClass}">${daysUntilEOL}</span>
-                    </td>
-                    <td>
-                        ${lastSeen}
-                    </td>
-                    <td>
-                        <span class="eol-priority-badge ${priorityClass}">${priorityText}</span>
-                    </td>
+                    <td><span class="badge bg-secondary">${displayOSVersion}</span></td>
+                    <td><span class="spinner-border spinner-border-sm me-2"></span>Loading...</td>
+                    <td><span class="spinner-border spinner-border-sm me-2"></span>Checking...</td>
+                    <td>${lastSeen}</td>
+                    <td><span class="badge bg-secondary">Pending</span></td>
                 </tr>
             `;
         }).join('');
+    }
+
+    function updateEOLRow(index, item, eolData) {
+        const row = document.getElementById(`eol-row-${index}`);
+        if (!row) return;
+
+        const displayOSName = item.os_name || 'Unknown';
+        const displayOSVersion = item.os_version || 'N/A';
+        const lastSeen = item.last_heartbeat ?
+            new Date(item.last_heartbeat).toLocaleDateString() :
+            (item.days_since_heartbeat !== undefined ? `${item.days_since_heartbeat} days ago` : 'Unknown');
+
+        const now = new Date();
+        let eolDateDisplay = 'Unknown';
+        let daysUntilEOL = 'Unknown';
+        let daysBadgeClass = 'eol-days-info';
+        let priorityClass = 'eol-priority-low';
+        let priorityText = 'Low';
+
+        if (eolData?.error) {
+            eolDateDisplay = '<span class="text-muted">Lookup failed</span>';
+            daysUntilEOL = 'Error';
+            daysBadgeClass = 'eol-days-warning';
+            priorityClass = 'eol-priority-medium';
+            priorityText = 'Check Required';
+        } else if (eolData?.eol_date) {
+            const eolDate = new Date(eolData.eol_date);
+            eolDateDisplay = `<strong>${eolDate.toLocaleDateString()}</strong>`;
+
+            const timeDiff = eolDate - now;
+            const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+
+            if (daysDiff < 0) {
+                daysUntilEOL = `${Math.abs(daysDiff)} days ago`;
+                daysBadgeClass = 'eol-days-expired';
+                priorityClass = 'eol-priority-critical';
+                priorityText = 'Critical';
+            } else if (daysDiff <= 90) {
+                daysUntilEOL = `${daysDiff} days`;
+                daysBadgeClass = 'eol-days-expired';
+                priorityClass = 'eol-priority-critical';
+                priorityText = 'Critical';
+            } else if (daysDiff <= 365) {
+                daysUntilEOL = `${daysDiff} days`;
+                daysBadgeClass = 'eol-days-warning';
+                priorityClass = 'eol-priority-high';
+                priorityText = 'High';
+            } else {
+                daysUntilEOL = `${daysDiff} days`;
+                daysBadgeClass = 'eol-days-info';
+                priorityClass = daysDiff <= 730 ? 'eol-priority-medium' : 'eol-priority-low';
+                priorityText = daysDiff <= 730 ? 'Medium' : 'Low';
+            }
+        } else {
+            eolDateDisplay = '<span class="text-muted">Not available</span>';
+            daysUntilEOL = 'N/A';
+        }
+
+        row.innerHTML = `
+            <td><strong>${item.computer_name || item.computer || 'Unknown'}</strong></td>
+            <td>
+                <div class="d-flex align-items-center">
+                    <i class="fab fa-${getOSIcon(displayOSName)} me-2"></i>
+                    ${displayOSName}
+                </div>
+            </td>
+            <td><span class="badge bg-secondary">${displayOSVersion}</span></td>
+            <td>${eolDateDisplay}</td>
+            <td><span class="eol-days-badge ${daysBadgeClass}">${daysUntilEOL}</span></td>
+            <td>${lastSeen}</td>
+            <td><span class="eol-priority-badge ${priorityClass}">${priorityText}</span></td>
+        `;
+        row.removeAttribute('data-loading');
+    }
+
+    function updateEOLStatistics(eolItems) {
+        const now = new Date();
+        const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+
+        let expiredCount = 0;
+        let soonCount = 0;
+        let futureCount = 0;
+
+        eolItems.forEach(item => {
+            if (item.eol_date) {
+                const eolDate = new Date(item.eol_date);
+                if (eolDate < now) {
+                    expiredCount++;
+                } else if (eolDate <= oneYearFromNow) {
+                    soonCount++;
+                } else {
+                    futureCount++;
+                }
+            }
+        });
+
+        const expiredEl = document.getElementById('eol-expired-count');
+        const soonEl = document.getElementById('eol-soon-count');
+        const futureEl = document.getElementById('eol-future-count');
+
+        if (expiredEl) expiredEl.textContent = expiredCount;
+        if (soonEl) soonEl.textContent = soonCount;
+        if (futureEl) futureEl.textContent = futureCount;
     }
 
     function getOSIcon(osName) {

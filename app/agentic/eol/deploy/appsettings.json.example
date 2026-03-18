@@ -26,7 +26,7 @@
   },
 
   "ManagedIdentity": {
-    "_comment": "System Assigned Managed Identity for the Container App. Grant permissions to respective Azure resources e.g. Cosmos DB, OpenAI, etc.",
+    "_comment": "System Assigned Managed Identity for the Container App. Grant permissions to the Azure resources this app uses, such as PostgreSQL and OpenAI.",
     "ClientId": "your-managed-identity-client-id"
   },
   "AzureServices": {
@@ -36,10 +36,15 @@
       "ApiVersion": "2024-08-01-preview",
       "EmbeddingDeployment": "text-embedding-3-small"
     },
-    "CosmosDB": {
-      "Endpoint": "https://your-cosmos.documents.azure.com:443/",
-      "Database": "your-database",
-      "Container": "your-container"
+    "PostgreSQL": {
+      "Host": "your-server.postgres.database.azure.com",
+      "Port": 5432,
+      "Database": "eol_app",
+      "Username": "your-entra-postgres-user",
+      "UseManagedIdentity": true,
+      "SslMode": "require",
+      "MinPoolSize": 2,
+      "MaxPoolSize": 20
     },
     "LogAnalytics": {
       "WorkspaceId": "your-log-analytics-workspace-id"

@@ -3,20 +3,17 @@
 Discovers VMs, extracts OS/package data, and matches CVEs to vulnerable systems.
 
 Key capabilities:
-- Discover Azure and Arc VMs via Resource Graph
-- Extract OS version and installed packages
-- Match CVEs to VMs using applicability rules
-- Calculate exposure scores (vulnerable VM count per CVE)
-- Async scan execution with progress tracking
-- Scan result persistence to Cosmos DB
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
+
+import asyncpg
 
 _ARG_MAX_RETRIES = 3
 _ARG_BACKOFF_BASE = 5  # seconds; doubled each retry (5 → 10 → 20)
@@ -72,118 +69,183 @@ def _extract_release_year(value: Optional[str]) -> Optional[str]:
 class CVEScanRepository:
     """Repository for CVE scan result persistence."""
 
-    def __init__(self, cosmos_client, database_name: str, container_name: str):
-        self.cosmos_client = cosmos_client
-        self.database_name = database_name
-        self.container_name = container_name
-        self.container = None
+    def __init__(self, pool: asyncpg.Pool):
+        self.pool = pool
 
     async def initialize(self):
-        """Initialize Cosmos container reference."""
-        try:
-            database = self.cosmos_client.get_database_client(self.database_name)
-            self.container = database.get_container_client(self.container_name)
-            logger.info(f"CVEScanRepository initialized: {self.container_name}")
-        except Exception as e:
-            logger.error(f"Failed to initialize CVEScanRepository: {e}")
-            raise
+        logger.info("CVEScanRepository initialized with PostgreSQL")
+
+    @staticmethod
+    def _coerce_timestamp(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _json_or_default(value: Any, default: Any) -> Any:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return default
+        return value
+
+    @classmethod
+    def _row_to_scan_result(cls, row: asyncpg.Record) -> ScanResult:
+        data = dict(row)
+        return ScanResult(
+            scan_id=data["scan_id"],
+            started_at=data["started_at"].isoformat() if data.get("started_at") else "",
+            completed_at=data["completed_at"].isoformat() if data.get("completed_at") else None,
+            status=data.get("status") or "pending",
+            total_vms=int(data.get("total_vms") or 0),
+            scanned_vms=int(data.get("scanned_vms") or 0),
+            total_matches=int(data.get("total_matches") or 0),
+            matches=[CVEMatch(**item) for item in cls._json_or_default(data.get("matches"), [])],
+            vm_match_summaries=cls._json_or_default(data.get("vm_match_summaries"), {}),
+            vm_installed_kbs=cls._json_or_default(data.get("vm_installed_kbs"), {}),
+            vm_installed_packages=cls._json_or_default(data.get("vm_installed_packages"), {}),
+            vm_os_family=cls._json_or_default(data.get("vm_os_family"), {}),
+            truncated=bool(data.get("truncated") or False),
+            total_matches_before_truncation=data.get("total_matches_before_truncation"),
+            error=data.get("error"),
+            matches_stored_separately=bool(data.get("matches_stored_separately") or False),
+        )
 
     async def save(self, scan_result: ScanResult):
-        """Save scan result to Cosmos."""
-        try:
-            item = scan_result.dict()
-            item["id"] = scan_result.scan_id
-            await asyncio.to_thread(
-                self.container.upsert_item,
-                body=item
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO cve_scans (
+                    scan_id, status, started_at, completed_at,
+                    total_vms, scanned_vms, total_matches, matches,
+                    vm_match_summaries, vm_installed_kbs, vm_installed_packages,
+                    vm_os_family, truncated, total_matches_before_truncation,
+                    matches_stored_separately, error, updated_at
+                ) VALUES (
+                    $1, $2, $3, $4,
+                    $5, $6, $7, $8::jsonb,
+                    $9::jsonb, $10::jsonb, $11::jsonb,
+                    $12::jsonb, $13, $14,
+                    $15, $16, NOW()
+                )
+                ON CONFLICT (scan_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    started_at = EXCLUDED.started_at,
+                    completed_at = EXCLUDED.completed_at,
+                    total_vms = EXCLUDED.total_vms,
+                    scanned_vms = EXCLUDED.scanned_vms,
+                    total_matches = EXCLUDED.total_matches,
+                    matches = EXCLUDED.matches,
+                    vm_match_summaries = EXCLUDED.vm_match_summaries,
+                    vm_installed_kbs = EXCLUDED.vm_installed_kbs,
+                    vm_installed_packages = EXCLUDED.vm_installed_packages,
+                    vm_os_family = EXCLUDED.vm_os_family,
+                    truncated = EXCLUDED.truncated,
+                    total_matches_before_truncation = EXCLUDED.total_matches_before_truncation,
+                    matches_stored_separately = EXCLUDED.matches_stored_separately,
+                    error = EXCLUDED.error,
+                    updated_at = NOW()
+                """,
+                scan_result.scan_id,
+                scan_result.status,
+                self._coerce_timestamp(scan_result.started_at),
+                self._coerce_timestamp(scan_result.completed_at),
+                scan_result.total_vms,
+                scan_result.scanned_vms,
+                scan_result.total_matches,
+                json.dumps([match.model_dump(mode="json") for match in scan_result.matches]),
+                json.dumps(scan_result.vm_match_summaries),
+                json.dumps(scan_result.vm_installed_kbs),
+                json.dumps(scan_result.vm_installed_packages),
+                json.dumps(scan_result.vm_os_family),
+                scan_result.truncated,
+                scan_result.total_matches_before_truncation,
+                scan_result.matches_stored_separately,
+                scan_result.error,
             )
-            logger.info(f"Saved scan result: {scan_result.scan_id}")
-        except Exception as e:
-            logger.error(f"Failed to save scan result {scan_result.scan_id}: {e}")
-            raise
+        logger.info(f"Saved scan result: {scan_result.scan_id}")
 
     async def get(self, scan_id: str) -> Optional[ScanResult]:
         """Get scan result by ID."""
-        try:
-            item = await asyncio.to_thread(
-                self.container.read_item,
-                item=scan_id,
-                partition_key=scan_id
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT scan_id, status, started_at, completed_at,
+                       total_vms, scanned_vms, total_matches, matches,
+                       vm_match_summaries, vm_installed_kbs, vm_installed_packages,
+                       vm_os_family, truncated, total_matches_before_truncation,
+                       error, matches_stored_separately
+                FROM cve_scans
+                WHERE scan_id = $1
+                """,
+                scan_id,
             )
-            return ScanResult(**item)
-        except Exception as e:
-            logger.debug(f"Scan {scan_id} not found: {e}")
-            return None
+        return self._row_to_scan_result(row) if row else None
 
     async def query(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-        """Execute Cosmos SQL query."""
-        try:
-            items = await asyncio.to_thread(
-                lambda: list(self.container.query_items(
-                    query=query,
-                    parameters=parameters,
-                    enable_cross_partition_query=True
-                ))
-            )
-            return items
-        except Exception as e:
-            logger.error(f"Query failed: {e}")
-            return []
+        args = [parameter.get("value") for parameter in (parameters or [])]
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(query, *args)
+        return [dict(row) for row in rows]
 
     async def get_status_summary(self, scan_id: str) -> Optional[Dict[str, Any]]:
         """Get a lightweight status projection for a scan using a point read."""
-        try:
-            item = await asyncio.to_thread(
-                self.container.read_item,
-                item=scan_id,
-                partition_key=scan_id,
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT scan_id, started_at, completed_at, status,
+                       total_vms, scanned_vms, total_matches, error
+                FROM cve_scans
+                WHERE scan_id = $1
+                """,
+                scan_id,
             )
-        except Exception as e:
-            logger.debug(f"Scan status summary for {scan_id} not found: {e}")
+        if row is None:
             return None
 
         return {
-            "scan_id": item.get("scan_id", scan_id),
-            "started_at": item.get("started_at"),
-            "completed_at": item.get("completed_at"),
-            "status": item.get("status", "pending"),
-            "total_vms": int(item.get("total_vms", 0) or 0),
-            "scanned_vms": int(item.get("scanned_vms", 0) or 0),
-            "total_matches": int(item.get("total_matches", 0) or 0),
-            "error": item.get("error"),
+            "scan_id": row["scan_id"],
+            "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+            "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+            "status": row["status"],
+            "total_vms": int(row["total_vms"] or 0),
+            "scanned_vms": int(row["scanned_vms"] or 0),
+            "total_matches": int(row["total_matches"] or 0),
+            "error": row["error"],
         }
 
     async def list_status_summaries(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent scans using a lightweight status projection."""
-        query = f"""
-        SELECT TOP {limit} VALUE {{
-            "scan_id": c.scan_id,
-            "started_at": c.started_at,
-            "completed_at": c.completed_at,
-            "status": c.status,
-            "total_vms": c.total_vms,
-            "scanned_vms": c.scanned_vms,
-            "total_matches": c.total_matches,
-            "error": c.error
-        }}
-        FROM c
-        ORDER BY c.started_at DESC
-        """
-        return await self.query(query)
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT scan_id, status, started_at, completed_at,
+                       total_vms, scanned_vms, total_matches, matches,
+                       vm_match_summaries, vm_installed_kbs, vm_installed_packages,
+                       vm_os_family, truncated, total_matches_before_truncation,
+                       error, matches_stored_separately
+                FROM cve_scans
+                ORDER BY started_at DESC NULLS LAST
+                LIMIT $1
+                """,
+                limit,
+            )
+        return [self._row_to_scan_result(row).model_dump(mode="json") for row in rows]
 
     async def delete(self, scan_id: str) -> bool:
         """Delete scan result."""
-        try:
-            await asyncio.to_thread(
-                self.container.delete_item,
-                item=scan_id,
-                partition_key=scan_id
+        async with self.pool.acquire() as conn:
+            deleted = await conn.execute(
+                "DELETE FROM cve_scans WHERE scan_id = $1",
+                scan_id,
             )
-            logger.info(f"Deleted scan result: {scan_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete scan {scan_id}: {e}")
-            return False
+        logger.info(f"Deleted scan result: {scan_id}")
+        return deleted.endswith("1")
 
 
 class CVEScanner:
@@ -370,7 +432,7 @@ class CVEScanner:
     async def _execute_scan(self, scan_id: str, request: CVEScanRequest):
         """Execute CVE scan in background.
 
-        Updates scan status in Cosmos as it progresses.
+        Updates scan status in PostgreSQL as it progresses.
         """
         try:
             # Update status to running

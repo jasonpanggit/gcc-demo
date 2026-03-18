@@ -35,14 +35,21 @@ logger = get_logger(__name__)
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1a
 QUERY_DASHBOARD_SUMMARY = """
 SELECT total_cves, critical, high, medium, low,
-       age_0_7, age_8_30, age_31_90, age_over_90,
-       avg_cvss, max_cvss, last_updated
+       age_0_7, age_8_30, age_31_90, age_90_plus AS age_over_90,
+       NULL::numeric AS avg_cvss,
+       NULL::numeric AS max_cvss,
+       last_updated
 FROM mv_cve_dashboard_summary;
 """
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1b
 QUERY_TRENDING = """
-SELECT bucket_date, total_count, critical_count, high_count, medium_count, low_count
+SELECT bucket_date,
+       cve_count AS total_count,
+       critical_count,
+       high_count,
+       0::bigint AS medium_count,
+       0::bigint AS low_count
 FROM mv_cve_trending
 WHERE bucket_date >= $1
 ORDER BY bucket_date ASC;
@@ -50,9 +57,15 @@ ORDER BY bucket_date ASC;
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1c
 QUERY_TOP_BY_SCORE = """
-SELECT cve_id, description, cvss_v3_score, severity, affected_vms, published_at
-FROM mv_cve_top_by_score
-ORDER BY cvss_v3_score DESC
+SELECT score.cve_id,
+       score.description,
+       score.cvss_v3_score,
+       score.severity,
+       COALESCE(exposure.affected_vms, 0) AS affected_vms,
+       score.published_at
+FROM mv_cve_top_by_score score
+LEFT JOIN mv_cve_exposure exposure ON exposure.cve_id = score.cve_id
+ORDER BY score.cvss_v3_score DESC
 LIMIT $1;
 """
 
@@ -117,12 +130,20 @@ INSERT INTO cves (
 
 UPSERT_KB_CVE_EDGE = """
 INSERT INTO kb_cve_edges (
-    kb_number, cve_id, source, severity, title, fixed_version, last_seen, cached_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    kb_number, cve_id, source, os_family, advisory_id,
+    affected_pkgs, fixed_pkgs, update_id, document_title, cvrf_url,
+    published_date, severity, last_seen, cached_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
 ON CONFLICT (kb_number, cve_id, source) DO UPDATE SET
+    os_family = COALESCE(EXCLUDED.os_family, kb_cve_edges.os_family),
+    advisory_id = COALESCE(EXCLUDED.advisory_id, kb_cve_edges.advisory_id),
+    affected_pkgs = COALESCE(EXCLUDED.affected_pkgs, kb_cve_edges.affected_pkgs),
+    fixed_pkgs = COALESCE(EXCLUDED.fixed_pkgs, kb_cve_edges.fixed_pkgs),
+    update_id = COALESCE(EXCLUDED.update_id, kb_cve_edges.update_id),
+    document_title = COALESCE(EXCLUDED.document_title, kb_cve_edges.document_title),
+    cvrf_url = COALESCE(EXCLUDED.cvrf_url, kb_cve_edges.cvrf_url),
+    published_date = COALESCE(EXCLUDED.published_date, kb_cve_edges.published_date),
     severity = COALESCE(EXCLUDED.severity, kb_cve_edges.severity),
-    title = COALESCE(EXCLUDED.title, kb_cve_edges.title),
-    fixed_version = COALESCE(EXCLUDED.fixed_version, kb_cve_edges.fixed_version),
     last_seen = EXCLUDED.last_seen,
     cached_at = NOW();
 """
@@ -342,14 +363,25 @@ class CVERepository:
         count = 0
         async with self.pool.acquire() as conn:
             for edge in edges:
+                fixed_packages = edge.get("fixed_pkgs") or edge.get("fixed_packages")
+                fixed_version = edge.get("fixed_version")
+                if fixed_packages is None and fixed_version:
+                    fixed_packages = [fixed_version]
+
                 await conn.execute(
                     UPSERT_KB_CVE_EDGE,
                     edge.get("kb_number"),
                     edge.get("cve_id"),
                     edge.get("source", "microsoft"),
+                    edge.get("os_family", "windows"),
+                    edge.get("advisory_id") or edge.get("kb_number"),
+                    edge.get("affected_pkgs") or edge.get("affected_packages"),
+                    fixed_packages,
+                    edge.get("update_id"),
+                    edge.get("document_title") or edge.get("title"),
+                    edge.get("cvrf_url"),
+                    edge.get("published_date"),
                     edge.get("severity"),
-                    edge.get("title"),
-                    edge.get("fixed_version"),
                     edge.get("last_seen"),
                 )
                 count += 1

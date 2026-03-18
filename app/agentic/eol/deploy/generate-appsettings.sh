@@ -121,10 +121,15 @@ generate_appsettings() {
     local azure_openai_endpoint=$(jq -r '.agentic_aoai_endpoint.value // "NOT_SET"' "$tf_outputs")
     local azure_openai_deployment=$(jq -r '.agentic_aoai_deployment_name.value // "NOT_SET"' "$tf_outputs")
     local azure_openai_api_version="2024-08-01-preview"
+    local postgres_host="${PGHOST:-${POSTGRES_HOST:-NOT_SET}}"
+    local postgres_port="${PGPORT:-${POSTGRES_PORT:-5432}}"
+    local postgres_database="${PGDATABASE:-${POSTGRES_DATABASE:-eol_app}}"
+    local postgres_username="${PGUSER:-${POSTGRES_USERNAME:-NOT_SET}}"
+    local postgres_use_managed_identity="${POSTGRES_USE_MANAGED_IDENTITY:-true}"
+    local postgres_ssl_mode="${PGSSLMODE:-${POSTGRES_SSL_MODE:-require}}"
+    local postgres_min_pool_size="${PG_MIN_POOL_SIZE:-${POSTGRES_MIN_POOL_SIZE:-2}}"
+    local postgres_max_pool_size="${PG_MAX_POOL_SIZE:-${POSTGRES_MAX_POOL_SIZE:-20}}"
     local log_analytics_workspace_id=$(jq -r '.log_analytics_workspace_guid.value // .log_analytics_workspace_id.value // "NOT_SET"' "$tf_outputs")
-    local cosmos_db_endpoint=$(jq -r '(.agentic_cosmos_db_endpoint.value // .cosmos_db_endpoint.value) // "NOT_SET"' "$tf_outputs")
-    local cosmos_db_database=$(jq -r '(.agentic_cosmos_db_database_name.value // .cosmos_db_database_name.value) // "NOT_SET"' "$tf_outputs")
-    local cosmos_db_container=$(jq -r '(.agentic_cosmos_db_container_name.value // .cosmos_db_container_name.value) // "NOT_SET"' "$tf_outputs")
     local managed_identity_client_id=$(jq -r '.agentic_app_principal_id.value // "NOT_SET"' "$tf_outputs")
     local environment=$(jq -r '.environment.value // "production"' "$tf_outputs")
     
@@ -226,10 +231,15 @@ generate_appsettings() {
       "Deployment": "${azure_openai_deployment}",
       "ApiVersion": "${azure_openai_api_version}"
     },
-    "CosmosDB": {
-      "Endpoint": "${cosmos_db_endpoint}",
-      "Database": "${cosmos_db_database}",
-      "Container": "${cosmos_db_container}"
+    "PostgreSQL": {
+      "Host": "${postgres_host}",
+      "Port": ${postgres_port},
+      "Database": "${postgres_database}",
+      "Username": "${postgres_username}",
+      "UseManagedIdentity": ${postgres_use_managed_identity},
+      "SslMode": "${postgres_ssl_mode}",
+      "MinPoolSize": ${postgres_min_pool_size},
+      "MaxPoolSize": ${postgres_max_pool_size}
     },
     "LogAnalytics": {
       "WorkspaceId": "${log_analytics_workspace_id}"

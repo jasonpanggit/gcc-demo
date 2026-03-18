@@ -751,9 +751,9 @@ async def get_vm_cve_match_repository():
     """Get or create VM CVE match repository singleton."""
     global _vm_cve_match_repository
     if _vm_cve_match_repository is None:
-        from utils.vm_cve_match_repository import VMCVEMatchRepository
+        from utils.vm_cve_match_repository_pg import VMCVEMatchRepositoryPG
 
-        _vm_cve_match_repository = VMCVEMatchRepository(
+        _vm_cve_match_repository = VMCVEMatchRepositoryPG(
             pool=postgres_client.pool,
         )
         await _vm_cve_match_repository.initialize()
@@ -1002,16 +1002,7 @@ async def _run_startup_tasks():
 
         # Initialize asyncpg connection pool for PostgreSQL repositories
         try:
-            pg_dsn = os.environ.get("DATABASE_URL")
-            if not pg_dsn:
-                # Construct from individual env vars
-                pg_host = os.environ.get("PGHOST", "localhost")
-                pg_port = os.environ.get("PGPORT", "5432")
-                pg_db = os.environ.get("PGDATABASE", "eol")
-                pg_user = os.environ.get("PGUSER", "eol")
-                pg_pass = os.environ.get("PGPASSWORD", "")
-                pg_dsn = f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
-            await postgres_client.initialize(dsn=pg_dsn)
+            await postgres_client.initialize()
             from utils.pg_database import PostgresDatabaseManager
 
             schema_manager = PostgresDatabaseManager(postgres_client.pool)

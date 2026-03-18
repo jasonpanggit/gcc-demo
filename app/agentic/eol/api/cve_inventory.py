@@ -16,10 +16,12 @@ try:
     from utils.response_models import StandardResponse
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
+    from utils.repository_state import get_or_init_repository
 except ModuleNotFoundError:
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
+    from app.agentic.eol.utils.repository_state import get_or_init_repository
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Inventory"])
@@ -41,8 +43,8 @@ async def _build_vm_vulnerability_response(
     Eliminates BH-003 (dual Arc+Azure parallel lookup) by using inventory_repo.get_vm_by_id()
     and cve_repo.get_vm_cve_matches() directly.
     """
-    cve_repo = request.app.state.cve_repo
-    inventory_repo = request.app.state.inventory_repo
+    cve_repo = get_or_init_repository(request.app, "cve_repo")
+    inventory_repo = get_or_init_repository(request.app, "inventory_repo")
 
     # Fetch VM metadata from inventory_repo PK lookup
     vm_data = await inventory_repo.get_vm_by_id(vm_id)

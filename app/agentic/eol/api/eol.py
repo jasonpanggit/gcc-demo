@@ -239,7 +239,11 @@ async def reapply_os_extraction_rules(request: OSExtractionReapplyRequest):
 
 @router.get("/api/eol", response_model=StandardResponse)
 @standard_endpoint(agent_name="eol_search", timeout_seconds=30)
-async def get_eol(name: str, version: Optional[str] = None):
+async def get_eol(
+    name: Optional[str] = None,
+    software: Optional[str] = None,
+    version: Optional[str] = None
+):
     """
     Get EOL data using multi-agent system with prioritized sources.
     
@@ -274,13 +278,18 @@ async def get_eol(name: str, version: Optional[str] = None):
             "timestamp": "2025-10-15T10:45:00Z"
         }
     """
-    eol_data = await _get_eol_orchestrator().get_eol_data(name, version)
+    # Support both 'name' and 'software' parameters for backwards compatibility
+    software_name = name or software
+    if not software_name:
+        raise HTTPException(status_code=422, detail="Either 'name' or 'software' parameter is required")
+
+    eol_data = await _get_eol_orchestrator().get_eol_data(software_name, version)
 
     if not eol_data.get("data"):
-        raise HTTPException(status_code=404, detail=f"No EOL data found for {name}")
+        raise HTTPException(status_code=404, detail=f"No EOL data found for {software_name}")
 
     return {
-        "software_name": name,
+        "software_name": software_name,
         "version": version,
         "primary_source": eol_data.get("primary_source") or eol_data.get("agent_used") or "unknown",
         "eol_data": eol_data["data"],

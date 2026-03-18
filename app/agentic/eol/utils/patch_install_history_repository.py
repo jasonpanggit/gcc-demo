@@ -1,10 +1,12 @@
 """Patch install history persistence for MTTP analytics."""
 from __future__ import annotations
 
-import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import asyncpg
 
 try:
     from utils.logging_config import get_logger
@@ -26,101 +28,171 @@ def _make_record_id(operation_url: str) -> str:
 class PatchInstallHistoryRepository:
     """Persist patch install operation state and completed outcomes."""
 
-    def __init__(self, cosmos_client, database_name: str, container_name: str):
-        self.cosmos_client = cosmos_client
-        self.database_name = database_name
-        self.container_name = container_name
-        self.container = None
+    def __init__(self, pool: asyncpg.Pool):
+        self.pool = pool
 
     async def initialize(self):
-        database = self.cosmos_client.get_database_client(self.database_name)
-        self.container = database.get_container_client(self.container_name)
-        logger.info("PatchInstallHistoryRepository initialized: %s", self.container_name)
+        logger.info("PatchInstallHistoryRepository initialized with PostgreSQL")
+
+    @staticmethod
+    def _coerce_timestamp(value: Any) -> Optional[datetime]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            normalized = value.replace("Z", "+00:00")
+            try:
+                parsed = datetime.fromisoformat(normalized)
+            except ValueError:
+                return None
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return None
+
+    @staticmethod
+    def _row_to_item(row: asyncpg.Record) -> Dict[str, Any]:
+        item = dict(row)
+        item.setdefault("classifications", [])
+        item.setdefault("requested_patch_ids", [])
+        item.setdefault("patches", [])
+        item["id"] = item.get("install_id")
+        return item
 
     async def upsert_pending(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         now = _utc_now_iso()
-        item = {
-            "id": _make_record_id(payload["operation_url"]),
-            "record_type": "patch_install",
-            "operation_url": payload["operation_url"],
-            "machine_name": payload.get("machine_name"),
-            "subscription_id": payload.get("subscription_id") or "unknown",
-            "resource_group": payload.get("resource_group"),
-            "vm_type": payload.get("vm_type") or "arc",
-            "os_type": payload.get("os_type"),
-            "classifications": payload.get("classifications") or [],
-            "requested_patch_ids": payload.get("requested_patch_ids") or [],
-            "status": payload.get("status") or "InProgress",
-            "is_done": False,
-            "installed_patch_count": 0,
-            "failed_patch_count": 0,
-            "pending_patch_count": 0,
-            "patches": [],
-            "start_date_time": payload.get("start_date_time"),
-            "completed_at": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        existing = await self.get_by_operation_url(payload["operation_url"])
-        if existing:
-            item["created_at"] = existing.get("created_at", now)
-            item.update({k: v for k, v in existing.items() if k not in {"updated_at", "status", "is_done", "patches", "installed_patch_count", "failed_patch_count", "pending_patch_count", "completed_at"}})
-            item.update({k: v for k, v in payload.items() if v is not None})
-            item["updated_at"] = now
-
-        await asyncio.to_thread(self.container.upsert_item, body=item)
-        return item
+        install_id = _make_record_id(payload["operation_url"])
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO patch_installs (
+                    install_id, resource_id, operation_url, machine_name,
+                    subscription_id, resource_group, vm_type, os_type,
+                    classifications, requested_patch_ids, status, is_done,
+                    installed_patch_count, failed_patch_count, pending_patch_count,
+                    patches, start_date_time, completed_at, reboot_status,
+                    maintenance_window_exceeded, error, created_at, updated_at
+                ) VALUES (
+                    $1, $2, $3, $4,
+                    $5, $6, $7, $8,
+                    $9, $10, $11, FALSE,
+                    0, 0, 0,
+                    $12::jsonb, $13, NULL, NULL,
+                    FALSE, NULL, NOW(), NOW()
+                )
+                ON CONFLICT (operation_url) DO UPDATE SET
+                    resource_id = COALESCE(EXCLUDED.resource_id, patch_installs.resource_id),
+                    machine_name = COALESCE(EXCLUDED.machine_name, patch_installs.machine_name),
+                    subscription_id = COALESCE(EXCLUDED.subscription_id, patch_installs.subscription_id),
+                    resource_group = COALESCE(EXCLUDED.resource_group, patch_installs.resource_group),
+                    vm_type = COALESCE(EXCLUDED.vm_type, patch_installs.vm_type),
+                    os_type = COALESCE(EXCLUDED.os_type, patch_installs.os_type),
+                    classifications = COALESCE(EXCLUDED.classifications, patch_installs.classifications),
+                    requested_patch_ids = COALESCE(EXCLUDED.requested_patch_ids, patch_installs.requested_patch_ids),
+                    status = COALESCE(EXCLUDED.status, patch_installs.status),
+                    start_date_time = COALESCE(EXCLUDED.start_date_time, patch_installs.start_date_time),
+                    updated_at = NOW()
+                RETURNING install_id, resource_id, operation_url, machine_name,
+                          subscription_id, resource_group, vm_type, os_type,
+                          classifications, requested_patch_ids, status, is_done,
+                          installed_patch_count, failed_patch_count, pending_patch_count,
+                          patches, start_date_time, completed_at, reboot_status,
+                          maintenance_window_exceeded, error, created_at, updated_at
+                """,
+                install_id,
+                payload.get("resource_id"),
+                payload["operation_url"],
+                payload.get("machine_name"),
+                payload.get("subscription_id") or "unknown",
+                payload.get("resource_group"),
+                payload.get("vm_type") or "arc",
+                payload.get("os_type"),
+                payload.get("classifications") or [],
+                payload.get("requested_patch_ids") or [],
+                payload.get("status") or "InProgress",
+                json.dumps([]),
+                self._coerce_timestamp(payload.get("start_date_time")),
+            )
+        return self._row_to_item(row)
 
     async def mark_completed(self, operation_url: str, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        existing = await self.get_by_operation_url(operation_url)
-        if not existing:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE patch_installs
+                SET status = COALESCE($2, status, 'Unknown'),
+                    is_done = TRUE,
+                    installed_patch_count = COALESCE($3, 0),
+                    failed_patch_count = COALESCE($4, 0),
+                    pending_patch_count = COALESCE($5, 0),
+                    patches = $6::jsonb,
+                    start_date_time = COALESCE($7, start_date_time),
+                    completed_at = COALESCE($8, start_date_time, completed_at, NOW()),
+                    updated_at = NOW(),
+                    reboot_status = $9,
+                    maintenance_window_exceeded = COALESCE($10, FALSE),
+                    error = $11
+                WHERE operation_url = $1
+                RETURNING install_id, resource_id, operation_url, machine_name,
+                          subscription_id, resource_group, vm_type, os_type,
+                          classifications, requested_patch_ids, status, is_done,
+                          installed_patch_count, failed_patch_count, pending_patch_count,
+                          patches, start_date_time, completed_at, reboot_status,
+                          maintenance_window_exceeded, error, created_at, updated_at
+                """,
+                operation_url,
+                result.get("status"),
+                result.get("installed_patch_count", 0) or 0,
+                result.get("failed_patch_count", 0) or 0,
+                result.get("pending_patch_count", 0) or 0,
+                json.dumps(result.get("patches") or []),
+                self._coerce_timestamp(result.get("start_date_time")),
+                self._coerce_timestamp(result.get("last_modified") or result.get("start_date_time")),
+                result.get("reboot_status"),
+                result.get("maintenance_window_exceeded", False),
+                result.get("error"),
+            )
+        if row is None:
             logger.warning("No pending patch install record found for operation_url")
             return None
-
-        now = _utc_now_iso()
-        existing.update({
-            "status": result.get("status") or existing.get("status") or "Unknown",
-            "is_done": True,
-            "installed_patch_count": result.get("installed_patch_count", 0) or 0,
-            "failed_patch_count": result.get("failed_patch_count", 0) or 0,
-            "pending_patch_count": result.get("pending_patch_count", 0) or 0,
-            "patches": result.get("patches") or [],
-            "start_date_time": result.get("start_date_time") or existing.get("start_date_time"),
-            "completed_at": result.get("last_modified") or result.get("start_date_time") or now,
-            "updated_at": now,
-            "reboot_status": result.get("reboot_status"),
-            "maintenance_window_exceeded": result.get("maintenance_window_exceeded", False),
-            "error": result.get("error"),
-        })
-        await asyncio.to_thread(self.container.upsert_item, body=existing)
-        return existing
+        return self._row_to_item(row)
 
     async def get_by_operation_url(self, operation_url: str) -> Optional[Dict[str, Any]]:
-        query = "SELECT * FROM c WHERE c.operation_url = @operation_url"
-        items = await asyncio.to_thread(
-            lambda: list(self.container.query_items(
-                query=query,
-                parameters=[{"name": "@operation_url", "value": operation_url}],
-                enable_cross_partition_query=True,
-            ))
-        )
-        return items[0] if items else None
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT install_id, resource_id, operation_url, machine_name,
+                       subscription_id, resource_group, vm_type, os_type,
+                       classifications, requested_patch_ids, status, is_done,
+                       installed_patch_count, failed_patch_count, pending_patch_count,
+                       patches, start_date_time, completed_at, reboot_status,
+                       maintenance_window_exceeded, error, created_at, updated_at
+                FROM patch_installs
+                WHERE operation_url = $1
+                LIMIT 1
+                """,
+                operation_url,
+            )
+        return self._row_to_item(row) if row else None
 
     async def list_completed_since(self, cutoff_iso: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = ["SELECT * FROM c WHERE c.record_type = 'patch_install' AND c.is_done = true"]
-        parameters: List[Dict[str, Any]] = []
-        if cutoff_iso:
-            query.append("AND c.completed_at >= @cutoff_iso")
-            parameters.append({"name": "@cutoff_iso", "value": cutoff_iso})
-        query.append("ORDER BY c.completed_at DESC")
-
-        return await asyncio.to_thread(
-            lambda: list(self.container.query_items(
-                query=" ".join(query),
-                parameters=parameters,
-                enable_cross_partition_query=True,
-            ))
-        )
+        cutoff = self._coerce_timestamp(cutoff_iso)
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT install_id, resource_id, operation_url, machine_name,
+                       subscription_id, resource_group, vm_type, os_type,
+                       classifications, requested_patch_ids, status, is_done,
+                       installed_patch_count, failed_patch_count, pending_patch_count,
+                       patches, start_date_time, completed_at, reboot_status,
+                       maintenance_window_exceeded, error, created_at, updated_at
+                FROM patch_installs
+                WHERE is_done = TRUE
+                  AND ($1::timestamptz IS NULL OR completed_at >= $1)
+                ORDER BY completed_at DESC NULLS LAST, updated_at DESC
+                """,
+                cutoff,
+            )
+        return [self._row_to_item(row) for row in rows]
 
 
 class InMemoryPatchInstallHistoryRepository:

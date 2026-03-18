@@ -473,11 +473,15 @@ class OSInventoryAgent:
                             f"ResourceId='{resource_id}'"
                         )
 
+                    # Normalize OS name and version for consistent display and EOL lookups
+                    from utils.normalization import normalize_os_record
+                    normalized = normalize_os_record(os_name, version, os_type)
+
                     results.append({
                         "computer_name": computer,
-                        "os_name": os_name,
-                        "os_version": version,
-                        "os_type": os_type,
+                        "os_name": normalized["os_name"],  # Display-friendly name
+                        "os_version": normalized["os_version"],  # Display-friendly version
+                        "os_type": normalized["os_type"],
                         "vendor": vendor,
                         "computer_environment": computer_environment,
                         "computer_type": computer_type,
@@ -485,10 +489,15 @@ class OSInventoryAgent:
                         "resource_id": resource_id,
                         "last_heartbeat": last_hb,
                         "source": "log_analytics_heartbeat",
+                        # Normalized fields for EOL lookups
+                        "normalized_os_name": normalized["normalized_os_name"],
+                        "normalized_os_version": normalized["normalized_os_version"],
+                        "raw_os_name": normalized["raw_os_name"],
+                        "raw_os_version": normalized["raw_os_version"],
                         # backward-compatibility fields if UI consumes in a generic way
                         "computer": computer,
-                        "name": os_name,
-                        "version": version,
+                        "name": normalized["os_name"],
+                        "version": normalized["os_version"],
                         "software_type": "operating system",
                     })
                 except Exception as row_err:

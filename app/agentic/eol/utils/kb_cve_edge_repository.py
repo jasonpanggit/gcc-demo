@@ -1,9 +1,10 @@
 """Persistence for canonical KB-to-CVE reverse mappings."""
 from __future__ import annotations
 
-import asyncio
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
+import asyncpg
 
 try:
     from models.cve_models import KBCVEEdge, PatchAdvisoryEdge, UnifiedCVE
@@ -63,7 +64,7 @@ def _build_edges_for_cve(cve: UnifiedCVE) -> List[KBCVEEdge]:
 
     return [
         KBCVEEdge(
-            id=f"{kb_number}:{cve.cve_id.upper()}",
+            id=f"microsoft:{kb_number}:{cve.cve_id.upper()}",
             kb_number=kb_number,
             cve_id=cve.cve_id.upper(),
             advisory_id=advisory_id,
@@ -78,67 +79,148 @@ def _build_edges_for_cve(cve: UnifiedCVE) -> List[KBCVEEdge]:
 
 
 class KBCVEEdgeRepository:
-    """Cosmos-backed repository for reverse KB-to-CVE edges."""
+    """PostgreSQL-backed repository for reverse KB-to-CVE edges."""
 
-    def __init__(self, cosmos_client, database_name: str, container_name: str):
-        self.cosmos_client = cosmos_client
-        self.database_name = database_name
-        self.container_name = container_name
-        self.container = None
+    def __init__(self, pool: asyncpg.Pool):
+        self.pool = pool
 
     async def initialize(self):
-        database = self.cosmos_client.get_database_client(self.database_name)
-        self.container = database.get_container_client(self.container_name)
-        logger.info("KBCVEEdgeRepository initialized: %s", self.container_name)
+        logger.info("KBCVEEdgeRepository initialized with PostgreSQL")
+
+    @staticmethod
+    def _edge_id(kb_number: str, cve_id: str, source: str) -> str:
+        return f"{source}:{kb_number}:{cve_id.upper()}"
+
+    @staticmethod
+    def _normalize_source_os_family(source: str, os_family: Optional[str]) -> str:
+        if os_family:
+            return os_family
+        return "windows" if source == "microsoft" else source
+
+    @classmethod
+    def _row_to_edge(cls, row: asyncpg.Record) -> PatchAdvisoryEdge:
+        source = row["source"]
+        kb_number = row["kb_number"]
+        cve_id = row["cve_id"].upper()
+        return PatchAdvisoryEdge(
+            id=cls._edge_id(kb_number, cve_id, source),
+            kb_number=kb_number,
+            cve_id=cve_id,
+            source=source,
+            os_family=cls._normalize_source_os_family(source, row["os_family"]),
+            advisory_id=row["advisory_id"] or kb_number,
+            affected_packages=row["affected_pkgs"],
+            fixed_packages=row["fixed_pkgs"],
+            update_id=row["update_id"],
+            document_title=row["document_title"],
+            cvrf_url=row["cvrf_url"],
+            severity=row["severity"],
+            published_date=row["published_date"],
+            last_seen=row["last_seen"] or datetime.now(timezone.utc),
+        )
+
+    async def _upsert_edges(self, edges: List[PatchAdvisoryEdge]) -> int:
+        if not edges:
+            return 0
+
+        async with self.pool.acquire() as conn:
+            for edge in edges:
+                if not edge.id:
+                    edge.id = self._edge_id(edge.kb_number, edge.cve_id, edge.source)
+                await conn.execute(
+                    """
+                    INSERT INTO kb_cve_edges (
+                        kb_number, cve_id, source, os_family, advisory_id,
+                        affected_pkgs, fixed_pkgs, update_id, document_title,
+                        cvrf_url, published_date, severity, last_seen, cached_at
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, $8, $9,
+                        $10, $11, $12, $13, NOW()
+                    )
+                    ON CONFLICT (kb_number, cve_id, source) DO UPDATE SET
+                        os_family = COALESCE(EXCLUDED.os_family, kb_cve_edges.os_family),
+                        advisory_id = COALESCE(EXCLUDED.advisory_id, kb_cve_edges.advisory_id),
+                        affected_pkgs = COALESCE(EXCLUDED.affected_pkgs, kb_cve_edges.affected_pkgs),
+                        fixed_pkgs = COALESCE(EXCLUDED.fixed_pkgs, kb_cve_edges.fixed_pkgs),
+                        update_id = COALESCE(EXCLUDED.update_id, kb_cve_edges.update_id),
+                        document_title = COALESCE(EXCLUDED.document_title, kb_cve_edges.document_title),
+                        cvrf_url = COALESCE(EXCLUDED.cvrf_url, kb_cve_edges.cvrf_url),
+                        published_date = COALESCE(EXCLUDED.published_date, kb_cve_edges.published_date),
+                        severity = COALESCE(EXCLUDED.severity, kb_cve_edges.severity),
+                        last_seen = EXCLUDED.last_seen,
+                        cached_at = NOW()
+                    """,
+                    edge.kb_number,
+                    edge.cve_id.upper(),
+                    edge.source,
+                    edge.os_family,
+                    edge.advisory_id or edge.kb_number,
+                    edge.affected_packages,
+                    edge.fixed_packages,
+                    edge.update_id,
+                    edge.document_title,
+                    edge.cvrf_url,
+                    edge.published_date,
+                    edge.severity,
+                    edge.last_seen,
+                )
+        return len(edges)
 
     async def sync_cve_edges(self, cve: UnifiedCVE) -> List[KBCVEEdge]:
         desired_edges = _build_edges_for_cve(cve)
         desired_ids = {edge.id for edge in desired_edges}
-        existing_edges = await self.list_edges_for_cve(cve.cve_id)
+        existing_edges = await self.get_advisories_for_cve(cve.cve_id, source="microsoft")
 
-        for edge in existing_edges:
-            if edge.id in desired_ids:
-                continue
-            await asyncio.to_thread(
-                self.container.delete_item,
-                item=edge.id,
-                partition_key=edge.kb_number,
-            )
+        stale_edges = [edge for edge in existing_edges if edge.id not in desired_ids]
 
-        for edge in desired_edges:
-            await asyncio.to_thread(self.container.upsert_item, edge.model_dump(mode="json"))
+        async with self.pool.acquire() as conn:
+            for edge in stale_edges:
+                await conn.execute(
+                    "DELETE FROM kb_cve_edges WHERE kb_number = $1 AND cve_id = $2 AND source = $3",
+                    edge.kb_number,
+                    edge.cve_id.upper(),
+                    edge.source,
+                )
+
+        await self._upsert_edges(desired_edges)
 
         return desired_edges
 
     async def list_edges_for_cve(self, cve_id: str) -> List[KBCVEEdge]:
-        query = "SELECT * FROM c WHERE c.cve_id = @cve_id"
-        items = await asyncio.to_thread(
-            lambda: list(
-                self.container.query_items(
-                    query=query,
-                    parameters=[{"name": "@cve_id", "value": cve_id.upper()}],
-                    enable_cross_partition_query=True,
-                )
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT kb_number, cve_id, source, os_family, advisory_id,
+                       affected_pkgs, fixed_pkgs, update_id, document_title,
+                       cvrf_url, published_date, severity, last_seen
+                FROM kb_cve_edges
+                WHERE cve_id = $1
+                ORDER BY source, kb_number
+                """,
+                cve_id.upper(),
             )
-        )
-        return [KBCVEEdge(**item) for item in items]
+        return [self._row_to_edge(row) for row in rows]
 
     async def get_edges_for_kb(self, kb_number: str) -> List[KBCVEEdge]:
         normalized_kb = normalize_kb_id(kb_number)
         if not normalized_kb:
             return []
 
-        query = "SELECT * FROM c WHERE c.kb_number = @kb_number"
-        items = await asyncio.to_thread(
-            lambda: list(
-                self.container.query_items(
-                    query=query,
-                    parameters=[{"name": "@kb_number", "value": normalized_kb}],
-                    partition_key=normalized_kb,
-                )
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT kb_number, cve_id, source, os_family, advisory_id,
+                       affected_pkgs, fixed_pkgs, update_id, document_title,
+                       cvrf_url, published_date, severity, last_seen
+                FROM kb_cve_edges
+                WHERE kb_number = $1
+                ORDER BY cve_id
+                """,
+                normalized_kb,
             )
-        )
-        return [KBCVEEdge(**item) for item in items]
+        return [self._row_to_edge(row) for row in rows]
 
     async def get_cve_ids_for_kb(self, kb_number: str) -> List[str]:
         edges = await self.get_edges_for_kb(kb_number)
@@ -153,26 +235,21 @@ class KBCVEEdgeRepository:
 
         source: None = all sources, or "microsoft" | "redhat" | "ubuntu"
         """
-        if source:
-            query = "SELECT * FROM c WHERE c.cve_id = @cve_id AND c.source = @source"
-            params = [
-                {"name": "@cve_id", "value": cve_id.upper()},
-                {"name": "@source", "value": source},
-            ]
-        else:
-            query = "SELECT * FROM c WHERE c.cve_id = @cve_id"
-            params = [{"name": "@cve_id", "value": cve_id.upper()}]
-
-        items = await asyncio.to_thread(
-            lambda: list(
-                self.container.query_items(
-                    query=query,
-                    parameters=params,
-                    enable_cross_partition_query=True,
-                )
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT kb_number, cve_id, source, os_family, advisory_id,
+                       affected_pkgs, fixed_pkgs, update_id, document_title,
+                       cvrf_url, published_date, severity, last_seen
+                FROM kb_cve_edges
+                WHERE cve_id = $1
+                  AND ($2::text IS NULL OR source = $2)
+                ORDER BY source, kb_number
+                """,
+                cve_id.upper(),
+                source,
             )
-        )
-        return [PatchAdvisoryEdge(**item) for item in items]
+        return [self._row_to_edge(row) for row in rows]
 
     async def get_fixed_packages_for_cve(
         self,
@@ -197,19 +274,11 @@ class KBCVEEdgeRepository:
 
     async def upsert_linux_edges(self, edges: List[PatchAdvisoryEdge]) -> int:
         """Batch upsert Linux advisory edges. Returns count upserted."""
-        count = 0
-        for edge in edges:
-            if not edge.id:
-                edge.id = f"{edge.source}:{edge.kb_number}:{edge.cve_id}"
-            await asyncio.to_thread(
-                self.container.upsert_item, edge.model_dump(mode="json")
-            )
-            count += 1
-        return count
+        return await self._upsert_edges(edges)
 
     async def bulk_upsert(self, edges: List[PatchAdvisoryEdge]) -> int:
         """Batch upsert any edges (Windows or Linux). Returns count upserted."""
-        return await self.upsert_linux_edges(edges)
+        return await self._upsert_edges(edges)
 
 
 class InMemoryKBCVEEdgeRepository:

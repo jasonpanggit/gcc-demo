@@ -12,6 +12,15 @@
 -- ============================================================
 
 -- ============================================================
+-- SECTION 0: Schema guard — ensure eol_records has columns used in MV
+-- Handles DBs created before these columns were added to the bootstrap DDL
+-- ============================================================
+
+ALTER TABLE eol_records
+    ADD COLUMN IF NOT EXISTS is_eol   BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS eol_date DATE;
+
+-- ============================================================
 -- SECTION 1: FTS Infrastructure (bootstrap gap from migration 006)
 -- ============================================================
 

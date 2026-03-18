@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -263,60 +264,74 @@ async def sync_inventory_os_cves(
 
     targets = discovered if force_resync else [item for item in discovered if item["key"] not in synced_keys]
     processed: List[Dict[str, Any]] = []
-    total_cves = 0
 
-    for identity in targets:
-        live_queries = _build_inventory_live_queries(identity, limit_per_os)
+    # Parallel processing with concurrency limit
+    semaphore = asyncio.Semaphore(5)  # Max 5 concurrent OS fetches
 
-        try:
-            deduped_matches: Dict[str, Any] = {}
-            for live_query in live_queries:
-                matches = await cve_service.sync_live_cves(
-                    query=live_query["query"],
-                    limit=live_query["limit"],
-                    source=live_query["source"],
-                    nvd_filters=live_query["nvd_filters"],
-                )
-                for match in matches:
-                    deduped_matches[match.cve_id] = match
+    async def process_os_identity(identity: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a single OS identity with concurrency control and jitter."""
+        async with semaphore:
+            # Add random jitter (0.5-2.5 seconds) to spread out requests and avoid rate limiting
+            jitter = random.uniform(0.5, 2.5)
+            await asyncio.sleep(jitter)
 
-            match_count = len(deduped_matches)
-            total_cves += match_count
-            processed.append({
-                **identity,
-                "query_mode": live_queries[0]["mode"] if live_queries else "keyword",
-                "filters": live_queries[0]["filters"] if live_queries else {},
-                "live_queries": [
-                    {
-                        "mode": query_spec["mode"],
-                        "query": query_spec["query"],
-                        "source": query_spec["source"],
-                        "nvd_filters": query_spec["nvd_filters"],
-                    }
-                    for query_spec in live_queries
-                ],
-                "match_count": match_count,
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-            })
-        except Exception as exc:
-            logger.warning("Inventory OS CVE sync failed for %s: %s", identity["key"], exc)
-            processed.append({
-                **identity,
-                "query_mode": live_queries[0]["mode"] if live_queries else "keyword",
-                "filters": live_queries[0]["filters"] if live_queries else {},
-                "live_queries": [
-                    {
-                        "mode": query_spec["mode"],
-                        "query": query_spec["query"],
-                        "source": query_spec["source"],
-                        "nvd_filters": query_spec["nvd_filters"],
-                    }
-                    for query_spec in live_queries
-                ],
-                "match_count": 0,
-                "error": str(exc),
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-            })
+            live_queries = _build_inventory_live_queries(identity, limit_per_os)
+
+            try:
+                deduped_matches: Dict[str, Any] = {}
+                for live_query in live_queries:
+                    matches = await cve_service.sync_live_cves(
+                        query=live_query["query"],
+                        limit=live_query["limit"],
+                        source=live_query["source"],
+                        nvd_filters=live_query["nvd_filters"],
+                    )
+                    for match in matches:
+                        deduped_matches[match.cve_id] = match
+
+                match_count = len(deduped_matches)
+                return {
+                    **identity,
+                    "query_mode": live_queries[0]["mode"] if live_queries else "keyword",
+                    "filters": live_queries[0]["filters"] if live_queries else {},
+                    "live_queries": [
+                        {
+                            "mode": query_spec["mode"],
+                            "query": query_spec["query"],
+                            "source": query_spec["source"],
+                            "nvd_filters": query_spec["nvd_filters"],
+                        }
+                        for query_spec in live_queries
+                    ],
+                    "match_count": match_count,
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                }
+            except Exception as exc:
+                logger.warning("Inventory OS CVE sync failed for %s: %s", identity["key"], exc)
+                return {
+                    **identity,
+                    "query_mode": live_queries[0]["mode"] if live_queries else "keyword",
+                    "filters": live_queries[0]["filters"] if live_queries else {},
+                    "live_queries": [
+                        {
+                            "mode": query_spec["mode"],
+                            "query": query_spec["query"],
+                            "source": query_spec["source"],
+                            "nvd_filters": query_spec["nvd_filters"],
+                        }
+                        for query_spec in live_queries
+                    ],
+                    "match_count": 0,
+                    "error": str(exc),
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                }
+
+    # Execute all OS identity syncs in parallel with concurrency limit
+    if targets:
+        logger.info(f"Starting parallel CVE sync for {len(targets)} OS identities (max 5 concurrent)")
+        processed = await asyncio.gather(*[process_os_identity(identity) for identity in targets])
+
+    total_cves = sum(entry.get("match_count", 0) for entry in processed)
 
     updated_entries: Dict[str, Dict[str, Any]] = {
         entry.get("key"): entry for entry in state.get("os_entries") or [] if entry.get("key")

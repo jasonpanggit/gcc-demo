@@ -73,23 +73,38 @@ ORDER BY software_name;
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 10a
 QUERY_RESOURCE_LIST = """
-SELECT resource_id, name, resource_type, subscription_id, resource_group,
-       location, os_type, os_name, tags, last_synced_at,
-       eol_status, eol_date, eol_confidence
+SELECT id as resource_id, name, resource_type, subscription_id, resource_group,
+       location, normalized_os_name as os_name, properties->>'os_type' as os_type,
+       CASE
+         WHEN tags IS NULL THEN '{}'::jsonb
+         WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb
+         ELSE tags
+       END as tags,
+       discovered_at as last_synced_at,
+       eol_status, eol_date, risk_level as eol_confidence
 FROM resource_inventory
-WHERE ($1::text IS NULL OR subscription_id = $1)
-  AND ($2::text IS NULL OR LOWER(resource_type) = LOWER($2))
-  AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%')
+WHERE ($1::text IS NULL OR subscription_id = $1::text)
+  AND ($2::text IS NULL OR LOWER(resource_type) = LOWER($2::text))
+  AND ($3::text IS NULL OR name ILIKE '%' || $3::text || '%')
 ORDER BY name ASC
 LIMIT $4 OFFSET $5;
 """
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 10b
 QUERY_CACHE_STATUS = """
-SELECT subscription_id, resource_type, cached_at, expires_at, row_count
+SELECT subscription_id, resource_type, last_fetched_at as cached_at, expires_at, row_count
 FROM resource_inventory_cache_state
 WHERE expires_at > NOW()
-ORDER BY cached_at DESC;
+ORDER BY last_fetched_at DESC;
+"""
+
+# Query 10c -- Count resources with same filters as list query
+QUERY_RESOURCE_COUNT = """
+SELECT COUNT(*) AS total
+FROM resource_inventory
+WHERE ($1::text IS NULL OR subscription_id = $1::text)
+  AND ($2::text IS NULL OR LOWER(resource_type) = LOWER($2::text))
+  AND ($3::text IS NULL OR name ILIKE '%' || $3::text || '%');
 """
 
 # ---------------------------------------------------------------------------
@@ -242,6 +257,7 @@ class InventoryRepository:
         offset: int = 0,
     ) -> List[Dict]:
         """Query 10a -- Resource inventory list with filters."""
+        import json
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
@@ -252,10 +268,60 @@ class InventoryRepository:
                     limit,
                     offset,
                 )
-                return [dict(r) for r in rows]
+                # Parse JSON fields that might be strings
+                results = []
+                for r in rows:
+                    row_dict = dict(r)
+                    # Ensure tags is a dict, not a string
+                    tags_value = row_dict.get('tags')
+
+                    if tags_value:
+                        # Keep parsing until we get a dict (handles multiple layers of JSON encoding)
+                        max_iterations = 5
+                        iteration = 0
+                        while isinstance(tags_value, str) and iteration < max_iterations:
+                            try:
+                                tags_value = json.loads(tags_value)
+                                iteration += 1
+                            except (json.JSONDecodeError, TypeError) as e:
+                                logger.warning(f"Failed to parse tags for {row_dict.get('name')} at iteration {iteration}: {e}")
+                                tags_value = {}
+                                break
+
+                        # Ensure final result is a dict
+                        if isinstance(tags_value, dict):
+                            row_dict['tags'] = tags_value
+                        else:
+                            logger.warning(f"Tags for {row_dict.get('name')} is still {type(tags_value)} after parsing")
+                            row_dict['tags'] = {}
+                    else:
+                        # Null or missing tags
+                        row_dict['tags'] = {}
+                    results.append(row_dict)
+                return results
         except asyncpg.PostgresError as exc:
             logger.error("list_resources failed: %s", exc)
             return []
+
+    async def count_resources(
+        self,
+        subscription_id: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        name_search: Optional[str] = None,
+    ) -> int:
+        """Query 10c -- Count resources with same filters as list_resources."""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    QUERY_RESOURCE_COUNT,
+                    subscription_id,
+                    resource_type,
+                    name_search,
+                )
+                return row["total"] if row else 0
+        except asyncpg.PostgresError as exc:
+            logger.error("count_resources failed: %s", exc)
+            return 0
 
     async def get_cache_status(self) -> List[Dict]:
         """Query 10b -- Resource inventory cache freshness status."""

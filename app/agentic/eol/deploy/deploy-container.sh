@@ -213,13 +213,18 @@ OPENAI_ENDPOINT=$(jq -r '.AzureServices.OpenAI.Endpoint' "$APPSETTINGS_FILE")
 OPENAI_DEPLOYMENT=$(jq -r '.AzureServices.OpenAI.Deployment' "$APPSETTINGS_FILE")
 OPENAI_API_VERSION=$(jq -r '.AzureServices.OpenAI.ApiVersion' "$APPSETTINGS_FILE")
 OPENAI_EMBEDDING_DEPLOYMENT=$(jq -r '.AzureServices.OpenAI.EmbeddingDeployment // empty' "$APPSETTINGS_FILE")
-COSMOSDB_ENDPOINT=$(jq -r '.AzureServices.CosmosDB.Endpoint' "$APPSETTINGS_FILE")
-COSMOSDB_DATABASE=$(jq -r '.AzureServices.CosmosDB.Database' "$APPSETTINGS_FILE")
-COSMOSDB_CONTAINER=$(jq -r '.AzureServices.CosmosDB.Container' "$APPSETTINGS_FILE")
 LOG_WORKSPACE_ID=$(jq -r '.AzureServices.LogAnalytics.WorkspaceId' "$APPSETTINGS_FILE")
 AI_PROJECT_NAME=$(jq -r '.AzureServices.AIFoundry.ProjectName' "$APPSETTINGS_FILE")
 AI_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
 AI_PROJECT_ENDPOINT=$(jq -r '.AzureServices.AIFoundry.ProjectEndpoint // .AzureServices.AIFoundry.Endpoint' "$APPSETTINGS_FILE")
+POSTGRES_HOST=$(jq -r '.AzureServices.PostgreSQL.Host // empty' "$APPSETTINGS_FILE")
+POSTGRES_PORT=$(jq -r '.AzureServices.PostgreSQL.Port // 5432' "$APPSETTINGS_FILE")
+POSTGRES_DATABASE=$(jq -r '.AzureServices.PostgreSQL.Database // "eol"' "$APPSETTINGS_FILE")
+POSTGRES_USERNAME=$(jq -r '.AzureServices.PostgreSQL.Username // empty' "$APPSETTINGS_FILE")
+POSTGRES_USE_MANAGED_IDENTITY=$(jq -r '.AzureServices.PostgreSQL.UseManagedIdentity // false' "$APPSETTINGS_FILE")
+POSTGRES_SSL_MODE=$(jq -r '.AzureServices.PostgreSQL.SslMode // "require"' "$APPSETTINGS_FILE")
+POSTGRES_MIN_POOL_SIZE=$(jq -r '.AzureServices.PostgreSQL.MinPoolSize // 2' "$APPSETTINGS_FILE")
+POSTGRES_MAX_POOL_SIZE=$(jq -r '.AzureServices.PostgreSQL.MaxPoolSize // 10' "$APPSETTINGS_FILE")
 PLAYWRIGHT_LLM_EXTRACTION=$(jq -r '.AppSettings.PlaywrightLLMExtraction // "false"' "$APPSETTINGS_FILE")
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
@@ -281,13 +286,24 @@ if [[ -n "$OPENAI_EMBEDDING_DEPLOYMENT" ]] && [[ "$OPENAI_EMBEDDING_DEPLOYMENT" 
     ENV_VARS="$ENV_VARS AZURE_OPENAI_EMBEDDING_DEPLOYMENT=$OPENAI_EMBEDDING_DEPLOYMENT"
     echo "✅ OpenAI embedding deployment configured: $OPENAI_EMBEDDING_DEPLOYMENT"
 fi
-ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_ENDPOINT=$COSMOSDB_ENDPOINT"
-ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_DATABASE=$COSMOSDB_DATABASE"
-ENV_VARS="$ENV_VARS AZURE_COSMOS_DB_CONTAINER=$COSMOSDB_CONTAINER"
 ENV_VARS="$ENV_VARS LOG_ANALYTICS_WORKSPACE_ID=$LOG_WORKSPACE_ID"
 ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_NAME=$AI_PROJECT_NAME"
 ENV_VARS="$ENV_VARS AZURE_AI_ENDPOINT=$AI_ENDPOINT"
 ENV_VARS="$ENV_VARS AZURE_AI_PROJECT_ENDPOINT=$AI_PROJECT_ENDPOINT"
+
+if [[ -n "$POSTGRES_HOST" ]] && [[ "$POSTGRES_HOST" != "null" ]] && [[ "$POSTGRES_HOST" != "NOT_SET" ]]; then
+    ENV_VARS="$ENV_VARS PGHOST=$POSTGRES_HOST"
+    ENV_VARS="$ENV_VARS PGPORT=$POSTGRES_PORT"
+    ENV_VARS="$ENV_VARS PGDATABASE=$POSTGRES_DATABASE"
+    if [[ -n "$POSTGRES_USERNAME" ]] && [[ "$POSTGRES_USERNAME" != "null" ]] && [[ "$POSTGRES_USERNAME" != "NOT_SET" ]]; then
+        ENV_VARS="$ENV_VARS PGUSER=$POSTGRES_USERNAME"
+    fi
+    ENV_VARS="$ENV_VARS PGSSLMODE=$POSTGRES_SSL_MODE"
+    ENV_VARS="$ENV_VARS PG_MIN_POOL_SIZE=$POSTGRES_MIN_POOL_SIZE"
+    ENV_VARS="$ENV_VARS PG_MAX_POOL_SIZE=$POSTGRES_MAX_POOL_SIZE"
+    ENV_VARS="$ENV_VARS POSTGRES_USE_MANAGED_IDENTITY=$POSTGRES_USE_MANAGED_IDENTITY"
+    echo "✅ PostgreSQL runtime settings configured for $POSTGRES_HOST"
+fi
 
 
 # Add Kusto configuration if available

@@ -433,12 +433,12 @@ async def query_patch_assessments(
     vm_type: Annotated[str, "'arc' or 'azure-vm'"] = "arc",
 ) -> Dict[str, Any]:
     """
-    Query Azure Resource Graph for historical patch assessment data with Cosmos DB caching.
+    Query Azure Resource Graph for historical patch assessment data with repository-backed caching.
 
     Returns stored assessment summaries and patch lists without triggering new assessments.
     Use this to check last-known patch status before deciding to trigger a live assessment.
 
-    PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
+    PERFORMANCE: Uses cached assessment rows with a 1-hour TTL to prevent ARG throttling.
     """
     try:
         # Determine the effective cache key name:
@@ -696,10 +696,10 @@ async def get_assessment_result(
     Use this after triggering assess_vm_patches to retrieve completed assessment data.
     Returns patch summary with classifications and reboot requirements.
 
-    PERFORMANCE: Caches results in Cosmos DB with 1-hour TTL to prevent ARG throttling.
+    PERFORMANCE: Uses cached assessment rows with a 1-hour TTL to prevent ARG throttling.
     """
     try:
-        # Check Cosmos cache first to avoid ARG throttling
+        # Check cached assessment rows first to avoid ARG throttling
         try:
             repo = await get_patch_assessment_repository()
             cached = await repo.get_assessment(subscription_id, machine_name, vm_type)

@@ -73,3 +73,16 @@ class TestCosmosRemoval:
         with open(main_path) as f:
             content = f.read()
         assert "/api/cache/cosmos/" not in content, "main.py still has Cosmos API endpoints"
+
+    def test_no_cosmos_settings_in_deploy_config(self):
+        """Deployment config should not define Cosmos settings."""
+        targets = [
+            os.path.join(EOL_ROOT, "deploy", "appsettings.json.example"),
+            os.path.join(EOL_ROOT, "deploy", "generate-appsettings.sh"),
+            os.path.join(EOL_ROOT, "deploy", "deploy-container.sh"),
+        ]
+        for target in targets:
+            with open(target) as f:
+                content = f.read()
+            assert "CosmosDB" not in content, f"{target} still defines CosmosDB settings"
+            assert "AZURE_COSMOS_DB_" not in content, f"{target} still injects Cosmos env vars"

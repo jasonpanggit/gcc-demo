@@ -63,7 +63,7 @@ def _replace_db_name(dsn: str, new_db: str) -> str:
 # ------------------------------------------------------------------ #
 # Session-scoped ephemeral database fixture
 # ------------------------------------------------------------------ #
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="function")
 async def fresh_pool():
     """Create a temporary empty database, bootstrap it, and yield a pool.
 
@@ -195,6 +195,99 @@ async def test_all_fk_constraints_exist(fresh_pool):
                 missing_fks.append(f"{child_tbl}.{child_col} -> {parent_tbl}.{parent_col}")
 
     assert missing_fks == [], f"Missing FK constraints: {missing_fks}"
+
+
+async def test_missing_fk_is_repaired_without_bootstrap_rerun(fresh_pool):
+    """A missing FK on an existing table is repaired in place.
+
+    Regression for startup failures where ensure_runtime_schema() used to
+    re-run the full bootstrap when slo_measurements.slo_id lacked its FK.
+    """
+    from utils.pg_database import PostgresDatabaseManager
+
+    mgr = PostgresDatabaseManager(fresh_pool)
+
+    async with fresh_pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE slo_measurements "
+            "DROP CONSTRAINT IF EXISTS slo_measurements_slo_id_fkey"
+        )
+        await conn.execute(
+            "INSERT INTO slo_measurements (slo_id, value) "
+            "VALUES ('orphan-slo', 99.9)"
+        )
+
+    async def _fail_bootstrap():
+        raise AssertionError("ensure_runtime_schema should repair FK without rerunning bootstrap")
+
+    mgr._bootstrap_runtime_schema = _fail_bootstrap  # type: ignore[method-assign]
+
+    await mgr.ensure_runtime_schema()
+
+    async with fresh_pool.acquire() as conn:
+        orphan_rows = await conn.fetchval(
+            "SELECT COUNT(*) FROM slo_measurements WHERE slo_id = 'orphan-slo'"
+        )
+        repaired_fk = await conn.fetchval(
+            """
+            SELECT 1
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+            JOIN information_schema.constraint_column_usage ccu
+                ON tc.constraint_name = ccu.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_name = 'slo_measurements'
+              AND kcu.column_name = 'slo_id'
+              AND ccu.table_name = 'slo_definitions'
+              AND ccu.column_name = 'slo_id'
+            """
+        )
+
+    assert orphan_rows == 0, "Expected orphan SLO rows to be deleted before FK repair"
+    assert repaired_fk == 1, "Expected slo_measurements.slo_id FK to be recreated"
+
+
+async def test_missing_fk_permission_error_is_nonfatal_in_container_mode(monkeypatch, fresh_pool):
+    """Container mode should not fail startup on ownership-only FK repair errors."""
+    from utils.pg_database import PostgresDatabaseManager
+
+    mgr = PostgresDatabaseManager(fresh_pool)
+
+    async with fresh_pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE slo_measurements "
+            "DROP CONSTRAINT IF EXISTS slo_measurements_slo_id_fkey"
+        )
+
+    async def _raise_owner_error(*_args, **_kwargs):
+        raise RuntimeError("must be owner of table slo_measurements")
+
+    monkeypatch.setenv("CONTAINER_MODE", "true")
+    monkeypatch.setattr(mgr, "_repair_missing_foreign_key", _raise_owner_error)
+
+    await mgr.ensure_runtime_schema()
+
+
+async def test_missing_fk_noncanonical_state_is_nonfatal_in_container_mode(monkeypatch, fresh_pool):
+    """Container mode should tolerate a repair attempt that leaves the FK absent."""
+    from utils.pg_database import PostgresDatabaseManager
+
+    mgr = PostgresDatabaseManager(fresh_pool)
+
+    async with fresh_pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE vm_cve_match_rows "
+            "DROP CONSTRAINT IF EXISTS fk_vmcvematch_vm"
+        )
+
+    async def _noop_repair(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setenv("CONTAINER_MODE", "true")
+    monkeypatch.setattr(mgr, "_repair_missing_foreign_key", _noop_repair)
+
+    await mgr.ensure_runtime_schema()
 
 
 # ================================================================== #

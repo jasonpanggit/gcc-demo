@@ -320,9 +320,21 @@ function renderTable(resources) {
         const name = r.resource_name || r.name || '--';
         const rg = r.resource_group || r.resourceGroup || '--';
         const loc = r.location || '--';
-        const tags = r.tags ? Object.entries(r.tags).slice(0, 3).map(
-            ([k, v]) => `<span class="badge bg-light text-dark border me-1">${k}=${v}</span>`
-        ).join('') : '<span class="text-muted">--</span>';
+
+        // Handle tags properly - check if it's already a string or an object
+        let tags = '<span class="text-muted">--</span>';
+        if (r.tags) {
+            if (typeof r.tags === 'string') {
+                // If tags is already a string, use it directly
+                tags = r.tags;
+            } else if (typeof r.tags === 'object' && Object.keys(r.tags).length > 0) {
+                // If tags is an object, convert to badge HTML
+                tags = Object.entries(r.tags).slice(0, 3).map(
+                    ([k, v]) => `<span class="badge bg-light text-dark border me-1">${k}=${v}</span>`
+                ).join('');
+            }
+        }
+
         const discovered = r.discovered_at ? new Date(r.discovered_at).toLocaleString() : '--';
 
         const typeCell = `<span class="resource-type-badge" style="--type-color:${meta.color}">` +
@@ -489,15 +501,22 @@ async function loadCVECounts(vmIds) {
         }
 
         const result = await response.json();
-        if (!result.success || !result.data || result.data.length === 0) {
+        if (!result.success || !result.data || !result.data.scans || result.data.scans.length === 0) {
             console.warn('No scan data available');
             updateCVEBadgesError(vmIds);
             return;
         }
 
-        const latestScan = result.data[0];
-        if (latestScan.status !== 'completed') {
+        const latestScan = result.data.scans[0];
+        if (!latestScan || latestScan.status !== 'completed') {
             console.warn('Latest scan not completed');
+            updateCVEBadgesError(vmIds);
+            return;
+        }
+
+        // Check if matches array exists
+        if (!latestScan.matches || !Array.isArray(latestScan.matches)) {
+            console.warn('No CVE matches in latest scan');
             updateCVEBadgesError(vmIds);
             return;
         }

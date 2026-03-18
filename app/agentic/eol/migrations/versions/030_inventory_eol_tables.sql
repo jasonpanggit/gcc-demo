@@ -10,11 +10,69 @@
 -- ============================================================
 
 -- ============================================================
+-- Ensure inventory tables exist (bootstrap gap: these are created
+-- by the runtime bootstrap DDL but not by any prior migration).
+-- Using IF NOT EXISTS so this is safe on already-migrated DBs.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS patch_assessments_cache (
+    resource_id     TEXT        NOT NULL,
+    machine_name    TEXT,
+    os_name         TEXT,
+    os_version      TEXT,
+    vm_type         TEXT,
+    total_patches   INTEGER     NOT NULL DEFAULT 0,
+    critical_count  INTEGER     NOT NULL DEFAULT 0,
+    security_count  INTEGER     NOT NULL DEFAULT 0,
+    other_count     INTEGER     NOT NULL DEFAULT 0,
+    last_modified   TIMESTAMPTZ,
+    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (resource_id)
+);
+
+CREATE TABLE IF NOT EXISTS available_patches (
+    id              BIGSERIAL   PRIMARY KEY,
+    resource_id     TEXT        NOT NULL,
+    kb_number       TEXT,
+    title           TEXT,
+    classification  TEXT,
+    severity        TEXT,
+    reboot_required BOOLEAN     DEFAULT FALSE,
+    installed       BOOLEAN     DEFAULT FALSE,
+    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS os_inventory_snapshots (
+    resource_id      TEXT        NOT NULL,
+    snapshot_version INTEGER     NOT NULL DEFAULT 1,
+    workspace_id     TEXT        NOT NULL,
+    computer_name    TEXT,
+    os_name          TEXT,
+    os_version       TEXT,
+    os_type          TEXT,
+    last_heartbeat   TIMESTAMPTZ,
+    cached_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ttl_seconds      INTEGER     NOT NULL DEFAULT 3600,
+    PRIMARY KEY (resource_id, snapshot_version, workspace_id)
+);
+
+CREATE TABLE IF NOT EXISTS arc_software_inventory (
+    id              BIGSERIAL   PRIMARY KEY,
+    resource_id     TEXT        NOT NULL,
+    software_name   TEXT,
+    software_version TEXT,
+    publisher       TEXT,
+    install_date    TEXT,
+    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
 -- Type alignment
 -- ============================================================
 
 -- patch_assessments_cache.resource_id: VARCHAR(512) -> TEXT
 -- Metadata-only operation in PostgreSQL (no table rewrite)
+-- (On a fresh schema the column is already TEXT; this is a no-op.)
 ALTER TABLE patch_assessments_cache ALTER COLUMN resource_id TYPE TEXT;
 
 -- ============================================================

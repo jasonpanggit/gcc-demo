@@ -33,6 +33,7 @@ import logging
 
 from utils.config import config
 from utils.normalization import normalize_os_record
+from utils.repository_state import get_or_init_repository
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
@@ -218,7 +219,7 @@ async def get_os(request: Request):
         StandardResponse with paginated OS inventory including VM names, OS types,
         versions, and EOL status.
     """
-    inventory_repo = request.app.state.inventory_repo
+    inventory_repo = get_or_init_repository(request.app, "inventory_repo")
 
     # Extract query params
     subscription_id = request.query_params.get("subscription_id")
@@ -266,7 +267,7 @@ async def get_os_summary(request: Request):
         StandardResponse with OS summary statistics including counts by OS type
         and EOL status.
     """
-    inventory_repo = request.app.state.inventory_repo
+    inventory_repo = get_or_init_repository(request.app, "inventory_repo")
 
     # Get all VMs with EOL info (no pagination, we need full set for summary)
     all_vms = await inventory_repo.get_vm_inventory_with_eol(limit=10000, offset=0)
@@ -470,9 +471,10 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
     
     logger.info(f"✅ Raw OS inventory result: success={result.get('success')}, count={result.get('count', 0)}")
 
-    if result.get("success") and isinstance(result.get("data"), list):
-        result["data"] = await _merge_azure_vm_os_inventory(result["data"])
-        result["count"] = len(result["data"])
+    # NOTE: Commenting out Azure VM merge - inventory page should only show Arc-enabled servers from LAW Heartbeat
+    # if result.get("success") and isinstance(result.get("data"), list):
+    #     result["data"] = await _merge_azure_vm_os_inventory(result["data"])
+    #     result["count"] = len(result["data"])
 
     return result
 

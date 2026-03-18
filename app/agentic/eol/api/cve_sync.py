@@ -57,7 +57,7 @@ class TriggerSyncRequest(BaseModel):
 
 
 @router.post("/cve-sync/trigger")
-@write_endpoint(agent_name="cve_sync_trigger", timeout_seconds=300)
+@write_endpoint(agent_name="cve_sync_trigger", timeout_seconds=600)
 async def trigger_full_sync(
     lookback_days: int = Query(default=7, description="Fetch CVEs modified in last N days"),
     force_inventory_resync: bool = Query(
@@ -189,7 +189,7 @@ async def trigger_single_cve_sync(cve_id: str) -> StandardResponse:
 
 
 @router.post("/cve-sync/incremental")
-@write_endpoint(agent_name="cve_sync_incremental", timeout_seconds=300)
+@write_endpoint(agent_name="cve_sync_incremental", timeout_seconds=600)
 async def trigger_incremental_sync() -> StandardResponse:
     """Manually trigger incremental CVE sync.
 

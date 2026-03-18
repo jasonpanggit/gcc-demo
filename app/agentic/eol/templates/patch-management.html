@@ -579,11 +579,7 @@ function cardHTML(name, os, item, key) {
             ${item.vm_type === 'azure-vm'
                 ? '<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Azure VM</span>'
                 : '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">Arc</span>'}
-            ${item.eol_status === 'expired'
-                ? '<span class="badge bg-danger">EOL</span>'
-                : item.eol_date
-                    ? `<span class="badge bg-warning text-dark">EOL ${fmtDate(item.eol_date)}</span>`
-                    : ''}
+            <span id="${id}-eol-badge"></span>
         </div>
     </div>
     <div class="vm-card-body">
@@ -801,6 +797,11 @@ async function fetchLastAssessment(machineName, subId, vmType) {
 async function loadMachines() {
     const grid = document.getElementById('vm-grid');
     const emptyState = document.getElementById('empty-state');
+    // Reset state on every reload so counts don't accumulate
+    Object.keys(vmRegistry).forEach(k => delete vmRegistry[k]);
+    assessedCount = 0;
+    document.getElementById('pill-assessed').style.display = 'none';
+
     grid.innerHTML = `<div class="text-center py-5 text-muted w-100">
         <span class="spinner-border" role="status"></span>
         <p class="mt-2">Loading VMs…</p>
@@ -845,6 +846,12 @@ async function loadMachines() {
 
         // Non-blocking: pre-populate cards with past ARG assessment data
         loadArgPatchData();
+
+        // Non-blocking: fetch EOL status per card from the EOL API
+        for (const item of vms) {
+            const name = item.computer || item.computer_name || item.name;
+            if (name) loadEolForCard(item);
+        }
 
     } catch (err) {
         grid.innerHTML = '';
@@ -1368,6 +1375,44 @@ function _pollInstallStatus(operationUrl, machineName) {
 document.getElementById('patchModal')?.addEventListener('hidden.bs.modal', () => {
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
 });
+
+/* ── Client-side EOL badge loader ────────────────────────────── */
+async function loadEolForCard(item) {
+    const name   = item.computer || item.computer_name || item.name;
+    const key    = machineKey(name, item.vm_type);
+    const id     = cardId(key);
+    const badge  = document.getElementById(`${id}-eol-badge`);
+    if (!badge) return;
+
+    // Build lookup string: "Windows Server 2016", "Ubuntu 20.04", etc.
+    const osName    = item.normalized_os_name || item.os_name || '';
+    const osVersion = item.normalized_os_version || item.os_version || '';
+    if (!osName) return;
+
+    const query = osVersion ? `${osName} ${osVersion}` : osName;
+
+    try {
+        const resp = await fetch(`/api/eol?name=${encodeURIComponent(query)}`);
+        if (!resp.ok) return;
+        const json = await resp.json();
+        if (!json.success) return;
+
+        const items = Array.isArray(json.data) ? json.data : [];
+        if (items.length === 0) return;
+
+        const eol = items[0].eol_data || {};
+        const eolDate   = eol.eol_date || eol.eol;
+        const eolStatus = (eol.status || '').toLowerCase();
+
+        if (eolStatus.includes('expired') || eolStatus.includes('end-of-life')) {
+            badge.innerHTML = '<span class="badge bg-danger">EOL</span>';
+        } else if (eolDate) {
+            badge.innerHTML = `<span class="badge bg-warning text-dark">EOL ${fmtDate(eolDate)}</span>`;
+        }
+    } catch (e) {
+        // Non-critical — EOL badge is best-effort
+    }
+}
 
 /* ── Load past assessments from Azure Resource Graph ─────────── */
 async function loadArgPatchData() {

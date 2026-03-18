@@ -56,7 +56,7 @@ class NVDClient(BaseCVEClient):
         super().__init__(
             base_url=base_url,
             rate_limit_per_second=rate_limit,
-            request_timeout=kwargs.get('request_timeout', 30),
+            request_timeout=kwargs.get('request_timeout', 90),
             max_retries=kwargs.get('max_retries', 3)
         )
         self.api_key = api_key

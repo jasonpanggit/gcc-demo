@@ -25,6 +25,7 @@ try:
     from utils.logger import get_logger
     from utils.config import config
     from utils.helpers import create_error_response
+    from utils.repository_state import get_or_init_repository
     from utils.response_models import StandardResponse
     from utils.resource_inventory_client import get_resource_inventory_client
     from utils.resource_inventory_cache import get_resource_inventory_cache
@@ -34,6 +35,7 @@ except ImportError:
     from app.agentic.eol.utils.logger import get_logger
     from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.helpers import create_error_response
+    from app.agentic.eol.utils.repository_state import get_or_init_repository
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.resource_inventory_client import get_resource_inventory_client
     from app.agentic.eol.utils.resource_inventory_cache import get_resource_inventory_cache
@@ -119,14 +121,15 @@ async def refresh_inventory(body: RefreshRequest):
 
                 duration = (time.time() - start) * 1000
                 return StandardResponse(
+                    success=True,
                     data={
                         "mode": "incremental",
                         "subscription_id": sub,
                         "resources_discovered": len(result),
                         "resource_types": len(by_type),
                     },
+                    count=len(result),
                     message=f"Incremental refresh completed: {len(result)} resources",
-                    duration_ms=round(duration, 1),
                 )
             else:
                 # Full discovery
@@ -144,6 +147,7 @@ async def refresh_inventory(body: RefreshRequest):
 
                 duration = (time.time() - start) * 1000
                 return StandardResponse(
+                    success=True,
                     data={
                         "mode": "full",
                         "subscription_id": sub,
@@ -151,18 +155,16 @@ async def refresh_inventory(body: RefreshRequest):
                         "resource_types": len(by_type),
                         "type_breakdown": type_counts,
                     },
+                    count=len(result),
                     message=f"Full refresh completed: {len(result)} resources across {len(by_type)} types",
-                    duration_ms=round(duration, 1),
                 )
 
     except Exception as exc:
         logger.error("Refresh failed for %s: %s", sub, exc)
-        duration = (time.time() - start) * 1000
         return StandardResponse(
             success=False,
             error=str(exc),
             message="Resource discovery refresh failed",
-            duration_ms=round(duration, 1),
         )
 
 
@@ -171,7 +173,7 @@ async def get_cache_stats(request: Request):
     """Return cache statistics: hit/miss rates, entry counts, TTL config."""
     start = time.time()
     try:
-        inventory_repo = request.app.state.inventory_repo
+        inventory_repo = get_or_init_repository(request.app, "inventory_repo")
         cache_status = await inventory_repo.get_cache_status()
         duration = (time.time() - start) * 1000
 
@@ -206,19 +208,37 @@ async def query_resources(
     Returns paginated results with total count and type breakdown.
     """
     try:
-        inventory_repo = request.app.state.inventory_repo
-        resources = await inventory_repo.list_resources(
-            subscription_id=subscription_id,
-            resource_type=resource_type,
-            name_search=name,
-            limit=limit,
-            offset=offset,
+        inventory_repo = get_or_init_repository(request.app, "inventory_repo")
+
+        # Run list and count queries in parallel
+        import asyncio
+        resources, total = await asyncio.gather(
+            inventory_repo.list_resources(
+                subscription_id=subscription_id,
+                resource_type=resource_type,
+                name_search=name,
+                limit=limit,
+                offset=offset,
+            ),
+            inventory_repo.count_resources(
+                subscription_id=subscription_id,
+                resource_type=resource_type,
+                name_search=name,
+            ),
         )
+
+        has_more = total > (offset + limit)
         return StandardResponse(
             success=True,
-            data={"items": resources, "total": len(resources), "offset": offset, "limit": limit},
+            data={
+                "items": resources,
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+            },
             count=len(resources),
-            message=f"Retrieved {len(resources)} resources" if resources else "No resources found matching your filters",
+            message=f"Retrieved {len(resources)} of {total} resources" if resources else "No resources found matching your filters",
         )
 
     except Exception as exc:
@@ -238,25 +258,23 @@ async def list_subscriptions():
         engine = ResourceDiscoveryEngine()
         async with metrics.track_query_async("discover_subscriptions"):
             subs = await engine.discover_all_subscriptions()
-        duration = (time.time() - start) * 1000
 
         return StandardResponse(
+            success=True,
             data={
                 "subscriptions": subs,
                 "count": len(subs),
             },
+            count=len(subs),
             message=f"Discovered {len(subs)} subscriptions",
-            duration_ms=round(duration, 1),
         )
 
     except Exception as exc:
         logger.error("Subscription discovery failed: %s", exc)
-        duration = (time.time() - start) * 1000
         return StandardResponse(
             success=False,
             error=str(exc),
             message="Failed to discover subscriptions",
-            duration_ms=round(duration, 1),
         )
 
 
@@ -273,7 +291,6 @@ async def get_inventory_metrics_endpoint(
     Provides cache hit rates, discovery stats, query performance, and error counts.
     Use ``?detail=true`` for the full dashboard-ready payload.
     """
-    start = time.time()
     try:
         metrics = get_inventory_metrics()
 
@@ -282,11 +299,10 @@ async def get_inventory_metrics_endpoint(
         else:
             data = metrics.get_summary_metrics()
 
-        duration = (time.time() - start) * 1000
         return StandardResponse(
+            success=True,
             data=data,
             message="Inventory metrics retrieved",
-            duration_ms=round(duration, 1),
         )
     except Exception as exc:
         logger.error("Failed to retrieve inventory metrics: %s", exc)
@@ -324,8 +340,7 @@ async def get_inventory_status():
     Returns discovery status, cache statistics, and system health.
     Also available at /healthz/inventory for health checks.
     """
-    start = time.time()
-    
+
     try:
         # Import discovery status from main
         try:
@@ -334,21 +349,21 @@ async def get_inventory_status():
         except ImportError:
             from app.agentic.eol.main import get_inventory_discovery_status
             discovery_status = get_inventory_discovery_status()
-        
+
         cache = get_resource_inventory_cache()
         cache_stats = cache.get_statistics()
-        
+
         engine_available = False
         try:
             engine = ResourceDiscoveryEngine()
             engine_available = True
         except Exception:
             pass
-        
+
         inv_config = config.inventory
-        duration = (time.time() - start) * 1000
-        
+
         return StandardResponse(
+            success=True,
             data={
                 "enabled": inv_config.enable_inventory,
                 "status": discovery_status.get("status", "unknown"),
@@ -375,16 +390,13 @@ async def get_inventory_status():
                 },
             },
             message="Resource inventory status",
-            duration_ms=round(duration, 1),
         )
     except Exception as exc:
         logger.error("Failed to retrieve inventory status: %s", exc)
-        duration = (time.time() - start) * 1000
         return StandardResponse(
             success=False,
             error=str(exc),
             message="Failed to retrieve inventory status",
-            duration_ms=round(duration, 1),
         )
 
 
@@ -398,7 +410,6 @@ async def inventory_health():
 
     Reports discovery engine availability, cache status, and last refresh time.
     """
-    start = time.time()
 
     cache = get_resource_inventory_cache()
     cache_stats = cache.get_statistics()
@@ -411,9 +422,9 @@ async def inventory_health():
         pass
 
     inv_config = config.inventory
-    duration = (time.time() - start) * 1000
 
     return StandardResponse(
+        success=True,
         data={
             "status": "healthy" if engine_available else "degraded",
             "engine_available": engine_available,
@@ -432,5 +443,4 @@ async def inventory_health():
             },
         },
         message="Resource inventory health check",
-        duration_ms=round(duration, 1),
     )

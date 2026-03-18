@@ -21,6 +21,7 @@ Endpoints:
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -28,6 +29,7 @@ from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from utils.config import config
+from utils.normalization import normalize_os_record
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import readonly_endpoint, write_endpoint
 
@@ -286,43 +288,127 @@ def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helpers for machine listing
+# ---------------------------------------------------------------------------
+
+def _normalize_machine_os_fields(machine: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply centralized OS normalization to a machine inventory row."""
+    if not isinstance(machine, dict):
+        return machine
+    normalized = normalize_os_record(
+        machine.get("os_name"),
+        machine.get("os_version"),
+        machine.get("os_type"),
+    )
+    machine.setdefault("raw_os_name", normalized.get("raw_os_name"))
+    machine.setdefault("raw_os_version", normalized.get("raw_os_version"))
+    machine["os_name"] = normalized["os_name"]
+    machine["os_version"] = normalized.get("os_version")
+    machine["normalized_os_name"] = normalized.get("normalized_os_name")
+    machine["normalized_os_version"] = normalized.get("normalized_os_version")
+    machine["os_type"] = normalized.get("os_type") or machine.get("os_type")
+    return machine
+
+
+async def _list_machines_inventory(days: int) -> Dict[str, Any]:
+    """
+    Return a unified list of both Azure VMs (from Resource Inventory) and
+    Arc-enabled servers (from OS Inventory), each tagged with vm_type.
+    EOL enrichment is intentionally omitted — the client fetches it per-card.
+    """
+    machines: List[Dict[str, Any]] = []
+
+    # ── Arc-enabled servers from OS inventory ──────────────────────────────
+    try:
+        from main import get_eol_orchestrator
+        orchestrator = get_eol_orchestrator()
+        os_result = await orchestrator.agents["os_inventory"].get_os_inventory(days=days)
+        all_os: List[Dict[str, Any]] = (
+            os_result.get("data", []) if isinstance(os_result, dict) else []
+        )
+        for item in all_os:
+            if (
+                str(item.get("computer_type", "")).lower() == "arc-enabled server"
+                or "/microsoft.hybridcompute/machines/" in str(item.get("resource_id", "")).lower()
+            ):
+                machines.append(_normalize_machine_os_fields({**item, "vm_type": "arc"}))
+    except Exception as exc:
+        logger.warning("Failed to fetch OS inventory for Arc VMs: %s", exc)
+
+    # ── Azure VMs from Resource Inventory ─────────────────────────────────
+    try:
+        from utils.resource_inventory_client import get_resource_inventory_client
+        inv_client = get_resource_inventory_client()
+        azure_vms = await inv_client.get_resources(
+            "Microsoft.Compute/virtualMachines",
+            subscription_id=config.azure.subscription_id,
+        )
+        arc_rid_set = {
+            str(m.get("resource_id", "")).lower()
+            for m in machines
+        }
+        for vm in azure_vms:
+            sp  = vm.get("selected_properties") or {}
+            rid = str(vm.get("resource_id") or vm.get("id") or "").lower()
+            if not rid or rid in arc_rid_set:
+                continue
+            vm_name = vm.get("resource_name") or vm.get("name")
+            normalized_os = normalize_os_record(
+                sp.get("os_image") or sp.get("os_type") or vm.get("os_name") or "",
+                vm.get("os_version"),
+                sp.get("os_type") or vm.get("os_type"),
+            )
+            vm_record = {
+                "computer":               vm_name,
+                "name":                   vm_name,
+                "os_name":                normalized_os["os_name"],
+                "os_version":             normalized_os.get("os_version"),
+                "os_type":                normalized_os.get("os_type"),
+                "raw_os_name":            normalized_os.get("raw_os_name"),
+                "raw_os_version":         normalized_os.get("raw_os_version"),
+                "normalized_os_name":     normalized_os.get("normalized_os_name"),
+                "normalized_os_version":  normalized_os.get("normalized_os_version"),
+                "resource_id":            vm.get("resource_id") or vm.get("id"),
+                "subscription_id":        vm.get("subscription_id") or vm.get("subscriptionId") or config.azure.subscription_id,
+                "resource_group":         vm.get("resource_group") or vm.get("resourceGroup"),
+                "location":               vm.get("location"),
+                "vm_size":                sp.get("vm_size") or vm.get("vm_size"),
+                "vm_type":                "azure-vm",
+            }
+            machines.append(_normalize_machine_os_fields(vm_record))
+
+    except Exception as exc:
+        logger.warning("Failed to fetch Azure VMs from resource inventory: %s", exc)
+
+    arc_count = sum(1 for m in machines if m.get("vm_type") == "arc")
+    avm_count  = sum(1 for m in machines if m.get("vm_type") == "azure-vm")
+    logger.info("Machines list: %d Arc, %d Azure VM", arc_count, avm_count)
+
+    return {
+        "success":       True,
+        "data":          machines,
+        "count":         len(machines),
+        "arc_count":     arc_count,
+        "azure_vm_count": avm_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.get("/machines", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_machines", timeout_seconds=60)
 async def list_machines(
-    request: Request,
-    subscription_id: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    days: int = Query(90, description="OS-inventory look-back window for Arc VMs"),
 ):
     """
-    List machines for patch management with LEFT JOINed assessment data.
+    List Azure VMs and Arc-enabled servers for patch management.
 
-    Uses a single PostgreSQL query (PatchRepository.get_patch_management_view)
-    that replaces the previous two-query pattern (_list_machines_inventory +
-    _fetch_arg_patch_data via orchestrator + resource_inventory_client).
+    Fetches Arc servers from OS inventory (Log Analytics) and Azure VMs
+    from Resource Inventory. EOL enrichment is performed client-side.
     """
-    patch_repo = request.app.state.patch_repo
-
-    machines = await patch_repo.get_patch_management_view(
-        subscription_id=subscription_id,
-        limit=limit,
-        offset=offset,
-    )
-
-    return StandardResponse(
-        success=True,
-        data={
-            "items": machines,
-            "total": len(machines),
-            "offset": offset,
-            "limit": limit,
-        },
-        count=len(machines),
-        message=f"Retrieved {len(machines)} machines" if machines else "No machines found",
-    )
+    return await _list_machines_inventory(days=days)
 
 
 @router.get("/arc-vms", response_model=StandardResponse)
