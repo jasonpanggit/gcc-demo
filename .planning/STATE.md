@@ -21,11 +21,11 @@ progress:
 
 ## Current Phase
 
-**Phase 11: Cosmos DB Removal & PostgreSQL Migration Validation** 🔄 **In Progress — 4 / 7 plans done**
+**Phase 11: Cosmos DB Removal & PostgreSQL Migration Validation** 🔄 **In Progress — 4.5 / 7 plans done**
 
 **Completed:** P11.1 (Cosmos Audit & Fallback Catalogue), P11.2 (Cosmos Test File Cleanup), P11.3 (Comment, Docstring & Template Cleanup), P11.4 (Configuration Cleanup)
-**In Progress:** P11.5 (next)
-**Next:** Phase 11 continuation
+**Partial:** P11.5 (Consumer Refactoring — 31% complete, T1 done, T2 partial, T3/T4 deferred)
+**Next:** P11.5 continuation or P11.6
 
 ---
 
