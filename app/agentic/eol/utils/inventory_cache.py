@@ -161,7 +161,7 @@ class InventoryRawCache:
     async def _persist_os_inventory_to_postgres(self, os_data: List[Dict], metadata: Optional[Dict[str, Any]]):
         """Persist OS inventory data to os_inventory_snapshots table for database joins."""
         try:
-            pool = postgres_client.get_pool()
+            pool = postgres_client.pool
             if not pool:
                 print("Warning: PostgreSQL pool not available for OS inventory persistence")
                 return
