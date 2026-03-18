@@ -552,7 +552,7 @@ class OSInventoryAgent:
             # Cache the results for future use
             if use_cache and results:
                 cache_start_time = datetime.utcnow()
-                inventory_cache.store_cached_data(
+                await inventory_cache.store_cached_data_async(
                     cache_key=self.agent_name,
                     data=results,
                     cache_type="os",

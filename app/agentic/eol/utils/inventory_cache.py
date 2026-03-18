@@ -100,9 +100,37 @@ class InventoryRawCache:
 
         return None
 
+    async def store_cached_data_async(self, cache_key: str, data: List[Dict], cache_type: str = "software", metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Async version: Store inventory data in memory cache and PostgreSQL (for OS data).
+
+        Args:
+            cache_key: Unique identifier for the cached data
+            data: Inventory data to cache
+            cache_type: Type of cache ("software" or "os")
+            metadata: Optional metadata to store with the cache entry
+
+        Returns:
+            True if successfully stored, False otherwise
+        """
+        # Store in memory first
+        self.store_cached_data(cache_key, data, cache_type, metadata)
+
+        # For OS data, also persist to PostgreSQL os_inventory_snapshots table
+        if cache_type == "os" and data:
+            try:
+                await self._persist_os_inventory_to_postgres(data, metadata)
+            except Exception as e:
+                # Log but don't fail - memory cache still works
+                print(f"Warning: Failed to persist OS inventory to PostgreSQL: {e}")
+
+        return True
+
     def store_cached_data(self, cache_key: str, data: List[Dict], cache_type: str = "software", metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Store inventory data in memory cache and PostgreSQL (for OS data).
+        Store inventory data in memory cache (sync version for backward compatibility).
+
+        For OS data persistence to PostgreSQL, use store_cached_data_async() instead.
 
         Args:
             cache_key: Unique identifier for the cached data
@@ -122,14 +150,6 @@ class InventoryRawCache:
             'timestamp': timestamp,
             'metadata': metadata
         }
-
-        # For OS data, also persist to PostgreSQL os_inventory_snapshots table
-        if cache_type == "os" and data:
-            try:
-                asyncio.create_task(self._persist_os_inventory_to_postgres(data, metadata))
-            except Exception as e:
-                # Log but don't fail - memory cache still works
-                print(f"Warning: Failed to persist OS inventory to PostgreSQL: {e}")
 
         return True
 
