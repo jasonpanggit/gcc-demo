@@ -144,7 +144,8 @@ def _calculate_risk_level(
 
 
 @router.get("/cve/inventory/overview")
-@readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
+# TODO: Re-enable decorator after fixing FastAPI signature inspection issue
+# @readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
 async def get_vm_vulnerability_overview(
     request: Request,
 ) -> StandardResponse:
