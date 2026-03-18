@@ -1,48 +1,30 @@
 """Patch Assessment Repository
 
-Cosmos DB repository for caching Azure Resource Graph patch assessment data.
+In-memory repository for caching Azure Resource Graph patch assessment data.
 Eliminates repeated ARG queries and prevents throttling.
 
 Cache strategy:
 - TTL: 1 hour (3600s) for assessment data
 - Key: {subscription_id}:{machine_name}:{vm_type}
-- Automatic expiration via Cosmos TTL
 """
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 try:
     from utils.logging_config import get_logger
     from utils.config import config
-    from utils.cosmos_cache import base_cosmos
 except ModuleNotFoundError:
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
-    from app.agentic.eol.utils.cosmos_cache import base_cosmos
 
 logger = get_logger(__name__)
 
-_CONTAINER_NAME = "patch_assessments"
-_CONTAINER_PARTITION_PATH = "/partitionKey"
-_CONTAINER_TTL = 3600  # 1 hour
-
-
-def _is_cosmos_available() -> bool:
-    """Return True only when Cosmos is configured and the base client initialised."""
-    return bool(getattr(config.azure, "cosmos_endpoint", None)) and base_cosmos.initialized
-
-
-def _get_container():
-    """Return the patch_assessments container (or None when unavailable)."""
-    return base_cosmos.get_container(
-        _CONTAINER_NAME,
-        partition_path=_CONTAINER_PARTITION_PATH,
-        default_ttl=_CONTAINER_TTL,
-    )
+_CACHE_TTL = 3600  # 1 hour
 
 
 def _make_cache_key(subscription_id: str, machine_name: str, vm_type: str) -> str:
@@ -52,7 +34,15 @@ def _make_cache_key(subscription_id: str, machine_name: str, vm_type: str) -> st
 
 
 class PatchAssessmentRepository:
-    """Repository for patch assessment data backed by the shared Cosmos base_cosmos client."""
+    """In-memory repository for patch assessment data with TTL-based expiration."""
+
+    def __init__(self):
+        self._cache: Dict[str, Dict[str, Any]] = {}
+
+    def _is_valid(self, entry: Dict[str, Any]) -> bool:
+        """Check if a cache entry is still valid based on TTL."""
+        cached_at = entry.get("_cached_at", 0)
+        return (time.time() - cached_at) < _CACHE_TTL
 
     async def get_assessment(
         self,
@@ -60,27 +50,18 @@ class PatchAssessmentRepository:
         machine_name: str,
         vm_type: str = "arc",
     ) -> Optional[Dict[str, Any]]:
-        """Return cached assessment data, or None on miss / unavailable."""
-        if not _is_cosmos_available():
-            return None
-
-        container = _get_container()
-        if container is None:
-            return None
-
+        """Return cached assessment data, or None on miss."""
         cache_key = _make_cache_key(subscription_id, machine_name, vm_type)
-        try:
-            item = await asyncio.to_thread(
-                container.read_item,
-                item=cache_key,
-                partition_key=subscription_id,
-            )
-            if item:
-                logger.info("Returning cached patch assessment for %s", machine_name)
-                return item.get("assessment_data")
-        except Exception as exc:
-            logger.debug("Cache MISS for patch assessment %s: %s", machine_name, exc)
+        entry = self._cache.get(cache_key)
+        if entry and self._is_valid(entry):
+            logger.info("Returning cached patch assessment for %s", machine_name)
+            return entry.get("assessment_data")
 
+        # Remove expired entry
+        if entry:
+            self._cache.pop(cache_key, None)
+
+        logger.debug("Cache MISS for patch assessment %s", machine_name)
         return None
 
     async def store_assessment(
@@ -90,32 +71,19 @@ class PatchAssessmentRepository:
         vm_type: str,
         assessment_data: Dict[str, Any],
     ) -> bool:
-        """Persist assessment data to Cosmos. Returns True on success."""
-        if not _is_cosmos_available():
-            return False
-
-        container = _get_container()
-        if container is None:
-            return False
-
+        """Persist assessment data to cache. Returns True on success."""
         cache_key = _make_cache_key(subscription_id, machine_name, vm_type)
-        document = {
+        self._cache[cache_key] = {
             "id": cache_key,
-            "partitionKey": subscription_id,
             "subscription_id": subscription_id,
             "machine_name": machine_name.lower(),
             "vm_type": vm_type,
             "assessment_data": assessment_data,
             "cached_at": datetime.utcnow().isoformat(),
+            "_cached_at": time.time(),
         }
-
-        try:
-            await asyncio.to_thread(container.upsert_item, document)
-            logger.debug("Cached patch assessment for %s", machine_name)
-            return True
-        except Exception as exc:
-            logger.warning("Failed to cache patch assessment for %s: %s", machine_name, exc)
-            return False
+        logger.debug("Cached patch assessment for %s", machine_name)
+        return True
 
     async def batch_get_assessments(
         self,
@@ -129,9 +97,6 @@ class PatchAssessmentRepository:
         Returns:
             Dict mapping machine_name (lower) -> assessment_data for cache hits only
         """
-        if not _is_cosmos_available():
-            return {}
-
         results: Dict[str, Dict[str, Any]] = {}
 
         async def fetch_one(m: Dict[str, str]) -> None:
@@ -156,21 +121,11 @@ _patch_assessment_repo: Optional[PatchAssessmentRepository] = None
 
 
 async def get_patch_assessment_repository() -> PatchAssessmentRepository:
-    """Return the singleton PatchAssessmentRepository, initialising Cosmos if needed."""
+    """Return the singleton PatchAssessmentRepository."""
     global _patch_assessment_repo
 
     if _patch_assessment_repo is not None:
         return _patch_assessment_repo
-
-    if not getattr(config.azure, "cosmos_endpoint", None):
-        raise RuntimeError("Cosmos DB is not configured - patch assessment caching unavailable")
-
-    # Ensure the base client is initialised (idempotent)
-    if not base_cosmos.initialized:
-        await base_cosmos._initialize_async()
-
-    if not base_cosmos.initialized:
-        raise RuntimeError("Cosmos DB base client failed to initialise")
 
     _patch_assessment_repo = PatchAssessmentRepository()
     return _patch_assessment_repo

@@ -8,8 +8,6 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .cosmos_cache import base_cosmos
-
 logger = logging.getLogger(__name__)
 
 
@@ -162,7 +160,7 @@ DEFAULT_OS_EXTRACTION_RULES: List[Dict[str, Any]] = [
 
 
 class OSExtractionRulesStore:
-    """Cosmos-backed store for user-defined OS extraction regex rules."""
+    """In-memory store for user-defined OS extraction regex rules."""
 
     def __init__(self, container_id: str = "os_extraction_rules"):
         self.container_id = container_id
@@ -171,13 +169,6 @@ class OSExtractionRulesStore:
         self._rules_cache: List[Dict[str, Any]] = []
         self._persisted_rules_cache: List[Dict[str, Any]] = []
         self._rules_loaded = False
-
-    def _container(self):
-        return base_cosmos.get_container(
-            self.container_id,
-            partition_path="/config_type",
-            offer_throughput=400,
-        )
 
     def _default_rules(self) -> List[Dict[str, Any]]:
         return [
@@ -271,24 +262,8 @@ class OSExtractionRulesStore:
         if self._rules_loaded:
             return
         self._rules_loaded = True
-        try:
-            container = self._container()
-            if not container:
-                self._persisted_rules_cache = []
-                self._rules_cache = self._merge_rules([])
-                return
-            doc = container.read_item(item=self.document_id, partition_key=self.partition_key)
-            rules = doc.get("rules") if isinstance(doc, dict) else []
-            self._persisted_rules_cache = [
-                self._normalize_rule(rule, index)
-                for index, rule in enumerate(rules or [])
-                if isinstance(rule, dict) and str(rule.get("pattern") or "").strip()
-            ]
-            self._rules_cache = self._merge_rules(self._persisted_rules_cache)
-        except Exception as exc:
-            logger.debug("OS extraction rules load skipped: %s", exc)
-            self._persisted_rules_cache = []
-            self._rules_cache = self._merge_rules([])
+        # Use defaults + any persisted rules from in-memory store
+        self._rules_cache = self._merge_rules(self._persisted_rules_cache)
 
     def get_rules(self) -> List[Dict[str, Any]]:
         self._ensure_loaded()
@@ -347,8 +322,6 @@ class OSExtractionRulesStore:
         return None
 
     async def save_rules(self, rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        await base_cosmos._initialize_async()
-        container = self._container()
         normalized_rules = [
             self._normalize_rule(rule, index)
             for index, rule in enumerate(rules or [])
@@ -358,25 +331,6 @@ class OSExtractionRulesStore:
         self._persisted_rules_cache = normalized_rules
         self._rules_cache = self._merge_rules(normalized_rules)
         self._rules_loaded = True
-        if not container:
-            return deepcopy(self._rules_cache)
-
-        now = datetime.now(timezone.utc).isoformat()
-        doc = {
-            "id": self.document_id,
-            "config_type": self.partition_key,
-            "rules": normalized_rules,
-            "updated_at": now,
-        }
-        try:
-            existing = container.read_item(item=self.document_id, partition_key=self.partition_key)
-            if isinstance(existing, dict) and existing.get("created_at"):
-                doc["created_at"] = existing.get("created_at")
-            else:
-                doc["created_at"] = now
-        except Exception:
-            doc["created_at"] = now
-        container.upsert_item(doc)
         return deepcopy(self._rules_cache)
 
     async def add_rule(self, rule: Dict[str, Any]) -> Dict[str, Any]:

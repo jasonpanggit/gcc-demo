@@ -12,14 +12,12 @@ from typing import Optional, List, Dict, Any
 try:
     from models.cve_models import UnifiedCVE
     from utils.cve_cache import CVECache
-    from utils.cve_cosmos_repository import CVECosmosRepository
     from utils.cve_data_aggregator import CVEDataAggregator
     from utils.cve_id_utils import is_valid_cve_id
     from utils.logging_config import get_logger
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import UnifiedCVE
     from app.agentic.eol.utils.cve_cache import CVECache
-    from app.agentic.eol.utils.cve_cosmos_repository import CVECosmosRepository
     from app.agentic.eol.utils.cve_data_aggregator import CVEDataAggregator
     from app.agentic.eol.utils.cve_id_utils import is_valid_cve_id
     from app.agentic.eol.utils.logging_config import get_logger
@@ -28,8 +26,7 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 
-# Cosmos DB indexing policy for CVE data container.
-# Relocated from cve_cosmos_repository.py (BH-042 dead code removal).
+# Indexing policy for CVE data (retained for reference).
 CVE_DATA_INDEXING_POLICY: Dict[str, Any] = {
     "indexingMode": "consistent",
     "automatic": True,
@@ -121,7 +118,7 @@ class CVEService:
 
     Cache hierarchy:
     - L1: In-memory TTLCache (1000 CVEs, 1 hour TTL)
-    - L2: Cosmos DB (persistent)
+    - L2: PostgreSQL (persistent)
     - Source: External APIs (CVE.org, NVD, vendor feeds)
 
     Read path: L1 → L2 → APIs
@@ -131,7 +128,7 @@ class CVEService:
     def __init__(
         self,
         cache: CVECache,
-        repository: CVECosmosRepository,
+        repository,
         aggregator: CVEDataAggregator,
         kb_cve_edge_repository=None,
     ):
@@ -163,7 +160,7 @@ class CVEService:
 
         Cache flow:
         1. Check L1 cache (memory)
-        2. If miss, check L2 cache (Cosmos DB)
+        2. If miss, check L2 cache (PostgreSQL)
         3. If miss, fetch from external APIs
         4. Populate L2 and L1 on miss
         """
@@ -176,10 +173,10 @@ class CVEService:
                 logger.debug(f"CVE {cve_id} served from L1 cache")
                 return cached
 
-            # L2 cache check (Cosmos DB)
+            # L2 cache check (PostgreSQL)
             cached = await self.repository.get_cve(cve_id)
             if cached:
-                logger.debug(f"CVE {cve_id} served from L2 cache (Cosmos DB)")
+                logger.debug(f"CVE {cve_id} served from L2 cache (PostgreSQL)")
                 # Populate L1 for subsequent reads
                 self.cache.set(cve_id, cached)
                 return cached
@@ -193,7 +190,7 @@ class CVEService:
         cve = await self.aggregator.fetch_and_merge_cve(cve_id)
 
         if cve:
-            # Write to L2 (Cosmos DB) for durability
+            # Write to L2 (PostgreSQL) for durability
             await self._persist_cve(cve)
 
             # Write to L1 (memory) for fast subsequent reads
@@ -214,7 +211,7 @@ class CVEService:
     ) -> List[UnifiedCVE]:
         """Search CVEs with filters.
 
-        Note: Search always hits L2 (Cosmos DB), not L1.
+        Note: Search always hits L2 (PostgreSQL), not L1.
         L1 cache is for single CVE lookups only.
 
         Args:
@@ -442,7 +439,7 @@ class CVEService:
 
         cves = await self.aggregator.fetch_cves_since(since_date, limit)
 
-        # Upsert to Cosmos DB
+        # Upsert to PostgreSQL
         synced_count = 0
         for cve in cves:
             try:
@@ -451,13 +448,13 @@ class CVEService:
             except Exception as e:
                 logger.error(f"Failed to upsert CVE {cve.cve_id}: {e}")
 
-        logger.info(f"Synced {synced_count}/{len(cves)} CVEs to Cosmos DB")
+        logger.info(f"Synced {synced_count}/{len(cves)} CVEs to PostgreSQL")
         return synced_count
 
     def invalidate_cache(self, cve_id: str) -> None:
         """Invalidate L1 cache for a CVE.
 
-        Use when CVE is updated in L2 (Cosmos DB).
+        Use when CVE is updated in L2 (PostgreSQL).
 
         Args:
             cve_id: CVE identifier to invalidate
@@ -467,7 +464,7 @@ class CVEService:
     def clear_cache(self) -> None:
         """Clear entire L1 cache.
 
-        Use when making bulk updates to Cosmos DB.
+        Use when making bulk updates to PostgreSQL.
         """
         self.cache.clear()
 
@@ -498,8 +495,8 @@ async def get_cve_service() -> CVEService:
 
     if _cve_service_instance is None:
         cache = CVECache(maxsize=1000, ttl_seconds=300)
-        repository = CVECosmosRepository()
-        await repository.ensure_initialized()
+        from utils.cve_in_memory_repository import CVEInMemoryRepository
+        repository = CVEInMemoryRepository()
         aggregator = CVEDataAggregator()
         _cve_service_instance = CVEService(cache=cache, repository=repository, aggregator=aggregator)
         logger.info("CVE service singleton initialized")

@@ -13,8 +13,6 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .cosmos_cache import base_cosmos
-
 try:
     from models.cve_models import VMScanTarget
     from utils.normalization import normalize_os_name_version
@@ -31,7 +29,7 @@ OS_SYNC_PARTITION_KEY = "inventory_os_sync"
 
 
 class CVEInventorySyncStateStore:
-    """Persist the set of normalized inventory OS identities already synced."""
+    """In-memory store for the set of normalized inventory OS identities already synced."""
 
     def __init__(self, container_id: str = OS_SYNC_CONTAINER_ID):
         self.container_id = container_id
@@ -43,34 +41,8 @@ class CVEInventorySyncStateStore:
             "last_synced_at": None,
         }
 
-    def _container(self):
-        return base_cosmos.get_container(
-            self.container_id,
-            partition_path="/sync_type",
-            offer_throughput=400,
-        )
-
     async def load(self) -> Dict[str, Any]:
-        container = self._container()
-        if container is None:
-            return deepcopy(self._fallback_state)
-
-        try:
-            document = await asyncio.to_thread(
-                container.read_item,
-                item=OS_SYNC_DOCUMENT_ID,
-                partition_key=OS_SYNC_PARTITION_KEY,
-            )
-            return {
-                "id": document.get("id", OS_SYNC_DOCUMENT_ID),
-                "sync_type": document.get("sync_type", OS_SYNC_PARTITION_KEY),
-                "synced_os_keys": list(document.get("synced_os_keys") or []),
-                "os_entries": list(document.get("os_entries") or []),
-                "last_synced_at": document.get("last_synced_at"),
-            }
-        except Exception as exc:
-            logger.debug("Inventory OS sync state read fallback: %s", exc)
-            return deepcopy(self._fallback_state)
+        return deepcopy(self._fallback_state)
 
     async def save(self, state: Dict[str, Any]) -> None:
         normalized = {
@@ -81,15 +53,6 @@ class CVEInventorySyncStateStore:
             "last_synced_at": state.get("last_synced_at") or datetime.now(timezone.utc).isoformat(),
         }
         self._fallback_state = deepcopy(normalized)
-
-        container = self._container()
-        if container is None:
-            return
-
-        try:
-            await asyncio.to_thread(container.upsert_item, normalized)
-        except Exception as exc:
-            logger.debug("Inventory OS sync state write fallback: %s", exc)
 
 
 def _vendor_for_os(normalized_name: str) -> Optional[str]:
