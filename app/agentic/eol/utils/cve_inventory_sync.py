@@ -252,8 +252,13 @@ async def sync_inventory_os_cves(
     state_store: Optional[CVEInventorySyncStateStore] = None,
     limit_per_os: Optional[int] = None,
     force_resync: bool = False,
+    os_summary_repo: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Warm the CVE cache for newly observed OS identities from inventory."""
+    """Warm the CVE cache for newly observed OS identities from inventory.
+
+    Args:
+        os_summary_repo: Optional CVESyncOSSummaryRepository for persisting results
+    """
     state_store = state_store or CVEInventorySyncStateStore()
     discovered = await discover_inventory_os_identities(
         eol_orchestrator=eol_orchestrator,
@@ -266,13 +271,17 @@ async def sync_inventory_os_cves(
     processed: List[Dict[str, Any]] = []
 
     # Parallel processing with concurrency limit
-    semaphore = asyncio.Semaphore(5)  # Max 5 concurrent OS fetches
+    # Without NVD API key: strict limit to avoid rate limiting (0.6 req/s = 1 req per 6s)
+    # With NVD API key: can handle more concurrent requests (5 req/s)
+    max_concurrent = 3  # Conservative default without API key
+    semaphore = asyncio.Semaphore(max_concurrent)
 
     async def process_os_identity(identity: Dict[str, Any]) -> Dict[str, Any]:
         """Process a single OS identity with concurrency control and jitter."""
         async with semaphore:
-            # Add random jitter (0.5-2.5 seconds) to spread out requests and avoid rate limiting
-            jitter = random.uniform(0.5, 2.5)
+            # Add random jitter (1.0-4.0 seconds) to spread out requests and avoid rate limiting
+            # Higher jitter without API key to respect 0.6 req/s limit (1 req per 6 seconds)
+            jitter = random.uniform(1.0, 4.0)
             await asyncio.sleep(jitter)
 
             live_queries = _build_inventory_live_queries(identity, limit_per_os)
@@ -328,7 +337,7 @@ async def sync_inventory_os_cves(
 
     # Execute all OS identity syncs in parallel with concurrency limit
     if targets:
-        logger.info(f"Starting parallel CVE sync for {len(targets)} OS identities (max 5 concurrent)")
+        logger.info(f"Starting parallel CVE sync for {len(targets)} OS identities (max {max_concurrent} concurrent, jitter 1.0-4.0s)")
         processed = await asyncio.gather(*[process_os_identity(identity) for identity in targets])
 
     total_cves = sum(entry.get("match_count", 0) for entry in processed)
@@ -348,6 +357,14 @@ async def sync_inventory_os_cves(
             "os_entries": sorted(updated_entries.values(), key=lambda item: item.get("key", "")),
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         })
+
+        # Persist OS sync summaries to PostgreSQL for dashboard display
+        if os_summary_repo:
+            try:
+                await os_summary_repo.upsert_batch(list(updated_entries.values()))
+                logger.info(f"Persisted {len(updated_entries)} OS sync summaries to PostgreSQL")
+            except Exception as e:
+                logger.warning(f"Failed to persist OS sync summaries: {e}")
 
     return {
         "discovered_os_count": len(discovered),

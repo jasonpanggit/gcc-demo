@@ -637,6 +637,7 @@ _cve_monitoring_scheduler = None
 _cve_mcp_client = None
 _patch_install_history_repository = None
 _kb_cve_edge_repository = None
+_os_summary_repo = None
 
 
 async def get_cve_service():
@@ -760,6 +761,18 @@ async def get_vm_cve_match_repository():
         logger.info("✅ VM CVE match repository singleton initialized (PostgreSQL)")
 
     return _vm_cve_match_repository
+
+
+async def get_os_summary_repo():
+    """Get or create OS sync summary repository singleton."""
+    global _os_summary_repo
+    if _os_summary_repo is None:
+        from utils.repositories.cve_sync_os_summary_repository import CVESyncOSSummaryRepository
+
+        _os_summary_repo = CVESyncOSSummaryRepository(pool=postgres_client.pool)
+        logger.info("✅ OS sync summary repository singleton initialized (PostgreSQL)")
+
+    return _os_summary_repo
 
 
 async def get_cve_patch_mapper():

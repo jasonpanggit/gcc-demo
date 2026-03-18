@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 
 try:
     from utils.response_models import StandardResponse
@@ -143,17 +143,19 @@ def _calculate_risk_level(
     return "Healthy"
 
 
-@router.get("/cve/inventory/overview", response_model=StandardResponse)
+@router.get("/cve/inventory/overview")
 @readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
 async def get_vm_vulnerability_overview(
     request: Request,
-    days: int = Query(default=90, ge=1, le=365, description="Look-back window (kept for API compat)"),
-):
+) -> StandardResponse:
     """Return vulnerability counts for all Azure VMs and Arc-enabled servers.
 
     Uses mv_vm_vulnerability_posture materialized view via cve_repo.
     Eliminates BH-002 (3-query aggregate with O(N) in-memory loop) and
     BH-003 (dual Arc+Azure parallel lookup).
+
+    Query Parameters:
+        days: Look-back window (kept for API compat) - currently unused
     """
     try:
         cve_repo = request.app.state.cve_repo

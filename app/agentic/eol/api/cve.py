@@ -55,9 +55,13 @@ async def get_cve_stats(request: Request) -> StandardResponse:
     """Get cached CVE statistics for the UI."""
     cve_repo = request.app.state.cve_repo
 
-    summary, os_breakdown = await asyncio.gather(
+    # Get OS sync summaries from the persistent table
+    from main import get_os_summary_repo
+    os_summary_repo = await get_os_summary_repo()
+
+    summary, os_summaries = await asyncio.gather(
         cve_repo.get_dashboard_summary(),
-        cve_repo.get_os_cve_breakdown(),
+        os_summary_repo.get_all_summaries(),
         return_exceptions=True,
     )
 
@@ -67,21 +71,23 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         summary = {"total_cves": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
         errors.append("summary")
 
-    if isinstance(os_breakdown, Exception):
-        logger.error("OS breakdown query failed: %s", os_breakdown, exc_info=True)
-        os_breakdown = []
-        errors.append("os_breakdown")
+    if isinstance(os_summaries, Exception):
+        logger.error("OS summaries query failed: %s", os_summaries, exc_info=True)
+        os_summaries = []
+        errors.append("os_summaries")
 
-    # Build per-OS identity stats from os_breakdown (replaces N+1 count_cves)
+    # Build per-OS identity stats from sync summaries (not VM posture)
     os_identities = []
-    for entry in os_breakdown:
+    for entry in os_summaries:
+        # Repository already extracts severity_counts from JSON, returns match_count alias
         os_identities.append({
-            "key": entry.get("os_name", "Unknown"),
-            "display_name": _format_os_display_name(entry.get("os_name", "")),
-            "cached_cve_count": entry.get("total_cve_count", 0),
-            "vm_count": entry.get("vm_count", 0),
-            "critical_count": entry.get("critical_count", 0),
-            "high_count": entry.get("high_count", 0),
+            "key": entry.get("key", "Unknown"),
+            "display_name": entry.get("display_name", "Unknown"),
+            "normalized_version": entry.get("normalized_version"),
+            "match_count": entry.get("match_count", 0),
+            "query_mode": entry.get("query_mode"),
+            "synced_at": entry.get("synced_at").isoformat() if entry.get("synced_at") else None,
+            "severity_counts": entry.get("severity_counts", {}),
         })
 
     response_data = {

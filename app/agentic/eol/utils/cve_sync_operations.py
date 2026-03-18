@@ -53,10 +53,14 @@ async def run_inventory_bootstrap_sync(
     eol_orchestrator: Any,
     force_resync: bool = False,
     limit_per_os: Optional[int] = None,
+    os_summary_repo: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Sync CVEs for inventory-discovered operating systems.
 
     Default behavior is new-OS-only. Force-resync is kept for non-UI callers.
+
+    Args:
+        os_summary_repo: Optional repository for persisting OS sync summaries
     """
     try:
         from utils.cve_inventory_sync import sync_inventory_os_cves
@@ -69,6 +73,7 @@ async def run_inventory_bootstrap_sync(
         eol_orchestrator=eol_orchestrator,
         limit_per_os=limit_per_os,
         force_resync=force_resync,
+        os_summary_repo=os_summary_repo,
     )
 
 
