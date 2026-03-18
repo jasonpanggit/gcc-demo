@@ -7,7 +7,7 @@ of the EOL application components, including notifications management.
 Features:
 - Tool selection debugging for the Microsoft inventory assistant orchestrator
 - Logging functionality testing
-- Cosmos DB connection testing
+- PostgreSQL connection testing
 - Comprehensive cache system validation
 - Notification history and statistics
 - Agent and dependency validation
@@ -16,7 +16,6 @@ Features:
 Endpoints:
     POST /api/debug_tool_selection - Debug inventory assistant tool selection logic
     GET  /api/test-logging - Test logging functionality
-    GET  /api/cosmos/test - Test Cosmos DB connection
     GET  /api/validate-cache - Comprehensive cache system validation
     GET  /api/notifications/history - Get notification history with filtering
     GET  /api/notifications/stats - Get notification statistics summary
@@ -225,107 +224,6 @@ async def test_logging():
     return result
 
 
-@router.get("/api/cosmos/test", response_model=StandardResponse)
-@readonly_endpoint(agent_name="cosmos_connection_test", timeout_seconds=30)
-async def test_cosmos_connection():
-    """
-    Test Cosmos DB connection for diagnostic purposes.
-    
-    Performs a comprehensive test of Cosmos DB connectivity including initialization
-    check, container access, and basic read operations. Useful for troubleshooting
-    Cosmos DB connection issues.
-    
-    Returns:
-        StandardResponse with connection test results and detailed diagnostic information.
-        
-    Example Response (Success):
-        {
-            "success": true,
-            "message": "Cosmos DB connection successful",
-            "details": {
-                "initialized": true,
-                "test_operation": "Container access successful",
-                "note": "NotFound error for test item is expected"
-            }
-        }
-        
-    Example Response (Failure):
-        {
-            "success": false,
-            "message": "Cosmos DB initialization failed: Connection timeout",
-            "details": {
-                "initialized": false,
-                "last_error": "Connection timeout",
-                "cosmos_client": "<class 'NoneType'>",
-                "database": "<class 'NoneType'>"
-            }
-        }
-    """
-    from utils.cosmos_cache import base_cosmos
-    
-    # Check if base client is initialized
-    if not base_cosmos.initialized:
-        logger.info("🔄 Base Cosmos client not initialized, attempting initialization...")
-        await base_cosmos._initialize_async()
-    
-    if not base_cosmos.initialized:
-        return {
-            "success": False,
-            "message": f"Cosmos DB initialization failed: {base_cosmos.last_error}",
-            "details": {
-                "initialized": False,
-                "last_error": base_cosmos.last_error,
-                "cosmos_client": str(type(base_cosmos.cosmos_client)),
-                "database": str(type(base_cosmos.database))
-            }
-        }
-    
-    # Try to create/get a test container
-    try:
-        test_container = base_cosmos.get_container(
-            container_id="test_connection",
-            partition_path="/test_key",
-            offer_throughput=400
-        )
-        
-        # Try a simple operation
-        test_result = test_container.read_item(
-            item="nonexistent",
-            partition_key="test"
-        )
-        
-    except Exception as container_error:
-        # This is expected for nonexistent item, but it proves connection works
-        if "NotFound" in str(container_error) or "404" in str(container_error):
-            return {
-                "success": True,
-                "message": "Cosmos DB connection successful",
-                "details": {
-                    "initialized": True,
-                    "test_operation": "Container access successful",
-                    "note": "NotFound error for test item is expected"
-                }
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"Cosmos DB container operation failed: {str(container_error)}",
-                "details": {
-                    "initialized": True,
-                    "error": str(container_error)
-                }
-            }
-    
-    return {
-        "success": True,
-        "message": "Cosmos DB fully functional",
-        "details": {
-            "initialized": True,
-            "test_operation": "Complete"
-        }
-    }
-
-
 @router.get("/api/validate-cache", response_model=StandardResponse)
 @readonly_endpoint(agent_name="validate_cache", timeout_seconds=30)
 async def validate_cache_system():
@@ -333,8 +231,8 @@ async def validate_cache_system():
     Comprehensive validation of cache system functionality.
     
     Performs thorough validation including:
-    - Dependency availability (requests, aiohttp, azure.cosmos, etc.)
-    - Cache module status (base_cosmos, eol_cache, inventory_cache)
+    - Dependency availability (requests, aiohttp, azure.identity, etc.)
+    - Cache module status (eol_cache, inventory_cache)
     - Agent functionality and cache support
     - Environment variable configuration
     - Overall system health scoring
@@ -349,22 +247,20 @@ async def validate_cache_system():
                 "python_version": "3.11.5",
                 "working_directory": "/app",
                 "variables": {
-                    "AZURE_COSMOS_ENDPOINT": true,
-                    "AZURE_COSMOS_DATABASE": true,
-                    "AZURE_COSMOS_CONTAINER": true
+                    "PGHOST": true,
+                    "PGDATABASE": true
                 }
             },
             "dependencies": {
                 "requests": {"status": "available", "error": null},
                 "aiohttp": {"status": "available", "error": null},
-                "azure.cosmos": {"status": "available", "error": null},
+                "azure.identity": {"status": "available", "error": null},
                 ...
             },
             "cache_modules": {
-                "base_cosmos": {
+                "eol_cache": {
                     "status": "available",
-                    "initialized": true,
-                    "last_error": null
+                    "initialized": true
                 },
                 ...
             },
@@ -383,9 +279,9 @@ async def validate_cache_system():
                 "overall_score": "100.0%",
                 "status": "excellent",
                 "working_components": {
-                    "dependencies": "6/6",
-                    "cache_modules": "3/3",
-                    "agents": "6/6"
+                    "dependencies": "5/5",
+                    "cache_modules": "2/2",
+                    "agents": "5/5"
                 }
             }
         }
@@ -403,7 +299,7 @@ async def validate_cache_system():
     }
     
     # Test dependencies
-    dependencies = ['requests', 'aiohttp', 'beautifulsoup4', 'azure.cosmos', 'azure.identity', 'fastapi']
+    dependencies = ['requests', 'aiohttp', 'beautifulsoup4', 'azure.identity', 'fastapi']
     working_deps = 0
     
     for dep in dependencies:
@@ -424,14 +320,8 @@ async def validate_cache_system():
     cache_results = {}
     
     try:
-        from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
         from utils.eol_inventory import eol_inventory
-        validation_results["cache_modules"]["base_cosmos"] = {
-            "status": "available",
-            "initialized": getattr(base_cosmos, 'initialized', False),
-            "last_error": getattr(base_cosmos, 'last_error', None)
-        }
         validation_results["cache_modules"]["eol_cache"] = {
             "status": "available",
             "initialized": getattr(eol_cache, 'initialized', False),
@@ -444,13 +334,13 @@ async def validate_cache_system():
             "misses": eol_inventory.get_stats().get("misses", 0) if hasattr(eol_inventory, "get_stats") else 0,
             "container": getattr(eol_inventory, 'container_id', 'eol_inventory')
         }
-        cache_results['cosmos'] = True
+        cache_results['eol'] = True
     except Exception as e:
-        validation_results["cache_modules"]["base_cosmos"] = {
+        validation_results["cache_modules"]["eol_cache"] = {
             "status": "failed",
             "error": str(e)
         }
-        cache_results['cosmos'] = False
+        cache_results['eol'] = False
     
     try:
         from utils.inventory_cache import inventory_cache
@@ -502,7 +392,7 @@ async def validate_cache_system():
             }
     
     # Environment variables
-    env_vars = ['AZURE_COSMOS_ENDPOINT', 'AZURE_COSMOS_DATABASE', 'AZURE_COSMOS_CONTAINER']
+    env_vars = ['PGHOST', 'PGDATABASE', 'PGUSER']
     env_status = {}
     for var in env_vars:
         env_status[var] = bool(os.getenv(var))
@@ -534,7 +424,7 @@ async def validate_cache_system():
 @router.get("/api/eol-cache-stats", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_cache_stats", timeout_seconds=15)
 async def get_eol_cache_stats():
-    """Expose hit/miss statistics for the Cosmos-backed EOL inventory and legacy cache."""
+    """Expose hit/miss statistics for the EOL inventory and legacy cache."""
     try:
         from utils.eol_inventory import eol_inventory
         from utils.eol_cache import eol_cache
@@ -642,7 +532,7 @@ async def get_notification_history(
     """
     Get notification history with optional filtering.
     
-    Retrieves historical notification records from Cosmos DB with support
+    Retrieves historical notification records with support
     for filtering by alert type and pagination.
     
     Args:

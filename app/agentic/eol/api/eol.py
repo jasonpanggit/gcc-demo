@@ -1145,50 +1145,41 @@ async def verify_eol_result(request: VerifyEOLRequest):
     # If we have a result, cache it with appropriate verification status
     if result.get('success') and result.get('data'):
         # Use eol_cache to handle verification status
-        from utils.cosmos_cache import base_cosmos
         from utils.eol_cache import eol_cache
-        if getattr(base_cosmos, 'initialized', False):
-            if is_failed:
-                # For failed verifications, delete the cache entry to clear it completely
-                await eol_cache.delete_failed_cache_entry(
-                    software_name=request.software_name,
-                    version=request.software_version,
-                    agent_name=request.agent_name
-                )
-                return {
-                    "success": True,
-                    "message": f"Failed verification - cache entry removed for {request.software_name}",
-                    "verification_status": verification_status,
-                    "software_name": request.software_name,
-                    "software_version": request.software_version,
-                    "cache_cleared": True
-                }
-            else:
-                # For verified results, update the cache with verification status
-                await eol_cache.cache_response(
-                    software_name=request.software_name,
-                    version=request.software_version,
-                    agent_name=request.agent_name,
-                    response_data=result,
-                    verified=is_verified,
-                    source_url=request.source_url,
-                    priority=2  # High priority for verified results
-                )
-                return {
-                    "success": True,
-                    "message": f"EOL result verified and cached for {request.software_name}",
-                    "verification_status": verification_status,
-                    "software_name": request.software_name,
-                    "software_version": request.software_version,
-                    "agent_used": result.get('agent_used'),
-                    "cache_updated": True
-                }
-        else:
+        if is_failed:
+            # For failed verifications, delete the cache entry to clear it completely
+            await eol_cache.delete_failed_cache_entry(
+                software_name=request.software_name,
+                version=request.software_version,
+                agent_name=request.agent_name
+            )
             return {
                 "success": True,
-                "message": "Verification recorded (Cosmos DB not initialized)",
+                "message": f"Failed verification - cache entry removed for {request.software_name}",
                 "verification_status": verification_status,
-                "cache_updated": False
+                "software_name": request.software_name,
+                "software_version": request.software_version,
+                "cache_cleared": True
+            }
+        else:
+            # For verified results, update the cache with verification status
+            await eol_cache.cache_response(
+                software_name=request.software_name,
+                version=request.software_version,
+                agent_name=request.agent_name,
+                response_data=result,
+                verified=is_verified,
+                source_url=request.source_url,
+                priority=2  # High priority for verified results
+            )
+            return {
+                "success": True,
+                "message": f"EOL result verified and cached for {request.software_name}",
+                "verification_status": verification_status,
+                "software_name": request.software_name,
+                "software_version": request.software_version,
+                "agent_used": result.get('agent_used'),
+                "cache_updated": True
             }
     else:
         return {
@@ -1335,7 +1326,7 @@ async def update_eol_inventory_record(
 @router.delete("/api/eol-inventory/{record_id}", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_delete", timeout_seconds=20)
 async def delete_eol_inventory_record(record_id: str, software_key: str):
-    """Delete a stored EOL record in Cosmos."""
+    """Delete a stored EOL record."""
     deleted = await eol_inventory.delete_record(record_id, software_key)
     if not deleted:
         response = StandardResponse.error_response("Record not found or delete failed")
@@ -1352,7 +1343,7 @@ async def delete_eol_inventory_record(record_id: str, software_key: str):
 @router.post("/api/eol-inventory/bulk-delete", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_bulk_delete", timeout_seconds=30)
 async def bulk_delete_eol_inventory_records(request: BulkDeleteRequest):
-    """Delete multiple EOL records in Cosmos in one call."""
+    """Delete multiple EOL records in one call."""
     items = request.items or []
     if not items:
         response = StandardResponse.error_response("No items provided for deletion")
@@ -1377,10 +1368,10 @@ async def bulk_delete_eol_inventory_records(request: BulkDeleteRequest):
 @router.post("/api/eol-inventory/purge-all", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_purge_all", timeout_seconds=60)
 async def purge_all_eol_inventory_records():
-    """Delete ALL records from the Cosmos eol_table container.
+    """Delete ALL records from the eol_table.
 
     Also clears the orchestrator in-memory cache so stale data is not served
-    from memory after the Cosmos purge.
+    from memory after the purge.
     """
     from main import get_eol_orchestrator
     # Clear orchestrator in-memory cache first

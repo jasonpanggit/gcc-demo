@@ -98,11 +98,8 @@ except ImportError:
     _sre_cache = None
     logger.debug("SRE cache not available (utils.sre_cache not found)")
 
-# In-memory audit trail (fallback when Cosmos DB unavailable)
+# In-memory audit trail
 _audit_trail: List[Dict[str, Any]] = []
-
-# Cosmos DB client for audit persistence (initialized lazily)
-_cosmos_audit_container = None
 
 # ---------------------------------------------------------------------------
 # Remediation plan & runbook in-memory stores
@@ -166,75 +163,18 @@ _BUILTIN_RUNBOOKS: List[Dict[str, Any]] = [
     },
 ]
 
-# In-memory custom runbooks (fallback when Cosmos DB unavailable)
+# In-memory custom runbooks
 _custom_runbooks: List[Dict[str, Any]] = []
-
-# Cosmos DB client for custom runbooks (initialized lazily)
-_cosmos_runbook_container = None
 
 
 def _get_audit_container():
-    """Get or create Cosmos DB container for audit trail"""
-    global _cosmos_audit_container
-    if _cosmos_audit_container is not None:
-        return _cosmos_audit_container
-
-    try:
-        # Import base_cosmos utility
-        import sys
-        import os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-        from utils.cosmos_cache import base_cosmos
-        base_cosmos._ensure_initialized()
-
-        if base_cosmos.initialized:
-            # Create audit_trail container with 90-day TTL
-            _cosmos_audit_container = base_cosmos.get_container(
-                container_id="audit_trail",
-                partition_path="/operation",
-                offer_throughput=400,
-                default_ttl=7776000  # 90 days in seconds
-            )
-            logger.info("✅ Cosmos DB audit_trail container initialized")
-            return _cosmos_audit_container
-        else:
-            logger.warning("⚠️ Cosmos DB not available - using in-memory audit trail only")
-            return None
-    except Exception as exc:
-        logger.warning(f"⚠️ Failed to initialize Cosmos DB for audit trail: {exc}")
-        return None
+    """Audit trail persistence removed (migrated to PostgreSQL). Returns None to use in-memory fallback."""
+    return None
 
 
 def _get_runbook_container():
-    """Get or create Cosmos DB container for custom runbooks"""
-    global _cosmos_runbook_container
-    if _cosmos_runbook_container is not None:
-        return _cosmos_runbook_container
-
-    try:
-        import sys
-        import os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-        from utils.cosmos_cache import base_cosmos
-        base_cosmos._ensure_initialized()
-
-        if base_cosmos.initialized:
-            _cosmos_runbook_container = base_cosmos.get_container(
-                container_id="custom_runbooks",
-                partition_path="/resource_type",
-                offer_throughput=400,
-                default_ttl=-1  # No expiry for runbooks
-            )
-            logger.info("✅ Cosmos DB custom_runbooks container initialized")
-            return _cosmos_runbook_container
-        else:
-            logger.warning("⚠️ Cosmos DB not available - using in-memory runbook store only")
-            return None
-    except Exception as exc:
-        logger.warning(f"⚠️ Failed to initialize Cosmos DB for runbooks: {exc}")
-        return None
+    """Runbook persistence removed (migrated to PostgreSQL). Returns None to use in-memory fallback."""
+    return None
 
 
 def _generate_approval_token(plan_id: str, step_index: int) -> str:
@@ -284,15 +224,15 @@ def _match_runbooks(issue_description: str, resource_id: str) -> List[Dict[str, 
 
     all_runbooks = _BUILTIN_RUNBOOKS + _custom_runbooks
 
-    # Also try to load custom runbooks from Cosmos DB
+    # Also try to load custom runbooks from persistent storage
     try:
         container = _get_runbook_container()
         if container is not None:
             query = "SELECT * FROM c WHERE c.active = true"
-            cosmos_runbooks = list(container.query_items(query=query, enable_cross_partition_query=True))
-            all_runbooks = all_runbooks + cosmos_runbooks
+            persisted_runbooks = list(container.query_items(query=query, enable_cross_partition_query=True))
+            all_runbooks = all_runbooks + persisted_runbooks
     except Exception as exc:
-        logger.debug(f"Could not load Cosmos runbooks for matching: {exc}")
+        logger.debug(f"Could not load persisted runbooks for matching: {exc}")
 
     for rb in all_runbooks:
         score = 0
@@ -313,7 +253,7 @@ def _match_runbooks(issue_description: str, resource_id: str) -> List[Dict[str, 
 
 
 def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[str, Any], success: bool):
-    """Log an audit event for SRE operations with Cosmos DB persistence"""
+    """Log an audit event for SRE operations."""
     audit_entry = {
         "id": f"{operation}-{datetime.utcnow().timestamp()}-{uuid.uuid4().hex[:8]}",
         "timestamp": datetime.utcnow().isoformat(),
@@ -324,23 +264,13 @@ def _log_audit_event(operation: str, resource_id: Optional[str], details: Dict[s
         "caller": os.getenv("USER", "system")
     }
 
-    # Always add to in-memory trail (fallback)
+    # Add to in-memory trail
     _audit_trail.append(audit_entry)
     logger.info(f"AUDIT: {operation} | Resource: {resource_id} | Success: {success}")
 
     # Keep only last 1000 entries in memory
     if len(_audit_trail) > 1000:
         _audit_trail.pop(0)
-
-    # Persist to Cosmos DB if available
-    try:
-        container = _get_audit_container()
-        if container is not None:
-            container.upsert_item(body=audit_entry)
-            logger.debug(f"✅ Audit event persisted to Cosmos DB: {audit_entry['id']}")
-    except Exception as exc:
-        logger.warning(f"⚠️ Failed to persist audit event to Cosmos DB: {exc}")
-        # Continue - in-memory trail is still available
 
 
 def _get_credential():
@@ -3216,7 +3146,7 @@ async def execute_remediation_step(
         "Register a custom remediation runbook for future incident matching. "
         "Runbooks define trigger conditions (error patterns), resource types, "
         "step-by-step remediation procedures, and approval levels. Stored in "
-        "Cosmos DB (with in-memory fallback) and indexed by resource type and "
+        "memory and indexed by resource type and "
         "error pattern for fast matching by generate_remediation_plan."
     ),
 )
@@ -3298,7 +3228,7 @@ async def register_custom_runbook(
 
         # ---- Build runbook record ----
         runbook_id = f"custom-{uuid.uuid4().hex[:12]}"
-        # Use first resource type as partition key for Cosmos DB
+        # Use first resource type as partition key
         primary_resource_type = parsed_resource_types[0] if parsed_resource_types else "unknown"
 
         runbook_record = {
@@ -3307,7 +3237,7 @@ async def register_custom_runbook(
             "name": name.strip(),
             "trigger_conditions": parsed_conditions,
             "resource_types": parsed_resource_types,
-            "resource_type": primary_resource_type,  # Cosmos partition key
+            "resource_type": primary_resource_type,
             "steps": parsed_steps,
             "rollback": [f"Revert {name.strip()} changes", "Notify stakeholders"],
             "approval_level": approval_level,
@@ -3319,18 +3249,7 @@ async def register_custom_runbook(
             "version": 1,
         }
 
-        # ---- Persist to Cosmos DB ----
-        persisted_to_cosmos = False
-        try:
-            container = _get_runbook_container()
-            if container is not None:
-                container.upsert_item(body=runbook_record)
-                persisted_to_cosmos = True
-                logger.info(f"✅ Custom runbook '{name}' persisted to Cosmos DB")
-        except Exception as cosmos_exc:
-            logger.warning(f"⚠️ Failed to persist runbook to Cosmos DB: {cosmos_exc}")
-
-        # Always store in memory as fallback
+        # Store in memory
         _custom_runbooks.append(runbook_record)
 
         response = {
@@ -3341,8 +3260,7 @@ async def register_custom_runbook(
             "trigger_patterns": parsed_conditions["error_patterns"],
             "total_steps": len(parsed_steps),
             "approval_level": approval_level,
-            "persisted_to_cosmos": persisted_to_cosmos,
-            "storage": "cosmos_db + in_memory" if persisted_to_cosmos else "in_memory_only",
+            "storage": "in_memory",
             "registered_at": now.isoformat(),
         }
 
@@ -3354,7 +3272,6 @@ async def register_custom_runbook(
                 "name": name.strip(),
                 "resource_types": parsed_resource_types,
                 "approval_level": approval_level,
-                "persisted_to_cosmos": persisted_to_cosmos,
             },
             success=True,
         )
@@ -4228,7 +4145,7 @@ async def get_audit_trail(
             },
             "statistics": stats,
             "audit_entries": filtered_trail[:100],  # Limit to 100 most recent
-            "note": "Audit trail is stored in memory. For production, integrate with Cosmos DB or Log Analytics.",
+            "note": "Audit trail is stored in memory. For production, integrate with PostgreSQL or Log Analytics.",
             "timestamp": datetime.utcnow().isoformat()
         }
 
@@ -6207,25 +6124,12 @@ async def analyze_cost_anomalies(
 # SLO/SLI/Error Budget Management (P0)
 # ============================================================================
 
-# In-memory SLO store (fallback, persisted to Cosmos DB when available)
+# In-memory SLO store
 _slo_definitions: Dict[str, Dict[str, Any]] = {}
 
 
 def _get_slo_container():
-    """Get Cosmos DB container for SLO definitions"""
-    try:
-        import sys
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-        from utils.cosmos_cache import base_cosmos
-        base_cosmos._ensure_initialized()
-        if base_cosmos.initialized:
-            return base_cosmos.get_container(
-                container_id="slo_definitions",
-                partition_path="/service_name",
-                offer_throughput=400,
-            )
-    except Exception:
-        pass
+    """SLO persistence removed (migrated to PostgreSQL). Returns None to use in-memory fallback."""
     return None
 
 
@@ -6236,7 +6140,7 @@ def _get_slo_container():
         "✅ USE THIS TOOL when users ask: 'Set an SLO for my app', 'Define a 99.9% availability target', "
         "'Create an error budget for my service'. "
         "Supports SLI types: availability, latency, error_rate. "
-        "SLO definitions are stored in Cosmos DB for persistence."
+        "SLO definitions are stored in memory."
     ),
 )
 async def define_slo(
@@ -6264,15 +6168,6 @@ async def define_slo(
 
         # Store in memory
         _slo_definitions[slo_id] = slo_definition
-
-        # Persist to Cosmos DB if available
-        container = _get_slo_container()
-        if container:
-            container.upsert_item(body=slo_definition)
-            slo_definition["persisted"] = True
-        else:
-            slo_definition["persisted"] = False
-            slo_definition["note"] = "Stored in memory only (Cosmos DB unavailable)"
 
         response = {
             "success": True,
@@ -6324,17 +6219,6 @@ async def calculate_error_budget(
                 if sdef["service_name"] == service_name and sdef["status"] == "active":
                     slo = sdef
                     slo_id = sid
-
-        if not slo:
-            # Try loading from Cosmos DB
-            container = _get_slo_container()
-            if container:
-                query = f"SELECT * FROM c WHERE c.service_name = '{service_name}' AND c.status = 'active' ORDER BY c.created_at DESC OFFSET 0 LIMIT 1"
-                items = list(container.query_items(query=query, enable_cross_partition_query=True))
-                if items:
-                    slo = items[0]
-                    slo_id = slo["id"]
-                    _slo_definitions[slo_id] = slo
 
         if not slo:
             return [TextContent(type="text", text=json.dumps({
@@ -6480,23 +6364,6 @@ async def get_slo_dashboard(
             if slo.get("status") == "active":
                 if service_name == "all" or slo.get("service_name") == service_name:
                     active_slos.append(slo)
-
-        # From Cosmos DB
-        container = _get_slo_container()
-        if container:
-            if service_name == "all":
-                query = "SELECT * FROM c WHERE c.status = 'active'"
-            else:
-                query = f"SELECT * FROM c WHERE c.service_name = '{service_name}' AND c.status = 'active'"
-            try:
-                cosmos_slos = list(container.query_items(query=query, enable_cross_partition_query=True))
-                # Merge (avoid duplicates)
-                existing_ids = {s["id"] for s in active_slos}
-                for cslo in cosmos_slos:
-                    if cslo["id"] not in existing_ids:
-                        active_slos.append(cslo)
-            except Exception:
-                pass
 
         response = {
             "success": True,
@@ -8525,20 +8392,6 @@ async def monitor_slo_burn_rate(
                 if sdef["service_name"] == service_name and sdef["status"] == "active":
                     slo = sdef
                     slo_id = sid
-
-        if not slo:
-            # Try loading from Cosmos DB
-            container = _get_slo_container()
-            if container:
-                query = (
-                    f"SELECT * FROM c WHERE c.service_name = '{service_name}' "
-                    f"AND c.status = 'active' ORDER BY c.created_at DESC OFFSET 0 LIMIT 1"
-                )
-                items = list(container.query_items(query=query, enable_cross_partition_query=True))
-                if items:
-                    slo = items[0]
-                    slo_id = slo["id"]
-                    _slo_definitions[slo_id] = slo
 
         if not slo:
             return [TextContent(type="text", text=json.dumps({
