@@ -558,7 +558,8 @@ class OSInventoryAgent:
                     cache_type="os",
                     metadata={
                         "full_dataset": retrieved_full_dataset,
-                        "query_params": query_params
+                        "query_params": query_params,
+                        "workspace_id": self.workspace_id
                     }
                 )
                 cache_end_time = datetime.utcnow()
