@@ -73,7 +73,7 @@ LIMIT $1;
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1d
 QUERY_VM_POSTURE = """
-SELECT vm_id, vm_name, os_name, risk_level, total_cves, critical, high, eol_status
+SELECT vm_id, vm_name, os_name, os_version, risk_level, total_cves, critical, high, eol_status
 FROM mv_vm_vulnerability_posture
 ORDER BY total_cves DESC
 LIMIT $1;
