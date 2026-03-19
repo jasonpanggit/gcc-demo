@@ -529,11 +529,9 @@ class CVERepository:
         )
 
         # Convert dict results to UnifiedCVE objects with field name mapping
-        logger.info(f"Converting {len(dict_results)} dict results to UnifiedCVE objects")
         unified_cves = []
         for row in dict_results:
             try:
-                logger.info(f"Converting CVE row: {row.get('cve_id')}")
                 # Map database field names to UnifiedCVE field names
                 mapped_row = dict(row)
                 if "published_at" in mapped_row:
@@ -546,31 +544,22 @@ class CVERepository:
                     # Map synced_at to last_synced
                     mapped_row["last_synced"] = mapped_row.pop("synced_at")
 
-                # Parse JSON string fields if needed (asyncpg returns JSONB as strings)
+                # Parse JSON string fields if needed (asyncpg JSONB codec handles most cases)
                 import json
                 for json_field in ["affected_products", "references", "vendor_metadata"]:
                     if json_field in mapped_row:
                         value = mapped_row[json_field]
-                        logger.info(f"Processing {json_field}: type={type(value)}, is_str={isinstance(value, str)}")
-                        # Handle string serialization from asyncpg JSONB
+                        # Handle string serialization edge cases
                         if isinstance(value, str):
                             try:
                                 parsed_value = json.loads(value)
                                 mapped_row[json_field] = parsed_value
-                                logger.info(f"Successfully parsed {json_field} from string to {type(parsed_value)}")
                             except (json.JSONDecodeError, TypeError) as e:
-                                logger.warning(f"JSON parse FAILED for {json_field} in CVE {mapped_row.get('cve_id')}: {e}, value type: {type(value)}, defaulting to []")
+                                logger.warning(f"JSON parse failed for {json_field} in CVE {mapped_row.get('cve_id')}: {e}")
                                 mapped_row[json_field] = []
                         elif value is None:
                             # NULL JSONB should become empty list
                             mapped_row[json_field] = []
-                            logger.info(f"Converted NULL {json_field} to empty list")
-                        else:
-                            logger.info(f"{json_field} is already {type(value)}, leaving as-is")
-                        # If already a list/dict, leave it as-is
-
-                # Log types before validation for debugging
-                logger.info(f"About to validate CVE {mapped_row.get('cve_id')} - references type: {type(mapped_row.get('references'))}, vendor_metadata type: {type(mapped_row.get('vendor_metadata'))}")
 
                 unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
