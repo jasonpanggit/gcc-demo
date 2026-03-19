@@ -543,15 +543,22 @@ class CVERepository:
                     # Map synced_at to last_synced
                     mapped_row["last_synced"] = mapped_row.pop("synced_at")
 
-                # Parse JSON string fields if needed
+                # Parse JSON string fields if needed (asyncpg returns JSONB as strings)
                 import json
                 for json_field in ["affected_products", "references", "vendor_metadata"]:
-                    if json_field in mapped_row and isinstance(mapped_row[json_field], str):
-                        try:
-                            mapped_row[json_field] = json.loads(mapped_row[json_field])
-                        except (json.JSONDecodeError, TypeError):
-                            # If parsing fails, default to empty list for array fields
+                    if json_field in mapped_row:
+                        value = mapped_row[json_field]
+                        # Handle string serialization from asyncpg JSONB
+                        if isinstance(value, str):
+                            try:
+                                mapped_row[json_field] = json.loads(value)
+                            except (json.JSONDecodeError, TypeError) as e:
+                                logger.debug(f"JSON parse failed for {json_field}: {e}, defaulting to []")
+                                mapped_row[json_field] = []
+                        elif value is None:
+                            # NULL JSONB should become empty list
                             mapped_row[json_field] = []
+                        # If already a list/dict, leave it as-is
 
                 unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
