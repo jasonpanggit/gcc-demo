@@ -23,8 +23,10 @@ import asyncpg
 
 try:
     from app.agentic.eol.utils.logger import get_logger
+    from app.agentic.eol.models.cve_models import UnifiedCVE
 except ModuleNotFoundError:
     from utils.logger import get_logger  # type: ignore[import-not-found]
+    from models.cve_models import UnifiedCVE  # type: ignore[import-not-found]
 
 logger = get_logger(__name__)
 
@@ -500,12 +502,13 @@ class CVERepository:
         offset: int = 0,
         sort_by: str = "published_date",
         sort_order: str = "desc",
-    ) -> List[Dict]:
+    ) -> List[UnifiedCVE]:
         """Adapter method for dict-based filter interface (used by CVEService).
 
-        Maps filters dict to individual search_cves parameters.
+        Maps filters dict to individual search_cves parameters and converts
+        dict results to UnifiedCVE objects.
         """
-        return await self.search_cves(
+        dict_results = await self.search_cves(
             keyword=filters.get("keyword"),
             severity=filters.get("severity"),
             min_score=filters.get("min_score"),
@@ -517,6 +520,17 @@ class CVERepository:
             limit=limit,
             offset=offset,
         )
+
+        # Convert dict results to UnifiedCVE objects
+        unified_cves = []
+        for row in dict_results:
+            try:
+                unified_cves.append(UnifiedCVE.model_validate(row))
+            except Exception as e:
+                logger.warning(f"Failed to convert CVE row to UnifiedCVE: {e}")
+                continue
+
+        return unified_cves
 
     async def search_cves(
         self,
