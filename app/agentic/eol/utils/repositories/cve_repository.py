@@ -164,8 +164,14 @@ FROM kb_cve_edges;
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 2a (BH-002 fix, offset/limit pagination)
 QUERY_SEARCH_CVES = """
-SELECT c.cve_id, c.description, c.cvss_v3_score, c.cvss_v3_severity,
-       c.published_at, c.affected_products, c.sources,
+SELECT c.cve_id, c.description,
+       c.cvss_v2_score, c.cvss_v2_severity, c.cvss_v2_vector,
+       c.cvss_v2_exploitability, c.cvss_v2_impact,
+       c.cvss_v3_score, c.cvss_v3_severity, c.cvss_v3_vector,
+       c.cvss_v3_exploitability, c.cvss_v3_impact,
+       c.published_at, c.modified_at, c.synced_at,
+       c.cwe_ids, c.affected_products, c.references,
+       c.vendor_metadata, c.sources,
        COALESCE(e.affected_vms, 0) AS affected_vms
 FROM cves c
 LEFT JOIN mv_cve_exposure e ON e.cve_id = c.cve_id
