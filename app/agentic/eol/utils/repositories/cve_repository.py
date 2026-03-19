@@ -521,11 +521,23 @@ class CVERepository:
             offset=offset,
         )
 
-        # Convert dict results to UnifiedCVE objects
+        # Convert dict results to UnifiedCVE objects with field name mapping
         unified_cves = []
         for row in dict_results:
             try:
-                unified_cves.append(UnifiedCVE.model_validate(row))
+                # Map database field names to UnifiedCVE field names
+                mapped_row = dict(row)
+                if "published_at" in mapped_row:
+                    mapped_row["published_date"] = mapped_row.pop("published_at")
+                if "modified_at" in mapped_row:
+                    mapped_row["last_modified_date"] = mapped_row.pop("modified_at")
+
+                # Parse affected_products if it's a JSON string
+                if "affected_products" in mapped_row and isinstance(mapped_row["affected_products"], str):
+                    import json
+                    mapped_row["affected_products"] = json.loads(mapped_row["affected_products"])
+
+                unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
                 logger.warning(f"Failed to convert CVE row to UnifiedCVE: {e}")
                 continue
