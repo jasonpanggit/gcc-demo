@@ -203,6 +203,17 @@ class PostgresClient:
 
         connect_kwargs = await self._resolve_connect_kwargs(dsn=dsn, kwargs=kwargs)
 
+        # Add init callback to register JSONB codec
+        async def init_connection(conn):
+            await conn.set_type_codec(
+                'jsonb',
+                encoder=json.dumps,
+                decoder=json.loads,
+                schema='pg_catalog'
+            )
+
+        connect_kwargs['init'] = init_connection
+
         pool = None
         try:
             pool = await asyncpg.create_pool(**connect_kwargs)
