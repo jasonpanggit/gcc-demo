@@ -530,7 +530,9 @@ class CVERepository:
                 if "published_at" in mapped_row:
                     mapped_row["published_date"] = mapped_row.pop("published_at")
                 if "modified_at" in mapped_row:
-                    mapped_row["last_modified_date"] = mapped_row.pop("modified_at")
+                    # Handle NULL modified_at by using published_at as fallback
+                    modified_at = mapped_row.pop("modified_at")
+                    mapped_row["last_modified_date"] = modified_at or mapped_row.get("published_date")
 
                 # Parse affected_products if it's a JSON string
                 if "affected_products" in mapped_row and isinstance(mapped_row["affected_products"], str):
