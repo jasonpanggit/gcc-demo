@@ -160,40 +160,79 @@ class InventoryRawCache:
 
     async def _persist_os_inventory_to_postgres(self, os_data: List[Dict], metadata: Optional[Dict[str, Any]]):
         """Persist OS inventory data to os_inventory_snapshots table for database joins."""
+        print(f"🔍 [PERSIST] Entry: os_data count={len(os_data) if os_data else 0}, metadata={metadata}")
+
         try:
             pool = postgres_client.pool
+            print(f"🔍 [PERSIST] Pool check: pool={'available' if pool else 'None'}")
+
             if not pool:
-                print("Warning: PostgreSQL pool not available for OS inventory persistence")
+                print("⚠️ [PERSIST] PostgreSQL pool not available for OS inventory persistence")
                 return
 
             workspace_id = metadata.get("workspace_id", "default") if metadata else "default"
+            print(f"🔍 [PERSIST] workspace_id={workspace_id}")
+
             persisted_count = 0
             skipped_count = 0
+            skipped_details = []
 
+            print(f"🔍 [PERSIST] Acquiring connection from pool...")
             async with pool.acquire() as conn:
+                print(f"🔍 [PERSIST] Connection acquired, starting transaction")
+
                 # Start transaction
                 async with conn.transaction():
-                    for item in os_data:
+                    for idx, item in enumerate(os_data):
                         resource_id = item.get("resource_id")
+                        print(f"🔍 [PERSIST] Processing item {idx+1}/{len(os_data)}: resource_id={resource_id}")
+
                         if not resource_id:
+                            print(f"⚠️ [PERSIST] Item {idx+1} has no resource_id, skipping")
+                            skipped_count += 1
+                            skipped_details.append(f"Item {idx+1}: no resource_id")
                             continue
 
                         # Check if VM exists in vms table first
+                        print(f"🔍 [PERSIST] Checking FK: SELECT 1 FROM vms WHERE resource_id={resource_id}")
                         vm_exists = await conn.fetchval(
                             "SELECT 1 FROM vms WHERE resource_id = $1 LIMIT 1",
                             resource_id
                         )
+                        print(f"🔍 [PERSIST] VM FK check result: vm_exists={vm_exists}")
 
                         if not vm_exists:
                             # Skip if VM not in vms table (FK constraint would fail)
                             skipped_count += 1
+                            skipped_details.append(f"{resource_id}: not in vms table")
+                            print(f"⚠️ [PERSIST] Skipping {resource_id}: VM not found in vms table")
                             continue
 
+                        # Prepare values for upsert
+                        computer_name = item.get("computer_name") or item.get("computer")
+                        os_name = item.get("os_name") or item.get("name")
+                        os_version = item.get("os_version") or item.get("version")
+                        os_type = item.get("os_type")
+                        last_heartbeat_raw = item.get("last_heartbeat")
+
+                        # Parse last_heartbeat if it's a string
+                        last_heartbeat = None
+                        if last_heartbeat_raw:
+                            if isinstance(last_heartbeat_raw, str):
+                                try:
+                                    last_heartbeat = datetime.fromisoformat(last_heartbeat_raw.replace('Z', '+00:00'))
+                                except Exception as e:
+                                    print(f"⚠️ [PERSIST] Failed to parse last_heartbeat '{last_heartbeat_raw}': {e}")
+                            else:
+                                last_heartbeat = last_heartbeat_raw
+
+                        print(f"🔍 [PERSIST] Upserting: computer={computer_name}, os={os_name}, version={os_version}, type={os_type}, heartbeat={last_heartbeat}")
+
                         # Upsert into os_inventory_snapshots
+                        # Schema from migration 030: PK is (resource_id, snapshot_version, workspace_id)
                         await conn.execute("""
                             INSERT INTO os_inventory_snapshots (
                                 resource_id,
-                                snapshot_version,
                                 workspace_id,
                                 computer_name,
                                 os_name,
@@ -202,7 +241,7 @@ class InventoryRawCache:
                                 last_heartbeat,
                                 cached_at,
                                 ttl_seconds
-                            ) VALUES ($1, 1, $2, $3, $4, $5, $6, $7, NOW(), 14400)
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 14400)
                             ON CONFLICT (resource_id, snapshot_version, workspace_id)
                             DO UPDATE SET
                                 computer_name = EXCLUDED.computer_name,
@@ -214,18 +253,21 @@ class InventoryRawCache:
                         """,
                             resource_id,
                             workspace_id,
-                            item.get("computer_name") or item.get("computer"),
-                            item.get("os_name") or item.get("name"),
-                            item.get("os_version") or item.get("version"),
-                            item.get("os_type"),
-                            item.get("last_heartbeat")
+                            computer_name,
+                            os_name,
+                            os_version,
+                            os_type,
+                            last_heartbeat
                         )
                         persisted_count += 1
+                        print(f"✅ [PERSIST] Successfully upserted item {idx+1}/{len(os_data)}")
 
-            print(f"✅ Persisted {persisted_count} OS inventory records to PostgreSQL (skipped {skipped_count})")
+            print(f"✅ [PERSIST] Transaction committed: {persisted_count} records persisted, {skipped_count} skipped")
+            if skipped_details:
+                print(f"🔍 [PERSIST] Skip details: {skipped_details}")
 
         except Exception as e:
-            print(f"❌ Error persisting OS inventory to PostgreSQL: {e}")
+            print(f"❌ [PERSIST] Error persisting OS inventory to PostgreSQL: {e}")
             import traceback
             traceback.print_exc()
 

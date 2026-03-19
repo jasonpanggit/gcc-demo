@@ -168,11 +168,29 @@ SELECT c.cve_id, c.description, c.cvss_v3_score, c.cvss_v3_severity,
 FROM cves c
 LEFT JOIN mv_cve_exposure e ON e.cve_id = c.cve_id
 WHERE 1=1
-  AND ($1::text IS NULL OR c.search_vector @@ to_tsquery('english', $1))
+  AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('english', $1))
   AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
   AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
-  AND ($4::text IS NULL OR c.affected_products @> jsonb_build_object('vendor', $4))
-  AND ($5::text IS NULL OR c.affected_products @> jsonb_build_object('product', $5))
+  AND ($4::text IS NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{}' ILIKE '%' || $4 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'vendor' ILIKE $4
+      )
+    END
+  ))
+  AND ($5::text IS NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{}' ILIKE '%' || $5 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'product' ILIKE $5
+      )
+    END
+  ))
   AND ($6::timestamptz IS NULL OR c.published_at >= $6)
   AND ($7::timestamptz IS NULL OR c.published_at <= $7)
   AND ($8::text IS NULL OR $8 = ANY(c.sources))
@@ -185,11 +203,29 @@ QUERY_COUNT_CVES = """
 SELECT COUNT(*) AS total
 FROM cves c
 WHERE 1=1
-  AND ($1::text IS NULL OR c.search_vector @@ to_tsquery('english', $1))
+  AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('english', $1))
   AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
   AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
-  AND ($4::text IS NULL OR c.affected_products @> jsonb_build_object('vendor', $4))
-  AND ($5::text IS NULL OR c.affected_products @> jsonb_build_object('product', $5))
+  AND ($4::text IS NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{}' ILIKE '%' || $4 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'vendor' ILIKE $4
+      )
+    END
+  ))
+  AND ($5::text IS NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{}' ILIKE '%' || $5 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'product' ILIKE $5
+      )
+    END
+  ))
   AND ($6::timestamptz IS NULL OR c.published_at >= $6)
   AND ($7::timestamptz IS NULL OR c.published_at <= $7)
   AND ($8::text IS NULL OR $8 = ANY(c.sources));

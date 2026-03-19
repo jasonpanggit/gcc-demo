@@ -548,9 +548,10 @@ class OSInventoryAgent:
                 self._cache_has_full_dataset = True
             elif not full_dataset_requested:
                 self._cache_has_full_dataset = False
-            
+
             # Cache the results for future use
-            if use_cache and results:
+            # ALWAYS cache when we have results - cache both fresh fetches AND refreshes
+            if results:
                 cache_start_time = datetime.utcnow()
                 await inventory_cache.store_cached_data_async(
                     cache_key=self.agent_name,
