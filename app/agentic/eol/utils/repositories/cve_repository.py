@@ -551,14 +551,19 @@ class CVERepository:
                         # Handle string serialization from asyncpg JSONB
                         if isinstance(value, str):
                             try:
-                                mapped_row[json_field] = json.loads(value)
+                                parsed_value = json.loads(value)
+                                mapped_row[json_field] = parsed_value
+                                logger.debug(f"Parsed {json_field} from string to {type(parsed_value)}")
                             except (json.JSONDecodeError, TypeError) as e:
-                                logger.debug(f"JSON parse failed for {json_field}: {e}, defaulting to []")
+                                logger.warning(f"JSON parse failed for {json_field} in CVE {mapped_row.get('cve_id')}: {e}, value type: {type(value)}, defaulting to []")
                                 mapped_row[json_field] = []
                         elif value is None:
                             # NULL JSONB should become empty list
                             mapped_row[json_field] = []
                         # If already a list/dict, leave it as-is
+
+                # Log types before validation for debugging
+                logger.debug(f"Before validation - references type: {type(mapped_row.get('references'))}, vendor_metadata type: {type(mapped_row.get('vendor_metadata'))}")
 
                 unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
