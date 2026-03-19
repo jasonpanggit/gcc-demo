@@ -514,6 +514,7 @@ class CVERepository:
         Maps filters dict to individual search_cves parameters and converts
         dict results to UnifiedCVE objects.
         """
+        logger.info(f"query_cves called with {len(filters)} filters, limit={limit}")
         dict_results = await self.search_cves(
             keyword=filters.get("keyword"),
             severity=filters.get("severity"),
@@ -528,9 +529,11 @@ class CVERepository:
         )
 
         # Convert dict results to UnifiedCVE objects with field name mapping
+        logger.info(f"Converting {len(dict_results)} dict results to UnifiedCVE objects")
         unified_cves = []
         for row in dict_results:
             try:
+                logger.info(f"Converting CVE row: {row.get('cve_id')}")
                 # Map database field names to UnifiedCVE field names
                 mapped_row = dict(row)
                 if "published_at" in mapped_row:
