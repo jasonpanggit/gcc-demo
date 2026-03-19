@@ -493,6 +493,31 @@ class CVERepository:
     # CVE search + count (Queries 2a-2b)
     # ------------------------------------------------------------------
 
+    async def query_cves(
+        self,
+        filters: Dict[str, Any],
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = "published_date",
+        sort_order: str = "desc",
+    ) -> List[Dict]:
+        """Adapter method for dict-based filter interface (used by CVEService).
+
+        Maps filters dict to individual search_cves parameters.
+        """
+        return await self.search_cves(
+            keyword=filters.get("keyword"),
+            severity=filters.get("severity"),
+            min_score=filters.get("min_score"),
+            vendor=filters.get("vendor"),
+            product=filters.get("product"),
+            date_from=filters.get("date_from"),
+            date_to=filters.get("date_to"),
+            source=filters.get("source"),
+            limit=limit,
+            offset=offset,
+        )
+
     async def search_cves(
         self,
         keyword: Optional[str] = None,
