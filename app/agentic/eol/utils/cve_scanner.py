@@ -855,6 +855,72 @@ class CVEScanner:
             or product_normalized in vm_normalized
         )
 
+    def _build_vm_cpe_uri(self, vm: VMScanTarget) -> Optional[str]:
+        """Build CPE 2.3 URI for VM's operating system.
+
+        Returns CPE URI like: cpe:2.3:o:microsoft:windows_server_2019:-:*:*:*:*:*:*:*
+        """
+        normalized_name, normalized_version = self._get_vm_os_identity(vm)
+        if not normalized_name or not normalized_version:
+            return None
+
+        version = normalized_version.strip().lower()
+        if not version:
+            return None
+
+        # Windows Server
+        if normalized_name == "windows server" and version.isdigit():
+            return f"cpe:2.3:o:microsoft:windows_server_{version}:-:*:*:*:*:*:*:*"
+
+        # Ubuntu
+        if normalized_name == "ubuntu":
+            return f"cpe:2.3:o:canonical:ubuntu_linux:{version}:*:*:*:*:*:*:*"
+
+        # RHEL
+        if normalized_name == "rhel":
+            major = version.split('.')[0] if '.' in version else version
+            return f"cpe:2.3:o:redhat:enterprise_linux:{major}:*:*:*:*:*:*:*"
+
+        # Debian
+        if normalized_name == "debian":
+            major = version.split('.')[0] if '.' in version else version
+            return f"cpe:2.3:o:debian:debian_linux:{major}:*:*:*:*:*:*:*"
+
+        return None
+
+    def _cpe_matches(self, vm_cpe: str, product_cpe: str) -> bool:
+        """Check if VM's CPE matches the product's CPE.
+
+        Simple prefix matching - more sophisticated matching could be added.
+        """
+        if not vm_cpe or not product_cpe:
+            return False
+
+        # Exact match
+        if vm_cpe == product_cpe:
+            return True
+
+        # Wildcard version match: cpe:2.3:o:microsoft:windows_server_2019:* matches our specific CPE
+        vm_parts = vm_cpe.split(':')
+        product_parts = product_cpe.split(':')
+
+        # Must have at least 6 parts for CPE 2.3 (cpe:2.3:type:vendor:product:version:...)
+        if len(vm_parts) < 6 or len(product_parts) < 6:
+            return False
+
+        # Match type, vendor, product
+        if vm_parts[2:5] != product_parts[2:5]:  # type, vendor, product
+            return False
+
+        # Version matching - handle wildcards and ranges
+        vm_version = vm_parts[5]
+        product_version = product_parts[5]
+
+        if product_version == '*' or product_version == '-':
+            return True
+
+        return vm_version == product_version
+
     def _product_matches_vm(self, vm: VMScanTarget, product_name: Optional[str], product_version: Optional[str]) -> bool:
         vm_name, vm_version = self._get_vm_os_identity(vm)
         product_family, normalized_product_version = self._get_product_identity(product_name, product_version)
@@ -874,7 +940,7 @@ class CVEScanner:
         return self._versions_match(vm_version, normalized_product_version)
 
     def _build_cve_search_filters(self, vm: VMScanTarget, cve_filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Build search filters that can hit both cache and live keyword search paths."""
+        """Build search filters with CPE for accurate CVE matching."""
         filters: Dict[str, Any] = {}
         if cve_filters:
             filters.update(cve_filters)
@@ -883,6 +949,13 @@ class CVEScanner:
         if not normalized_name:
             return filters
 
+        # Build CPE URI for the VM's OS (primary matching method)
+        cpe_uri = self._build_vm_cpe_uri(vm)
+        if cpe_uri:
+            filters["cpe_name"] = cpe_uri
+            logger.info(f"Using CPE search for {vm.vm_name}: {cpe_uri}")
+
+        # Also add keyword as fallback for broader coverage
         vendor_map = {
             "ubuntu": "ubuntu",
             "windows server": "microsoft",
@@ -1056,7 +1129,7 @@ class CVEScanner:
         return summary
 
     def _is_vm_affected(self, vm: VMScanTarget, cve: UnifiedCVE) -> bool:
-        """Check if VM is affected by CVE.
+        """Check if VM is affected by CVE using CPE matching.
 
         Args:
             vm: VM to check
@@ -1065,7 +1138,17 @@ class CVEScanner:
         Returns:
             True if VM is affected
         """
-        # Check OS-level match
+        # Build VM's CPE URI for matching
+        vm_cpe = self._build_vm_cpe_uri(vm)
+
+        # Check CPE-level match (primary method - most accurate)
+        if vm_cpe:
+            for product in cve.affected_products:
+                cpe_uri = product.cpe_uri if hasattr(product, 'cpe_uri') else None
+                if cpe_uri and self._cpe_matches(vm_cpe, cpe_uri):
+                    return True
+
+        # Fallback: Check OS-level product name match (legacy behavior)
         for product in cve.affected_products:
             if self._product_matches_vm(vm, product.product, product.version):
                 return True
