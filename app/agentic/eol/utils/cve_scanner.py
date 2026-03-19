@@ -934,7 +934,7 @@ class CVEScanner:
         cpe_uri = self._build_vm_cpe_uri(vm)
         if cpe_uri:
             filters["cpe_name"] = cpe_uri
-            logger.info(f"Using CPE search for {vm.vm_name}: {cpe_uri}")
+            logger.info(f"Using CPE search for {vm.name}: {cpe_uri}")
 
         # Also add keyword as fallback for broader coverage
         vendor_map = {
