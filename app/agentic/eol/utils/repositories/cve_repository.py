@@ -589,6 +589,10 @@ class CVERepository:
     ) -> List[Dict]:
         """CVE search with full filters including CPE. Phase 6 Query 2a. Eliminates BH-002."""
         try:
+            # Debug log to verify CPE parameter
+            if cpe_name:
+                logger.info(f"search_cves called with cpe_name={cpe_name}, vendor={vendor}, keyword={keyword}")
+
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     QUERY_SEARCH_CVES,
