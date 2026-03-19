@@ -176,10 +176,11 @@ SELECT c.cve_id, c.description,
 FROM cves c
 LEFT JOIN mv_cve_exposure e ON e.cve_id = c.cve_id
 WHERE 1=1
-  AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('english', $1))
+  -- When CPE is provided, it's the primary filter - keyword/vendor become optional hints
+  AND ($1::text IS NULL OR $9::text IS NOT NULL OR c.search_vector @@ plainto_tsquery('english', $1))
   AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
   AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
-  AND ($4::text IS NULL OR (
+  AND ($4::text IS NULL OR $9::text IS NOT NULL OR (
     CASE
       WHEN jsonb_typeof(c.affected_products) = 'string'
       THEN c.affected_products#>>'{}' ILIKE '%' || $4 || '%'
