@@ -858,35 +858,16 @@ class CVEScanner:
     def _build_vm_cpe_uri(self, vm: VMScanTarget) -> Optional[str]:
         """Build CPE 2.3 URI for VM's operating system.
 
-        Returns CPE URI like: cpe:2.3:o:microsoft:windows_server_2019:-:*:*:*:*:*:*:*
+        Delegates to cve_inventory_sync._build_inventory_cpe_names for consistency.
         """
+        from utils.cve_inventory_sync import _build_inventory_cpe_names
+
         normalized_name, normalized_version = self._get_vm_os_identity(vm)
         if not normalized_name or not normalized_version:
             return None
 
-        version = normalized_version.strip().lower()
-        if not version:
-            return None
-
-        # Windows Server
-        if normalized_name == "windows server" and version.isdigit():
-            return f"cpe:2.3:o:microsoft:windows_server_{version}:-:*:*:*:*:*:*:*"
-
-        # Ubuntu
-        if normalized_name == "ubuntu":
-            return f"cpe:2.3:o:canonical:ubuntu_linux:{version}:*:*:*:*:*:*:*"
-
-        # RHEL
-        if normalized_name == "rhel":
-            major = version.split('.')[0] if '.' in version else version
-            return f"cpe:2.3:o:redhat:enterprise_linux:{major}:*:*:*:*:*:*:*"
-
-        # Debian
-        if normalized_name == "debian":
-            major = version.split('.')[0] if '.' in version else version
-            return f"cpe:2.3:o:debian:debian_linux:{major}:*:*:*:*:*:*:*"
-
-        return None
+        cpe_uris = _build_inventory_cpe_names(normalized_name, normalized_version)
+        return cpe_uris[0] if cpe_uris else None
 
     def _cpe_matches(self, vm_cpe: str, product_cpe: str) -> bool:
         """Check if VM's CPE matches the product's CPE.
