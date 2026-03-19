@@ -533,6 +533,9 @@ class CVERepository:
                     # Handle NULL modified_at by using published_at as fallback
                     modified_at = mapped_row.pop("modified_at")
                     mapped_row["last_modified_date"] = modified_at or mapped_row.get("published_date")
+                if "synced_at" in mapped_row:
+                    # Map synced_at to last_synced
+                    mapped_row["last_synced"] = mapped_row.pop("synced_at")
 
                 # Parse affected_products if it's a JSON string
                 if "affected_products" in mapped_row and isinstance(mapped_row["affected_products"], str):
