@@ -202,8 +202,12 @@ WHERE 1=1
   AND ($6::timestamptz IS NULL OR c.published_at >= $6)
   AND ($7::timestamptz IS NULL OR c.published_at <= $7)
   AND ($8::text IS NULL OR $8 = ANY(c.sources))
+  AND ($9::text IS NULL OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+    WHERE product->>'cpe_uri' LIKE $9 || '%'
+  ))
 ORDER BY c.published_at DESC, c.cve_id DESC
-LIMIT $9 OFFSET $10;
+LIMIT $10 OFFSET $11;
 """
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 2b
@@ -524,6 +528,7 @@ class CVERepository:
             date_from=filters.get("date_from"),
             date_to=filters.get("date_to"),
             source=filters.get("source"),
+            cpe_name=filters.get("cpe_name"),
             limit=limit,
             offset=offset,
         )
@@ -578,10 +583,11 @@ class CVERepository:
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         source: Optional[str] = None,
+        cpe_name: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict]:
-        """CVE search with full filters. Phase 6 Query 2a. Eliminates BH-002."""
+        """CVE search with full filters including CPE. Phase 6 Query 2a. Eliminates BH-002."""
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
@@ -589,7 +595,7 @@ class CVERepository:
                     keyword, severity, min_score,
                     vendor, product,
                     date_from, date_to,
-                    source,
+                    source, cpe_name,
                     limit, offset,
                 )
                 return [dict(row) for row in rows]
