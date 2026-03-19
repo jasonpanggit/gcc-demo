@@ -1337,13 +1337,17 @@ class ResourceDiscoveryEngine:
                 sku   = image_ref.get("sku") or ""
                 if offer and sku:
                     selected["os_image"] = f"{offer} {sku}"
+                    selected["os_name"] = f"{offer} {sku}"  # Also set os_name for VMs table
                 elif offer:
                     selected["os_image"] = offer
+                    selected["os_name"] = offer  # Also set os_name for VMs table
                 else:
                     selected["os_image"] = None
+                    selected["os_name"] = None
             else:
                 selected["os_type"] = None
                 selected["os_image"] = None
+                selected["os_name"] = None
             
             selected["provisioning_state"] = properties.get("provisioningState")
         elif "hybridcompute/machines" in rtype:
