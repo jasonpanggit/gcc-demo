@@ -543,10 +543,15 @@ class CVERepository:
                     # Map synced_at to last_synced
                     mapped_row["last_synced"] = mapped_row.pop("synced_at")
 
-                # Parse affected_products if it's a JSON string
-                if "affected_products" in mapped_row and isinstance(mapped_row["affected_products"], str):
-                    import json
-                    mapped_row["affected_products"] = json.loads(mapped_row["affected_products"])
+                # Parse JSON string fields if needed
+                import json
+                for json_field in ["affected_products", "references", "vendor_metadata"]:
+                    if json_field in mapped_row and isinstance(mapped_row[json_field], str):
+                        try:
+                            mapped_row[json_field] = json.loads(mapped_row[json_field])
+                        except (json.JSONDecodeError, TypeError):
+                            # If parsing fails, default to empty list for array fields
+                            mapped_row[json_field] = []
 
                 unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
