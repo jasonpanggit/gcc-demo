@@ -17,11 +17,13 @@ try:
     from utils.endpoint_decorators import readonly_endpoint
     from utils.logging_config import get_logger
     from utils.repository_state import get_or_init_repository
+    from utils.normalization import normalize_os_record
 except ModuleNotFoundError:
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.repository_state import get_or_init_repository
+    from app.agentic.eol.utils.normalization import normalize_os_record
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["CVE Inventory"])
@@ -182,7 +184,7 @@ async def get_vm_vulnerability_overview(
 
         posture_data: List[Dict[str, Any]] = posture_result
 
-        # Build frozen-key response: machines list
+        # Build frozen-key response: machines list with OS normalization
         machines: List[Dict[str, Any]] = []
         for row in posture_data:
             risk_level = row.get("risk_level") or _calculate_risk_level(
@@ -192,10 +194,20 @@ async def get_vm_vulnerability_overview(
                 medium=row.get("medium", 0),
                 low=row.get("low", 0),
             )
+
+            # Apply OS normalization like patch management does
+            normalized = normalize_os_record(
+                row.get("os_name"),
+                row.get("os_version"),
+                row.get("os_type"),
+            )
+
             machines.append({
                 "vm_id": row.get("vm_id", ""),
                 "vm_name": row.get("vm_name", ""),
                 "os_name": row.get("os_name", ""),
+                "normalized_os_name": normalized.get("normalized_os_name"),
+                "normalized_os_version": normalized.get("normalized_os_version"),
                 "risk_level": risk_level,
                 "total_cves": row.get("total_cves", 0),
                 "critical": row.get("critical", 0),
