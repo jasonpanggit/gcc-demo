@@ -391,6 +391,21 @@ class CVEScheduler:
         except Exception as exc:
             logger.error(f"Failed to schedule incremental CVE sync: {exc}")
 
+        # -- Materialized view refresh job (every 15 min) ------------------
+        try:
+            self._scheduler.add_job(
+                self._refresh_materialized_views_job,
+                trigger=IntervalTrigger(minutes=15, timezone=timezone.utc),
+                id="mv_refresh_job",
+                name="Materialized View Refresh",
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=300,  # 5 min grace
+            )
+            logger.info("Scheduled materialized view refresh: every 15 minutes")
+        except Exception as exc:
+            logger.error(f"Failed to schedule MV refresh job: {exc}")
+
         self._scheduler.start()
         self._running = True
 
@@ -418,6 +433,44 @@ class CVEScheduler:
             "sync_lookback_days": config.cve_sync.sync_lookback_days,
             "jobs": get_scheduler_stats(),
         }
+
+    async def _refresh_materialized_views_job(self) -> None:
+        """Scheduled job: refresh materialized views every 15 minutes."""
+        try:
+            logger.info("Starting scheduled materialized view refresh...")
+
+            # Import pg_client
+            try:
+                from utils.pg_client import postgres_client
+            except ModuleNotFoundError:
+                from app.agentic.eol.utils.pg_client import postgres_client
+
+            if not postgres_client.is_configured():
+                logger.warning("PostgreSQL not configured, skipping MV refresh")
+                return
+
+            pool = postgres_client.pool
+            async with pool.acquire() as conn:
+                # Refresh all MVs except mv_cve_dashboard_summary (now a regular VIEW)
+                views_to_refresh = [
+                    "mv_vm_vulnerability_posture",
+                    "mv_vm_cve_detail",
+                    "mv_cve_exposure",
+                    "mv_cve_trending",
+                    "mv_cve_top_by_score",
+                ]
+
+                for view_name in views_to_refresh:
+                    try:
+                        await conn.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view_name}")
+                        logger.info(f"✅ Refreshed {view_name}")
+                    except Exception as view_error:
+                        logger.error(f"Failed to refresh {view_name}: {view_error}")
+
+            logger.info("✅ Scheduled materialized view refresh completed")
+
+        except Exception as e:
+            logger.error(f"Scheduled MV refresh failed: {e}")
 
     def _update_next_run_times(self) -> None:
         """Refresh next_run fields from the live scheduler."""

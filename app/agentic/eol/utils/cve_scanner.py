@@ -542,6 +542,9 @@ class CVEScanner:
             for hook in self.on_scan_complete_hooks:
                 asyncio.create_task(self._supervised_task(hook(scan_result)))
 
+            # Refresh materialized views after scan completion
+            asyncio.create_task(self._supervised_task(self._refresh_views_after_scan()))
+
             # Linux advisory sync hook
             if self.linux_advisory_sync is not None:
                 asyncio.create_task(
@@ -575,6 +578,39 @@ class CVEScanner:
             await coro
         except Exception as e:
             logger.error("Supervised background task failed: %s", e, exc_info=True)
+
+    async def _refresh_views_after_scan(self) -> None:
+        """Refresh materialized views after scan completion to ensure data freshness."""
+        try:
+            logger.info("Refreshing materialized views after scan completion...")
+
+            # Import pg_client to get pool
+            try:
+                from utils.pg_client import postgres_client
+            except ModuleNotFoundError:
+                from app.agentic.eol.utils.pg_client import postgres_client
+
+            if not postgres_client.is_configured():
+                logger.warning("PostgreSQL not configured, skipping MV refresh")
+                return
+
+            pool = postgres_client.pool
+            async with pool.acquire() as conn:
+                # Refresh VM-related MVs in sequence (concurrent refresh requires unique indexes)
+                await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_vm_vulnerability_posture")
+                logger.info("✅ Refreshed mv_vm_vulnerability_posture")
+
+                await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_vm_cve_detail")
+                logger.info("✅ Refreshed mv_vm_cve_detail")
+
+                await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_cve_exposure")
+                logger.info("✅ Refreshed mv_cve_exposure")
+
+            logger.info("✅ All materialized views refreshed successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh materialized views: {e}")
+            # Don't fail the scan if MV refresh fails
 
     async def _scan_single_vm(
         self,

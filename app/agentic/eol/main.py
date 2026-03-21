@@ -94,6 +94,7 @@ from api.patch_management import router as patch_management_router
 from api.routing_analytics import router as routing_analytics_router
 from api.telemetry_debug import router as telemetry_debug_router
 from api.cve_sync import router as cve_sync_router
+from api.admin_mv_refresh import router as admin_mv_refresh_router
 from api.cve import router as cve_router
 from api.cve_scan import router as cve_scan_router
 from api.cve_patches import router as cve_patches_router
@@ -217,6 +218,7 @@ app.include_router(patch_management_router)  # Arc VM patch assessment
 app.include_router(routing_analytics_router)  # Routing telemetry analytics
 app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE sync jobs
+app.include_router(admin_mv_refresh_router)  # Admin MV refresh endpoint
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
 app.include_router(cve_inventory_router, prefix="/api/cve", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
