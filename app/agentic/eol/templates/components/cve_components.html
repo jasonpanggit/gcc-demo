@@ -1,0 +1,128 @@
+{# CVE Component Macros - Reusable UI components for CVE pages #}
+
+{# Metric Card - Used for displaying single metrics with optional border variant #}
+{% macro metric_card(title, value, variant="", subtitle="") %}
+<div class="card text-center h-100 metric-card {% if variant %}border-{{ variant }}{% endif %}">
+    <div class="card-body">
+        <h6 class="text-{% if variant %}{{ variant }}{% else %}muted{% endif %} text-uppercase small">{{ title }}</h6>
+        <div class="metric-primary {% if variant %}text-{{ variant }}{% endif %}">{{ value }}</div>
+        {% if subtitle %}
+        <div class="metric-sub {% if variant %}text-{{ variant }}{% endif %}">{{ subtitle }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{# Severity Badge - Consistent severity display across all pages #}
+{% macro severity_badge(severity) %}
+<span class="cve-severity-badge severity-{{ severity|lower }}">{{ severity }}</span>
+{% endmacro %}
+
+{# Sync Status Panel - Shared sync/scan progress indicator #}
+{% macro sync_status_panel(panel_id="syncStatusPanel") %}
+<div id="{{ panel_id }}" class="alert alert-info d-none mb-4" role="status" aria-live="polite">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+            <div class="fw-semibold" id="{{ panel_id }}Title">Status unavailable</div>
+            <div class="small mt-1" id="{{ panel_id }}Summary">Run a sync to refresh data.</div>
+            <div class="small text-muted mt-2" id="{{ panel_id }}Meta"></div>
+        </div>
+        <span class="badge text-bg-info" id="{{ panel_id }}Badge">Sync status</span>
+    </div>
+    <div class="mt-3 d-none" id="{{ panel_id }}EntriesWrap">
+        <div class="small text-uppercase text-muted mb-2">Processed entries</div>
+        <div class="d-flex flex-wrap gap-2" id="{{ panel_id }}Entries"></div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Hero Section - Page header with title, subtitle, and action buttons #}
+{% macro hero_section(title, subtitle, icon="fas fa-shield-virus", buttons=[]) %}
+<div class="hero-section mb-4">
+    <div class="hero-content">
+        <div class="hero-row">
+            <div class="hero-copy">
+                <h1 class="hero-title">
+                    <span class="hero-icon me-3"><i class="{{ icon }}"></i></span>{{ title }}
+                </h1>
+                <p class="hero-subtitle">{{ subtitle }}</p>
+            </div>
+            {% if buttons %}
+            <div class="hero-action">
+                {{ caller() if caller else '' }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Filter Sidebar Card - Reusable filter container #}
+{% macro filter_card(title="Filters") %}
+<div class="card cve-filter-sidebar">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-filter me-2"></i>{{ title }}</h5>
+        <button class="btn btn-sm btn-outline-secondary" id="clearFiltersBtn">
+            <i class="fas fa-times me-1"></i>Clear
+        </button>
+    </div>
+    <div class="card-body">
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
+
+{# Severity Filter Group - Checkbox group for severity filtering #}
+{% macro severity_filter_group(prefix="severity") %}
+<div class="filter-group mb-4">
+    <label class="form-label fw-bold">Severity</label>
+    <div class="form-check">
+        <input class="form-check-input severity-filter" type="checkbox" value="CRITICAL" id="{{ prefix }}Critical">
+        <label class="form-check-label" for="{{ prefix }}Critical">
+            {{ severity_badge("CRITICAL") }}
+        </label>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input severity-filter" type="checkbox" value="HIGH" id="{{ prefix }}High">
+        <label class="form-check-label" for="{{ prefix }}High">
+            {{ severity_badge("HIGH") }}
+        </label>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input severity-filter" type="checkbox" value="MEDIUM" id="{{ prefix }}Medium">
+        <label class="form-check-label" for="{{ prefix }}Medium">
+            {{ severity_badge("MEDIUM") }}
+        </label>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input severity-filter" type="checkbox" value="LOW" id="{{ prefix }}Low">
+        <label class="form-check-label" for="{{ prefix }}Low">
+            {{ severity_badge("LOW") }}
+        </label>
+    </div>
+</div>
+{% endmacro %}
+
+{# Empty State - Consistent empty state display #}
+{% macro empty_state(icon="fas fa-search", title="No Data", message="", button_text="", button_id="") %}
+<div class="text-center py-5">
+    <i class="{{ icon }} fa-3x text-muted mb-3"></i>
+    <h5>{{ title }}</h5>
+    {% if message %}
+    <p class="text-muted">{{ message }}</p>
+    {% endif %}
+    {% if button_text and button_id %}
+    <button class="btn btn-sm btn-outline-secondary" id="{{ button_id }}">{{ button_text }}</button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# Loading Spinner - Consistent loading state #}
+{% macro loading_spinner(message="Loading...") %}
+<div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">{{ message }}</span>
+    </div>
+    <p class="mt-3 text-muted">{{ message }}</p>
+</div>
+{% endmacro %}
