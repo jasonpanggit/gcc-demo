@@ -264,9 +264,9 @@ async def sync_kb_edges_for_kbs(
 
     try:
         cve_repo = CVERepository(pool)
-        await cve_repo.upsert_kb_cve_edges(all_edges)
-        logger.info(f"sync_kb_edges_for_kbs: upserted {len(all_edges)} edges")
-        return len(all_edges)
+        count = await cve_repo.upsert_kb_cve_edges(all_edges)
+        logger.info(f"sync_kb_edges_for_kbs: upserted {count} edges")
+        return count
     except Exception as e:
         logger.error(f"sync_kb_edges_for_kbs: failed to upsert edges: {e}")
         return 0

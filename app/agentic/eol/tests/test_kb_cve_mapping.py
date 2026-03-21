@@ -98,7 +98,7 @@ async def test_sync_kb_edges_for_kbs_normalises_kb_prefix():
 
     with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
         mock_repo_instance = AsyncMock()
-        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock(return_value=1)
         MockCVERepo.return_value = mock_repo_instance
 
         from utils.cve_sync_operations import sync_kb_edges_for_kbs
@@ -118,7 +118,7 @@ async def test_sync_kb_edges_for_kbs_isolates_per_kb_errors():
 
     with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
         mock_repo_instance = AsyncMock()
-        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock(return_value=1)
         MockCVERepo.return_value = mock_repo_instance
 
         from utils.cve_sync_operations import sync_kb_edges_for_kbs
@@ -127,7 +127,7 @@ async def test_sync_kb_edges_for_kbs_isolates_per_kb_errors():
         )
 
     # KB5000002 returns 1 CVE → 1 edge; KB5000001 failed and is skipped
-    # result = total edges upserted (not KB count)
+    # upsert_kb_cve_edges mock returns 1 — function now returns that count
     assert result == 1
     mock_repo_instance.upsert_kb_cve_edges.assert_called_once()
 
@@ -141,7 +141,7 @@ async def test_sync_kb_edges_for_kbs_deduplicates_input():
 
     with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
         mock_repo_instance = AsyncMock()
-        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock(return_value=1)
         MockCVERepo.return_value = mock_repo_instance
 
         from utils.cve_sync_operations import sync_kb_edges_for_kbs
