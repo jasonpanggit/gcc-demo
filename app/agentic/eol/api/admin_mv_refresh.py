@@ -54,32 +54,20 @@ MV_DEFINITIONS = {
 @write_endpoint(agent_name="admin_refresh_views", timeout_seconds=120)
 async def refresh_materialized_views(
     request: Request,
-    views: list[str] = None,
 ) -> StandardResponse:
     """
     Manually refresh materialized views.
 
     Body (optional):
-        {
-            "views": ["vm_posture", "vm_detail"]  // If omitted, refreshes all
-        }
+        ["vm_posture", "vm_detail"]  // If empty list or omitted, refreshes all
 
     Returns:
         StandardResponse with refresh status for each view
     """
     try:
-        # Get PostgreSQL pool
-        pg_client = request.app.state.pg_client
-        pool = pg_client.pool
-
-        if not pool:
-            raise HTTPException(
-                status_code=500,
-                detail="PostgreSQL connection not available"
-            )
-
-        # Determine which views to refresh
-        views_to_refresh = views if views else list(MV_DEFINITIONS.keys())
+        # Parse request body
+        body = await request.json() if request.headers.get("content-type") == "application/json" else []
+        views_to_refresh = body if isinstance(body, list) else list(MV_DEFINITIONS.keys())
 
         # Validate view names
         invalid_views = [v for v in views_to_refresh if v not in MV_DEFINITIONS]
