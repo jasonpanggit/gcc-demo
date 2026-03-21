@@ -657,6 +657,7 @@ class PostgresDatabaseManager:
                     reboot_required BOOLEAN     DEFAULT FALSE,
                     installed       BOOLEAN     DEFAULT FALSE,
                     cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_patches_resource_kb UNIQUE (resource_id, kb_number),
                     CONSTRAINT fk_availpatches_vm FOREIGN KEY (resource_id)
                         REFERENCES vms(resource_id) ON DELETE CASCADE
                 );
@@ -664,6 +665,25 @@ class PostgresDatabaseManager:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_patches_resource_id ON available_patches (resource_id);"
             )
+            # Dedup existing rows before adding constraint (preserves null-KB rows — e.g. Linux patches)
+            await conn.execute("""
+                DELETE FROM available_patches
+                WHERE kb_number IS NOT NULL
+                  AND id NOT IN (
+                    SELECT MAX(id)
+                    FROM available_patches
+                    WHERE kb_number IS NOT NULL
+                    GROUP BY resource_id, kb_number
+                  )
+            """)
+            # Add UNIQUE constraint idempotently — duplicate_object (42710) is correct for constraints
+            await conn.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE available_patches
+                        ADD CONSTRAINT uq_patches_resource_kb UNIQUE (resource_id, kb_number);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$
+            """)
 
             # --- cve_vm_detections ---
             await conn.execute("""
