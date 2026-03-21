@@ -451,7 +451,7 @@ class SoftwareInventoryAgent:
                 Publisher
             ),
             ActualSoftwareType = coalesce(SoftwareType, "Application"),
-            KBNumber = iff(ConfigDataType == "WindowsUpdate", tostring(coalesce(KBID, "")), "")
+            KBNumber = iff(ConfigDataType == "WindowsUpdate", extract(@"(KB\d+)", 1, SoftwareName), "")
         | summarize
             LastSeen = max(TimeGenerated),
             Publisher = any(NormalizedPublisher),
