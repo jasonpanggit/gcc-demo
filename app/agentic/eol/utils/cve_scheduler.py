@@ -39,11 +39,11 @@ except ImportError:
 try:
     from utils.logging_config import get_logger
     from utils.config import config
-    from utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
+    from utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync, sync_msrc_kb_edges
 except ImportError:
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.config import config
-    from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
+    from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync, sync_msrc_kb_edges
 
 try:
     from utils.repositories.cve_repository import CVERepository
@@ -221,6 +221,39 @@ async def full_sync_job() -> None:
             stats["inventory_os_processed"],
         )
 
+        # Sync MSRC KB→CVE edges for the last 3 months.
+        # Note: sync_msrc_kb_edges does an internal MV refresh when pool is set;
+        # the _refresh_materialized_views_after_sync below is a second pass
+        # that picks up any CVE changes from run_delta_sync. This double-refresh
+        # is intentional and idempotent.
+        try:
+            from utils.pg_client import postgres_client
+        except ImportError:
+            from app.agentic.eol.utils.pg_client import postgres_client
+        try:
+            from utils.vendor_feed_client import VendorFeedClient
+        except ImportError:
+            from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
+        try:
+            cve_config = config.cve_data
+            _vendor_client = VendorFeedClient(
+                redhat_base_url=cve_config.redhat_base_url,
+                ubuntu_base_url=cve_config.ubuntu_base_url,
+                msrc_base_url=cve_config.msrc_base_url,
+                msrc_api_key=cve_config.msrc_api_key or None,
+                request_timeout=cve_config.request_timeout,
+                max_retries=cve_config.max_retries,
+            )
+            msrc_edge_count = await sync_msrc_kb_edges(
+                vendor_client=_vendor_client,
+                kb_cve_repo=None,
+                n_months=3,
+                pool=postgres_client.pool if postgres_client.is_initialized else None,
+            )
+            logger.info(f"sync_msrc_kb_edges completed: {msrc_edge_count} edges upserted")
+        except Exception as e:
+            logger.warning(f"sync_msrc_kb_edges failed: {e}")
+
         # Phase 8: Refresh bootstrap MVs after successful sync
         try:
             from utils.pg_client import postgres_client
@@ -290,6 +323,39 @@ async def incremental_sync_job() -> None:
             stats["inventory_os_new"],
             stats["inventory_os_processed"],
         )
+
+        # Sync MSRC KB→CVE edges for the last 3 months.
+        # Note: sync_msrc_kb_edges does an internal MV refresh when pool is set;
+        # the _refresh_materialized_views_after_sync below is a second pass
+        # that picks up any CVE changes from run_delta_sync. This double-refresh
+        # is intentional and idempotent.
+        try:
+            from utils.pg_client import postgres_client
+        except ImportError:
+            from app.agentic.eol.utils.pg_client import postgres_client
+        try:
+            from utils.vendor_feed_client import VendorFeedClient
+        except ImportError:
+            from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
+        try:
+            cve_config = config.cve_data
+            _vendor_client = VendorFeedClient(
+                redhat_base_url=cve_config.redhat_base_url,
+                ubuntu_base_url=cve_config.ubuntu_base_url,
+                msrc_base_url=cve_config.msrc_base_url,
+                msrc_api_key=cve_config.msrc_api_key or None,
+                request_timeout=cve_config.request_timeout,
+                max_retries=cve_config.max_retries,
+            )
+            msrc_edge_count = await sync_msrc_kb_edges(
+                vendor_client=_vendor_client,
+                kb_cve_repo=None,
+                n_months=3,
+                pool=postgres_client.pool if postgres_client.is_initialized else None,
+            )
+            logger.info(f"sync_msrc_kb_edges completed: {msrc_edge_count} edges upserted")
+        except Exception as e:
+            logger.warning(f"sync_msrc_kb_edges failed: {e}")
 
         # Phase 8: Refresh bootstrap MVs after successful sync
         try:

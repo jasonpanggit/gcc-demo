@@ -150,3 +150,56 @@ async def test_sync_kb_edges_for_kbs_deduplicates_input():
         )
 
     assert mock_vendor.fetch_microsoft_cves_for_kb.call_count == 1
+
+
+# ── Task 4: Scheduler wiring ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_full_sync_job_calls_sync_msrc_kb_edges():
+    """full_sync_job must call sync_msrc_kb_edges after run_delta_sync."""
+    # run_delta_sync returns {"cve_count": N, "since_date": ..., "completed_at": ..., "used_fallback_window": ...}
+    delta_result = {"cve_count": 0, "since_date": None, "completed_at": None, "used_fallback_window": False}
+    inventory_result = {"discovered_os_count": 0, "new_os_count": 0, "processed_os_count": 0}
+
+    import sys
+    mock_main = MagicMock()
+    mock_main.get_cve_scanner = AsyncMock(return_value=MagicMock())
+    mock_main.get_eol_orchestrator = MagicMock(return_value=MagicMock())
+    sys.modules["main"] = mock_main
+
+    with patch("utils.cve_scheduler.run_inventory_bootstrap_sync", new_callable=AsyncMock, return_value=inventory_result), \
+         patch("utils.cve_scheduler.run_delta_sync", new_callable=AsyncMock, return_value=delta_result), \
+         patch("utils.cve_scheduler.sync_msrc_kb_edges", new_callable=AsyncMock, return_value=42) as mock_msrc, \
+         patch("utils.cve_scheduler._refresh_materialized_views_after_sync", new_callable=AsyncMock), \
+         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()), \
+         patch("utils.vendor_feed_client.VendorFeedClient", return_value=MagicMock()):
+
+        from utils.cve_scheduler import full_sync_job
+        await full_sync_job()
+
+    mock_msrc.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_job_calls_sync_msrc_kb_edges():
+    """incremental_sync_job must call sync_msrc_kb_edges after run_delta_sync."""
+    delta_result = {"cve_count": 0, "since_date": None, "completed_at": None, "used_fallback_window": False}
+    inventory_result = {"discovered_os_count": 0, "new_os_count": 0, "processed_os_count": 0}
+
+    import sys
+    mock_main = MagicMock()
+    mock_main.get_cve_scanner = AsyncMock(return_value=MagicMock())
+    mock_main.get_eol_orchestrator = MagicMock(return_value=MagicMock())
+    sys.modules["main"] = mock_main
+
+    with patch("utils.cve_scheduler.run_inventory_bootstrap_sync", new_callable=AsyncMock, return_value=inventory_result), \
+         patch("utils.cve_scheduler.run_delta_sync", new_callable=AsyncMock, return_value=delta_result), \
+         patch("utils.cve_scheduler.sync_msrc_kb_edges", new_callable=AsyncMock, return_value=0) as mock_msrc, \
+         patch("utils.cve_scheduler._refresh_materialized_views_after_sync", new_callable=AsyncMock), \
+         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()), \
+         patch("utils.vendor_feed_client.VendorFeedClient", return_value=MagicMock()):
+
+        from utils.cve_scheduler import incremental_sync_job
+        await incremental_sync_job()
+
+    mock_msrc.assert_called_once()
