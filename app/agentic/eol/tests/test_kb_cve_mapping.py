@@ -229,3 +229,43 @@ def test_software_inventory_result_includes_kb_number():
 
     assert ('"kb_number"' in source or "'kb_number'" in source), \
            "Row parsing must include kb_number key in result dict"
+
+
+# ── Task 6: Software inventory Postgres persist ───────────────────────────
+
+@pytest.mark.asyncio
+async def test_persist_software_inventory_writes_to_postgres():
+    """_persist_software_inventory_to_postgres must upsert to inventory_software_cache."""
+    mock_conn = AsyncMock()
+    mock_pool = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("agents.software_inventory_agent.postgres_client") as mock_pg:
+        mock_pg.pool = mock_pool
+        mock_pg.is_initialized = True
+
+        from agents.software_inventory_agent import SoftwareInventoryAgent
+        agent = SoftwareInventoryAgent()
+
+        results = [{"computer": "PC01", "name": "curl", "version": "8.0", "kb_number": ""}]
+        await agent._persist_software_inventory_to_postgres(results)
+
+    mock_conn.execute.assert_called_once()
+    call_args = mock_conn.execute.call_args
+    call_sql = call_args[0][0]
+    assert "inventory_software_cache" in call_sql
+
+
+@pytest.mark.asyncio
+async def test_persist_software_inventory_skips_when_pool_none():
+    """Must not raise if postgres_client.pool is None."""
+    with patch("agents.software_inventory_agent.postgres_client") as mock_pg:
+        mock_pg.pool = None
+        mock_pg.is_initialized = False
+
+        from agents.software_inventory_agent import SoftwareInventoryAgent
+        agent = SoftwareInventoryAgent()
+
+        # Should not raise
+        await agent._persist_software_inventory_to_postgres([{"computer": "PC01"}])

@@ -43,6 +43,11 @@ except ImportError:
             def record_agent_request(self, *args, **kwargs): pass
         cache_stats_manager = DummyCacheStatsManager()
 
+try:
+    from utils.pg_client import postgres_client
+except ImportError:
+    postgres_client = None  # type: ignore[assignment]
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -99,6 +104,34 @@ class SoftwareInventoryAgent:
         self._full_cache_scopes: Dict[str, bool] = {}
         
         logger.info(f"✅ SoftwareInventoryAgent initialized with workspace: {self.workspace_id}")
+
+    async def _persist_software_inventory_to_postgres(self, results: list) -> None:
+        """Persist full software inventory to inventory_software_cache table.
+
+        Uses double-encode pattern: stores json.dumps(results) as JSONB string,
+        matching the (data#>>'{}')::jsonb reader pattern used elsewhere.
+        Only called on full (non-computer-filtered) fetches.
+        """
+        if postgres_client is None or not getattr(postgres_client, "pool", None):
+            logger.debug("Postgres pool not ready — skipping software inventory persist")
+            return
+        try:
+            data_str = json.dumps(results)
+            async with postgres_client.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO inventory_software_cache (cache_key, data, cached_at, ttl_seconds)
+                    VALUES ($1, $2::jsonb, NOW(), 3600)
+                    ON CONFLICT (cache_key) DO UPDATE SET
+                        data      = EXCLUDED.data,
+                        cached_at = NOW()
+                    """,
+                    "software_inventory",
+                    data_str,
+                )
+            logger.debug("Persisted %d software inventory rows to postgres", len(results))
+        except Exception as exc:
+            logger.warning("Failed to persist software inventory to postgres: %s", exc)
 
     async def _fetch_eol(self, software_name: str, version: Optional[str]) -> Optional[Dict[str, Any]]:
         """Resolve EOL data using database cache first, then agent orchestrator with confidence logic."""
@@ -548,6 +581,23 @@ class SoftwareInventoryAgent:
                         version="configurationdata",
                         url=f"law://workspace/{self.workspace_id}/ConfigurationData",
                     )
+                    # Persist to Postgres and trigger KB edge sync (fire-and-forget, non-blocking)
+                    if not computer_filter:  # only on full inventory runs
+                        asyncio.create_task(self._persist_software_inventory_to_postgres(results))
+
+                        # Trigger KB→CVE edge sync for any WindowsUpdate KB numbers found
+                        _kb_numbers = [r.get("kb_number", "") for r in results if r.get("kb_number")]
+                        if _kb_numbers and postgres_client is not None and getattr(postgres_client, "pool", None):
+                            try:
+                                from utils.cve_sync_operations import sync_kb_edges_for_kbs
+                                from utils.vendor_feed_client import VendorFeedClient
+                                from utils.config import config as _config
+                                _vendor = VendorFeedClient(_config.cve_data)
+                                asyncio.create_task(
+                                    sync_kb_edges_for_kbs(_kb_numbers, _vendor, pool=postgres_client.pool)
+                                )
+                            except Exception as _exc:
+                                logger.warning("Failed to schedule KB edge sync from LAW inventory: %s", _exc)
                 except Exception as cache_err:  # pragma: no cover - cache failures shouldn't break flow
                     logger.error(
                         "❌ Failed to cache software inventory data to database%s: %s",
