@@ -269,3 +269,102 @@ async def test_persist_software_inventory_skips_when_pool_none():
 
         # Should not raise
         await agent._persist_software_inventory_to_postgres([{"computer": "PC01"}])
+
+
+# ── Task 7: ARG patch upsert call site ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_arg_patch_fetch_triggers_upsert_available_patches():
+    """After query_patch_assessments, upsert_available_patches must be called for each VM.
+
+    Primary call site: utils/cve_patch_enricher.py CVEPatchEnricher.prefetch_patch_data()
+    Result structure: {"success": True, "data": [{"machine_name": ..., "resource_id": ...,
+                        "patches": {"available_patches": [...]}}]}
+    """
+    # Build a realistic ARG response with one VM and two patches
+    sample_patches = [
+        {"patchName": "Security Update", "kbId": "5052006",
+         "classifications": ["Critical"], "rebootBehavior": "AlwaysRequiresReboot",
+         "assessmentState": "Available"},
+        {"patchName": "Cumulative Update", "kbId": "5048667",
+         "classifications": ["Security"], "rebootBehavior": "NeverReboots",
+         "assessmentState": "Available"},
+    ]
+    mock_qpa_result = {
+        "success": True,
+        "data": [
+            {
+                "machine_name": "vm-prod-01",
+                "resource_id": "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm-prod-01",
+                "patches": {"available_patches": sample_patches},
+            }
+        ],
+    }
+
+    mock_patch_mcp = AsyncMock()
+    mock_patch_mcp.query_patch_assessments = AsyncMock(return_value=mock_qpa_result)
+
+    mock_kb_cve_repo = MagicMock()
+
+    # Patch PatchRepository.upsert_available_patches and the downstream dependencies
+    with patch("utils.pg_client.postgres_client") as mock_pg, \
+         patch("utils.repositories.patch_repository.PatchRepository.upsert_available_patches",
+               new_callable=AsyncMock, return_value=2) as mock_upsert, \
+         patch("utils.cve_patch_enricher.asyncio.create_task") as mock_create_task:
+
+        mock_pg.pool = MagicMock()  # truthy pool so KB sync branch fires
+
+        from utils.cve_patch_enricher import CVEPatchEnricher
+        enricher = CVEPatchEnricher(mock_patch_mcp, mock_kb_cve_repo)
+
+        result_map = await enricher.prefetch_patch_data(["sub1"], [])
+
+    # The mapping should contain the VM
+    assert "vm-prod-01" in result_map, "prefetch_patch_data should return vm-prod-01 in mapping"
+
+    # upsert_available_patches must have been called once (one VM)
+    assert mock_upsert.called, "upsert_available_patches should be called after query_patch_assessments"
+    call_args = mock_upsert.call_args
+    assert call_args[0][0] == mock_qpa_result["data"][0]["resource_id"], \
+        "upsert_available_patches should receive the VM resource_id"
+    assert call_args[0][1] == sample_patches, \
+        "upsert_available_patches should receive the available_patches list"
+
+    # create_task should have been scheduled for KB→CVE edge sync
+    mock_create_task.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_arg_patch_fetch_upsert_failure_does_not_block_main_flow():
+    """If upsert_available_patches raises, prefetch_patch_data must still return the mapping."""
+    mock_qpa_result = {
+        "success": True,
+        "data": [
+            {
+                "machine_name": "vm-test",
+                "resource_id": "/subscriptions/s/resourceGroups/r/providers/Microsoft.Compute/virtualMachines/vm-test",
+                "patches": {"available_patches": [
+                    {"patchName": "Update", "kbId": "5000001",
+                     "classifications": ["Critical"], "rebootBehavior": "AlwaysRequiresReboot",
+                     "assessmentState": "Available"},
+                ]},
+            }
+        ],
+    }
+
+    mock_patch_mcp = AsyncMock()
+    mock_patch_mcp.query_patch_assessments = AsyncMock(return_value=mock_qpa_result)
+
+    with patch("utils.pg_client.postgres_client") as mock_pg, \
+         patch("utils.repositories.patch_repository.PatchRepository.upsert_available_patches",
+               new_callable=AsyncMock, side_effect=RuntimeError("DB unavailable")):
+
+        mock_pg.pool = MagicMock()
+
+        from utils.cve_patch_enricher import CVEPatchEnricher
+        enricher = CVEPatchEnricher(mock_patch_mcp, MagicMock())
+
+        result_map = await enricher.prefetch_patch_data(["sub1"], [])
+
+    # Main flow must not be blocked — mapping still returned
+    assert "vm-test" in result_map, "prefetch_patch_data must return VM mapping even if upsert fails"

@@ -107,6 +107,53 @@ class CVEPatchEnricher:
                     if name:
                         mapping[name] = vm_data
                 logger.info("Patch prefetch: %d VMs for subscription %s", len(mapping), sub_id)
+
+                # Persist ARG patch data to available_patches and trigger KB→CVE edge sync
+                try:
+                    from utils.repositories.patch_repository import PatchRepository
+                    from utils.cve_sync_operations import sync_kb_edges_for_kbs
+                    from utils.vendor_feed_client import VendorFeedClient
+                    from utils.pg_client import postgres_client
+                    from utils.config import config
+
+                    _patch_repo = PatchRepository(postgres_client.pool)
+                    _all_kb_numbers: List[str] = []
+
+                    for _vm_data in result.get("data") or []:
+                        _resource_id = _vm_data.get("resource_id")
+                        _patches = ((_vm_data.get("patches") or {}).get("available_patches") or [])
+                        if _resource_id and _patches:
+                            _count = await _patch_repo.upsert_available_patches(_resource_id, _patches)
+                            if _count:
+                                _all_kb_numbers.extend([
+                                    f"KB{p['kbId']}" if not str(p.get('kbId', '')).upper().startswith('KB')
+                                    else str(p['kbId'])
+                                    for p in _patches
+                                    if p.get('kbId') and str(p.get('kbId', '')).lower() != 'null'
+                                ])
+
+                    if _all_kb_numbers and getattr(postgres_client, "pool", None):
+                        _cve_cfg = config.cve_data
+                        _vendor = VendorFeedClient(
+                            redhat_base_url=_cve_cfg.redhat_base_url,
+                            ubuntu_base_url=_cve_cfg.ubuntu_base_url,
+                            msrc_base_url=_cve_cfg.msrc_base_url,
+                            msrc_api_key=_cve_cfg.msrc_api_key or None,
+                            request_timeout=_cve_cfg.request_timeout,
+                        )
+
+                        async def _kb_edge_sync_task(kb_numbers, vendor, pool):
+                            try:
+                                await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
+                            finally:
+                                await vendor.close()
+
+                        asyncio.create_task(
+                            _kb_edge_sync_task(_all_kb_numbers, _vendor, postgres_client.pool)
+                        )
+                except Exception as _exc:
+                    logger.warning("Failed to persist ARG patches or schedule KB edge sync: %s", _exc)
+
                 return mapping
             except Exception as exc:
                 logger.warning("Patch prefetch exception for subscription %s: %s", sub_id, exc)
