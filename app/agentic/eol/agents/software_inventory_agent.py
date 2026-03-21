@@ -592,9 +592,23 @@ class SoftwareInventoryAgent:
                                 from utils.cve_sync_operations import sync_kb_edges_for_kbs
                                 from utils.vendor_feed_client import VendorFeedClient
                                 from utils.config import config as _config
-                                _vendor = VendorFeedClient(_config.cve_data)
+                                _cve_cfg = _config.cve_data
+                                _vendor = VendorFeedClient(
+                                    redhat_base_url=_cve_cfg.redhat_base_url,
+                                    ubuntu_base_url=_cve_cfg.ubuntu_base_url,
+                                    msrc_base_url=_cve_cfg.msrc_base_url,
+                                    msrc_api_key=_cve_cfg.msrc_api_key or None,
+                                    request_timeout=_cve_cfg.request_timeout,
+                                )
+
+                                async def _kb_edge_sync_task(kb_numbers, vendor, pool):
+                                    try:
+                                        await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
+                                    finally:
+                                        await vendor.close()
+
                                 asyncio.create_task(
-                                    sync_kb_edges_for_kbs(_kb_numbers, _vendor, pool=postgres_client.pool)
+                                    _kb_edge_sync_task(_kb_numbers, _vendor, postgres_client.pool)
                                 )
                             except Exception as _exc:
                                 logger.warning("Failed to schedule KB edge sync from LAW inventory: %s", _exc)
