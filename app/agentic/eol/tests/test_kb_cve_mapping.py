@@ -201,3 +201,31 @@ async def test_incremental_sync_job_calls_sync_msrc_kb_edges():
         await incremental_sync_job()
 
     mock_msrc_step.assert_called_once()
+
+
+# ── Task 5: LAW KQL fix ───────────────────────────────────────────────────
+
+def test_get_software_inventory_kql_includes_windows_update_type():
+    """The KQL query must filter ConfigDataType in ('Software', 'WindowsUpdate')."""
+    import inspect
+    from agents.software_inventory_agent import SoftwareInventoryAgent
+
+    # Get the source of the module to check the KQL string
+    import agents.software_inventory_agent as agent_mod
+    source = inspect.getsource(agent_mod)
+
+    assert ('WindowsUpdate' in source), "KQL must include WindowsUpdate ConfigDataType"
+    assert ('KBNumber' in source or 'KBID' in source or 'kbid' in source.lower()), \
+           "KQL must project KB number field"
+
+
+def test_software_inventory_result_includes_kb_number():
+    """Result rows from software inventory must include a kb_number field."""
+    import inspect
+    from agents.software_inventory_agent import SoftwareInventoryAgent
+
+    import agents.software_inventory_agent as agent_mod
+    source = inspect.getsource(agent_mod)
+
+    assert ('"kb_number"' in source or "'kb_number'" in source), \
+           "Row parsing must include kb_number key in result dict"

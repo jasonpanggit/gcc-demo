@@ -392,7 +392,7 @@ class SoftwareInventoryAgent:
         query = f"""
         ConfigurationData
         | where TimeGenerated >= ago({days}d)
-        | where ConfigDataType == "Software"
+        | where ConfigDataType in ("Software", "WindowsUpdate")
         | where isnotempty(SoftwareName)
         | where isnotempty(Computer)
         """
@@ -410,20 +410,22 @@ class SoftwareInventoryAgent:
             query += f'| where tolower(Computer) == "{computer_literal}"\n'
 
         query += f"""
-        | extend 
+        | extend
             NormalizedPublisher = case(
                 Publisher contains "Microsoft", "Microsoft Corporation",
                 Publisher contains "Oracle", "Oracle Corporation",
                 isempty(Publisher), "Unknown",
                 Publisher
             ),
-            ActualSoftwareType = coalesce(SoftwareType, "Application")
-        | summarize 
+            ActualSoftwareType = coalesce(SoftwareType, "Application"),
+            KBNumber = iff(ConfigDataType == "WindowsUpdate", tostring(coalesce(KBID, "")), "")
+        | summarize
             LastSeen = max(TimeGenerated),
             Publisher = any(NormalizedPublisher),
-            SoftwareType = any(ActualSoftwareType)
+            SoftwareType = any(ActualSoftwareType),
+            KBNumber = any(KBNumber)
             by Computer, SoftwareName, CurrentVersion
-        | project Computer, SoftwareName, CurrentVersion, Publisher, SoftwareType, LastSeen
+        | project Computer, SoftwareName, CurrentVersion, Publisher, SoftwareType, LastSeen, KBNumber
         | order by SoftwareName asc, Computer asc
         """
         if limit_clause:
@@ -475,6 +477,7 @@ class SoftwareInventoryAgent:
                             "software_type": row[4] if row[4] else "Unknown",
                             "install_date": None,
                             "last_seen": row[5].isoformat() if row[5] else None,
+                            "kb_number": str(row[6]) if len(row) > 6 and row[6] else "",
                             "computer_count": 1,
                             "source": "log_analytics_configurationdata",
                         }
