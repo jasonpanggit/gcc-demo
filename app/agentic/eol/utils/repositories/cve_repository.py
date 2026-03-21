@@ -96,41 +96,33 @@ ORDER BY total_cve_count DESC;
 """
 
 # CPE-based CVE database breakdown (replaces VM scan approach)
+# Shows each OS version separately (e.g., "Windows Server 2016", "Windows Server 2019")
 QUERY_OS_CVE_BREAKDOWN = """
-WITH os_cpe_counts AS (
-    SELECT
-        p.display_name AS os_name,
-        p.cpe_name,
-        p.query_mode,
-        COUNT(DISTINCT c.cve_id) AS total_cves,
-        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'CRITICAL') AS critical,
-        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'HIGH') AS high,
-        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'MEDIUM') AS medium,
-        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'LOW') AS low
-    FROM inventory_os_profiles p
-    CROSS JOIN LATERAL (
-        SELECT c.cve_id, c.cvss_v3_severity
-        FROM cves c
-        WHERE p.cpe_name IS NOT NULL
-          AND c.affected_products IS NOT NULL
-          AND EXISTS (
-              SELECT 1
-              FROM jsonb_array_elements(c.affected_products) AS product
-              WHERE product->>'cpe_uri' LIKE substring(p.cpe_name from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
-          )
-    ) c
-    GROUP BY p.display_name, p.cpe_name, p.query_mode
-)
 SELECT
-    os_name,
-    SUM(total_cves)::bigint AS total_cve_count,
-    SUM(critical)::bigint AS critical_count,
-    SUM(high)::bigint AS high_count,
-    SUM(medium)::bigint AS medium_count,
-    SUM(low)::bigint AS low_count
-FROM os_cpe_counts
-GROUP BY os_name
-HAVING SUM(total_cves) > 0
+    CASE
+        WHEN p.normalized_version IS NOT NULL AND p.normalized_version != ''
+        THEN p.display_name || ' ' || p.normalized_version
+        ELSE p.display_name
+    END AS os_name,
+    COUNT(DISTINCT c.cve_id)::bigint AS total_cve_count,
+    COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'CRITICAL')::bigint AS critical_count,
+    COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'HIGH')::bigint AS high_count,
+    COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'MEDIUM')::bigint AS medium_count,
+    COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'LOW')::bigint AS low_count
+FROM inventory_os_profiles p
+CROSS JOIN LATERAL (
+    SELECT c.cve_id, c.cvss_v3_severity
+    FROM cves c
+    WHERE p.cpe_name IS NOT NULL
+      AND c.affected_products IS NOT NULL
+      AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(c.affected_products) AS product
+          WHERE product->>'cpe_uri' LIKE substring(p.cpe_name from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
+      )
+) c
+GROUP BY p.display_name, p.normalized_version
+HAVING COUNT(DISTINCT c.cve_id) > 0
 ORDER BY total_cve_count DESC;
 """
 
