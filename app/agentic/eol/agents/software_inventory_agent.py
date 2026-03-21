@@ -581,37 +581,9 @@ class SoftwareInventoryAgent:
                         version="configurationdata",
                         url=f"law://workspace/{self.workspace_id}/ConfigurationData",
                     )
-                    # Persist to Postgres and trigger KB edge sync (fire-and-forget, non-blocking)
+                    # Persist to Postgres (fire-and-forget, non-blocking)
                     if not computer_filter:  # only on full inventory runs
                         asyncio.create_task(self._persist_software_inventory_to_postgres(results))
-
-                        # Trigger KB→CVE edge sync for any WindowsUpdate KB numbers found
-                        _kb_numbers = [r.get("kb_number", "") for r in results if r.get("kb_number")]
-                        if _kb_numbers and postgres_client is not None and getattr(postgres_client, "pool", None):
-                            try:
-                                from utils.cve_sync_operations import sync_kb_edges_for_kbs
-                                from utils.vendor_feed_client import VendorFeedClient
-                                from utils.config import config as _config
-                                _cve_cfg = _config.cve_data
-                                _vendor = VendorFeedClient(
-                                    redhat_base_url=_cve_cfg.redhat_base_url,
-                                    ubuntu_base_url=_cve_cfg.ubuntu_base_url,
-                                    msrc_base_url=_cve_cfg.msrc_base_url,
-                                    msrc_api_key=_cve_cfg.msrc_api_key or None,
-                                    request_timeout=_cve_cfg.request_timeout,
-                                )
-
-                                async def _kb_edge_sync_task(kb_numbers, vendor, pool):
-                                    try:
-                                        await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
-                                    finally:
-                                        await vendor.close()
-
-                                asyncio.create_task(
-                                    _kb_edge_sync_task(_kb_numbers, _vendor, postgres_client.pool)
-                                )
-                            except Exception as _exc:
-                                logger.warning("Failed to schedule KB edge sync from LAW inventory: %s", _exc)
                 except Exception as cache_err:  # pragma: no cover - cache failures shouldn't break flow
                     logger.error(
                         "❌ Failed to cache software inventory data to database%s: %s",
@@ -646,6 +618,37 @@ class SoftwareInventoryAgent:
             self._full_cache_scopes[cache_scope] = retrieved_full_dataset
 
             result_data["full_dataset"] = retrieved_full_dataset
+
+            # Trigger KB→CVE edge sync for WindowsUpdate KB numbers (fire-and-forget, non-blocking)
+            # Runs unconditionally after a successful LAW query — not contingent on cache success.
+            if not computer_filter:
+                _kb_numbers = [r.get("kb_number", "") for r in results if r.get("kb_number")]
+                if _kb_numbers and postgres_client is not None and getattr(postgres_client, "pool", None):
+                    try:
+                        from utils.cve_sync_operations import sync_kb_edges_for_kbs
+                        from utils.vendor_feed_client import VendorFeedClient
+                        from utils.config import config as _config
+                        _cve_cfg = _config.cve_data
+                        _vendor = VendorFeedClient(
+                            redhat_base_url=_cve_cfg.redhat_base_url,
+                            ubuntu_base_url=_cve_cfg.ubuntu_base_url,
+                            msrc_base_url=_cve_cfg.msrc_base_url,
+                            msrc_api_key=_cve_cfg.msrc_api_key or None,
+                            request_timeout=_cve_cfg.request_timeout,
+                        )
+
+                        async def _kb_edge_sync_task(kb_numbers, vendor, pool):
+                            try:
+                                await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
+                            finally:
+                                await vendor.close()
+
+                        asyncio.create_task(
+                            _kb_edge_sync_task(_kb_numbers, _vendor, postgres_client.pool)
+                        )
+                        logger.info("Scheduled KB→CVE edge sync for %d KB numbers from LAW inventory", len(_kb_numbers))
+                    except Exception as _exc:
+                        logger.warning("Failed to schedule KB edge sync from LAW inventory: %s", _exc)
 
             return result_data
 
