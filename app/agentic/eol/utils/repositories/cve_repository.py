@@ -73,7 +73,7 @@ LIMIT $1;
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1d
 QUERY_VM_POSTURE = """
-SELECT vm_id, vm_name, vm_type, os_name, os_version, os_type,
+SELECT vm_id, vm_name, vm_type, os_name, os_type,
        location, resource_group, subscription_id, last_synced_at,
        risk_level, total_cves, critical, high, medium, low,
        unpatched, unpatched_critical, unpatched_high, eol_status
