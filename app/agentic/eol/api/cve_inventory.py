@@ -68,6 +68,14 @@ async def _build_vm_vulnerability_response(
     matches: List[Dict[str, Any]] = matches_result
     total: int = total_result
 
+    # Convert cvss_score from string to float for JavaScript compatibility
+    for match in matches:
+        if "cvss_score" in match and match["cvss_score"] is not None:
+            try:
+                match["cvss_score"] = float(match["cvss_score"])
+            except (ValueError, TypeError):
+                match["cvss_score"] = None
+
     # Apply min_cvss filter (not supported at SQL level)
     if min_cvss is not None:
         matches = [m for m in matches if (m.get("cvss_score") or 0.0) >= min_cvss]
