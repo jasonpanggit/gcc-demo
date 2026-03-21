@@ -14,7 +14,7 @@ Phase 8 plan: P8.4 (PatchRepository + AlertRepository)
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import asyncpg
 
@@ -44,15 +44,6 @@ ORDER BY COALESCE(pac.critical_count, 0) DESC, v.vm_name ASC
 LIMIT $2 OFFSET $3;
 """
 
-# From: TARGET-SQL-INVENTORY-DOMAIN.md Query 11b + TARGET-SQL-CVE-DOMAIN.md Query 4c
-QUERY_PATCHES_FOR_VM = """
-SELECT ap.id, ap.resource_id, ap.kb_id, ap.software_name, ap.software_version,
-       ap.classifications, ap.assessment_state, ap.assessment_timestamp
-FROM available_patches ap
-WHERE ap.resource_id = $1
-ORDER BY ap.classifications, ap.software_name;
-"""
-
 # Patch install history with optional resource_id filter
 QUERY_PATCH_INSTALL_HISTORY = """
 SELECT id, resource_id, operation_url, machine_name, status, is_done,
@@ -68,26 +59,21 @@ LIMIT $2 OFFSET $3;
 QUERY_UPSERT_ASSESSMENT = """
 INSERT INTO patch_assessments_cache (
     resource_id, machine_name, os_name, os_version, vm_type,
-    assessment_status, last_assessment,
-    critical_count, high_count, medium_count, low_count, other_count,
-    total_patches, reboot_pending, cached_at
+    critical_count, security_count, other_count,
+    total_patches, last_modified, cached_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 ON CONFLICT (resource_id) DO UPDATE SET
-    machine_name      = EXCLUDED.machine_name,
-    os_name           = EXCLUDED.os_name,
-    os_version        = EXCLUDED.os_version,
-    vm_type           = EXCLUDED.vm_type,
-    assessment_status = EXCLUDED.assessment_status,
-    last_assessment   = EXCLUDED.last_assessment,
-    critical_count    = EXCLUDED.critical_count,
-    high_count        = EXCLUDED.high_count,
-    medium_count      = EXCLUDED.medium_count,
-    low_count         = EXCLUDED.low_count,
-    other_count       = EXCLUDED.other_count,
-    total_patches     = EXCLUDED.total_patches,
-    reboot_pending    = EXCLUDED.reboot_pending,
-    cached_at         = NOW();
+    machine_name     = EXCLUDED.machine_name,
+    os_name          = EXCLUDED.os_name,
+    os_version       = EXCLUDED.os_version,
+    vm_type          = EXCLUDED.vm_type,
+    critical_count   = EXCLUDED.critical_count,
+    security_count   = EXCLUDED.security_count,
+    other_count      = EXCLUDED.other_count,
+    total_patches    = EXCLUDED.total_patches,
+    last_modified    = EXCLUDED.last_modified,
+    cached_at        = NOW();
 """
 
 # Record a patch install operation
@@ -148,14 +134,8 @@ class PatchRepository:
         return [dict(r) for r in rows]
 
     async def get_patches_for_vm(self, resource_id: str) -> List[Dict]:
-        """Query 11b / 4c — Available patches for a specific VM.
-
-        Used by both patch-management detail and vm-vulnerability patch
-        coverage views.
-        """
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(QUERY_PATCHES_FOR_VM, resource_id)
-        return [dict(r) for r in rows]
+        """Get available patches for a VM. Delegates to get_available_patches_for_vm."""
+        return await self.get_available_patches_for_vm(resource_id)
 
     async def get_installed_patches_for_vm(self, resource_id: str) -> List[Dict]:
         """Get installed patches for a specific VM from inventory_software_cache.
@@ -279,28 +259,86 @@ class PatchRepository:
         ----------
         assessment : dict
             Must contain keys: resource_id, machine_name, os_name,
-            os_version, vm_type, assessment_status, last_assessment,
-            critical_count, high_count, medium_count, low_count,
-            other_count, total_patches, reboot_pending.
+            os_version, vm_type, critical_count, security_count,
+            other_count, total_patches, last_modified.
         """
         async with self._pool.acquire() as conn:
             await conn.execute(
                 QUERY_UPSERT_ASSESSMENT,
-                assessment["resource_id"],
-                assessment.get("machine_name"),
-                assessment.get("os_name"),
-                assessment.get("os_version"),
-                assessment.get("vm_type"),
-                assessment.get("assessment_status"),
-                assessment.get("last_assessment"),
-                assessment.get("critical_count", 0),
-                assessment.get("high_count", 0),
-                assessment.get("medium_count", 0),
-                assessment.get("low_count", 0),
-                assessment.get("other_count", 0),
-                assessment.get("total_patches", 0),
-                assessment.get("reboot_pending", False),
+                assessment["resource_id"],          # $1
+                assessment.get("machine_name"),      # $2
+                assessment.get("os_name"),           # $3
+                assessment.get("os_version"),        # $4
+                assessment.get("vm_type"),           # $5
+                assessment.get("critical_count", 0), # $6
+                assessment.get("security_count", 0), # $7
+                assessment.get("other_count", 0),    # $8
+                assessment.get("total_patches", 0),  # $9
+                assessment.get("last_modified"),     # $10
             )
+
+    async def upsert_available_patches(
+        self,
+        resource_id: str,
+        patches: List[Dict[str, Any]],
+    ) -> int:
+        """Persist ARG patch assessment rows to available_patches table.
+
+        Args:
+            resource_id: VM ARM resource ID.
+            patches: List of patch dicts with keys: patchName, kbId, classifications,
+                     rebootBehavior, assessmentState.
+
+        Returns:
+            Count of rows upserted (excludes skipped null-kbId rows).
+        """
+        import json as _json  # noqa: PLC0415
+        valid_rows = []
+        for p in patches:
+            kb_raw = p.get("kbId") or ""
+            if not kb_raw or str(kb_raw).lower() == "null":
+                continue
+            kb_number = f"KB{kb_raw}" if not str(kb_raw).upper().startswith("KB") else str(kb_raw)
+
+            classifications = p.get("classifications") or []
+            if isinstance(classifications, str):
+                try:
+                    classifications = _json.loads(classifications)
+                except Exception:
+                    classifications = [classifications]
+
+            classification = classifications[0] if classifications else "Other"
+            severity = "Critical" if any(
+                c in ("Critical", "Security") for c in classifications
+            ) else "Other"
+            reboot_required = p.get("rebootBehavior", "") == "AlwaysRequiresReboot"
+
+            valid_rows.append((
+                resource_id,
+                kb_number,
+                p.get("patchName") or "",
+                classification,
+                severity,
+                reboot_required,
+            ))
+
+        if not valid_rows:
+            return 0
+
+        sql = """
+            INSERT INTO available_patches
+                (resource_id, kb_number, title, classification, severity, reboot_required, installed, cached_at)
+            VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW())
+            ON CONFLICT (resource_id, kb_number) DO UPDATE SET
+                title           = EXCLUDED.title,
+                classification  = EXCLUDED.classification,
+                severity        = EXCLUDED.severity,
+                reboot_required = EXCLUDED.reboot_required,
+                cached_at       = NOW()
+        """
+        async with self._pool.acquire() as conn:
+            await conn.executemany(sql, valid_rows)
+        return len(valid_rows)
 
     async def record_install(self, install_data: Dict) -> Dict:
         """INSERT INTO patch_installs and return the inserted row as dict.
