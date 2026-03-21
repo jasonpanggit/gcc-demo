@@ -223,9 +223,9 @@ async def sync_kb_edges_for_kbs(
         logger.warning("sync_kb_edges_for_kbs: pool is None — skipping edge sync")
         return 0
 
-    # Normalise and deduplicate
+    # Normalise and deduplicate — uppercase the whole token so "kb5052006" → "KB5052006"
     normalised = list({
-        f"KB{kb}" if not kb.upper().startswith("KB") else kb
+        kb.upper() if kb.upper().startswith("KB") else f"KB{kb.upper()}"
         for kb in kb_numbers
         if kb
     })
@@ -241,7 +241,7 @@ async def sync_kb_edges_for_kbs(
     for i in range(0, len(normalised), batch_size):
         batch = normalised[i:i + batch_size]
         results = await asyncio.gather(
-            *[vendor_client.fetch_microsoft_cves_for_kb(kb) for kb in batch],
+            *[vendor_client.fetch_microsoft_cves_for_kb_sug(kb) for kb in batch],
             return_exceptions=True,
         )
         for kb, result in zip(batch, results):

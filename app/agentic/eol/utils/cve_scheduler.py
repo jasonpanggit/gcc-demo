@@ -116,6 +116,49 @@ async def _refresh_materialized_views_after_sync(pool) -> None:
     except Exception as exc:
         logger.warning("Post-sync MV refresh failed (non-fatal): %s", exc)
 
+
+async def _run_msrc_kb_edge_sync_step() -> int:
+    """Sync MSRC KB→CVE edges for the last 3 months into PostgreSQL.
+
+    Extracted from full_sync_job and incremental_sync_job to avoid code
+    duplication.  Instantiates VendorFeedClient, runs sync_msrc_kb_edges,
+    and always closes the client session in a finally block.
+
+    Returns count of edges upserted, or 0 on failure.
+    """
+    try:
+        from utils.pg_client import postgres_client
+    except ImportError:
+        from app.agentic.eol.utils.pg_client import postgres_client
+    try:
+        from utils.vendor_feed_client import VendorFeedClient
+    except ImportError:
+        from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
+
+    cve_config = config.cve_data
+    _vendor_client = VendorFeedClient(
+        redhat_base_url=cve_config.redhat_base_url,
+        ubuntu_base_url=cve_config.ubuntu_base_url,
+        msrc_base_url=cve_config.msrc_base_url,
+        msrc_api_key=cve_config.msrc_api_key or None,
+        request_timeout=cve_config.request_timeout,
+        max_retries=cve_config.max_retries,
+    )
+    try:
+        msrc_edge_count = await sync_msrc_kb_edges(
+            vendor_client=_vendor_client,
+            kb_cve_repo=None,
+            n_months=3,
+            pool=postgres_client.pool if postgres_client.is_initialized else None,
+        )
+        logger.info(f"sync_msrc_kb_edges completed: {msrc_edge_count} edges upserted")
+        return msrc_edge_count
+    except Exception as e:
+        logger.warning(f"sync_msrc_kb_edges failed: {e}")
+        return 0
+    finally:
+        await _vendor_client.close()
+
 # ---------------------------------------------------------------------------
 # Job execution tracking
 # ---------------------------------------------------------------------------
@@ -226,33 +269,7 @@ async def full_sync_job() -> None:
         # the _refresh_materialized_views_after_sync below is a second pass
         # that picks up any CVE changes from run_delta_sync. This double-refresh
         # is intentional and idempotent.
-        try:
-            from utils.pg_client import postgres_client
-        except ImportError:
-            from app.agentic.eol.utils.pg_client import postgres_client
-        try:
-            from utils.vendor_feed_client import VendorFeedClient
-        except ImportError:
-            from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
-        try:
-            cve_config = config.cve_data
-            _vendor_client = VendorFeedClient(
-                redhat_base_url=cve_config.redhat_base_url,
-                ubuntu_base_url=cve_config.ubuntu_base_url,
-                msrc_base_url=cve_config.msrc_base_url,
-                msrc_api_key=cve_config.msrc_api_key or None,
-                request_timeout=cve_config.request_timeout,
-                max_retries=cve_config.max_retries,
-            )
-            msrc_edge_count = await sync_msrc_kb_edges(
-                vendor_client=_vendor_client,
-                kb_cve_repo=None,
-                n_months=3,
-                pool=postgres_client.pool if postgres_client.is_initialized else None,
-            )
-            logger.info(f"sync_msrc_kb_edges completed: {msrc_edge_count} edges upserted")
-        except Exception as e:
-            logger.warning(f"sync_msrc_kb_edges failed: {e}")
+        await _run_msrc_kb_edge_sync_step()
 
         # Phase 8: Refresh bootstrap MVs after successful sync
         try:
@@ -329,33 +346,7 @@ async def incremental_sync_job() -> None:
         # the _refresh_materialized_views_after_sync below is a second pass
         # that picks up any CVE changes from run_delta_sync. This double-refresh
         # is intentional and idempotent.
-        try:
-            from utils.pg_client import postgres_client
-        except ImportError:
-            from app.agentic.eol.utils.pg_client import postgres_client
-        try:
-            from utils.vendor_feed_client import VendorFeedClient
-        except ImportError:
-            from app.agentic.eol.utils.vendor_feed_client import VendorFeedClient
-        try:
-            cve_config = config.cve_data
-            _vendor_client = VendorFeedClient(
-                redhat_base_url=cve_config.redhat_base_url,
-                ubuntu_base_url=cve_config.ubuntu_base_url,
-                msrc_base_url=cve_config.msrc_base_url,
-                msrc_api_key=cve_config.msrc_api_key or None,
-                request_timeout=cve_config.request_timeout,
-                max_retries=cve_config.max_retries,
-            )
-            msrc_edge_count = await sync_msrc_kb_edges(
-                vendor_client=_vendor_client,
-                kb_cve_repo=None,
-                n_months=3,
-                pool=postgres_client.pool if postgres_client.is_initialized else None,
-            )
-            logger.info(f"sync_msrc_kb_edges completed: {msrc_edge_count} edges upserted")
-        except Exception as e:
-            logger.warning(f"sync_msrc_kb_edges failed: {e}")
+        await _run_msrc_kb_edge_sync_step()
 
         # Phase 8: Refresh bootstrap MVs after successful sync
         try:

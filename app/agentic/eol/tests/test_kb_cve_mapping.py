@@ -85,14 +85,14 @@ async def test_sync_kb_edges_for_kbs_returns_zero_when_pool_is_none():
     result = await sync_kb_edges_for_kbs(["KB5052006"], mock_vendor, pool=None)
 
     assert result == 0
-    mock_vendor.fetch_microsoft_cves_for_kb.assert_not_called()
+    mock_vendor.fetch_microsoft_cves_for_kb_sug.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sync_kb_edges_for_kbs_normalises_kb_prefix():
     """KB numbers without 'KB' prefix should be normalised before MSRC call."""
     mock_vendor = AsyncMock()
-    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(return_value=["CVE-2025-0001"])
+    mock_vendor.fetch_microsoft_cves_for_kb_sug = AsyncMock(return_value=["CVE-2025-0001"])
 
     mock_pool = MagicMock()
 
@@ -104,14 +104,14 @@ async def test_sync_kb_edges_for_kbs_normalises_kb_prefix():
         from utils.cve_sync_operations import sync_kb_edges_for_kbs
         await sync_kb_edges_for_kbs(["5052006"], mock_vendor, pool=mock_pool)
 
-    mock_vendor.fetch_microsoft_cves_for_kb.assert_called_once_with("KB5052006")
+    mock_vendor.fetch_microsoft_cves_for_kb_sug.assert_called_once_with("KB5052006")
 
 
 @pytest.mark.asyncio
 async def test_sync_kb_edges_for_kbs_isolates_per_kb_errors():
     """A failed MSRC call for one KB should not abort the batch."""
     mock_vendor = AsyncMock()
-    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(
+    mock_vendor.fetch_microsoft_cves_for_kb_sug = AsyncMock(
         side_effect=[Exception("MSRC timeout"), ["CVE-2025-0002"]]
     )
     mock_pool = MagicMock()
@@ -136,7 +136,7 @@ async def test_sync_kb_edges_for_kbs_isolates_per_kb_errors():
 async def test_sync_kb_edges_for_kbs_deduplicates_input():
     """Duplicate KB numbers in input should only trigger one MSRC call each."""
     mock_vendor = AsyncMock()
-    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(return_value=["CVE-2025-0001"])
+    mock_vendor.fetch_microsoft_cves_for_kb_sug = AsyncMock(return_value=["CVE-2025-0001"])
     mock_pool = MagicMock()
 
     with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
@@ -149,7 +149,7 @@ async def test_sync_kb_edges_for_kbs_deduplicates_input():
             ["KB5052006", "KB5052006", "KB5052006"], mock_vendor, pool=mock_pool
         )
 
-    assert mock_vendor.fetch_microsoft_cves_for_kb.call_count == 1
+    assert mock_vendor.fetch_microsoft_cves_for_kb_sug.call_count == 1
 
 
 # ── Task 4: Scheduler wiring ───────────────────────────────────────────────
@@ -169,15 +169,14 @@ async def test_full_sync_job_calls_sync_msrc_kb_edges():
 
     with patch("utils.cve_scheduler.run_inventory_bootstrap_sync", new_callable=AsyncMock, return_value=inventory_result), \
          patch("utils.cve_scheduler.run_delta_sync", new_callable=AsyncMock, return_value=delta_result), \
-         patch("utils.cve_scheduler.sync_msrc_kb_edges", new_callable=AsyncMock, return_value=42) as mock_msrc, \
+         patch("utils.cve_scheduler._run_msrc_kb_edge_sync_step", new_callable=AsyncMock, return_value=42) as mock_msrc_step, \
          patch("utils.cve_scheduler._refresh_materialized_views_after_sync", new_callable=AsyncMock), \
-         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()), \
-         patch("utils.vendor_feed_client.VendorFeedClient", return_value=MagicMock()):
+         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()):
 
         from utils.cve_scheduler import full_sync_job
         await full_sync_job()
 
-    mock_msrc.assert_called_once()
+    mock_msrc_step.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -194,12 +193,11 @@ async def test_incremental_sync_job_calls_sync_msrc_kb_edges():
 
     with patch("utils.cve_scheduler.run_inventory_bootstrap_sync", new_callable=AsyncMock, return_value=inventory_result), \
          patch("utils.cve_scheduler.run_delta_sync", new_callable=AsyncMock, return_value=delta_result), \
-         patch("utils.cve_scheduler.sync_msrc_kb_edges", new_callable=AsyncMock, return_value=0) as mock_msrc, \
+         patch("utils.cve_scheduler._run_msrc_kb_edge_sync_step", new_callable=AsyncMock, return_value=0) as mock_msrc_step, \
          patch("utils.cve_scheduler._refresh_materialized_views_after_sync", new_callable=AsyncMock), \
-         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()), \
-         patch("utils.vendor_feed_client.VendorFeedClient", return_value=MagicMock()):
+         patch("utils.cve_service.get_cve_service", new_callable=AsyncMock, return_value=MagicMock()):
 
         from utils.cve_scheduler import incremental_sync_job
         await incremental_sync_job()
 
-    mock_msrc.assert_called_once()
+    mock_msrc_step.assert_called_once()
