@@ -27,6 +27,8 @@ try:
     from utils.config import config
     from utils.logging_config import get_logger
     from utils.normalization import extract_kb_ids, normalize_kb_id
+    from utils.kb_cve_edge_repository import KBCVEEdgeRepository
+    from utils.pg_client import postgres_client
 except ModuleNotFoundError:
     from app.agentic.eol.models.cve_models import ApplicablePatch, CVEPatchMapping, UnifiedCVE
     from app.agentic.eol.utils.cve_id_utils import filter_valid_cve_ids, is_valid_cve_id
@@ -37,6 +39,8 @@ except ModuleNotFoundError:
     from app.agentic.eol.utils.config import config
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.normalization import extract_kb_ids, normalize_kb_id
+    from app.agentic.eol.utils.kb_cve_edge_repository import KBCVEEdgeRepository
+    from app.agentic.eol.utils.pg_client import postgres_client
 
 logger = get_logger(__name__)
 
@@ -574,10 +578,13 @@ async def get_cve_patch_mapper() -> 'CVEPatchMapper':
         cve_scanner = await get_cve_scanner()
         patch_client = await get_patch_mcp_client()
 
+        kb_cve_repo = KBCVEEdgeRepository(postgres_client.pool)
+
         _cve_patch_mapper_instance = CVEPatchMapper(
             cve_service=cve_service,
             cve_scanner=cve_scanner,
-            patch_mcp_client=patch_client
+            patch_mcp_client=patch_client,
+            kb_cve_edge_repository=kb_cve_repo,
         )
         logger.info("CVE patch mapper singleton initialized")
 

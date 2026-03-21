@@ -368,3 +368,27 @@ async def test_arg_patch_fetch_upsert_failure_does_not_block_main_flow():
 
     # Main flow must not be blocked — mapping still returned
     assert "vm-test" in result_map, "prefetch_patch_data must return VM mapping even if upsert fails"
+
+
+# ── Task 8: CVEPatchMapper factory fix ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_cve_patch_mapper_has_kb_cve_edge_repository():
+    """Factory-created CVEPatchMapper must have kb_cve_edge_repository injected."""
+    import utils.cve_patch_mapper as mapper_mod
+
+    # Reset singleton so factory runs fresh
+    mapper_mod._cve_patch_mapper_instance = None
+
+    with patch("utils.cve_service.get_cve_service", new_callable=AsyncMock), \
+         patch("utils.cve_scanner.get_cve_scanner", new_callable=AsyncMock), \
+         patch("utils.patch_mcp_client.get_patch_mcp_client", new_callable=AsyncMock), \
+         patch("utils.cve_patch_mapper.postgres_client") as mock_pg:
+
+        mock_pg.pool = MagicMock()  # non-None pool
+
+        from utils.cve_patch_mapper import get_cve_patch_mapper
+        mapper = await get_cve_patch_mapper()
+
+    assert mapper.kb_cve_edge_repository is not None, \
+        "kb_cve_edge_repository must be injected into CVEPatchMapper"
