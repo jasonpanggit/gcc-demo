@@ -90,13 +90,32 @@ async def _build_vm_vulnerability_response(
         len(matches), vm_id, severity_filter, min_cvss,
     )
 
+    # Calculate pagination metadata
+    has_more = (offset + limit) < total
+
     response_data = {
         "vm_id": vm_data["resource_id"],
         "vm_name": vm_data.get("vm_name", ""),
         "os_name": vm_data.get("os_name", ""),
+        "os_version": vm_data.get("os_version", ""),
         "os_type": vm_data.get("os_type", ""),
         "resource_group": vm_data.get("resource_group", ""),
+        "subscription_id": vm_data.get("subscription_id", ""),
         "location": vm_data.get("location", ""),
+        "scan_date": vm_data.get("last_scan_date"),
+        # JavaScript expects these field names
+        "cve_details": matches,
+        "total_cves": total,
+        "pagination": {
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        },
+        "patch_coverage": {
+            "installed_patch_entries": [],  # TODO: fetch from patch repository
+            "available_patch_entries": [],
+        },
+        # Keep legacy fields for backward compatibility
         "items": matches,
         "total": total,
         "offset": offset,
