@@ -72,3 +72,81 @@ async def test_upsert_available_patches_returns_count():
     ]
     count = await repo.upsert_available_patches("resource/vm1", patches)
     assert count == 2
+
+
+# ── Task 3: sync_kb_edges_for_kbs ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_sync_kb_edges_for_kbs_returns_zero_when_pool_is_none():
+    """If pool is None, return 0 immediately without calling vendor."""
+    mock_vendor = AsyncMock()
+
+    from utils.cve_sync_operations import sync_kb_edges_for_kbs
+    result = await sync_kb_edges_for_kbs(["KB5052006"], mock_vendor, pool=None)
+
+    assert result == 0
+    mock_vendor.fetch_microsoft_cves_for_kb.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_kb_edges_for_kbs_normalises_kb_prefix():
+    """KB numbers without 'KB' prefix should be normalised before MSRC call."""
+    mock_vendor = AsyncMock()
+    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(return_value=["CVE-2025-0001"])
+
+    mock_pool = MagicMock()
+
+    with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        MockCVERepo.return_value = mock_repo_instance
+
+        from utils.cve_sync_operations import sync_kb_edges_for_kbs
+        await sync_kb_edges_for_kbs(["5052006"], mock_vendor, pool=mock_pool)
+
+    mock_vendor.fetch_microsoft_cves_for_kb.assert_called_once_with("KB5052006")
+
+
+@pytest.mark.asyncio
+async def test_sync_kb_edges_for_kbs_isolates_per_kb_errors():
+    """A failed MSRC call for one KB should not abort the batch."""
+    mock_vendor = AsyncMock()
+    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(
+        side_effect=[Exception("MSRC timeout"), ["CVE-2025-0002"]]
+    )
+    mock_pool = MagicMock()
+
+    with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        MockCVERepo.return_value = mock_repo_instance
+
+        from utils.cve_sync_operations import sync_kb_edges_for_kbs
+        result = await sync_kb_edges_for_kbs(
+            ["KB5000001", "KB5000002"], mock_vendor, pool=mock_pool
+        )
+
+    # KB5000002 returns 1 CVE → 1 edge; KB5000001 failed and is skipped
+    # result = total edges upserted (not KB count)
+    assert result == 1
+    mock_repo_instance.upsert_kb_cve_edges.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_kb_edges_for_kbs_deduplicates_input():
+    """Duplicate KB numbers in input should only trigger one MSRC call each."""
+    mock_vendor = AsyncMock()
+    mock_vendor.fetch_microsoft_cves_for_kb = AsyncMock(return_value=["CVE-2025-0001"])
+    mock_pool = MagicMock()
+
+    with patch("utils.cve_sync_operations.CVERepository") as MockCVERepo:
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.upsert_kb_cve_edges = AsyncMock()
+        MockCVERepo.return_value = mock_repo_instance
+
+        from utils.cve_sync_operations import sync_kb_edges_for_kbs
+        await sync_kb_edges_for_kbs(
+            ["KB5052006", "KB5052006", "KB5052006"], mock_vendor, pool=mock_pool
+        )
+
+    assert mock_vendor.fetch_microsoft_cves_for_kb.call_count == 1

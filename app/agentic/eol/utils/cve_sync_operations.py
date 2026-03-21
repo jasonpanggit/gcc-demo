@@ -1,6 +1,7 @@
 """Shared CVE sync operations used by API handlers and the scheduler."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -194,4 +195,78 @@ async def sync_msrc_kb_edges(
 
     except Exception as e:
         logger.warning("MSRC SUG KB-edge sync failed (non-fatal): %s", e)
+        return 0
+
+
+async def sync_kb_edges_for_kbs(
+    kb_numbers: List[str],
+    vendor_client,
+    *,
+    pool=None,
+    batch_size: int = 10,
+) -> int:
+    """Fetch CVE mappings from MSRC for a specific list of KB numbers and upsert into kb_cve_edges.
+
+    Called after ARG or LAW KB discovery to immediately populate edges for
+    newly discovered KB numbers without waiting for the scheduled full sync.
+
+    Args:
+        kb_numbers: List of KB numbers (with or without 'KB' prefix — normalised internally).
+        vendor_client: VendorFeedClient instance.
+        pool: asyncpg connection pool. If None, returns 0 immediately (safe no-op).
+        batch_size: Number of concurrent MSRC calls per gather batch (default 10).
+
+    Returns:
+        Total number of CVE edges upserted across all KB numbers.
+    """
+    if pool is None:
+        logger.warning("sync_kb_edges_for_kbs: pool is None — skipping edge sync")
+        return 0
+
+    # Normalise and deduplicate
+    normalised = list({
+        f"KB{kb}" if not kb.upper().startswith("KB") else kb
+        for kb in kb_numbers
+        if kb
+    })
+    if not normalised:
+        return 0
+
+    logger.info(f"sync_kb_edges_for_kbs: syncing {len(normalised)} KB numbers")
+
+    all_edges: List[Dict[str, Any]] = []
+    now = datetime.now(timezone.utc)  # timezone-aware; matches existing sync_msrc_kb_edges convention
+
+    # Process in batches with per-KB error isolation
+    for i in range(0, len(normalised), batch_size):
+        batch = normalised[i:i + batch_size]
+        results = await asyncio.gather(
+            *[vendor_client.fetch_microsoft_cves_for_kb(kb) for kb in batch],
+            return_exceptions=True,
+        )
+        for kb, result in zip(batch, results):
+            if isinstance(result, Exception):
+                logger.warning(f"sync_kb_edges_for_kbs: MSRC lookup failed for {kb}: {result}")
+                continue
+            for cve_id in result:
+                all_edges.append({
+                    "kb_number": kb,
+                    "cve_id": cve_id.upper(),
+                    "source": "microsoft",
+                    "severity": None,
+                    "title": None,
+                    "fixed_version": None,
+                    "last_seen": now,
+                })
+
+    if not all_edges:
+        return 0
+
+    try:
+        cve_repo = CVERepository(pool)
+        await cve_repo.upsert_kb_cve_edges(all_edges)
+        logger.info(f"sync_kb_edges_for_kbs: upserted {len(all_edges)} edges")
+        return len(all_edges)
+    except Exception as e:
+        logger.error(f"sync_kb_edges_for_kbs: failed to upsert edges: {e}")
         return 0
