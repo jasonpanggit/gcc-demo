@@ -120,7 +120,20 @@ class CVEPatchEnricher:
                     _all_kb_numbers: List[str] = []
 
                     for _vm_data in result.get("data") or []:
+                        # Bulk query_patch_assessments omits resource_id — reconstruct it.
                         _resource_id = _vm_data.get("resource_id")
+                        if not _resource_id:
+                            _sub = _vm_data.get("subscription_id") or sub_id
+                            _rg = _vm_data.get("resource_group") or ""
+                            _mname = _vm_data.get("machine_name") or ""
+                            _vtype = _vm_data.get("vm_type") or "arc"
+                            _provider = (
+                                "Microsoft.HybridCompute/machines"
+                                if _vtype == "arc"
+                                else "Microsoft.Compute/virtualMachines"
+                            )
+                            if _sub and _rg and _mname:
+                                _resource_id = f"/subscriptions/{_sub}/resourceGroups/{_rg}/providers/{_provider}/{_mname}"
                         _patches = ((_vm_data.get("patches") or {}).get("available_patches") or [])
                         if _resource_id and _patches:
                             _count = await _patch_repo.upsert_available_patches(_resource_id, _patches)
