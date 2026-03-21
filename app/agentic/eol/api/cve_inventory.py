@@ -164,7 +164,7 @@ def _calculate_risk_level(
     return "Healthy"
 
 
-@router.get("/cve/inventory/overview")
+@router.get("/inventory/overview")
 # TODO: Re-enable decorator after fixing FastAPI signature inspection issue
 # @readonly_endpoint(agent_name="cve_vm_overview", timeout_seconds=120)
 async def get_vm_vulnerability_overview(
@@ -297,7 +297,7 @@ async def get_vm_vulnerabilities_by_query(
         )
 
 
-@router.get("/cve/inventory/{vm_id:path}", response_model=StandardResponse)
+@router.get("/inventory/{vm_id:path}", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities(
     request: Request,
@@ -341,7 +341,7 @@ async def get_vm_vulnerabilities(
         )
 
 
-@router.get("/cve/{cve_id}/affected-vms", response_model=StandardResponse)
+@router.get("/{cve_id}/affected-vms", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
     request: Request,
