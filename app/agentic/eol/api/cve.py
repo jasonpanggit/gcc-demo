@@ -52,16 +52,16 @@ def _format_os_display_name(normalized_name: str, fallback_key: Optional[str] = 
 @router.get("/cve/stats")
 @readonly_endpoint(agent_name="cve_stats", timeout_seconds=15)
 async def get_cve_stats(request: Request) -> StandardResponse:
-    """Get cached CVE statistics for the UI."""
+    """Get cached CVE statistics for the UI.
+
+    Returns VM-based CVE counts from materialized views to match the VM vulnerability overview page.
+    """
     cve_repo = request.app.state.cve_repo
 
-    # Get OS sync summaries from the persistent table
-    from main import get_os_summary_repo
-    os_summary_repo = await get_os_summary_repo()
-
-    summary, os_summaries = await asyncio.gather(
+    # Use VM-based counts from materialized views (same as VM overview page)
+    summary, os_breakdown = await asyncio.gather(
         cve_repo.get_dashboard_summary(),
-        os_summary_repo.get_all_summaries(),
+        cve_repo.get_os_cve_breakdown(),
         return_exceptions=True,
     )
 
@@ -71,23 +71,38 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         summary = {"total_cves": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}
         errors.append("summary")
 
-    if isinstance(os_summaries, Exception):
-        logger.error("OS summaries query failed: %s", os_summaries, exc_info=True)
-        os_summaries = []
-        errors.append("os_summaries")
+    if isinstance(os_breakdown, Exception):
+        logger.error("OS breakdown query failed: %s", os_breakdown, exc_info=True)
+        os_breakdown = []
+        errors.append("os_breakdown")
 
-    # Build per-OS identity stats from sync summaries (not VM posture)
+    # Build per-OS identity stats from VM posture (matches VM overview page)
     os_identities = []
-    for entry in os_summaries:
-        # Repository already extracts severity_counts from JSON, returns match_count alias
+    for entry in os_breakdown:
+        os_name = entry.get("os_name", "Unknown")
+        vm_count = entry.get("vm_count", 0)
+        total_cves = entry.get("total_cve_count", 0)
+        critical = entry.get("critical_count", 0)
+        high = entry.get("high_count", 0)
+
+        # Calculate medium and low from total if not provided
+        medium = entry.get("medium_count", 0)
+        low = entry.get("low_count", 0)
+
         os_identities.append({
-            "key": entry.get("key", "Unknown"),
-            "display_name": entry.get("display_name", "Unknown"),
-            "normalized_version": entry.get("normalized_version"),
-            "match_count": entry.get("match_count", 0),
-            "query_mode": entry.get("query_mode"),
-            "synced_at": entry.get("synced_at").isoformat() if entry.get("synced_at") else None,
-            "severity_counts": entry.get("severity_counts", {}),
+            "key": os_name,
+            "display_name": os_name,
+            "normalized_version": "",  # Not available from mv_vm_vulnerability_posture
+            "match_count": total_cves,
+            "query_mode": "VM_SCAN",  # Indicate this is from VM scans, not database sync
+            "synced_at": None,  # Not tracked in MV
+            "severity_counts": {
+                "critical": critical,
+                "high": high,
+                "medium": medium,
+                "low": low,
+                "unknown": max(0, total_cves - critical - high - medium - low),
+            },
         })
 
     response_data = {
@@ -101,6 +116,7 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         "os_identities": os_identities,
         "metadata": {
             "partial_errors": errors if errors else None,
+            "data_source": "VM scans (matches VM vulnerability overview)",
         },
     }
 
