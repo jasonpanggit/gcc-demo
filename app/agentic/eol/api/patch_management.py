@@ -277,6 +277,72 @@ async def _query_arg(query: str, subscription_ids: List[str]) -> List[Dict[str, 
     return all_rows
 
 
+def _trigger_kb_sync_for_patches(machines: List[Dict[str, Any]]) -> None:
+    """Fire-and-forget: upsert available_patches rows and trigger KB→CVE edge sync.
+
+    Called after any ARG patch fetch (last-assessment, arg-patch-data) to ensure
+    KB numbers flow into available_patches and kb_cve_edges without blocking the
+    HTTP response.
+
+    Args:
+        machines: List of machine dicts with 'resource_id' and
+                  'patches.available_patches' keys (same shape as ARG responses).
+    """
+    try:
+        from utils.pg_client import postgres_client
+        if postgres_client is None or not getattr(postgres_client, "pool", None):
+            return
+
+        async def _run() -> None:
+            try:
+                from utils.repositories.patch_repository import PatchRepository
+                from utils.cve_sync_operations import sync_kb_edges_for_kbs
+                from utils.vendor_feed_client import VendorFeedClient
+                from utils.config import config as _config
+
+                patch_repo = PatchRepository(postgres_client.pool)
+                all_kb_numbers: List[str] = []
+
+                for vm in machines:
+                    rid = vm.get("resource_id")
+                    patches = (vm.get("patches") or {}).get("available_patches") or []
+                    if not rid or not patches:
+                        continue
+                    count = await patch_repo.upsert_available_patches(rid, patches)
+                    if count:
+                        all_kb_numbers.extend([
+                            f"KB{p['kbId']}" if not str(p.get("kbId", "")).upper().startswith("KB")
+                            else str(p["kbId"])
+                            for p in patches
+                            if p.get("kbId") and str(p.get("kbId", "")).lower() != "null"
+                        ])
+
+                if all_kb_numbers:
+                    cve_cfg = _config.cve_data
+                    vendor = VendorFeedClient(
+                        redhat_base_url=cve_cfg.redhat_base_url,
+                        ubuntu_base_url=cve_cfg.ubuntu_base_url,
+                        msrc_base_url=cve_cfg.msrc_base_url,
+                        msrc_api_key=cve_cfg.msrc_api_key or None,
+                        request_timeout=cve_cfg.request_timeout,
+                    )
+
+                    async def _edge_task(kb_numbers: List[str], v: Any, pool: Any) -> None:
+                        try:
+                            await sync_kb_edges_for_kbs(kb_numbers, v, pool=pool)
+                        finally:
+                            await v.close()
+
+                    asyncio.create_task(_edge_task(all_kb_numbers, vendor, postgres_client.pool))
+                    logger.info("Scheduled KB→CVE edge sync for %d KB numbers from ARG", len(all_kb_numbers))
+            except Exception as exc:
+                logger.warning("KB sync background task failed: %s", exc)
+
+        asyncio.create_task(_run())
+    except Exception as exc:
+        logger.warning("Failed to schedule KB sync for ARG patches: %s", exc)
+
+
 def _resolve_vm_type(resource_id: Optional[str], vm_type: Optional[str]) -> str:
     """Return 'arc' or 'azure-vm' based on resource_id or explicit hint."""
     if vm_type and vm_type.lower() in ("arc", "azure-vm"):
@@ -692,7 +758,7 @@ patchassessmentresources
         f"/providers/{provider}/{machine_name}"
     )
 
-    return {
+    response = {
         "success":      True,
         "found":        True,
         "machine_name": machine_name,
@@ -712,6 +778,8 @@ patchassessmentresources
             "source":                      "resource_graph",
         },
     }
+    _trigger_kb_sync_for_patches([response])
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1106,6 +1174,8 @@ patchassessmentresources
     arc_count  = sum(1 for m in machines if m.get("vm_type") == "arc")
     avm_count  = sum(1 for m in machines if m.get("vm_type") == "azure-vm")
     logger.info("ARG patch-data: %d Arc, %d Azure VM, %d total patches", arc_count, avm_count, total_patches)
+
+    _trigger_kb_sync_for_patches(machines)
 
     return {
         "success":        True,
