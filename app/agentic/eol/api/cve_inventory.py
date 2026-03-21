@@ -302,7 +302,7 @@ async def get_vm_vulnerabilities_by_query(
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=500, description="Page size"),
-    request: Request,
+    request: Request = Depends(),
 ):
     """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
     try:
@@ -327,7 +327,7 @@ async def get_vm_vulnerabilities(
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=500, description="Page size"),
-    request: Request,
+    request: Request = Depends(),
 ):
     """Get CVEs affecting a specific VM.
 
