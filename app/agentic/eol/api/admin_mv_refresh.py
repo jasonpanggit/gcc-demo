@@ -69,6 +69,16 @@ async def refresh_materialized_views(
         body = await request.json() if request.headers.get("content-type") == "application/json" else []
         views_to_refresh = body if isinstance(body, list) else list(MV_DEFINITIONS.keys())
 
+        # Get PostgreSQL pool
+        pg_client = request.app.state.pg_client
+        pool = pg_client.pool
+
+        if not pool:
+            raise HTTPException(
+                status_code=500,
+                detail="PostgreSQL connection not available"
+            )
+
         # Validate view names
         invalid_views = [v for v in views_to_refresh if v not in MV_DEFINITIONS]
         if invalid_views:
