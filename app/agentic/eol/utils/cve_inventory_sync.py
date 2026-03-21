@@ -103,7 +103,7 @@ def _build_inventory_cpe_names(normalized_name: str, normalized_version: Optiona
         return []
 
     if normalized_name == "windows server" and version.isdigit():
-        return [f"cpe:2.3:o:microsoft:windows_server_{version}:-:*:*:*:*:*:*:*"]
+        return [f"cpe:2.3:o:microsoft:windows_server_{version}:*:*:*:*:*:*:*:*"]
 
     if normalized_name == "ubuntu":
         return [f"cpe:2.3:o:canonical:ubuntu_linux:{version}:*:*:*:*:*:*:*"]
@@ -299,6 +299,15 @@ async def sync_inventory_os_cves(
                         deduped_matches[match.cve_id] = match
 
                 match_count = len(deduped_matches)
+                severity_counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
+                for cve in deduped_matches.values():
+                    sev = ""
+                    if hasattr(cve, "cvss_v3") and cve.cvss_v3:
+                        sev = (cve.cvss_v3.base_severity or "").upper()
+                    elif hasattr(cve, "cvss_v2") and cve.cvss_v2:
+                        sev = (cve.cvss_v2.base_severity or "").upper()
+                    key = sev.lower() if sev.lower() in severity_counts else "unknown"
+                    severity_counts[key] += 1
                 return {
                     **identity,
                     "query_mode": live_queries[0]["mode"] if live_queries else "keyword",
@@ -313,6 +322,7 @@ async def sync_inventory_os_cves(
                         for query_spec in live_queries
                     ],
                     "match_count": match_count,
+                    "severity_counts": severity_counts,
                     "synced_at": datetime.now(timezone.utc).isoformat(),
                 }
             except Exception as exc:

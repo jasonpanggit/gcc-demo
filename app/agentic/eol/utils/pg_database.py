@@ -1330,7 +1330,15 @@ class PostgresDatabaseManager:
                 WHERE scan_id = latest_completed_scan_id()
                 GROUP BY vm_id
             ) agg ON agg.vm_id = vm.resource_id
-            LEFT JOIN eol_records e ON LOWER(vm.os_name) = LOWER(e.software_key);
+            LEFT JOIN (
+                -- Deduplicated EOL records: pick highest confidence per software_key
+                SELECT DISTINCT ON (LOWER(software_key))
+                    LOWER(software_key) as software_key_lower,
+                    is_eol,
+                    eol_date
+                FROM eol_records
+                ORDER BY LOWER(software_key), confidence DESC NULLS LAST, eol_date DESC NULLS LAST
+            ) e ON LOWER(vm.os_name) = e.software_key_lower;
         """, [
             "CREATE UNIQUE INDEX mv_vm_vulnerability_posture_vm_id_idx ON mv_vm_vulnerability_posture (vm_id);",
             "CREATE INDEX mv_vm_vulnerability_posture_risk_total_idx ON mv_vm_vulnerability_posture (risk_level, total_cves DESC);",

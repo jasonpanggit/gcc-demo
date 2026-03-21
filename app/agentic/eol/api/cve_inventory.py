@@ -221,16 +221,36 @@ async def get_vm_vulnerability_overview(
                 row.get("os_type"),
             )
 
+            # Determine source label based on vm_type
+            vm_type = row.get("vm_type", "")
+            if "arc" in str(vm_type).lower():
+                source_label = "Arc-enabled server"
+            else:
+                source_label = "Virtual machine"
+
             machines.append({
                 "vm_id": row.get("vm_id", ""),
                 "vm_name": row.get("vm_name", ""),
+                "vm_type": vm_type,
+                "source_label": source_label,
                 "os_name": row.get("os_name", ""),
+                "os_version": row.get("os_version", ""),
+                "os_type": row.get("os_type", ""),
                 "normalized_os_name": normalized.get("normalized_os_name"),
                 "normalized_os_version": normalized.get("normalized_os_version"),
+                "location": row.get("location", ""),
+                "resource_group": row.get("resource_group", ""),
+                "subscription_id": row.get("subscription_id", ""),
+                "last_synced": row.get("last_synced_at"),
                 "risk_level": risk_level,
                 "total_cves": row.get("total_cves", 0),
                 "critical": row.get("critical", 0),
                 "high": row.get("high", 0),
+                "medium": row.get("medium", 0),
+                "low": row.get("low", 0),
+                "unpatched": row.get("unpatched", 0),
+                "unpatched_critical": row.get("unpatched_critical", 0),
+                "unpatched_high": row.get("unpatched_high", 0),
                 "eol_status": row.get("eol_status"),
             })
 

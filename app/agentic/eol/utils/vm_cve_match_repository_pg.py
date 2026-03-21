@@ -60,6 +60,7 @@ class VMCVEMatchRepositoryPG:
             patch_summary: Aggregated patch coverage statistics
         """
         async with self.pool.acquire() as conn:
+            # Save to vm_cve_matches (JSONB document)
             await conn.execute(
                 """
                 INSERT INTO vm_cve_matches (
@@ -84,14 +85,50 @@ class VMCVEMatchRepositoryPG:
                 vm_id,
                 vm_name,
                 len(matches),
-                json.dumps([m.dict() for m in matches]),
-                json.dumps(installed_kb_ids or []),
-                json.dumps(available_kb_ids or []),
-                json.dumps(installed_cve_ids or []),
-                json.dumps(available_cve_ids or []),
-                json.dumps(patch_summary or {}),
+                [m.dict() for m in matches],  # asyncpg handles JSONB conversion
+                installed_kb_ids or [],
+                available_kb_ids or [],
+                installed_cve_ids or [],
+                available_cve_ids or [],
+                patch_summary or {},
                 datetime.now(timezone.utc),
             )
+
+            # Also populate vm_cve_match_rows (individual CVE rows for mv_vm_cve_detail)
+            # First delete existing rows for this scan+VM
+            await conn.execute(
+                "DELETE FROM vm_cve_match_rows WHERE scan_id = $1 AND vm_id = $2",
+                scan_id,
+                vm_id
+            )
+
+            # Insert individual CVE rows
+            if matches:
+                rows_to_insert = [
+                    (
+                        scan_id,
+                        vm_id,
+                        vm_name,
+                        m.cve_id,
+                        m.severity,
+                        float(m.cvss_score) if m.cvss_score else None,
+                        datetime.fromisoformat(m.published_date) if m.published_date else None,
+                        getattr(m, 'patch_status', None),
+                        getattr(m, 'kb_ids', []) or [],
+                    )
+                    for m in matches
+                ]
+
+                await conn.executemany(
+                    """
+                    INSERT INTO vm_cve_match_rows (
+                        scan_id, vm_id, vm_name, cve_id, severity,
+                        cvss_score, published_date, patch_status, kb_ids
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                    rows_to_insert
+                )
 
         logger.info(f"Saved {len(matches)} CVE matches for VM {vm_name} (scan {scan_id})")
 
@@ -132,7 +169,7 @@ class VMCVEMatchRepositoryPG:
                 logger.debug(f"VM match not found for scan {scan_id}, VM {vm_id}")
                 return None
 
-            all_matches = json.loads(row["matches"]) if row["matches"] else []
+            all_matches = row["matches"] or []  # Already parsed from JSONB
             actual_total = len(all_matches)
             page = all_matches[offset : offset + limit]
 
@@ -142,11 +179,11 @@ class VMCVEMatchRepositoryPG:
                 "total_matches": actual_total,
                 "matches": page,
                 "has_more": (offset + limit) < actual_total,
-                "installed_kb_ids": json.loads(row["installed_kb_ids"]) if row["installed_kb_ids"] else [],
-                "available_kb_ids": json.loads(row["available_kb_ids"]) if row["available_kb_ids"] else [],
-                "installed_cve_ids": json.loads(row["installed_cve_ids"]) if row["installed_cve_ids"] else [],
-                "available_cve_ids": json.loads(row["available_cve_ids"]) if row["available_cve_ids"] else [],
-                "patch_summary": json.loads(row["patch_summary"]) if row["patch_summary"] else {},
+                "installed_kb_ids": row["installed_kb_ids"] or [],
+                "available_kb_ids": row["available_kb_ids"] or [],
+                "installed_cve_ids": row["installed_cve_ids"] or [],
+                "available_cve_ids": row["available_cve_ids"] or [],
+                "patch_summary": row["patch_summary"] or {},
             }
 
     async def delete_vm_matches(self, scan_id: str, vm_id: str) -> None:

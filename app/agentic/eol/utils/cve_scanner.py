@@ -1,4 +1,4 @@
-"""CVE Scanner Engine
+"""CVE Scanner Engine - Updated 2026-03-20
 
 Discovers VMs, extracts OS/package data, and matches CVEs to vulnerable systems.
 
@@ -44,7 +44,7 @@ except ModuleNotFoundError:
 logger = get_logger(__name__)
 
 SCAN_CVE_PAGE_SIZE = 1000
-SCAN_CVE_MAX_RESULTS = 10000
+SCAN_CVE_MAX_RESULTS = 100000  # Increased from 10k to allow full OS coverage
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -159,10 +159,10 @@ class CVEScanRepository:
                 scan_result.scanned_vms,
                 scan_result.total_matches,
                 json.dumps([match.model_dump(mode="json") for match in scan_result.matches]),
-                json.dumps(scan_result.vm_match_summaries),
-                json.dumps(scan_result.vm_installed_kbs),
-                json.dumps(scan_result.vm_installed_packages),
-                json.dumps(scan_result.vm_os_family),
+                scan_result.vm_match_summaries,  # asyncpg handles JSONB conversion
+                scan_result.vm_installed_kbs,    # asyncpg handles JSONB conversion
+                scan_result.vm_installed_packages,  # asyncpg handles JSONB conversion
+                scan_result.vm_os_family,  # asyncpg handles JSONB conversion
                 scan_result.truncated,
                 scan_result.total_matches_before_truncation,
                 scan_result.matches_stored_separately,
@@ -864,6 +864,7 @@ class CVEScanner:
 
         normalized_name, normalized_version = self._get_vm_os_identity(vm)
         if not normalized_name or not normalized_version:
+            logger.warning(f"[DEBUG-CVE-SCAN] VM {vm.name}: Missing OS identity. name={normalized_name}, version={normalized_version}, raw_name={vm.os_name}, raw_version={vm.os_version}")
             return None
 
         cpe_uris = _build_inventory_cpe_names(normalized_name, normalized_version)
@@ -897,9 +898,15 @@ class CVEScanner:
         vm_version = vm_parts[5]
         product_version = product_parts[5]
 
+        # If VM has wildcard/any version, match any product version for same OS
+        if vm_version == '*' or vm_version == '-':
+            return True
+
+        # If product has wildcard version, match
         if product_version == '*' or product_version == '-':
             return True
 
+        # Exact version match
         return vm_version == product_version
 
     def _product_matches_vm(self, vm: VMScanTarget, product_name: Optional[str], product_version: Optional[str]) -> bool:
@@ -1039,37 +1046,72 @@ class CVEScanner:
         matches = []
 
         try:
+            logger.info(f"[CPE-SCAN-2026-03-20] Starting CVE scan for VM: {vm.name}")
             filters = self._build_cve_search_filters(vm, cve_filters)
+            cpe_filtered = filters.get("cpe_name") is not None
+            logger.info(f"[CPE-SCAN-2026-03-20] CPE filtered={cpe_filtered}, filters={filters.get('cpe_name', 'NONE')}")
 
-            cves: List[UnifiedCVE] = []
-            offset = 0
-            while offset < SCAN_CVE_MAX_RESULTS:
-                page = await self.cve_service.search_cves(
+            # When CPE filtering is used, get ALL results in one query (no pagination needed)
+            # CPE filtering is highly selective and SQL does the matching
+            if cpe_filtered:
+                cves = await self.cve_service.search_cves(
                     filters=filters,
-                    limit=SCAN_CVE_PAGE_SIZE,
-                    offset=offset,
+                    limit=999999,  # No effective limit - get ALL CPE matches
+                    offset=0,
                     allow_live_fallback=False,
                 )
-                if not page:
-                    break
+                logger.info(f"[DEBUG-CVE-SCAN] VM {vm.name}: Retrieved {len(cves)} CVEs via CPE filter. CPE={filters.get('cpe_name')}")
+            else:
+                # Legacy pagination for non-CPE searches
+                cves: List[UnifiedCVE] = []
+                offset = 0
+                while offset < SCAN_CVE_MAX_RESULTS:
+                    page = await self.cve_service.search_cves(
+                        filters=filters,
+                        limit=SCAN_CVE_PAGE_SIZE,
+                        offset=offset,
+                        allow_live_fallback=False,
+                    )
+                    if not page:
+                        break
 
-                cves.extend(page)
-                if len(page) < SCAN_CVE_PAGE_SIZE:
-                    break
+                    cves.extend(page)
+                    if len(page) < SCAN_CVE_PAGE_SIZE:
+                        break
 
-                offset += len(page)
+                    offset += len(page)
 
             # Match each CVE to VM
             for cve in cves:
-                if self._is_vm_affected(vm, cve):
+                # When CPE filtered, SQL already matched - accept all
+                if cpe_filtered or self._is_vm_affected(vm, cve):
+                    # Extract severity directly from CVE object or database fields
+                    severity = None
+                    cvss_score = None
+
+                    if hasattr(cve, 'cvss_v3') and cve.cvss_v3:
+                        severity = cve.cvss_v3.base_severity
+                        cvss_score = cve.cvss_v3.base_score
+                    elif hasattr(cve, 'cvss_v3_severity'):
+                        # Fallback: use flat field from database
+                        severity = cve.cvss_v3_severity
+                        cvss_score = getattr(cve, 'cvss_v3_score', None)
+                    elif hasattr(cve, 'cvss_v2') and cve.cvss_v2:
+                        severity = cve.cvss_v2.base_severity
+                        cvss_score = cve.cvss_v2.base_score
+                    elif hasattr(cve, 'cvss_v2_severity'):
+                        # Fallback: use flat field from database
+                        severity = cve.cvss_v2_severity
+                        cvss_score = getattr(cve, 'cvss_v2_score', None)
+
                     match = CVEMatch(
                         cve_id=cve.cve_id,
                         vm_id=vm.vm_id,
                         vm_name=vm.name,
                         match_reason=self._get_match_reason(vm, cve),
-                        cvss_score=cve.cvss_v3.base_score if cve.cvss_v3 else (cve.cvss_v2.base_score if cve.cvss_v2 else None),
-                        severity=cve.cvss_v3.base_severity if cve.cvss_v3 else (cve.cvss_v2.base_severity if cve.cvss_v2 else None),
-                        published_date=cve.published_date.isoformat()
+                        cvss_score=cvss_score,
+                        severity=severity,
+                        published_date=cve.published_date.isoformat() if hasattr(cve.published_date, 'isoformat') else str(cve.published_date)
                     )
                     matches.append(match)
 

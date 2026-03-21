@@ -73,7 +73,10 @@ LIMIT $1;
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1d
 QUERY_VM_POSTURE = """
-SELECT vm_id, vm_name, os_name, os_version, risk_level, total_cves, critical, high, eol_status
+SELECT vm_id, vm_name, vm_type, os_name, os_version, os_type,
+       location, resource_group, subscription_id, last_synced_at,
+       risk_level, total_cves, critical, high, medium, low,
+       unpatched, unpatched_critical, unpatched_high, eol_status
 FROM mv_vm_vulnerability_posture
 ORDER BY total_cves DESC
 LIMIT $1;
@@ -166,9 +169,11 @@ FROM kb_cve_edges;
 QUERY_SEARCH_CVES = """
 SELECT c.cve_id, c.description,
        c.cvss_v2_score, c.cvss_v2_severity, c.cvss_v2_vector,
-       c.cvss_v2_exploitability, c.cvss_v2_impact,
+       c.cvss_v2_exploitability AS cvss_v2_exploitability_score,
+       c.cvss_v2_impact AS cvss_v2_impact_score,
        c.cvss_v3_score, c.cvss_v3_severity, c.cvss_v3_vector,
-       c.cvss_v3_exploitability, c.cvss_v3_impact,
+       c.cvss_v3_exploitability AS cvss_v3_exploitability_score,
+       c.cvss_v3_impact AS cvss_v3_impact_score,
        c.published_at, c.modified_at, c.synced_at,
        c.cwe_ids, c.affected_products, c.references,
        c.vendor_metadata, c.sources,
@@ -205,7 +210,9 @@ WHERE 1=1
   AND ($8::text IS NULL OR $8 = ANY(c.sources))
   AND ($9::text IS NULL OR EXISTS (
     SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
-    WHERE product->>'cpe_uri' LIKE $9 || '%'
+    WHERE product->>'cpe_uri' LIKE
+      -- Extract CPE prefix (vendor:product) and match any version wildcard (* or -)
+      substring($9 from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
   ))
 ORDER BY c.published_at DESC, c.cve_id DESC
 LIMIT $10 OFFSET $11;
@@ -567,6 +574,26 @@ class CVERepository:
                             # NULL JSONB should become empty list
                             mapped_row[json_field] = []
 
+                # Construct CVSSScore objects as dicts (not instances) for Pydantic v2 validation
+                if mapped_row.get("cvss_v3_score") is not None:
+                    mapped_row["cvss_v3"] = {
+                        "version": mapped_row.get("cvss_v3_version", "3.1"),
+                        "base_score": float(mapped_row["cvss_v3_score"]),
+                        "base_severity": mapped_row.get("cvss_v3_severity", "UNKNOWN"),
+                        "vector_string": mapped_row.get("cvss_v3_vector", ""),
+                        "exploitability_score": mapped_row.get("cvss_v3_exploitability_score"),
+                        "impact_score": mapped_row.get("cvss_v3_impact_score"),
+                    }
+                if mapped_row.get("cvss_v2_score") is not None:
+                    mapped_row["cvss_v2"] = {
+                        "version": mapped_row.get("cvss_v2_version", "2.0"),
+                        "base_score": float(mapped_row["cvss_v2_score"]),
+                        "base_severity": mapped_row.get("cvss_v2_severity", "UNKNOWN"),
+                        "vector_string": mapped_row.get("cvss_v2_vector", ""),
+                        "exploitability_score": mapped_row.get("cvss_v2_exploitability_score"),
+                        "impact_score": mapped_row.get("cvss_v2_impact_score"),
+                    }
+
                 unified_cves.append(UnifiedCVE.model_validate(mapped_row))
             except Exception as e:
                 logger.warning(f"Failed to convert CVE row to UnifiedCVE: {e}")
@@ -676,15 +703,36 @@ class CVERepository:
         self,
         vm_id: str,
         severity: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = 50,
         offset: int = 0,
     ) -> List[Dict]:
-        """CVEs affecting a specific VM. Phase 6 Query 4b."""
+        """CVEs affecting a specific VM. Phase 6 Query 4b.
+
+        Args:
+            vm_id: VM resource ID
+            severity: Optional severity filter
+            limit: Max records to return (None = all records)
+            offset: Starting offset for pagination
+        """
         try:
             async with self.pool.acquire() as conn:
-                rows = await conn.fetch(
-                    QUERY_VM_CVE_MATCHES, vm_id, severity, limit, offset,
-                )
+                if limit is None:
+                    # Fetch all records without LIMIT
+                    query = """
+                    SELECT scan_id, vm_id, vm_name, cve_id, severity, cvss_score,
+                           patch_status, kb_ids, description, published_date
+                    FROM mv_vm_cve_detail
+                    WHERE vm_id = $1
+                      AND ($2::text IS NULL OR severity = $2)
+                    ORDER BY cvss_score DESC
+                    OFFSET $3;
+                    """
+                    rows = await conn.fetch(query, vm_id, severity, offset)
+                else:
+                    # Use paginated query
+                    rows = await conn.fetch(
+                        QUERY_VM_CVE_MATCHES, vm_id, severity, limit, offset,
+                    )
                 return [dict(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch CVE matches for VM %s", vm_id, exc_info=True)

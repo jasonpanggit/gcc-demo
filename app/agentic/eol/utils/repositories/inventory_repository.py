@@ -60,7 +60,7 @@ SELECT resource_id, subscription_id, resource_group, vm_name,
        os_name, os_type, vm_type, location, tags,
        created_at, updated_at, last_synced_at
 FROM vms
-WHERE resource_id = $1;
+WHERE LOWER(resource_id) = LOWER($1);
 """
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 9c

@@ -219,7 +219,7 @@ app.include_router(telemetry_debug_router)  # Telemetry debug endpoint
 app.include_router(cve_sync_router, prefix="/api", tags=["CVE Sync"])  # CVE sync jobs
 app.include_router(cve_scan_router, prefix="/api", tags=["CVE Scanning"])  # CVE inventory scanning (Phase 5)
 app.include_router(cve_patches_router, prefix="/api", tags=["CVE Patches"])  # CVE-to-patch mapping (Phase 6)
-app.include_router(cve_inventory_router, prefix="/api", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
+app.include_router(cve_inventory_router, prefix="/api/cve", tags=["CVE Inventory"])  # VM vulnerability queries (Phase 7)
 app.include_router(cve_dashboard_router, prefix="/api/cve", tags=["CVE Dashboard"])  # CVE analytics dashboard (Phase 8)
 app.include_router(cve_alert_history_router, prefix="/api/cve", tags=["CVE Alert History"])  # CVE alert history (Phase 9)
 app.include_router(cve_alerts_router, prefix="/api/cve", tags=["CVE Alerts"])  # CVE alert rules must come after /api/cve/alerts/history routes
@@ -955,6 +955,25 @@ async def _startup_cve_system():
                 logger.warning("⚠️ CVEPatchEnricher not injected — patch_mcp or kb_cve_repo unavailable")
         except Exception as e:
             logger.warning(f"⚠️ CVEPatchEnricher injection warning: {e}")
+
+        # Add hook to refresh materialized views after scan completion
+        try:
+            cve_scanner = await get_cve_scanner()
+            cve_repo = await get_cve_repository()
+
+            async def refresh_mvs_after_scan(scan_result):
+                """Refresh materialized views after scan completes."""
+                try:
+                    logger.info(f"Refreshing materialized views after scan {scan_result.scan_id}")
+                    result = await cve_repo.refresh_materialized_views(tier="inventory")
+                    logger.info(f"MV refresh after scan: {result}")
+                except Exception as e:
+                    logger.error(f"Failed to refresh MVs after scan: {e}", exc_info=True)
+
+            cve_scanner.on_scan_complete_hooks.append(refresh_mvs_after_scan)
+            logger.info("✅ MV refresh hook registered with CVEScanner")
+        except Exception as e:
+            logger.warning(f"⚠️ MV refresh hook registration warning: {e}")
 
         logger.info("✅ CVE Data System initialized")
 
