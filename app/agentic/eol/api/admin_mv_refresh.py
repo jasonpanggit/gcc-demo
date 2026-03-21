@@ -69,9 +69,9 @@ async def refresh_materialized_views(
         body = await request.json() if request.headers.get("content-type") == "application/json" else []
         views_to_refresh = body if isinstance(body, list) else list(MV_DEFINITIONS.keys())
 
-        # Get PostgreSQL pool
-        pg_client = request.app.state.pg_client
-        pool = pg_client.pool
+        # Get PostgreSQL pool via cve_repo
+        cve_repo = request.app.state.cve_repo
+        pool = cve_repo.pool
 
         if not pool:
             raise HTTPException(
@@ -158,8 +158,8 @@ async def get_mv_refresh_status(request: Request) -> StandardResponse:
         StandardResponse with MV status for all views
     """
     try:
-        pg_client = request.app.state.pg_client
-        pool = pg_client.pool
+        cve_repo = request.app.state.cve_repo
+        pool = cve_repo.pool
 
         if not pool:
             raise HTTPException(
