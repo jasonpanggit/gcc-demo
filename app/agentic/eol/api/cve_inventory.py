@@ -349,6 +349,10 @@ async def get_vm_vulnerabilities(
         HTTPException: 404 if VM not found
     """
     try:
+        # FastAPI path parameter strips leading /, so add it back for Azure resource IDs
+        if not vm_id.startswith('/'):
+            vm_id = '/' + vm_id
+
         return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
 
     except HTTPException:
