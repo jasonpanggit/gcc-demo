@@ -40,13 +40,14 @@ async def _build_vm_vulnerability_response(
     offset: int = 0,
     limit: int = 100,
 ):
-    """Build the VM vulnerability response payload using cve_repo + inventory_repo.
+    """Build the VM vulnerability response payload using cve_repo + inventory_repo + patch_repo.
 
     Eliminates BH-003 (dual Arc+Azure parallel lookup) by using inventory_repo.get_vm_by_id()
     and cve_repo.get_vm_cve_matches() directly.
     """
     cve_repo = get_or_init_repository(request.app, "cve_repo")
     inventory_repo = get_or_init_repository(request.app, "inventory_repo")
+    patch_repo = get_or_init_repository(request.app, "patch_repo")
 
     # Fetch VM metadata from inventory_repo PK lookup
     vm_data = await inventory_repo.get_vm_by_id(vm_id)
@@ -59,14 +60,20 @@ async def _build_vm_vulnerability_response(
     # Normalize severity filter for SQL
     severity_sql = severity_filter.upper() if severity_filter else None
 
-    # Parallel: fetch CVE matches + total count
-    matches_result, total_result = await asyncio.gather(
+    # Parallel: fetch CVE matches + total count + severity breakdown + patch data
+    matches_result, total_result, severity_breakdown_result, installed_patches_result, available_patches_result = await asyncio.gather(
         cve_repo.get_vm_cve_matches(vm_id, severity=severity_sql, limit=limit, offset=offset),
         cve_repo.count_vm_cve_matches(vm_id, severity=severity_sql),
+        cve_repo.get_vm_cve_severity_breakdown(vm_id),
+        patch_repo.get_installed_patches_for_vm(vm_id),
+        patch_repo.get_available_patches_for_vm(vm_id),
     )
 
     matches: List[Dict[str, Any]] = matches_result
     total: int = total_result
+    severity_breakdown: Dict[str, int] = severity_breakdown_result
+    installed_patches: List[Dict[str, Any]] = installed_patches_result
+    available_patches: List[Dict[str, Any]] = available_patches_result
 
     # Convert cvss_score from string to float for JavaScript compatibility
     for match in matches:
@@ -114,14 +121,15 @@ async def _build_vm_vulnerability_response(
         # JavaScript expects these field names
         "cve_details": matches,
         "total_cves": total,
+        "unpatched_by_severity": severity_breakdown,  # Full severity breakdown across ALL CVEs
         "pagination": {
             "offset": offset,
             "limit": limit,
             "has_more": has_more,
         },
         "patch_coverage": {
-            "installed_patch_entries": [],  # TODO: fetch from patch repository
-            "available_patch_entries": [],
+            "installed_patch_entries": installed_patches,
+            "available_patch_entries": available_patches,
         },
         # Keep legacy fields for backward compatibility
         "items": matches,
@@ -310,7 +318,7 @@ async def get_vm_vulnerabilities_by_query(
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=500, description="Page size"),
+    limit: int = Query(100, ge=1, le=10000, description="Page size"),
 ):
     """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
     try:
@@ -335,7 +343,7 @@ async def get_vm_vulnerabilities(
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=500, description="Page size"),
+    limit: int = Query(100, ge=1, le=10000, description="Page size"),
 ):
     """Get CVEs affecting a specific VM.
 

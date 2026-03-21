@@ -71,7 +71,6 @@ class PostgresDatabaseManager:
         # --- Inventory (promoted from migration 011) ---
         "patch_assessments_cache",
         "available_patches",
-        "arc_software_inventory",
         "cve_vm_detections",
         # --- Patch ---
         "patch_installs",
@@ -117,7 +116,6 @@ class PostgresDatabaseManager:
         ("os_inventory_snapshots", "resource_id", "vms", "resource_id"),
         ("cve_vm_detections", "resource_id", "vms", "resource_id"),
         ("cve_vm_detections", "cve_id", "cves", "cve_id"),
-        ("arc_software_inventory", "resource_id", "vms", "resource_id"),
         ("cve_alert_history", "rule_id", "cve_alert_rules", "rule_id"),
         ("cve_alert_history", "cve_id", "cves", "cve_id"),
     ]
@@ -665,24 +663,6 @@ class PostgresDatabaseManager:
             """)
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_patches_resource_id ON available_patches (resource_id);"
-            )
-
-            # --- arc_software_inventory ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS arc_software_inventory (
-                    id              BIGSERIAL   PRIMARY KEY,
-                    resource_id     TEXT        NOT NULL,
-                    software_name   TEXT,
-                    software_version TEXT,
-                    publisher       TEXT,
-                    install_date    TEXT,
-                    cached_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    CONSTRAINT fk_arcswinv_vm FOREIGN KEY (resource_id)
-                        REFERENCES vms(resource_id) ON DELETE CASCADE
-                );
-            """)
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_arc_sw_inventory_resource_id ON arc_software_inventory (resource_id);"
             )
 
             # --- cve_vm_detections ---
@@ -1464,10 +1444,6 @@ class PostgresDatabaseManager:
             ),
             ("cve_vm_detections", "cve_id", "cves", "cve_id"): (
                 "fk_cvevmdet_cve",
-                "ON DELETE CASCADE",
-            ),
-            ("arc_software_inventory", "resource_id", "vms", "resource_id"): (
-                "fk_arcswinv_vm",
                 "ON DELETE CASCADE",
             ),
             ("cve_alert_history", "rule_id", "cve_alert_rules", "rule_id"): (

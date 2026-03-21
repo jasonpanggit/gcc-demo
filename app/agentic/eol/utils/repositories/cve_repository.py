@@ -83,7 +83,8 @@ LIMIT $1;
 """
 
 # From: TARGET-SQL-CVE-DOMAIN.md Query 1e (BH-004 fix)
-QUERY_OS_CVE_BREAKDOWN = """
+# DEPRECATED: This queries VM scan data, not the CVE database
+QUERY_OS_CVE_BREAKDOWN_VM_SCAN = """
 SELECT os_name,
        COUNT(*) AS vm_count,
        SUM(total_cves) AS total_cve_count,
@@ -91,6 +92,45 @@ SELECT os_name,
        SUM(high) AS high_count
 FROM mv_vm_vulnerability_posture
 GROUP BY os_name
+ORDER BY total_cve_count DESC;
+"""
+
+# CPE-based CVE database breakdown (replaces VM scan approach)
+QUERY_OS_CVE_BREAKDOWN = """
+WITH os_cpe_counts AS (
+    SELECT
+        p.display_name AS os_name,
+        p.cpe_name,
+        p.query_mode,
+        COUNT(DISTINCT c.cve_id) AS total_cves,
+        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'CRITICAL') AS critical,
+        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'HIGH') AS high,
+        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'MEDIUM') AS medium,
+        COUNT(DISTINCT c.cve_id) FILTER (WHERE c.cvss_v3_severity = 'LOW') AS low
+    FROM inventory_os_profiles p
+    CROSS JOIN LATERAL (
+        SELECT c.cve_id, c.cvss_v3_severity
+        FROM cves c
+        WHERE p.cpe_name IS NOT NULL
+          AND c.affected_products IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(c.affected_products) AS product
+              WHERE product->>'cpe_uri' LIKE substring(p.cpe_name from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
+          )
+    ) c
+    GROUP BY p.display_name, p.cpe_name, p.query_mode
+)
+SELECT
+    os_name,
+    SUM(total_cves)::bigint AS total_cve_count,
+    SUM(critical)::bigint AS critical_count,
+    SUM(high)::bigint AS high_count,
+    SUM(medium)::bigint AS medium_count,
+    SUM(low)::bigint AS low_count
+FROM os_cpe_counts
+GROUP BY os_name
+HAVING SUM(total_cves) > 0
 ORDER BY total_cve_count DESC;
 """
 
@@ -390,28 +430,43 @@ class CVERepository:
     # Write paths -- sync jobs (Phase 8 P8.6)
     # ------------------------------------------------------------------
 
-    async def upsert_cve(self, cve_data: Dict) -> None:
-        """Upsert a CVE record from NVD/vendor sync. Re-raises on error."""
+    async def upsert_cve(self, cve_data) -> None:
+        """Upsert a CVE record from NVD/vendor sync. Re-raises on error.
+
+        Args:
+            cve_data: Either a Dict or UnifiedCVE model instance
+        """
+        # Handle both Dict and Pydantic model
+        if hasattr(cve_data, 'model_dump'):
+            # It's a Pydantic model - convert to dict
+            cve_dict = cve_data.model_dump()
+        elif hasattr(cve_data, '__dict__'):
+            # It's a dataclass or object - use __dict__
+            cve_dict = cve_data.__dict__
+        else:
+            # Already a dict
+            cve_dict = cve_data
+
         async with self.pool.acquire() as conn:
             await conn.execute(
                 UPSERT_CVE,
-                cve_data.get("cve_id"),
-                cve_data.get("description"),
-                cve_data.get("published_at"),
-                cve_data.get("modified_at"),
-                cve_data.get("cvss_v2_score"),
-                cve_data.get("cvss_v2_severity"),
-                cve_data.get("cvss_v2_vector"),
-                cve_data.get("cvss_v3_score"),
-                cve_data.get("cvss_v3_severity"),
-                cve_data.get("cvss_v3_vector"),
-                cve_data.get("cvss_v3_exploitability"),
-                cve_data.get("cvss_v3_impact"),
-                cve_data.get("cwe_ids"),
-                cve_data.get("affected_products"),
-                cve_data.get("references"),
-                cve_data.get("vendor_metadata"),
-                cve_data.get("sources"),
+                cve_dict.get("cve_id"),
+                cve_dict.get("description"),
+                cve_dict.get("published_at"),
+                cve_dict.get("modified_at"),
+                cve_dict.get("cvss_v2_score"),
+                cve_dict.get("cvss_v2_severity"),
+                cve_dict.get("cvss_v2_vector"),
+                cve_dict.get("cvss_v3_score"),
+                cve_dict.get("cvss_v3_severity"),
+                cve_dict.get("cvss_v3_vector"),
+                cve_dict.get("cvss_v3_exploitability"),
+                cve_dict.get("cvss_v3_impact"),
+                cve_dict.get("cwe_ids"),
+                cve_dict.get("affected_products"),
+                cve_dict.get("references"),
+                cve_dict.get("vendor_metadata"),
+                cve_dict.get("sources"),
             )
 
     async def upsert_kb_cve_edges(self, edges: List[Dict]) -> int:
@@ -753,3 +808,18 @@ class CVERepository:
         except asyncpg.PostgresError as e:
             logger.error("Failed to count CVE matches for VM %s", vm_id, exc_info=True)
             return 0
+
+    async def get_vm_cve_severity_breakdown(self, vm_id: str) -> Dict[str, int]:
+        """Get severity breakdown for a VM across all CVEs."""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT severity, COUNT(*) as count
+                    FROM mv_vm_cve_detail
+                    WHERE vm_id = $1
+                    GROUP BY severity;
+                """, vm_id)
+                return {row["severity"]: row["count"] for row in rows if row["severity"]}
+        except asyncpg.PostgresError as e:
+            logger.error("Failed to get severity breakdown for VM %s", vm_id, exc_info=True)
+            return {}

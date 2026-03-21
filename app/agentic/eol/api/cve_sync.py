@@ -15,14 +15,14 @@ try:
     from utils.endpoint_decorators import with_timeout_and_stats, write_endpoint, readonly_endpoint
     from utils.logging_config import get_logger
     from utils.cve_scheduler import get_cve_scheduler
-    from utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
+    from utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync, sync_msrc_kb_edges
     from utils.config import config
 except ModuleNotFoundError:
     from app.agentic.eol.utils.response_models import StandardResponse
     from app.agentic.eol.utils.endpoint_decorators import with_timeout_and_stats, write_endpoint, readonly_endpoint
     from app.agentic.eol.utils.logging_config import get_logger
     from app.agentic.eol.utils.cve_scheduler import get_cve_scheduler
-    from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync
+    from app.agentic.eol.utils.cve_sync_operations import run_delta_sync, run_inventory_bootstrap_sync, sync_msrc_kb_edges
     from app.agentic.eol.utils.config import config
 
 
@@ -263,4 +263,52 @@ async def trigger_incremental_sync() -> StandardResponse:
         )
     except Exception as e:
         logger.error(f"Manual incremental sync failed to start: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cve-sync/msrc-kb-edges")
+@write_endpoint(agent_name="msrc_kb_edge_sync", timeout_seconds=120)
+async def trigger_msrc_kb_sync(
+    n_months: int = Query(default=6, ge=1, le=24, description="Number of months to sync")
+) -> StandardResponse:
+    """Trigger MSRC KB-to-CVE edge sync.
+
+    Fetches KB-to-CVE mappings from Microsoft Security Update Guide
+    for the last N months and populates the kb_cve_edges table.
+
+    Args:
+        n_months: Number of months of MSRC data to fetch (default: 6, max: 24)
+
+    Returns:
+        StandardResponse with count of edges synced
+    """
+    try:
+        from main import get_cve_service
+        from utils.kb_cve_edge_repository import KBCVEEdgeRepository
+        from utils.pg_client import postgres_client
+
+        cve_service = await get_cve_service()
+        vendor_client = cve_service.aggregator.vendor_feed_client
+        pool = postgres_client.pool
+        kb_cve_repo = KBCVEEdgeRepository(pool)
+
+        logger.info(f"Starting MSRC KB-CVE edge sync for {n_months} months")
+
+        edge_count = await sync_msrc_kb_edges(
+            vendor_client=vendor_client,
+            kb_cve_repo=kb_cve_repo,
+            n_months=n_months,
+            pool=pool,
+        )
+
+        return StandardResponse(
+            success=True,
+            message=f"MSRC KB-CVE sync completed: {edge_count} edges upserted",
+            data={
+                "edge_count": edge_count,
+                "months_synced": n_months,
+            }
+        )
+    except Exception as e:
+        logger.error(f"MSRC KB-CVE sync failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

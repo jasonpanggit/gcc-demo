@@ -54,11 +54,11 @@ def _format_os_display_name(normalized_name: str, fallback_key: Optional[str] = 
 async def get_cve_stats(request: Request) -> StandardResponse:
     """Get cached CVE statistics for the UI.
 
-    Returns VM-based CVE counts from materialized views to match the VM vulnerability overview page.
+    Returns CPE-based CVE counts from the CVE database for accurate OS-level vulnerability statistics.
     """
     cve_repo = request.app.state.cve_repo
 
-    # Use VM-based counts from materialized views (same as VM overview page)
+    # Use CPE-based counts from CVE database
     summary, os_breakdown = await asyncio.gather(
         cve_repo.get_dashboard_summary(),
         cve_repo.get_os_cve_breakdown(),
@@ -76,26 +76,23 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         os_breakdown = []
         errors.append("os_breakdown")
 
-    # Build per-OS identity stats from VM posture (matches VM overview page)
+    # Build per-OS identity stats from CPE-based CVE database matching
     os_identities = []
     for entry in os_breakdown:
         os_name = entry.get("os_name", "Unknown")
-        vm_count = entry.get("vm_count", 0)
         total_cves = entry.get("total_cve_count", 0)
         critical = entry.get("critical_count", 0)
         high = entry.get("high_count", 0)
-
-        # Calculate medium and low from total if not provided
         medium = entry.get("medium_count", 0)
         low = entry.get("low_count", 0)
 
         os_identities.append({
             "key": os_name,
             "display_name": os_name,
-            "normalized_version": "",  # Not available from mv_vm_vulnerability_posture
+            "normalized_version": "",  # Aggregated across versions
             "match_count": total_cves,
-            "query_mode": "VM_SCAN",  # Indicate this is from VM scans, not database sync
-            "synced_at": None,  # Not tracked in MV
+            "query_mode": "CPE_MATCH",  # CPE-based matching against CVE database
+            "synced_at": None,  # Real-time query
             "severity_counts": {
                 "critical": critical,
                 "high": high,
@@ -116,7 +113,7 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         "os_identities": os_identities,
         "metadata": {
             "partial_errors": errors if errors else None,
-            "data_source": "VM scans (matches VM vulnerability overview)",
+            "data_source": "CPE-based CVE database matching",
         },
     }
 

@@ -157,6 +157,101 @@ class PatchRepository:
             rows = await conn.fetch(QUERY_PATCHES_FOR_VM, resource_id)
         return [dict(r) for r in rows]
 
+    async def get_installed_patches_for_vm(self, resource_id: str) -> List[Dict]:
+        """Get installed patches for a specific VM from inventory_software_cache.
+
+        Reads cached software inventory, filters for KB patches, maps to CVEs.
+        """
+        # Get VM name from resource_id
+        vm_name = resource_id.split('/')[-1] if '/' in resource_id else resource_id
+
+        async with self._pool.acquire() as conn:
+            # Extract KB patches from cached software inventory
+            # Note: data is double-encoded (JSONB string containing JSON array)
+            rows = await conn.fetch("""
+                SELECT DISTINCT
+                    'KB' || substring(item->>'name' FROM 'KB(\d{6,7})') as kb_number,
+                    item->>'name' as patch_name
+                FROM inventory_software_cache,
+                     jsonb_array_elements((data#>>'{}')::jsonb) as item
+                WHERE cache_key = 'software_inventory'
+                  AND UPPER(item->>'computer') = UPPER($1)
+                  AND item->>'name' ~ 'KB\d{6,7}'
+                ORDER BY kb_number;
+            """, vm_name)
+
+            if not rows:
+                return []
+
+            kb_patches = [row["kb_number"] for row in rows]
+            kb_to_name = {row["kb_number"]: row["patch_name"] for row in rows}
+
+            # Get CVE mappings
+            cve_rows = await conn.fetch("""
+                SELECT
+                    kb_number,
+                    ARRAY_AGG(DISTINCT cve_id ORDER BY cve_id) AS cve_ids
+                FROM kb_cve_edges
+                WHERE kb_number = ANY($1::text[])
+                GROUP BY kb_number
+                ORDER BY kb_number;
+            """, kb_patches)
+
+        kb_to_cves = {row["kb_number"]: row["cve_ids"] for row in cve_rows}
+
+        # Format for JavaScript
+        result = []
+        for kb in kb_patches:
+            result.append({
+                "patch_id": kb,
+                "kb_ids": [kb],
+                "patch_name": kb_to_name.get(kb, kb),
+                "classification": "Installed",
+                "cve_ids": kb_to_cves.get(kb, []),
+            })
+        return result
+
+    async def get_available_patches_for_vm(self, resource_id: str) -> List[Dict]:
+        """Get pending/available patches from patch_assessments_cache (ARG data).
+
+        These are patches that Azure recommends but haven't been installed yet.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    ap.kb_number,
+                    ap.title AS patch_name,
+                    ap.classification,
+                    ap.severity,
+                    ARRAY_AGG(DISTINCT k.cve_id ORDER BY k.cve_id) FILTER (WHERE k.cve_id IS NOT NULL) AS cve_ids
+                FROM available_patches ap
+                LEFT JOIN kb_cve_edges k ON k.kb_number = ap.kb_number
+                WHERE ap.resource_id = $1
+                GROUP BY ap.kb_number, ap.title, ap.classification, ap.severity
+                ORDER BY
+                    CASE ap.classification
+                        WHEN 'Critical' THEN 1
+                        WHEN 'Security' THEN 2
+                        WHEN 'UpdateRollup' THEN 3
+                        ELSE 4
+                    END,
+                    ap.title;
+            """, resource_id)
+
+        # Format for JavaScript
+        result = []
+        for row in rows:
+            kb = row["kb_number"]
+            result.append({
+                "patch_id": kb,
+                "kb_ids": [kb] if kb else [],
+                "patch_name": row["patch_name"],
+                "classification": row["classification"],
+                "status": row["severity"],
+                "cve_ids": row["cve_ids"] or [],
+            })
+        return result
+
     async def list_install_history(
         self,
         resource_id: Optional[str] = None,
