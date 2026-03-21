@@ -321,13 +321,13 @@ async def get_vm_vulnerabilities_by_query(
 @readonly_endpoint(agent_name="cve_vm_vulnerabilities", timeout_seconds=120)
 async def get_vm_vulnerabilities(
     vm_id: str,
-    request: Request,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=500, description="Page size"),
+    request: Request = None,
 ):
     """Get CVEs affecting a specific VM.
 
