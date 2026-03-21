@@ -154,16 +154,10 @@ class CVEPatchEnricher:
                             msrc_api_key=_cve_cfg.msrc_api_key or None,
                             request_timeout=_cve_cfg.request_timeout,
                         )
-
-                        async def _kb_edge_sync_task(kb_numbers, vendor, pool):
-                            try:
-                                await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
-                            finally:
-                                await vendor.close()
-
-                        asyncio.create_task(
-                            _kb_edge_sync_task(_all_kb_numbers, _vendor, postgres_client.pool)
-                        )
+                        try:
+                            await sync_kb_edges_for_kbs(_all_kb_numbers, _vendor, pool=postgres_client.pool)
+                        finally:
+                            await _vendor.close()
                 except Exception as _exc:
                     logger.warning("Failed to persist ARG patches or schedule KB edge sync: %s", _exc)
 

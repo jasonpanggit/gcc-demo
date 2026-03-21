@@ -294,6 +294,7 @@ def _trigger_kb_sync_for_patches(machines: List[Dict[str, Any]]) -> None:
             return
 
         async def _run() -> None:
+            vendor = None
             try:
                 from utils.repositories.patch_repository import PatchRepository
                 from utils.cve_sync_operations import sync_kb_edges_for_kbs
@@ -326,17 +327,13 @@ def _trigger_kb_sync_for_patches(machines: List[Dict[str, Any]]) -> None:
                         msrc_api_key=cve_cfg.msrc_api_key or None,
                         request_timeout=cve_cfg.request_timeout,
                     )
-
-                    async def _edge_task(kb_numbers: List[str], v: Any, pool: Any) -> None:
-                        try:
-                            await sync_kb_edges_for_kbs(kb_numbers, v, pool=pool)
-                        finally:
-                            await v.close()
-
-                    asyncio.create_task(_edge_task(all_kb_numbers, vendor, postgres_client.pool))
-                    logger.info("Scheduled KB→CVE edge sync for %d KB numbers from ARG", len(all_kb_numbers))
+                    await sync_kb_edges_for_kbs(all_kb_numbers, vendor, pool=postgres_client.pool)
+                    logger.info("KB→CVE edge sync complete for %d KB numbers from ARG", len(all_kb_numbers))
             except Exception as exc:
                 logger.warning("KB sync background task failed: %s", exc)
+            finally:
+                if vendor is not None:
+                    await vendor.close()
 
         asyncio.create_task(_run())
     except Exception as exc:

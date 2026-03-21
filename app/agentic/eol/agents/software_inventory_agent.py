@@ -624,31 +624,31 @@ class SoftwareInventoryAgent:
             if not computer_filter:
                 _kb_numbers = [r.get("kb_number", "") for r in results if r.get("kb_number")]
                 if _kb_numbers and postgres_client is not None and getattr(postgres_client, "pool", None):
-                    try:
-                        from utils.cve_sync_operations import sync_kb_edges_for_kbs
-                        from utils.vendor_feed_client import VendorFeedClient
-                        from utils.config import config as _config
-                        _cve_cfg = _config.cve_data
-                        _vendor = VendorFeedClient(
-                            redhat_base_url=_cve_cfg.redhat_base_url,
-                            ubuntu_base_url=_cve_cfg.ubuntu_base_url,
-                            msrc_base_url=_cve_cfg.msrc_base_url,
-                            msrc_api_key=_cve_cfg.msrc_api_key or None,
-                            request_timeout=_cve_cfg.request_timeout,
-                        )
+                    from utils.cve_sync_operations import sync_kb_edges_for_kbs
+                    from utils.vendor_feed_client import VendorFeedClient
+                    from utils.config import config as _config
 
-                        async def _kb_edge_sync_task(kb_numbers, vendor, pool):
-                            try:
-                                await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
-                            finally:
+                    async def _kb_edge_sync_task(kb_numbers, cve_cfg, pool):
+                        vendor = None
+                        try:
+                            vendor = VendorFeedClient(
+                                redhat_base_url=cve_cfg.redhat_base_url,
+                                ubuntu_base_url=cve_cfg.ubuntu_base_url,
+                                msrc_base_url=cve_cfg.msrc_base_url,
+                                msrc_api_key=cve_cfg.msrc_api_key or None,
+                                request_timeout=cve_cfg.request_timeout,
+                            )
+                            await sync_kb_edges_for_kbs(kb_numbers, vendor, pool=pool)
+                            logger.info("KB→CVE edge sync complete for %d KB numbers from LAW inventory", len(kb_numbers))
+                        except Exception as _exc:
+                            logger.warning("KB edge sync from LAW inventory failed: %s", _exc)
+                        finally:
+                            if vendor is not None:
                                 await vendor.close()
 
-                        asyncio.create_task(
-                            _kb_edge_sync_task(_kb_numbers, _vendor, postgres_client.pool)
-                        )
-                        logger.info("Scheduled KB→CVE edge sync for %d KB numbers from LAW inventory", len(_kb_numbers))
-                    except Exception as _exc:
-                        logger.warning("Failed to schedule KB edge sync from LAW inventory: %s", _exc)
+                    asyncio.create_task(
+                        _kb_edge_sync_task(_kb_numbers, _config.cve_data, postgres_client.pool)
+                    )
 
             return result_data
 
