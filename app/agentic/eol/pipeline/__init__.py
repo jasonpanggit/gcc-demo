@@ -21,6 +21,12 @@ from .adapters import (
     FallbackAdapter,
     VendorScraperAdapter,
 )
+from .result_aggregator import (
+    AggregatedResult,
+    DiscrepancyEntry,
+    ResultAggregator,
+    SourceEntry,
+)
 
 from typing import Any, Dict, Optional
 
@@ -88,4 +94,8 @@ __all__ = [
     "VendorScraperAdapter",
     "FallbackAdapter",
     "DEFAULT_VENDOR_ROUTING",
+    "AggregatedResult",
+    "DiscrepancyEntry",
+    "ResultAggregator",
+    "SourceEntry",
 ]
