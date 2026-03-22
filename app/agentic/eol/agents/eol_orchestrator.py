@@ -1,14 +1,14 @@
-"""EOL Orchestrator Agent - Streamlined and fully autonomous EOL data gathering for eol.html interface.
+"""EOL Orchestrator Agent — thin coordinator for tiered EOL data retrieval.
 
-This orchestrator coordinates multiple specialized agents to gather End-of-Life information
-for software and operating systems, using intelligent routing, caching, and confidence scoring.
+Delegates dispatch to TieredFetchPipeline, aggregation to ResultAggregator,
+and bulk operations to dedicated helpers in utils/.
+All five public method signatures are preserved for API compatibility.
 """
 import asyncio
 import uuid
-import logging
 import time
 from typing import Dict, List, Any, Optional, Set
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from .endoflife_agent import EndOfLifeAgent
 from .microsoft_agent import MicrosoftEOLAgent
@@ -29,12 +29,14 @@ from .playwright_agent import PlaywrightEOLAgent
 from .eolstatus_agent import EOLStatusAgent
 
 try:
-    from utils.normalization import NormalizedQuery, normalize_os_name_version
+    from utils.normalization import NormalizedQuery
 except ImportError:
-    # Fallback for relative import
-    from ..utils.normalization import NormalizedQuery, normalize_os_name_version
+    from ..utils.normalization import NormalizedQuery  # type: ignore[no-redef]
 
 from utils.eol_inventory import eol_inventory
+from utils.orchestrator_comms import format_communication_message, determine_message_type
+from utils.eol_response_tracker import track_eol_agent_response
+from utils.os_inventory_eol_helper import enrich_os_inventory_with_eol
 
 try:
     from utils.config import config as _app_config
@@ -43,22 +45,15 @@ except ImportError:
 
 try:
     from pipeline import (
-        create_default_registry,
-        TieredFetchPipeline,
-        ResultAggregator,
-        AdapterRegistry,
-        FallbackAdapter,
+        create_default_registry, TieredFetchPipeline,
+        ResultAggregator, AdapterRegistry, FallbackAdapter,
     )
 except ImportError:
     from ..pipeline import (  # type: ignore[no-redef]
-        create_default_registry,
-        TieredFetchPipeline,
-        ResultAggregator,
-        AdapterRegistry,
-        FallbackAdapter,
+        create_default_registry, TieredFetchPipeline,
+        ResultAggregator, AdapterRegistry, FallbackAdapter,
     )
 
-# Import logger
 try:
     from utils import get_logger
     logger = get_logger(__name__)
@@ -66,19 +61,14 @@ except ImportError:
     import logging
     logger = logging.getLogger(__name__)
 
-# Configuration constants
-DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
-MAX_COMMS_LOG_SIZE = 100  # Maximum communication log entries
-MAX_EOL_RESPONSES_TRACKED = 50  # Maximum EOL responses to track
-MAX_CONCURRENT_EOL_ANALYSIS = 10  # Concurrency limit for EOL analysis
-RECENT_COMMS_DISPLAY_LIMIT = 20  # Number of recent communications to display
+DEFAULT_CACHE_TTL_SECONDS = 3600
+MAX_COMMS_LOG_SIZE = 100
+MAX_EOL_RESPONSES_TRACKED = 50
+RECENT_COMMS_DISPLAY_LIMIT = 20
 
 
 class EOLOrchestratorAgent:
-    """
-    Autonomous EOL orchestrator that efficiently coordinates EOL data gathering
-    from multiple specialized agents with intelligent routing and caching.
-    """
+    """Thin coordinator that routes EOL queries through the tiered pipeline."""
 
     def __init__(
         self,
@@ -88,40 +78,19 @@ class EOLOrchestratorAgent:
         use_mock_data: Optional[bool] = None,
         close_provided_agents: bool = False,
     ) -> None:
-        """Initialize the EOL orchestrator with agents and configuration.
-        
-        Args:
-            agents: Optional dictionary of pre-initialized agents
-            vendor_routing: Optional custom vendor routing rules
-            use_mock_data: Whether to use mock agents for testing
-            close_provided_agents: Whether orchestrator owns the provided agents lifecycle
-        """
         self.session_id = str(uuid.uuid4())
         self.start_time = datetime.now(timezone.utc)
-
-        # In-memory communication log (per process)
         self._comms_log: List[Dict[str, Any]] = []
         self.agent_name = "eol_orchestrator"
-
-        # EOL Response Tracking for detailed history
         self.eol_agent_responses: List[Dict[str, Any]] = []
-
-        # Lifecycle tracking for resource cleanup
         self._close_lock = asyncio.Lock()
         self._closed = False
         self._owns_agents = close_provided_agents or agents is None
         self._background_tasks: Set[asyncio.Task] = set()
-
-        if agents is not None:
-            self.agents = dict(agents)
-        else:
-            self.agents = self._create_default_agents(use_mock_data=use_mock_data)
-
-        # Cache for EOL results (in-memory for session)
+        self.agents = dict(agents) if agents is not None else self._create_default_agents(use_mock_data=use_mock_data)
         self.eol_cache: Dict[str, Any] = {}
         self.cache_ttl = DEFAULT_CACHE_TTL_SECONDS
 
-        # Pipeline setup
         _threshold = 0.80
         try:
             if _app_config is not None:
@@ -129,340 +98,150 @@ class EOLOrchestratorAgent:
         except (AttributeError, Exception):
             pass
 
-        self._pipeline_registry = create_default_registry(
-            self.agents, vendor_routing=vendor_routing
-        )
-        self._pipeline = TieredFetchPipeline(
-            self._pipeline_registry,
-            confidence_threshold=_threshold,
-        )
+        self._pipeline_registry = create_default_registry(self.agents, vendor_routing=vendor_routing)
+        self._pipeline = TieredFetchPipeline(self._pipeline_registry, confidence_threshold=_threshold)
         self._aggregator = ResultAggregator()
-
-        logger.info(
-            "🚀 Autonomous EOL Orchestrator initialized with %d agents",
-            len(self.agents),
-        )
+        logger.info("🚀 EOL Orchestrator initialized with %d agents", len(self.agents))
 
     def _create_default_agents(self, *, use_mock_data: Optional[bool]) -> Dict[str, Any]:
-        """Instantiate the default agent roster with optional mock overrides."""
         import os
-
-        resolved_use_mock = use_mock_data
-        if resolved_use_mock is None:
-            resolved_use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
-
-        if resolved_use_mock:
+        resolved = use_mock_data if use_mock_data is not None else (os.getenv("USE_MOCK_DATA", "false").lower() == "true")
+        if resolved:
             try:
-                from tests.mock_agents import (  # type: ignore import-not-found
-                    MockOSInventoryAgent,
-                    MockSoftwareInventoryAgent,
-                )
-
-                logger.info("🧪 Initializing EOL Orchestrator in MOCK MODE")
-                software_agent = MockSoftwareInventoryAgent()
-                os_agent = MockOSInventoryAgent()
+                from tests.mock_agents import MockOSInventoryAgent, MockSoftwareInventoryAgent  # type: ignore
+                sa: Any = MockSoftwareInventoryAgent()
+                oa: Any = MockOSInventoryAgent()
+                logger.info("🧪 EOL Orchestrator: MOCK MODE")
             except ImportError as exc:
-                logger.warning(
-                    "Failed to import mock agents (%s). Falling back to real agents.",
-                    exc,
-                )
-                software_agent = SoftwareInventoryAgent()
-                os_agent = OSInventoryAgent()
+                logger.warning("Mock agents unavailable (%s). Using real agents.", exc)
+                sa, oa = SoftwareInventoryAgent(), OSInventoryAgent()
         else:
-            software_agent = SoftwareInventoryAgent()
-            os_agent = OSInventoryAgent()
-
+            sa, oa = SoftwareInventoryAgent(), OSInventoryAgent()
         return {
-            # Inventory agents
-            "inventory": InventoryAgent(),
-            "os_inventory": os_agent,
-            "software_inventory": software_agent,
-            # EOL data sources (prioritized by reliability)
-            "endoflife": EndOfLifeAgent(),
-            "microsoft": MicrosoftEOLAgent(),
-            "redhat": RedHatEOLAgent(),
-            "ubuntu": UbuntuEOLAgent(),
-            "oracle": OracleEOLAgent(),
-            "vmware": VMwareEOLAgent(),
-            "apache": ApacheEOLAgent(),
-            "nodejs": NodeJSEOLAgent(),
-            "postgresql": PostgreSQLEOLAgent(),
-            "php": PHPEOLAgent(),
-            "python": PythonEOLAgent(),
-            "eolstatus": EOLStatusAgent(),
-            "azure_ai": AzureAIAgentEOLAgent(),
-            "playwright": PlaywrightEOLAgent(),  # Web search fallback agent
+            "inventory": InventoryAgent(), "os_inventory": oa, "software_inventory": sa,
+            "endoflife": EndOfLifeAgent(), "microsoft": MicrosoftEOLAgent(), "redhat": RedHatEOLAgent(),
+            "ubuntu": UbuntuEOLAgent(), "oracle": OracleEOLAgent(), "vmware": VMwareEOLAgent(),
+            "apache": ApacheEOLAgent(), "nodejs": NodeJSEOLAgent(), "postgresql": PostgreSQLEOLAgent(),
+            "php": PHPEOLAgent(), "python": PythonEOLAgent(), "eolstatus": EOLStatusAgent(),
+            "azure_ai": AzureAIAgentEOLAgent(), "playwright": PlaywrightEOLAgent(),
         }
 
     def _iter_unique_agents(self):
-        """Yield unique agent instances to avoid duplicate cleanup calls."""
         seen: Set[int] = set()
         for agent in self.agents.values():
-            identity = id(agent)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            yield agent
+            if id(agent) not in seen:
+                seen.add(id(agent))
+                yield agent
 
     async def _maybe_aclose_agent(self, agent: Any) -> None:
-        """Gracefully close an agent if it exposes close semantics."""
         try:
-            close_coro = getattr(agent, "aclose", None)
-            if callable(close_coro):
-                await close_coro()  # type: ignore[misc]
-                return
-
-            close_method = getattr(agent, "close", None)
-            if callable(close_method):
-                result = close_method()
+            fn = getattr(agent, "aclose", None) or getattr(agent, "close", None)
+            if callable(fn):
+                result = fn()
                 if asyncio.iscoroutine(result):
                     await result
-        except asyncio.CancelledError:
-            logger.debug("Agent close cancelled for %s", type(agent).__name__)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.debug(
-                "Ignored error while closing agent %s: %s",
-                type(agent).__name__,
-                exc,
-            )
+        except Exception as exc:
+            logger.debug("Ignored error closing %s: %s", type(agent).__name__, exc)
 
     def _spawn_background(self, coro, *, name: Optional[str] = None) -> asyncio.Task:
-        """Schedule coro as a background task, tracking it to prevent GC.
-
-        The task is added to _background_tasks and automatically removed
-        (via discard callback) when it completes or raises. Exceptions are
-        logged at DEBUG level — they never propagate to callers.
-
-        Args:
-            coro: Awaitable to run in background
-            name: Optional task name for debugging
-
-        Returns:
-            The created asyncio.Task (caller may ignore it)
-        """
         task = asyncio.create_task(coro, name=name)
         self._background_tasks.add(task)
-
         def _on_done(t: asyncio.Task) -> None:
             self._background_tasks.discard(t)
-            if not t.cancelled():
-                exc = t.exception()
-                if exc is not None:
-                    logger.debug(
-                        "Background task %r raised: %s: %s",
-                        t.get_name(), type(exc).__name__, exc,
-                    )
-
+            if not t.cancelled() and t.exception() is not None:
+                logger.debug("Background task %r raised: %s", t.get_name(), t.exception())
         task.add_done_callback(_on_done)
         return task
 
     async def shutdown(self) -> None:
-        """Cancel all pending background tasks and wait for cancellation."""
-        if self._background_tasks:
-            tasks = list(self._background_tasks)
-            logger.debug("Cancelling %d background tasks on shutdown", len(tasks))
-            for task in tasks:
-                task.cancel()
+        tasks = list(self._background_tasks)
+        for t in tasks:
+            t.cancel()
+        if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-            self._background_tasks.clear()
+        self._background_tasks.clear()
 
     async def aclose(self) -> None:
-        """Release orchestrator resources and owned agent instances."""
         await self.shutdown()
         async with self._close_lock:
             if self._closed:
                 return
             self._closed = True
-
-        if not self._owns_agents:
-            logger.debug("EOL orchestrator did not create provided agents; skipping close")
-            return
-
-        close_coroutines = [self._maybe_aclose_agent(agent) for agent in self._iter_unique_agents()]
-        if close_coroutines:
-            try:
-                await asyncio.gather(*close_coroutines, return_exceptions=True)
-            except asyncio.CancelledError:
-                logger.debug("EOL orchestrator close interrupted by cancellation")
-
+        if self._owns_agents:
+            await asyncio.gather(*[self._maybe_aclose_agent(a) for a in self._iter_unique_agents()], return_exceptions=True)
         logger.info("🧹 EOL orchestrator resources released")
 
     async def __aenter__(self) -> "EOLOrchestratorAgent":
         return self
 
-    async def __aexit__(self, exc_type, exc, exc_tb) -> None:
+    async def __aexit__(self, *_: Any) -> None:
         await self.aclose()
-        
+
     async def log_communication(self, agent_name: str, action: str, data: Dict[str, Any], result: Optional[Dict[str, Any]] = None) -> None:
-        """Log agent communication in memory.
-        
-        Args:
-            agent_name: Name of the agent
-            action: Action being performed
-            data: Input data for the action
-            result: Optional result from the action
-        """
         try:
-            communication = {
-                "id": str(uuid.uuid4()),
-                "sessionId": self.session_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "agentName": agent_name,
-                "action": action,
-                "input": data,
-                "output": result,
-            }
-            # Keep last MAX_COMMS_LOG_SIZE entries
-            self._comms_log.append(communication)
+            self._comms_log.append({"id": str(uuid.uuid4()), "sessionId": self.session_id, "timestamp": datetime.now(timezone.utc).isoformat(), "agentName": agent_name, "action": action, "input": data, "output": result})
             if len(self._comms_log) > MAX_COMMS_LOG_SIZE:
                 self._comms_log = self._comms_log[-MAX_COMMS_LOG_SIZE:]
-        except Exception as e:
-            logger.error(f"Error logging communication: {str(e)}")
-            # Don't append anything if there's an error
+        except Exception as exc:
+            logger.error("Error logging communication: %s", exc)
 
-    async def get_os_inventory_with_eol(self, days: int = 90):
-        """
-        Get OS inventory with automatic EOL analysis - core function for inventory.html
-        """
+    def get_recent_communications(self) -> List[Dict[str, Any]]:
         try:
-            start_time = time.time()
-            logger.debug(f"🔍 Starting OS inventory with EOL analysis (last {days} days)")
-            
-            # Get OS inventory
-            os_agent = self.agents["os_inventory"]
-            os_inventory_result = await os_agent.get_os_inventory(days=days)
-            
-            if not os_inventory_result.get("success") or not os_inventory_result.get("data"):
-                return {
-                    "success": False,
-                    "error": "Failed to retrieve OS inventory",
-                    "data": []
-                }
-            
-            os_inventory = os_inventory_result["data"]
-            logger.info(f"📊 Retrieved {len(os_inventory)} OS inventory items")
-            
-            # Process each OS item for EOL analysis
-            eol_analysis_tasks = []
-            for os_item in os_inventory:
-                task = self._analyze_os_item_eol(os_item)
-                eol_analysis_tasks.append(task)
-            
-            # Execute EOL analysis in parallel with concurrency limit
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT_EOL_ANALYSIS)  # Limit concurrent requests
-            async def sem_task(task):
-                async with semaphore:
-                    return await task
-            
-            eol_results = await asyncio.gather(
-                *[sem_task(task) for task in eol_analysis_tasks],
-                return_exceptions=True
-            )
-            
-            # Combine OS inventory with EOL data
-            enriched_inventory = []
-            for i, os_item in enumerate(os_inventory):
-                eol_result = eol_results[i] if i < len(eol_results) else None
-                
-                enriched_item = {**os_item}  # Copy original item
-                
-                if isinstance(eol_result, dict) and eol_result.get("success"):
-                    eol_data = eol_result.get("eol_data", {})
-                    enriched_item.update({
-                        "eol_date": eol_data.get("eol_date"),
-                        "eol_status": eol_data.get("status", "Unknown"),
-                        "support_status": eol_data.get("support_status"),
-                        "risk_level": eol_data.get("risk_level", "unknown"),
-                        "days_until_eol": eol_data.get("days_until_eol"),
-                        "eol_source": eol_data.get("source"),
-                        "eol_confidence": eol_data.get("confidence", 0.5)
-                    })
-                else:
-                    enriched_item.update({
-                        "eol_date": None,
-                        "eol_status": "Unknown",
-                        "support_status": "Unknown",
-                        "risk_level": "unknown",
-                        "days_until_eol": None,
-                        "eol_source": None,
-                        "eol_confidence": 0.0
-                    })
-                
-                enriched_inventory.append(enriched_item)
-            
-            # Calculate summary statistics
-            total_items = len(enriched_inventory)
-            items_with_eol = len([item for item in enriched_inventory if item.get("eol_date")])
-            critical_items = len([item for item in enriched_inventory if item.get("risk_level") == "critical"])
-            high_risk_items = len([item for item in enriched_inventory if item.get("risk_level") == "high"])
-            
-            execution_time = time.time() - start_time
-            logger.info(f"✅ OS inventory EOL analysis completed in {execution_time:.2f}s")
-            logger.info(f"📈 {items_with_eol}/{total_items} items have EOL data, {critical_items} critical, {high_risk_items} high risk")
-            
-            return {
-                "success": True,
-                "data": enriched_inventory,
-                "summary": {
-                    "total_items": total_items,
-                    "items_with_eol": items_with_eol,
-                    "critical_items": critical_items,
-                    "high_risk_items": high_risk_items,
-                    "analysis_time": execution_time,
-                    "cache_hits": sum(1 for result in eol_results if isinstance(result, dict) and result.get("cache_hit", False))
-                },
-                "session_id": self.session_id,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error in OS inventory EOL analysis: {str(e)}")
-            return {
-                "success": False,
-                "error": f"OS inventory EOL analysis failed: {str(e)}",
-                "data": []
-            }
+            if not isinstance(self._comms_log, list):
+                self._comms_log = []
+            comms = []
+            for comm in reversed(self._comms_log[-RECENT_COMMS_DISPLAY_LIMIT:]):
+                if not isinstance(comm, dict):
+                    continue
+                comms.append({"timestamp": comm.get("timestamp", ""), "agent_name": comm.get("agentName", "unknown"), "action": comm.get("action", "unknown"), "status": "completed", "input": comm.get("input", {}), "output": comm.get("output", {}), "message": format_communication_message(comm), "type": determine_message_type(comm), "session_id": comm.get("sessionId", self.session_id)})
+            if not comms:
+                comms.append({"timestamp": self.start_time.isoformat(), "agent_name": "eol_orchestrator", "action": "session_start", "status": "completed", "input": {}, "output": {"session_id": self.session_id}, "message": "🚀 EOL Orchestrator session started", "type": "info"})
+            return comms
+        except Exception as exc:
+            logger.error("Error getting recent communications: %s", exc)
+            return []
 
-    async def _analyze_os_item_eol(self, os_item):
-        """
-        Analyze a single OS item for EOL information
-        """
+    async def get_communication_history(self) -> List[Dict[str, Any]]:
+        return list(reversed(self._comms_log))
+
+    def clear_communications(self) -> Dict[str, Any]:
         try:
-            os_name = os_item.get("os_name") or os_item.get("name", "")
-            os_version = os_item.get("os_version") or os_item.get("version", "")
-            
-            if not os_name:
-                return {"success": False, "error": "No OS name provided"}
-            
-            # Create cache key
-            cache_key = f"os_eol_{os_name}_{os_version}".lower().replace(" ", "_")
-            
-            # Check cache first
-            if cache_key in self.eol_cache:
-                cache_entry = self.eol_cache[cache_key]
-                now = datetime.now(timezone.utc)
-                if now - cache_entry["timestamp"] < timedelta(seconds=self.cache_ttl):
-                    return {"success": True, "eol_data": cache_entry["data"], "cache_hit": True}
-            
-            # Get EOL data using autonomous routing
-            eol_result = await self.get_autonomous_eol_data(os_name, os_version, item_type="os")
-            
-            if eol_result.get("success") and eol_result.get("data"):
-                eol_data = self._process_eol_data(eol_result["data"], os_name, os_version)
-                
-                # Cache the result
-                self.eol_cache[cache_key] = {
-                    "data": eol_data,
-                    "timestamp": datetime.now(timezone.utc)
-                }
-                
-                return {"success": True, "eol_data": eol_data, "cache_hit": False}
-            
-            return {"success": False, "error": "No EOL data found"}
-            
-        except Exception as e:
-            logger.error(f"Error analyzing OS item EOL: {str(e)}")
-            return {"success": False, "error": str(e)}
+            prev, cache_before = len(self._comms_log), len(self.eol_cache)
+            self._comms_log.clear()
+            self.eol_cache.clear()
+            old_sid = self.session_id
+            self.session_id = str(uuid.uuid4())
+            self.start_time = datetime.now(timezone.utc)
+            return {"success": True, "message": f"Cleared {prev} communications", "details": {"communications_cleared": prev, "cache_items_cleared": cache_before, "new_session_id": self.session_id}}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def _track_eol_agent_response(self, *, agent_name: str, software_name: str, software_version: Optional[str], eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
+        await track_eol_agent_response(responses_list=self.eol_agent_responses, session_id=self.session_id, eol_repo=getattr(self, "eol_repo", None), agent_name=agent_name, software_name=software_name, software_version=software_version, eol_result=eol_result, response_time=response_time, query_type=query_type)
+
+    def get_eol_agent_responses(self) -> List[Dict[str, Any]]:
+        return self.eol_agent_responses.copy()
+
+    def clear_eol_agent_responses(self) -> None:
+        self.eol_agent_responses.clear()
+
+    async def get_cache_status(self) -> Dict[str, Any]:
+        try:
+            now = datetime.now(timezone.utc)
+            total = len(self.eol_cache)
+            return {"success": True, "data": {"eol_cache": {"total_items": total, "cache_ttl_seconds": self.cache_ttl}, "agents": {n: {"status": "available", "type": type(a).__name__} for n, a in self.agents.items()}, "session": {"session_id": self.session_id, "uptime_seconds": (now - self.start_time).total_seconds()}}}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def get_os_inventory_with_eol(self, days: int = 90) -> Dict[str, Any]:
+        try:
+            os_result = await self.agents["os_inventory"].get_os_inventory(days=days)
+            if not os_result.get("success") or not os_result.get("data"):
+                return {"success": False, "error": "Failed to retrieve OS inventory", "data": []}
+            return await enrich_os_inventory_with_eol(os_result["data"], self.eol_cache, self.cache_ttl, self.session_id, self.get_autonomous_eol_data)
+        except Exception as exc:
+            logger.error("❌ OS inventory EOL analysis failed: %s", exc)
+            return {"success": False, "error": str(exc), "data": []}
 
     async def get_autonomous_eol_data(
         self,
@@ -474,762 +253,109 @@ class EOLOrchestratorAgent:
         search_ignore_cache=False,
         search_agent_only=False,
     ):
-        """Autonomous EOL data retrieval via tiered pipeline.
-
-        Args:
-            software_name: Name of the software to search for
-            version: Version of the software (optional)
-            item_type: Type of item (software, os, etc.)
-            search_internet_only: If True, only run Tier 4 (Playwright/web search)
-            search_include_internet: If True, run all tiers including Tier 4
-            search_agent_only: If True, run Tiers 1-3, skip Tier 4
-            search_ignore_cache: If True, bypass cache lookup
-        """
+        """Autonomous EOL data retrieval via tiered pipeline."""
         try:
-            start_time_main = time.time()
-
-            # Input validation
+            t0 = time.time()
             software_name = (software_name or "").strip()
-            version = (version or None)
-            if version is not None:
-                version = version.strip() or None
+            version = (version.strip() or None) if version else None
 
             if not software_name:
-                return {
-                    "success": False,
-                    "error": "software_name is required",
-                    "agent_used": "orchestrator",
-                    "communications": self.get_recent_communications(),
-                    "elapsed_seconds": time.time() - start_time_main,
-                }
+                return {"success": False, "error": "software_name is required", "agent_used": "orchestrator", "communications": self.get_recent_communications(), "elapsed_seconds": time.time() - t0}
 
-            await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {
-                "software_name": software_name,
-                "version": version,
-                "item_type": item_type,
-                "search_internet_only": search_internet_only,
-                "search_include_internet": search_include_internet,
-                "search_ignore_cache": search_ignore_cache,
-                "search_agent_only": search_agent_only,
-            })
+            await self.log_communication("eol_orchestrator", "get_autonomous_eol_data", {"software_name": software_name, "version": version, "item_type": item_type, "search_internet_only": search_internet_only, "search_include_internet": search_include_internet, "search_ignore_cache": search_ignore_cache, "search_agent_only": search_agent_only})
 
-            # Normalize for consistent cache keys
-            if item_type == "os":
-                _nq = NormalizedQuery.from_os(software_name, version)
-            else:
-                _nq = NormalizedQuery.from_software(software_name, version)
+            _nq = NormalizedQuery.from_os(software_name, version) if item_type == "os" else NormalizedQuery.from_software(software_name, version)
             normalized_name, normalized_version = _nq.as_tuple()
 
-            # Cache check (skip for internet-only or explicit bypass)
-            effective_ignore_cache = search_ignore_cache or search_internet_only
-            if not effective_ignore_cache:
-                _db_timeout = (
-                    _app_config.timeouts.db_query_timeout
-                    if _app_config is not None
-                    else 10.0
-                )
+            if not (search_ignore_cache or search_internet_only):
+                _dbt = getattr(getattr(_app_config, "timeouts", None), "db_query_timeout", 10.0)
                 try:
-                    cached_eol = await asyncio.wait_for(
-                        eol_inventory.get(normalized_name, normalized_version),
-                        timeout=_db_timeout,
-                    )
+                    cached_eol = await asyncio.wait_for(eol_inventory.get(normalized_name, normalized_version), timeout=_dbt)
                 except asyncio.TimeoutError:
-                    logger.warning(
-                        "EOL inventory cache read timed out after %.1fs for %s %s",
-                        _db_timeout, normalized_name, normalized_version,
-                    )
+                    logger.warning("EOL cache timeout for %s %s", normalized_name, normalized_version)
                     cached_eol = None
-
                 if cached_eol:
-                    cached_data = cached_eol.get("data") or {}
-                    cached_confidence = float(
-                        cached_data.get("confidence") or cached_eol.get("confidence") or 0
-                    )
-                    cached_eol_date = cached_data.get("eol_date") or cached_eol.get("eol_date")
-                    if cached_confidence > 0 and cached_eol_date:
-                        cached_eol["agent_used"] = cached_eol.get("agent_used") or "cached"
-                        cached_eol["cache_hit"] = True
-                        cached_eol["cache_source"] = "eol_cache"
-                        cached_eol["elapsed_seconds"] = time.time() - start_time_main
-                        cached_eol["communications"] = self.get_recent_communications()
-                        cached_eol["sources"] = []
-                        cached_eol["discrepancies"] = []
-
-                        await self._track_eol_agent_response(
-                            agent_name=cached_eol.get("agent_used", "eol_inventory"),
-                            software_name=software_name,
-                            software_version=version,
-                            eol_result=cached_eol,
-                            response_time=time.time() - start_time_main,
-                            query_type="eol_cache",
-                        )
-                        logger.info(
-                            "EOL inventory cache hit for %s %s", software_name, version or "(any)"
-                        )
+                    cd = cached_eol.get("data") or {}
+                    if float(cd.get("confidence") or cached_eol.get("confidence") or 0) > 0 and (cd.get("eol_date") or cached_eol.get("eol_date")):
+                        cached_eol.update({"agent_used": cached_eol.get("agent_used") or "cached", "cache_hit": True, "cache_source": "eol_cache", "elapsed_seconds": time.time() - t0, "communications": self.get_recent_communications(), "sources": [], "discrepancies": []})
+                        await self._track_eol_agent_response(agent_name=cached_eol.get("agent_used", "eol_inventory"), software_name=software_name, software_version=version, eol_result=cached_eol, response_time=time.time() - t0, query_type="eol_cache")
                         return cached_eol
 
-            # Determine which pipeline/registry to use based on search mode
             pipeline = self._pipeline
             if search_internet_only:
-                # Only Tier 4 (Playwright fallback)
-                filtered_registry = AdapterRegistry()
+                reg = AdapterRegistry()
                 if "playwright" in self.agents:
-                    filtered_registry.register(FallbackAdapter(self.agents["playwright"]))
-                pipeline = TieredFetchPipeline(filtered_registry)
+                    reg.register(FallbackAdapter(self.agents["playwright"]))
+                pipeline = TieredFetchPipeline(reg)
             elif search_agent_only:
-                # Tiers 1-3 only (no Playwright)
-                agents_filtered = {k: v for k, v in self.agents.items() if k != "playwright"}
-                filtered_registry = create_default_registry(agents_filtered)
-                pipeline = TieredFetchPipeline(filtered_registry)
+                pipeline = TieredFetchPipeline(create_default_registry({k: v for k, v in self.agents.items() if k != "playwright"}))
 
-            # Run pipeline and aggregate
             results = await pipeline.fetch_all(_nq)
             aggregated = self._aggregator.aggregate(results)
 
             if aggregated.primary is not None:
-                primary = aggregated.primary
-                best_confidence = aggregated.confidence
-
-                # Build response dict
-                data_payload = primary.raw_data.get("data", {}) if primary.raw_data else {}
-                if not isinstance(data_payload, dict):
-                    data_payload = {}
-
-                # Determine search mode label
-                if search_internet_only:
-                    search_mode = "internet_only"
-                elif search_agent_only:
-                    search_mode = "agents_only"
-                else:
-                    search_mode = "agents_plus_internet"
-
-                best_result = {
-                    "success": True,
-                    "data": data_payload,
-                    "confidence": best_confidence,
-                    "agent_used": primary.source or primary.agent_used or "unknown",
-                    "source": primary.source or "unknown",
-                    "source_url": primary.source_url,
-                    "search_mode": search_mode,
-                    "sources": aggregated.sources_as_dicts(),
-                    "discrepancies": aggregated.discrepancies_as_dicts(),
-                    "communications": self.get_recent_communications(),
-                    "elapsed_seconds": time.time() - start_time_main,
-                }
-
-                # Ensure data payload has key fields
-                if isinstance(best_result["data"], dict):
-                    best_result["data"].setdefault("software_name", primary.software_name)
-                    best_result["data"].setdefault("version", primary.version)
-                    best_result["data"].setdefault("eol_date", primary.eol_date)
-                    best_result["data"].setdefault("support_end_date", primary.support_end_date)
-                    best_result["data"].setdefault("release_date", primary.release_date)
-                    best_result["data"].setdefault("source_url", primary.source_url)
-                    best_result["data"].setdefault("confidence", best_confidence)
-                    best_result["data"].setdefault("agent_used", best_result["agent_used"])
-                    best_result["data"].setdefault("source", primary.source)
-                    best_result["data"].setdefault("search_mode", search_mode)
-
-                await self._track_eol_agent_response(
-                    agent_name=best_result["agent_used"],
-                    software_name=software_name,
-                    software_version=version,
-                    eol_result=best_result,
-                    response_time=time.time() - start_time_main,
-                    query_type="autonomous_search",
-                )
-
-                # Persist to cache if confidence exceeds threshold
-                _threshold = 0.80
+                p = aggregated.primary
+                bc = aggregated.confidence
+                dp: Dict[str, Any] = p.raw_data.get("data", {}) if p.raw_data else {}
+                if not isinstance(dp, dict):
+                    dp = {}
+                sm = "internet_only" if search_internet_only else ("agents_only" if search_agent_only else "agents_plus_internet")
+                best = {"success": True, "data": dp, "confidence": bc, "agent_used": p.source or p.agent_used or "unknown", "source": p.source or "unknown", "source_url": p.source_url, "search_mode": sm, "sources": aggregated.sources_as_dicts(), "discrepancies": aggregated.discrepancies_as_dicts(), "communications": self.get_recent_communications(), "elapsed_seconds": time.time() - t0}
+                for k, v in [("software_name", p.software_name), ("version", p.version), ("eol_date", p.eol_date), ("support_end_date", p.support_end_date), ("release_date", p.release_date), ("source_url", p.source_url), ("confidence", bc), ("agent_used", best["agent_used"]), ("source", p.source), ("search_mode", sm)]:
+                    dp.setdefault(k, v)
+                await self._track_eol_agent_response(agent_name=best["agent_used"], software_name=software_name, software_version=version, eol_result=best, response_time=time.time() - t0, query_type="autonomous_search")
+                _thr = 0.80
                 try:
                     if _app_config is not None:
-                        _threshold = _app_config.eol.pipeline_confidence_threshold
+                        _thr = _app_config.eol.pipeline_confidence_threshold
                 except (AttributeError, Exception):
                     pass
-
-                persist_to_db = (
-                    best_confidence >= _threshold
-                    and not search_ignore_cache
-                )
-                if persist_to_db:
-                    best_result.setdefault("cache_source", "eol_cache")
-                    best_result.setdefault("cached", False)
-                    _nn, _nv, _res = normalized_name, normalized_version, best_result
-                    _sn, _sv, _it = software_name, version, item_type
-
+                if bc >= _thr and not search_ignore_cache:
+                    best.setdefault("cache_source", "eol_cache")
+                    best.setdefault("cached", False)
+                    _nn, _nv, _res, _sn, _sv, _it = normalized_name, normalized_version, best, software_name, version, item_type
                     async def _do_upsert(_nn=_nn, _nv=_nv, _res=_res, _sn=_sn, _sv=_sv, _it=_it):
                         try:
-                            await eol_inventory.upsert(
-                                _nn, _nv, _res,
-                                raw_software_name=_sn,
-                                raw_version=_sv,
-                                item_type=_it,
-                            )
+                            await eol_inventory.upsert(_nn, _nv, _res, raw_software_name=_sn, raw_version=_sv, item_type=_it)
                         except Exception as exc:
-                            logger.debug("EOL inventory upsert skipped: %s", exc)
-
+                            logger.debug("EOL upsert skipped: %s", exc)
                     self._spawn_background(_do_upsert(), name=f"db_upsert_{normalized_name}")
+                logger.info("EOL data found for %s (confidence: %.2f, agent: %s)", software_name, bc, best["agent_used"])
+                return best
 
-                logger.info(
-                    "EOL data found for %s (confidence: %.2f, agent: %s)",
-                    software_name, best_confidence, best_result["agent_used"],
-                )
-                return best_result
+            err = "No EOL data found via internet search" if search_internet_only else "No EOL data found from pipeline"
+            fail = {"success": False, "error": err, "agent_used": "playwright" if search_internet_only else "orchestrator", "sources": [], "discrepancies": [], "communications": self.get_recent_communications(), "elapsed_seconds": time.time() - t0}
+            await self._track_eol_agent_response(agent_name="orchestrator", software_name=software_name, software_version=version, eol_result=fail, response_time=time.time() - t0, query_type="autonomous_search")
+            return fail
 
-            # No results from pipeline
-            error_message = (
-                "No EOL data found via internet search (Playwright)"
-                if search_internet_only
-                else "No EOL data found from pipeline"
-            )
-            failure_response = {
-                "success": False,
-                "error": error_message,
-                "agent_used": "playwright" if search_internet_only else "orchestrator",
-                "sources": [],
-                "discrepancies": [],
-                "communications": self.get_recent_communications(),
-                "elapsed_seconds": time.time() - start_time_main,
-            }
+        except Exception as exc:
+            logger.error("Error in autonomous EOL data retrieval: %s", exc)
+            return {"success": False, "error": str(exc), "agent_used": "orchestrator", "sources": [], "discrepancies": [], "communications": self.get_recent_communications(), "elapsed_seconds": time.time() - t0}
 
-            await self._track_eol_agent_response(
-                agent_name="orchestrator",
-                software_name=software_name,
-                software_version=version,
-                eol_result=failure_response,
-                response_time=time.time() - start_time_main,
-                query_type="autonomous_search",
-            )
-            return failure_response
-
-        except Exception as e:
-            logger.error("Error in autonomous EOL data retrieval: %s", str(e))
-            return {
-                "success": False,
-                "error": str(e),
-                "agent_used": "orchestrator",
-                "sources": [],
-                "discrepancies": [],
-                "communications": self.get_recent_communications(),
-                "elapsed_seconds": time.time() - start_time_main,
-            }
-
-    def _process_eol_data(self, raw_data, software_name, version):
-        """
-        Process and standardize EOL data from various sources
-        """
-        processed = {
-            "software_name": software_name,
-            "version": version,
-            "eol_date": self._extract_eol_date(raw_data),
-            "support_end_date": self._extract_support_end_date(raw_data),
-            "status": "Unknown",
-            "support_status": raw_data.get("support_status", "Unknown"),
-            "risk_level": "unknown",
-            "days_until_eol": None,
-            "source": raw_data.get("source", "Unknown"),
-            "confidence": raw_data.get("confidence", 0.5)
-        }
-
-        # If EOL is missing but we have support end, treat support end as primary lifecycle date
-        if not processed["eol_date"] and processed["support_end_date"]:
-            processed["eol_date"] = processed["support_end_date"]
-        
-        # Calculate risk level and days until EOL
-        if processed["eol_date"]:
-            try:
-                eol_date = datetime.fromisoformat(processed["eol_date"].replace('Z', '+00:00'))
-                now = datetime.now(timezone.utc)
-                if eol_date.tzinfo is None:
-                    eol_date = eol_date.replace(tzinfo=timezone.utc)
-                days_diff = (eol_date - now).days
-                
-                processed["days_until_eol"] = days_diff
-                
-                if days_diff < 0:
-                    processed["status"] = "End of Life"
-                    processed["risk_level"] = "critical"
-                elif days_diff <= 90:
-                    processed["status"] = "Critical - EOL Soon"
-                    processed["risk_level"] = "critical"
-                elif days_diff <= 365:
-                    processed["status"] = "High Risk - EOL Within 1 Year"
-                    processed["risk_level"] = "high"
-                elif days_diff <= 730:
-                    processed["status"] = "Medium Risk - EOL Within 2 Years"
-                    processed["risk_level"] = "medium"
-                else:
-                    processed["status"] = "Active Support"
-                    processed["risk_level"] = "low"
-                    
-            except Exception as e:
-                logger.warning(f"Error calculating EOL risk for {software_name}: {str(e)}")
-        
-        return processed
-
-    def _extract_eol_date(self, data):
-        """
-        Extract EOL date from various data formats
-        """
-        # Common EOL date field names
-        date_fields = [
-            "eol_date",
-            "end_of_life",
-            "eol",
-            "support_end",
-            "support_end_date",
-            "support",
-            "end_date",
-            "retirement_date",
-        ]
-        
-        for field in date_fields:
-            if field in data and data[field]:
-                date_value = data[field]
-                if isinstance(date_value, str):
-                    return date_value
-                elif isinstance(date_value, datetime):
-                    return date_value.isoformat()
-        
-        return None
-
-    def _extract_support_end_date(self, data):
-        """Extract support end date from known fields."""
-        support_fields = [
-            "support_end_date",
-            "support_end",
-            "support",
-            "extended_support_end",
-            "extended_support",
-        ]
-
-        for field in support_fields:
-            if field in data and data[field]:
-                value = data[field]
-                if isinstance(value, str):
-                    return value
-                if isinstance(value, datetime):
-                    return value.isoformat()
-
-        return None
-
-    # Legacy compatibility methods for existing API endpoints
     async def get_eol_data(self, software_name, version=None):
-        """Legacy method for backward compatibility"""
         return await self.get_autonomous_eol_data(software_name, version)
 
     async def get_software_inventory(self, days=90, include_eol=True, use_cache=True):
-        """Legacy method for backward compatibility"""
-        software_agent = self.agents["software_inventory"]
-        return await software_agent.get_software_inventory(days=days, use_cache=use_cache)
+        return await self.agents["software_inventory"].get_software_inventory(days=days, use_cache=use_cache)
 
-    async def health_check(self):
-        """Quick health check for the orchestrator and its agents"""
-        try:
-            status = {
-                "orchestrator": {
-                    "status": "healthy",
-                    "session_id": self.session_id,
-                    "uptime_seconds": (datetime.utcnow() - self.start_time).total_seconds(),
-                    "cache_size": len(self.eol_cache),
-                    "agents_count": len(self.agents)
-                },
-                "agents": {}
-            }
-            
-            # Quick agent checks (non-blocking)
-            for agent_name, agent in list(self.agents.items())[:5]:  # Check first 5 agents
-                try:
-                    if hasattr(agent, 'health_check'):
-                        agent_status = await asyncio.wait_for(agent.health_check(), timeout=2.0)
-                        status["agents"][agent_name] = agent_status
-                    else:
-                        status["agents"][agent_name] = {"status": "available"}
-                except Exception:
-                    status["agents"][agent_name] = {"status": "timeout"}
-            
-            return {"success": True, "data": status}
-            
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def clear_communications(self):
-        """
-        Clear communications cache and reset session state
-        """
-        try:
-            # Clear communications log
-            previous_count = len(self._comms_log)
-            self._comms_log.clear()
-            
-            # Clear EOL cache
-            cache_size_before = len(self.eol_cache)
-            self.eol_cache.clear()
-            
-            # Reset session ID
-            old_session_id = self.session_id
-            self.session_id = str(uuid.uuid4())
-            
-            # Reset start time
-            self.start_time = datetime.now(timezone.utc)
-            
-            logger.info(f"🧹 Communications cleared: {previous_count} communications, cache ({cache_size_before} items), session {old_session_id} -> {self.session_id}")
-            
-            return {
-                "success": True,
-                "message": f"Cleared {previous_count} communications from session {self.session_id}",
-                "details": {
-                    "communications_cleared": previous_count,
-                    "cache_items_cleared": cache_size_before,
-                    "old_session_id": old_session_id,
-                    "new_session_id": self.session_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error clearing communications: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to clear communications: {str(e)}"
-            }
-
-    def get_recent_communications(self):
-        """
-        Get recent communications for display in frontend
-        Returns actual communication log entries from agents
-        """
-        try:
-            # Return from in-memory log with proper formatting for frontend
-            communications = []
-            
-            # Ensure _comms_log exists and is a list
-            if not hasattr(self, '_comms_log') or not isinstance(self._comms_log, list):
-                self._comms_log = []
-            
-            # Convert internal log format to frontend format
-            for comm in reversed(self._comms_log[-RECENT_COMMS_DISPLAY_LIMIT:]):  # Get recent communications
-                # Skip None or invalid communication entries
-                if comm is None or not isinstance(comm, dict):
-                    continue
-                
-                # Extra safety check - ensure comm is not None before processing
-                try:
-                    now_iso = datetime.now(timezone.utc).isoformat()
-                    communications.append({
-                        "timestamp": comm.get("timestamp", now_iso) if comm else now_iso,
-                        "agent_name": comm.get("agentName", "unknown") if comm else "unknown",
-                        "action": comm.get("action", "unknown") if comm else "unknown",
-                        "status": "completed",  # Default status
-                        "input": comm.get("input", {}) if comm else {},
-                        "output": comm.get("output", {}) if comm else {},
-                        "message": self._format_communication_message(comm) if comm else "Invalid communication",
-                        "type": self._determine_message_type(comm) if comm else "error",
-                        "session_id": comm.get("sessionId", self.session_id) if comm else self.session_id
-                    })
-                except Exception as comm_error:
-                    logger.error(f"Error processing individual communication: {str(comm_error)}")
-                    continue
-            
-            # If no communications logged yet, add basic session info
-            if not communications:
-                communications.append({
-                    "timestamp": self.start_time.isoformat(),
-                    "agent_name": "eol_orchestrator",
-                    "action": "session_start",
-                    "status": "completed",
-                    "input": {},
-                    "output": {
-                        "session_id": self.session_id,
-                        "cache_size": len(self.eol_cache),
-                        "uptime_seconds": (datetime.now(timezone.utc) - self.start_time).total_seconds()
-                    },
-                    "message": f"🚀 EOL Orchestrator session started",
-                    "type": "info"
-                })
-            
-            return communications
-            
-        except Exception as e:
-            logger.error(f"Error getting recent communications: {str(e)}")
-            return [{
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "agent_name": "eol_orchestrator",
-                "action": "error",
-                "status": "failed",
-                "input": {},
-                "output": {"error": str(e)},
-                "message": f"❌ Error retrieving communications: {str(e)}",
-                "type": "error"
-            }]
-    
-    def _format_communication_message(self, comm: Dict[str, Any]) -> str:
-        """Format communication for display"""
-        try:
-            if comm is None or not isinstance(comm, dict):
-                return "❓ Invalid communication data"
-                
-            agent = comm.get("agentName", "unknown") if comm else "unknown"
-            action = comm.get("action", "unknown") if comm else "unknown"
-            input_data = comm.get("input", {}) if comm else {}
-            output_data = comm.get("output", {}) if comm else {}
-            
-            if action == "get_eol_data":
-                software = input_data.get("software_name", "unknown") if input_data else "unknown"
-                version = input_data.get("version", "") if input_data else ""
-                if output_data and not output_data.get("error"):
-                    return f"🔍 {agent} found EOL data for {software}" + (f" {version}" if version else "")
-                else:
-                    return f"❌ {agent} failed to find EOL data for {software}" + (f" {version}" if version else "")
-            elif action == "get_autonomous_eol_data":
-                software = input_data.get("software_name", "unknown") if input_data else "unknown"
-                return f"🎯 Orchestrator routing EOL query for {software}"
-            elif action == "agent_selection":
-                software = input_data.get("software_name", "unknown") if input_data else "unknown"
-                agents = output_data.get("selected_agents", []) if output_data else []
-                return f"🔀 Routing {software} to agents: {', '.join(agents)}"
-            else:
-                return f"📋 {agent}: {action}"
-        except Exception as e:
-            logger.error(f"Error formatting communication message: {str(e)}")
-            return f"❌ Error formatting message: {str(e)}"
-    
-    def _determine_message_type(self, comm: Dict[str, Any]) -> str:
-        """Determine message type for styling"""
-        try:
-            if comm is None or not isinstance(comm, dict):
-                return "error"
-                
-            output_data = comm.get("output", {}) if comm else {}
-            
-            if output_data and output_data.get("error"):
-                return "error"
-            elif output_data and output_data.get("success") == False:
-                return "warning"
-            elif comm.get("action") in ["get_eol_data", "get_autonomous_eol_data"] and output_data:
-                return "success"
-            else:
-                return "info"
-        except Exception as e:
-            logger.error(f"Error determining message type: {str(e)}")
-            return "error"
-    
-    async def get_communication_history(self) -> List[Dict[str, Any]]:
-        """Get the communication history for this session"""
-        # Return from in-memory log  
-        return list(reversed(self._comms_log))
-
-    async def get_cache_status(self):
-        """
-        Get cache status and statistics
-        """
-        try:
-            current_time = datetime.now(timezone.utc)
-            
-            # Calculate cache statistics
-            total_items = len(self.eol_cache)
-            
-            # Calculate cache age statistics
-            expired_items = 0
-            oldest_timestamp = current_time
-            newest_timestamp = None
-            
-            for cache_entry in self.eol_cache.values():
-                entry_time = cache_entry.get("timestamp")
-                if entry_time:
-                    if isinstance(entry_time, str):
-                        entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-                    
-                    # Check if expired
-                    if current_time - entry_time > timedelta(seconds=self.cache_ttl):
-                        expired_items += 1
-                    
-                    # Track oldest and newest
-                    if entry_time < oldest_timestamp:
-                        oldest_timestamp = entry_time
-                    if newest_timestamp is None or entry_time > newest_timestamp:
-                        newest_timestamp = entry_time
-            
-            # Calculate cache size estimation
-            cache_size_bytes = len(str(self.eol_cache))
-            cache_size_kb = cache_size_bytes // 1024
-            
-            # Agent status
-            agent_status = {}
-            for agent_name, agent in self.agents.items():
-                agent_status[agent_name] = {
-                    "status": "available",
-                    "type": type(agent).__name__
-                }
-            
-            return {
-                "success": True,
-                "data": {
-                    "eol_cache": {
-                        "total_items": total_items,
-                        "expired_items": expired_items,
-                        "active_items": total_items - expired_items,
-                        "cache_ttl_seconds": self.cache_ttl,
-                        "size_bytes": cache_size_bytes,
-                        "size_kb": cache_size_kb,
-                        "oldest_entry": oldest_timestamp.isoformat() if oldest_timestamp != current_time else None,
-                        "newest_entry": newest_timestamp.isoformat() if newest_timestamp else None
-                    },
-                    "agents": agent_status,
-                    "session": {
-                        "session_id": self.session_id,
-                        "uptime_seconds": (current_time - self.start_time).total_seconds(),
-                        "start_time": self.start_time.isoformat()
-                    },
-                    "timestamp": current_time.isoformat()
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting cache status: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Failed to get cache status: {str(e)}"
-            }
-    
-    async def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
-        """Track and persist EOL agent responses for comprehensive history tracking"""
-        try:
-            data_field = eol_result.get("data", {}) if isinstance(eol_result, dict) else {}
-            if not isinstance(data_field, dict):
-                data_field = {}
-
-            # Create comprehensive response tracking entry
-            response_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "agent_name": agent_name,
-                "software_name": software_name,
-                "software_version": software_version or "Not specified",
-                "query_type": query_type,
-                "response_time": response_time,
-                "success": eol_result.get("success", False),
-                "eol_data": data_field,
-                "error": eol_result.get("error", {}),
-                "confidence": data_field.get("confidence", 0),
-                "source_url": data_field.get("source_url", ""),
-                "agent_used": data_field.get("agent_used", agent_name),
-                "session_id": self.session_id,
-                "orchestrator_type": "eol_orchestrator",
-                "cache_source": eol_result.get("cache_source"),
-                "cached": bool(eol_result.get("cached")),
-                "cache_created_at": eol_result.get("cache_created_at"),
-                "cache_expires_at": eol_result.get("expires_at"),
-                "search_internet_only": eol_result.get("search_internet_only", False),
-            }
-
-            # Add to tracking list
-            self.eol_agent_responses.append(response_entry)
-
-            # Keep only the last MAX_EOL_RESPONSES_TRACKED to prevent memory issues
-            if len(self.eol_agent_responses) > MAX_EOL_RESPONSES_TRACKED:
-                self.eol_agent_responses = self.eol_agent_responses[-MAX_EOL_RESPONSES_TRACKED:]
-
-            # Log the tracking for debugging
-            logger.info(f"📊 [EOL Orchestrator] Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
-
-            # Persist to database
-            await self._persist_agent_response(response_entry)
-
-        except Exception as e:
-            logger.error(f"❌ Error tracking EOL agent response: {e}")
-
-    async def _persist_agent_response(self, response_entry: Dict[str, Any]) -> None:
-        """Persist EOL agent response to database (background task)"""
-        try:
-            # Check if eol_repo was injected
-            eol_repo = getattr(self, 'eol_repo', None)
-
-            if eol_repo is None:
-                logger.debug("🔍 [EOL Orchestrator] eol_repo not injected - skipping persistence")
-                return
-
-            # Store the full response_entry as JSON in agent_response
-            # This preserves all fields needed by the frontend
-            import json
-            response_id = str(uuid.uuid4())
-            user_query = f"{response_entry['software_name']} {response_entry['software_version']}"
-            agent_response_json = json.dumps(response_entry)
-
-            sources = {
-                "agent_used": response_entry.get("agent_used"),
-                "source_url": response_entry.get("source_url"),
-                "cache_source": response_entry.get("cache_source"),
-                "orchestrator_type": response_entry.get("orchestrator_type"),
-            }
-            response_time_ms = int(response_entry.get("response_time", 0) * 1000)
-
-            # Call repository save method
-            await eol_repo.save_agent_response(
-                response_id=response_id,
-                session_id=response_entry["session_id"],
-                user_query=user_query,
-                agent_response=agent_response_json,
-                sources=sources,
-                response_time_ms=response_time_ms,
-            )
-
-            logger.debug(f"💾 [EOL Orchestrator] Persisted agent response to database: {response_entry['software_name']}")
-
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to persist agent response to database: {e}")
-
-    def get_eol_agent_responses(self) -> List[Dict[str, Any]]:
-        """Get all tracked EOL agent responses for this session"""
-        return self.eol_agent_responses.copy()
-    
-    def clear_eol_agent_responses(self) -> None:
-        """Clear all tracked EOL agent responses"""
-        self.eol_agent_responses.clear()
-        logger.info("🧹 [EOL Orchestrator] Cleared EOL agent response tracking history")
-    
     async def search_software_eol(self, software_name: str, software_version: str = None, search_hints: str = None, search_include_internet: bool = False, search_ignore_cache: bool = False, search_agent_only: bool = False):
-        """
-        Search for software EOL information using multi-agent orchestration.
-        This is a wrapper around get_autonomous_eol_data for API compatibility.
-        
-        Args:
-            software_name: Name of the software to search for
-            software_version: Version of the software (optional)
-            search_hints: Search optimization hints (optional, currently unused)
-        
-        Returns:
-            EOL information dictionary
-        """
-        return await self.get_autonomous_eol_data(
-            software_name=software_name,
-            version=software_version,
-            item_type="os",
-            search_internet_only=False,
-            search_include_internet=search_include_internet,
-            search_ignore_cache=search_ignore_cache,
-            search_agent_only=search_agent_only,
-        )
+        return await self.get_autonomous_eol_data(software_name=software_name, version=software_version, item_type="os", search_internet_only=False, search_include_internet=search_include_internet, search_ignore_cache=search_ignore_cache, search_agent_only=search_agent_only)
 
     async def search_software_eol_internet(self, software_name: str, software_version: str = None, search_hints: str = None, search_ignore_cache: bool = False):
-        """
-        Search for software EOL information using internet-only search (Playwright).
-        This is a wrapper around get_autonomous_eol_data with search_internet_only=True.
+        return await self.get_autonomous_eol_data(software_name=software_name, version=software_version, item_type="os", search_internet_only=True, search_ignore_cache=search_ignore_cache)
 
-        Args:
-            software_name: Name of the software to search for
-            software_version: Version of the software (optional)
-            search_hints: Search optimization hints (optional, currently unused)
+    async def health_check(self) -> Dict[str, Any]:
+        try:
+            status: Dict[str, Any] = {"orchestrator": {"status": "healthy", "session_id": self.session_id, "uptime_seconds": (datetime.utcnow() - self.start_time).total_seconds(), "cache_size": len(self.eol_cache), "agents_count": len(self.agents)}, "agents": {}}
+            for name, agent in list(self.agents.items())[:5]:
+                try:
+                    status["agents"][name] = await asyncio.wait_for(agent.health_check(), timeout=2.0) if hasattr(agent, "health_check") else {"status": "available"}
+                except Exception:
+                    status["agents"][name] = {"status": "timeout"}
+            return {"success": True, "data": status}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
 
-        Returns:
-            EOL information dictionary
-        """
-        return await self.get_autonomous_eol_data(
-            software_name=software_name,
-            version=software_version,
-            item_type="os",
-            search_internet_only=True,
-            search_ignore_cache=search_ignore_cache,
-        )
 
 # Backward compatibility alias
 OrchestratorAgent = EOLOrchestratorAgent
