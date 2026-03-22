@@ -109,6 +109,7 @@ class EolRecord:
     item_type: Optional[str] = None
     updated_at: Optional[str] = None
     ttl: Optional[int] = None
+    scoring_version: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the record to a dictionary for storage.
@@ -131,8 +132,11 @@ class EolRecord:
         Returns:
             EolRecord: Instance created from the dictionary
         """
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
         filtered = {
-            k: v for k, v in doc.items() if not k.startswith("_") and k != "expires_at"
+            k: v for k, v in doc.items()
+            if k in valid_fields
         }
         return cls(**filtered)
 
