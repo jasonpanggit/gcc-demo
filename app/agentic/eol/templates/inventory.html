@@ -1391,6 +1391,37 @@
         }
     }
 
+    // Render an EOL status badge directly from a known eol_date string.
+    // Used by the cache-first path in checkEOLInPlace.
+    function renderEolStatus(statusElement, eolDate, softwareName) {
+        if (!eolDate) {
+            statusElement.innerHTML = '<span class="badge bg-secondary">Unknown</span>';
+            return;
+        }
+        const now = new Date();
+        const eolObj = new Date(eolDate);
+        if (isNaN(eolObj.getTime())) {
+            statusElement.innerHTML = '<span class="badge bg-secondary">Unknown</span>';
+            return;
+        }
+        const daysDiff = Math.ceil((eolObj - now) / (1000 * 60 * 60 * 24));
+        const formattedDate = eolDate.split('T')[0];
+        let badgeClass, icon, label;
+        if (daysDiff < 0) {
+            badgeClass = 'bg-danger'; icon = 'fa-skull-crossbones'; label = `EOL: ${formattedDate}`;
+        } else if (daysDiff <= 90) {
+            badgeClass = 'bg-danger'; icon = 'fa-exclamation-triangle'; label = `EOL in ${daysDiff}d`;
+        } else if (daysDiff <= 180) {
+            badgeClass = 'bg-warning text-dark'; icon = 'fa-exclamation-circle'; label = `EOL in ${daysDiff}d`;
+        } else if (daysDiff <= 365) {
+            badgeClass = 'bg-info text-dark'; icon = 'fa-calendar-alt'; label = `EOL ${formattedDate}`;
+        } else {
+            badgeClass = 'bg-success'; icon = 'fa-check-circle'; label = `EOL ${formattedDate}`;
+        }
+        const title = softwareName ? `${softwareName} — End of life: ${formattedDate}` : `End of life: ${formattedDate}`;
+        statusElement.innerHTML = `<span class="badge ${badgeClass}" title="${title}"><i class="fas ${icon} me-1"></i>${label}</span>`;
+    }
+
     async function checkEOLInPlace(name, version, itemId, softwareType = '', resourceId = '', computerName = '') {
         const statusElement = document.getElementById(`eol-status-${itemId}`);
         if (!statusElement) return;

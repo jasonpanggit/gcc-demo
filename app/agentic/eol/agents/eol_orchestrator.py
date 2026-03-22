@@ -1800,12 +1800,11 @@ class EOLOrchestratorAgent:
     async def _persist_agent_response(self, response_entry: Dict[str, Any]) -> None:
         """Persist EOL agent response to database (background task)"""
         try:
-            # Get eol_repo from main app state
-            from main import app
-            eol_repo = getattr(app.state, 'eol_repo', None)
+            # Check if eol_repo was injected
+            eol_repo = getattr(self, 'eol_repo', None)
 
             if eol_repo is None:
-                logger.debug("🔍 [EOL Orchestrator] eol_repo not available on app.state - skipping persistence")
+                logger.debug("🔍 [EOL Orchestrator] eol_repo not injected - skipping persistence")
                 return
 
             # Store the full response_entry as JSON in agent_response

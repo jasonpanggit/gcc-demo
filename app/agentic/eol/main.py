@@ -1060,6 +1060,14 @@ async def _run_startup_tasks():
         app.state.eol_repo = EOLRepository(postgres_client.pool)
         logger.info("5 domain repositories initialized on app.state")
 
+        # Inject eol_repo into EOL orchestrator for agent response persistence
+        try:
+            eol_orch = get_eol_orchestrator()
+            eol_orch.eol_repo = app.state.eol_repo
+            logger.info("✅ EOL repository injected into EOL orchestrator")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to inject eol_repo into orchestrator: {e}")
+
         # Initialize specialized caches
         try:
             await eol_cache.initialize()
