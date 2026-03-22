@@ -84,13 +84,15 @@ WHERE item_type = 'os'
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 14a
 QUERY_VM_EOL_MANAGEMENT = """
-SELECT v.resource_id, v.vm_name, v.os_name, v.os_type,
+SELECT DISTINCT ON (v.resource_id)
+       v.resource_id, v.vm_name, v.os_name, v.os_type, v.vm_type,
        v.resource_group, v.location,
-       e.is_eol, e.eol_date, e.status AS eol_status, e.risk_level
+       e.is_eol, e.eol_date, e.status AS eol_status, e.risk_level,
+       e.version_key AS os_version
 FROM vms v
 LEFT JOIN eol_records e ON LOWER(v.os_name) = LOWER(e.software_key)
 WHERE ($1::uuid IS NULL OR v.subscription_id = $1)
-ORDER BY e.is_eol DESC NULLS LAST, v.vm_name ASC
+ORDER BY v.resource_id, e.eol_date ASC NULLS LAST
 LIMIT $2 OFFSET $3;
 """
 

@@ -268,7 +268,6 @@
                             <tr>
                                 <th>Computer</th>
                                 <th>OS</th>
-                                <th>Version</th>
                                 <th>Environment</th>
                                 <th>Last Heartbeat</th>
                                 <th>EOL Date</th>
@@ -277,7 +276,7 @@
                             </tr>
                         </thead>
                         <tbody id="osTableBody">
-                            <tr><td colspan="8" class="text-center text-muted py-4">Loading inventory...</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">Loading inventory...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -474,16 +473,21 @@
     function renderTable() {
         if (!elements.tableBody) return;
         if (!state.filtered.length) {
-            elements.tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No matching systems found.</td></tr>';
+            elements.tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No matching systems found.</td></tr>';
             elements.tableCount.textContent = '0';
             return;
         }
         const rows = state.filtered.map(item => {
             const riskBadge = formatRiskBadge(item.eol_risk, item.eol_status);
+            // Append version to OS name only when it is not already embedded in the name
+            const versionAlreadyInName = item.os_version &&
+                item.os_name.toLowerCase().includes(String(item.os_version).toLowerCase());
+            const osDisplay = (item.os_version && !versionAlreadyInName)
+                ? escapeHtml(item.os_name + ' ' + item.os_version)
+                : escapeHtml(item.os_name);
             return `<tr>
                 <td>${escapeHtml(item.computer)}</td>
-                <td>${escapeHtml(item.os_name)}</td>
-                <td>${item.os_version ? escapeHtml(item.os_version) : '—'}</td>
+                <td>${osDisplay}</td>
                 <td>${formatEnvironmentCell(item)}</td>
                 <td><small class="text-muted">${formatDateTime(item.last_heartbeat)}</small></td>
                 <td>${formatDate(item.eol_date)}</td>
@@ -851,7 +855,7 @@
             console.error('Error loading OS inventory', err);
             setStatus('Load failed', 'bg-danger');
             if (elements.tableBody) {
-                elements.tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">${escapeHtml(err.message || 'Failed to load OS inventory')}</td></tr>`;
+                elements.tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(err.message || 'Failed to load OS inventory')}</td></tr>`;
             }
         }
     }
