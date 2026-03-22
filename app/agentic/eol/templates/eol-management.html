@@ -349,9 +349,24 @@
         return { label: '> 365 days', risk: 'low', bucket: '>365', days: diffDays };
     }
 
+    function titleCase(str) {
+        if (!str) return '';
+        // Title-case each word, preserving known acronyms
+        return String(str).replace(/\w\S*/g, word => {
+            const upper = word.toUpperCase();
+            // Keep known acronyms/versions as-is (e.g. LTS, RHEL, SP1)
+            if (/^(LTS|RHEL|SP\d|R\d|V\d)$/i.test(word)) return upper;
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        });
+    }
+
     function normalizeItem(item) {
-        const displayOsName = item.os_name || item.name || 'Unknown';
-        const canonicalOsName = item.normalized_os_name || String(displayOsName || '').trim().toLowerCase();
+        const rawOsName = item.os_name || item.name || 'Unknown';
+        // Title-case os_name so "windows server" becomes "Windows Server"
+        const displayOsName = titleCase(rawOsName);
+        const canonicalOsName = item.normalized_os_name || String(rawOsName || '').trim().toLowerCase();
+        // Only use version fields that actually carry version info — os_type ("Windows"/"Linux")
+        // is not a version; omit it to avoid showing a generic type string in the Version column.
         const osVersion = item.normalized_os_version ?? item.os_version ?? item.version ?? item.raw_os_version ?? '';
         const environmentRaw = item.computer_environment || item.environment || 'Unknown';
         const environment = environmentRaw === 'NonAzure' ? 'Non-Azure' : environmentRaw;
@@ -378,8 +393,8 @@
             // vm_name is the field returned by /api/os; fall back to legacy fields
             computer: item.vm_name || item.computer_name || item.computer || 'Unknown',
             os_name: displayOsName,
-            // os_type (Windows/Linux) can substitute for version when dedicated version field absent
-            os_version: osVersion || item.os_type || '',
+            // Empty string if no meaningful version data — shows "—" in the table
+            os_version: osVersion || '',
             normalized_os_name: canonicalOsName,
             normalized_os_version: item.normalized_os_version ?? null,
             os_type: item.os_type || item.type || '',
@@ -468,7 +483,7 @@
             return `<tr>
                 <td>${escapeHtml(item.computer)}</td>
                 <td>${escapeHtml(item.os_name)}</td>
-                <td>${escapeHtml(item.os_version)}</td>
+                <td>${item.os_version ? escapeHtml(item.os_version) : '—'}</td>
                 <td>${formatEnvironmentCell(item)}</td>
                 <td><small class="text-muted">${formatDateTime(item.last_heartbeat)}</small></td>
                 <td>${formatDate(item.eol_date)}</td>
@@ -481,11 +496,10 @@
     }
 
     function formatEnvironmentCell(item) {
-        const env = escapeHtml(item.computer_environment || 'Unknown');
         const vmType = item.vm_type || 'other';
         const chipClass = vmType === 'azure-vm' ? 'azure' : (vmType === 'arc' ? 'arc' : 'other');
         const label = vmType === 'azure-vm' ? 'Azure VM' : (vmType === 'arc' ? 'Arc VM' : 'Other');
-        return `${env}<div class="mt-1"><span class="vm-chip ${chipClass}">${escapeHtml(label)}</span></div>`;
+        return `<span class="vm-chip ${chipClass}">${escapeHtml(label)}</span>`;
     }
 
     function formatRiskBadge(risk, label) {
