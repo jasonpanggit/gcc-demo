@@ -197,6 +197,47 @@ class TieredFetchPipeline:
 
         return max(results, key=_sort_key)
 
+    async def fetch_all(self, query: NormalizedQuery) -> List[SourceResult]:
+        """Run ALL tiers and return ALL successful results (scored).
+
+        Unlike fetch(), this method does NOT early-terminate. It runs every
+        tier sequentially, scores each result via ConfidenceScorer, and
+        returns all successful SourceResults for cross-source validation.
+
+        Args:
+            query: Normalized software/OS query.
+
+        Returns:
+            List of scored SourceResults from all tiers (may be empty).
+        """
+        pipeline_start = time.monotonic()
+        all_results: List[SourceResult] = []
+
+        for tier_num in self._registry.all_tiers():
+            adapters = self._registry.get_tier(tier_num)
+            if not adapters:
+                continue
+
+            tier_results = await self._run_tier(adapters, query)
+
+            for result in tier_results:
+                scored_confidence = confidence_scorer.score(
+                    result.raw_data.get("data", {}) if result.raw_data else {},
+                    result.tier,
+                )
+                result.confidence = scored_confidence
+                all_results.append(result)
+
+        duration_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
+        logger.info(
+            '[pipeline] fetch_all query="%s" version="%s" results=%d duration_ms=%.1f',
+            query.raw_name,
+            query.raw_version or "",
+            len(all_results),
+            duration_ms,
+        )
+        return all_results
+
     def _log_result(
         self,
         query: NormalizedQuery,
