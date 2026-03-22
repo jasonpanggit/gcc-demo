@@ -358,6 +358,7 @@
         const computerType = item.computer_type || item.computerType || '';
         const heartbeat = item.last_heartbeat || item.lastHeartbeat || item.time_generated;
         const resourceId = item.resource_id || item.resourceId || '';
+        // API may provide resource_group directly or it can be parsed from resource_id
         const resourceGroup = item.resource_group || parseResourceGroup(resourceId);
         const vmType = detectVmType(item, environment, computerType, resourceId);
         const rawEol = item.eol_date
@@ -374,13 +375,17 @@
         const supportEndDate = normalizeDateValue(item.support_end_date || item.supportEndDate || null);
         const eolMeta = classifyEol(eolDate);
         return {
-            computer: item.computer_name || item.computer || 'Unknown',
+            // vm_name is the field returned by /api/os; fall back to legacy fields
+            computer: item.vm_name || item.computer_name || item.computer || 'Unknown',
             os_name: displayOsName,
-            os_version: osVersion,
+            // os_type (Windows/Linux) can substitute for version when dedicated version field absent
+            os_version: osVersion || item.os_type || '',
             normalized_os_name: canonicalOsName,
             normalized_os_version: item.normalized_os_version ?? null,
             os_type: item.os_type || item.type || '',
-            computer_environment: environment,
+            // Derive environment from resource_id when explicit field missing
+            computer_environment: environment !== 'Unknown' ? environment
+                : (resourceId.includes('/subscriptions/') ? 'Azure' : 'Unknown'),
             computer_type: computerType || 'Unknown',
             vm_type: vmType,
             resource_group: resourceGroup || 'Unknown',
@@ -799,8 +804,30 @@
             if (!payload.success) {
                 throw new Error(payload.error || 'Failed to load OS inventory');
             }
-            const items = Array.isArray(payload.data) ? payload.data : [];
-            state.inventory = items.map(normalizeItem);
+            // API returns paginated shape: { data: { items: [], total, offset, limit } }
+            // Fall back to direct array for legacy compatibility
+            const rawItems = Array.isArray(payload.data)
+                ? payload.data
+                : (payload.data && Array.isArray(payload.data.items) ? payload.data.items : []);
+            // Deduplicate by VM: keep the record with the soonest (non-null) EOL date per vm_name
+            const vmMap = new Map();
+            for (const item of rawItems) {
+                const key = item.vm_name || item.computer_name || item.computer || item.resource_id || String(Math.random());
+                if (!vmMap.has(key)) {
+                    vmMap.set(key, item);
+                } else {
+                    // Prefer record with an actual EOL date; if both have one, keep sooner date
+                    const existing = vmMap.get(key);
+                    const existingDate = existing.eol_date || existing.eolDate || null;
+                    const newDate = item.eol_date || item.eolDate || null;
+                    if (!existingDate && newDate) {
+                        vmMap.set(key, item);
+                    } else if (existingDate && newDate && new Date(newDate) < new Date(existingDate)) {
+                        vmMap.set(key, item);
+                    }
+                }
+            }
+            state.inventory = Array.from(vmMap.values()).map(normalizeItem);
             if (elements.lastUpdated) {
                 elements.lastUpdated.textContent = new Date().toLocaleString();
             }
