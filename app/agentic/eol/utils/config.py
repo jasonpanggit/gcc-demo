@@ -385,6 +385,20 @@ class TimeoutConfig:
         }
 
 
+@dataclass
+class EolConfig:
+    """EOL orchestrator configuration.
+
+    Controls confidence scoring behavior and shadow mode.
+
+    Environment variables:
+        EOL_SHADOW_SCORING: Enable shadow scoring (default: true)
+    """
+    shadow_scoring: bool = field(
+        default_factory=lambda: os.getenv("EOL_SHADOW_SCORING", "true").lower() == "true"
+    )
+
+
 class ConfigManager:
     """Centralized configuration manager"""
 
@@ -398,6 +412,7 @@ class ConfigManager:
         self._cve_scanner_config: Optional[CVEScannerConfig] = None
         self._cve_monitoring_config: Optional[CVEMonitoringConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
+        self._eol_config: Optional[EolConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
     def _load_appsettings(self) -> Dict[str, Any]:
@@ -561,6 +576,13 @@ class ConfigManager:
         if self._timeout_config is None:
             self._timeout_config = TimeoutConfig.from_env()
         return self._timeout_config
+
+    @property
+    def eol(self) -> EolConfig:
+        """Get EOL orchestrator configuration"""
+        if self._eol_config is None:
+            self._eol_config = EolConfig()
+        return self._eol_config
 
     def validate_config(self) -> Dict[str, Any]:
         """
