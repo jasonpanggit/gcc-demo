@@ -824,6 +824,23 @@ LIMIT $10 OFFSET $11;
             logger.error("Failed to fetch CVE detail for %s", cve_id, exc_info=True)
             return None
 
+    async def get_cve(self, cve_id: str) -> Optional[UnifiedCVE]:
+        """Get CVE as UnifiedCVE model for CVEService compatibility.
+
+        This method bridges the gap between CVERepository (returns Dict)
+        and CVEService (expects UnifiedCVE objects).
+        """
+        cve_dict = await self.get_cve_detail(cve_id)
+        if cve_dict is None:
+            return None
+
+        # Convert Dict to UnifiedCVE
+        try:
+            return UnifiedCVE(**cve_dict)
+        except Exception as e:
+            logger.error(f"Failed to convert CVE dict to UnifiedCVE for {cve_id}: {e}")
+            return None
+
     async def get_cve_affected_vms(
         self,
         cve_id: str,
