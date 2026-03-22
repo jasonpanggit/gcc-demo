@@ -1834,28 +1834,16 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Summarize an agent comparison entry for side-by-side display
         function summarizeAgentComparison(entry) {
             if (!entry || typeof entry !== 'object') return null;
-            const payload = entry.result || {};
-            const dataBlock = payload.data && typeof payload.data === 'object' ? payload.data : payload;
-            const eolDate = dataBlock.eol_date || dataBlock.eol || null;
-            const supportEnd = dataBlock.support_end_date || dataBlock.support || null;
-            const agent = entry.agent || dataBlock.agent_used || dataBlock.source || 'unknown';
-            const softwareName = dataBlock.software_name || null;
-            const softwareVersion = dataBlock.version || null;
-            const confRaw = entry.confidence !== undefined ? entry.confidence : dataBlock.confidence;
+            // New sources array format: {agent, confidence, eol_date, support_end_date, release_date, source_url, tier, discrepancy_flag}
+            const eolDate = entry.eol_date || null;
+            const supportEnd = entry.support_end_date || null;
+            const agent = entry.agent || 'unknown';
+            const softwareName = null;  // sources entries don't carry software_name (it's on the parent)
+            const softwareVersion = null;
+            const confRaw = entry.confidence;
             const confidencePct = confRaw !== undefined ? (confRaw > 1 ? confRaw : Math.round(confRaw * 100)) : null;
-            const sourceUrl = extractSourceUrl(dataBlock.source_url) || extractSourceUrl(payload.source_url);
-
-            return {
-                agent,
-                softwareName,
-                softwareVersion,
-                confidencePct,
-                eolDate,
-                supportEnd,
-                sourceUrl,
-                error: entry.error || dataBlock.error,
-                duration: entry.duration,
-            };
+            const sourceUrl = entry.source_url || null;
+            return { eolDate, supportEnd, agent, softwareName, softwareVersion, confidencePct, sourceUrl, tier: entry.tier, discrepancyFlag: entry.discrepancy_flag };
         }
 
         // Display error in search results
@@ -2268,10 +2256,10 @@ Legacy format handling has been removed as all agents now use the standardized f
                 const includeInternetFlag = searchData.search_include_internet || searchData.searchIncludeInternet || orchestratorResult.search_mode === 'agents_plus_internet' || searchData.search_mode === 'agents_plus_internet';
                 const agentOnlyFlag = searchData.search_agent_only || searchData.searchAgentOnly || orchestratorResult.search_mode === 'agent_only' || searchData.search_mode === 'agent_only' || (!internetOnlyFlag && !includeInternetFlag);
 
-                const comparisonRaw = agentOnlyFlag ? [] : (Array.isArray(result.agent_comparisons)
-                    ? result.agent_comparisons
-                    : (Array.isArray(orchestratorResult.agent_comparisons)
-                        ? orchestratorResult.agent_comparisons
+                const comparisonRaw = agentOnlyFlag ? [] : (Array.isArray(result.sources)
+                    ? result.sources
+                    : (Array.isArray(orchestratorResult.sources)
+                        ? orchestratorResult.sources
                         : []));
 
                 const comparisonSummaries = comparisonRaw
