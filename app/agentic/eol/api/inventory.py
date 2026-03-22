@@ -295,6 +295,26 @@ async def get_os_summary(request: Request):
     )
 
 
+@router.post("/api/os/sync-vms", response_model=StandardResponse)
+@readonly_endpoint(agent_name="sync_vms_os", timeout_seconds=30)
+async def sync_vms_os(request: Request):
+    """Sync vms.os_name from resource_inventory (Azure VMs) and os_inventory_snapshots (Arc VMs).
+
+    Writes the normalized OS name+version (e.g. 'windows server 2019') into the vms table
+    so that EOL joins resolve to the correct versioned eol_records row.
+    """
+    inventory_repo = get_or_init_repository(request.app, "inventory_repo")
+    result = await inventory_repo.sync_vms_os_data_from_snapshots()
+    return StandardResponse(
+        success=result["status"] == "success",
+        data=result,
+        message=(
+            f"Synced vms OS data: {result.get('ri_updated', 0)} from resource_inventory, "
+            f"{result.get('snapshot_updated', 0)} from snapshots"
+        ),
+    )
+
+
 @router.get("/api/inventory/raw/software", response_model=StandardResponse)
 @with_timeout_and_stats(
     agent_name="software_inventory_raw",

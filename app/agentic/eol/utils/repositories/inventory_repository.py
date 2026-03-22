@@ -441,14 +441,22 @@ class InventoryRepository:
             return []
 
     async def sync_vms_os_data_from_snapshots(self) -> Dict[str, Any]:
-        """Update vms table OS data from os_inventory_snapshots using resource_id join.
+        """Update vms table OS data from two sources:
+
+        1. os_inventory_snapshots (Arc VMs — has full version string in os_name)
+        2. resource_inventory (Azure VMs — has normalized_os_name + normalized_os_version)
+
+        For Azure VMs we build a normalised display name like "windows server 2019"
+        by concatenating normalized_os_name and normalized_os_version from
+        resource_inventory. This fixes the generic "windows server" problem.
 
         Returns:
-            Dict with sync statistics (updated_count, skipped_count, errors)
+            Dict with sync statistics (snapshot_updated, ri_updated, errors)
         """
         try:
             async with self.pool.acquire() as conn:
-                result = await conn.execute("""
+                # Pass 1 — Arc VMs: sync from os_inventory_snapshots (unchanged logic)
+                r1 = await conn.execute("""
                     UPDATE vms
                     SET
                         os_name = COALESCE(osi.os_name, vms.os_name),
@@ -458,20 +466,57 @@ class InventoryRepository:
                       AND (vms.os_name IS NULL OR vms.os_name = 'Unknown'
                            OR vms.os_type IS NULL OR vms.os_type = 'Unknown')
                 """)
+                snapshot_updated = int(r1.split()[-1]) if r1 and r1.split() else 0
 
-                # Parse result like "UPDATE 2"
-                updated_count = int(result.split()[-1]) if result and result.split() else 0
+                # Pass 2 — Azure VMs: sync from resource_inventory using
+                # normalized_os_name + normalized_os_version.
+                # Always overwrite generic os_name values that lack a version year
+                # (i.e. plain "windows server" / "linux" without a year suffix).
+                # The CONCAT produces e.g. "windows server 2019".
+                r2 = await conn.execute("""
+                    UPDATE vms
+                    SET
+                        os_name = TRIM(
+                            ri.normalized_os_name
+                            || CASE
+                                   WHEN ri.normalized_os_version IS NOT NULL
+                                        AND ri.normalized_os_version <> ''
+                                   THEN ' ' || ri.normalized_os_version
+                                   ELSE ''
+                               END
+                        ),
+                        updated_at     = NOW(),
+                        last_synced_at = NOW()
+                    FROM resource_inventory ri
+                    WHERE LOWER(vms.resource_id) = LOWER(ri.id)
+                      AND ri.normalized_os_name IS NOT NULL
+                      AND ri.normalized_os_name <> ''
+                      AND ri.normalized_os_version IS NOT NULL
+                      AND ri.normalized_os_version <> ''
+                      AND (
+                          -- overwrite only when the stored value is generic (no year)
+                          vms.os_name IS NULL
+                          OR vms.os_name = 'Unknown'
+                          OR NOT (vms.os_name ~* '\\d{4}')
+                      )
+                """)
+                ri_updated = int(r2.split()[-1]) if r2 and r2.split() else 0
 
-                logger.info("Synced OS data from snapshots to vms table: %d rows updated", updated_count)
+                logger.info(
+                    "Synced OS data to vms table: %d from snapshots, %d from resource_inventory",
+                    snapshot_updated, ri_updated,
+                )
 
                 return {
-                    "updated_count": updated_count,
-                    "status": "success"
+                    "snapshot_updated": snapshot_updated,
+                    "ri_updated": ri_updated,
+                    "updated_count": snapshot_updated + ri_updated,
+                    "status": "success",
                 }
         except asyncpg.PostgresError as exc:
             logger.error("sync_vms_os_data_from_snapshots failed: %s", exc)
             return {
                 "updated_count": 0,
                 "status": "error",
-                "error": str(exc)
+                "error": str(exc),
             }

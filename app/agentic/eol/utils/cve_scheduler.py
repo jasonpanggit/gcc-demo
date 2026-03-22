@@ -348,6 +348,21 @@ async def incremental_sync_job() -> None:
         # is intentional and idempotent.
         await _run_msrc_kb_edge_sync_step()
 
+        # Sync vms.os_name from resource_inventory so Azure VMs carry a versioned
+        # OS name (e.g. "windows server 2019") for accurate EOL JOIN matching.
+        try:
+            from utils.repository_state import get_or_init_repository
+            from main import app as _app
+            inventory_repo = get_or_init_repository(_app, "inventory_repo")
+            vm_sync_result = await inventory_repo.sync_vms_os_data_from_snapshots()
+            logger.info(
+                "VM OS sync: %d from resource_inventory, %d from snapshots",
+                vm_sync_result.get("ri_updated", 0),
+                vm_sync_result.get("snapshot_updated", 0),
+            )
+        except Exception as _vm_sync_err:
+            logger.warning("VM OS sync skipped: %s", _vm_sync_err)
+
         # Phase 8: Refresh bootstrap MVs after successful sync
         try:
             from utils.pg_client import postgres_client
