@@ -41,6 +41,8 @@ try:
 except ImportError:
     _app_config = None  # type: ignore[assignment]
 
+from utils.confidence_scorer import confidence_scorer
+
 # Import logger
 try:
     from utils import get_logger
@@ -1238,8 +1240,35 @@ class EOLOrchestratorAgent:
         
         return unique_agents
 
-    def _calculate_confidence(self, result, agent_name, software_name):
-        """Evidence-weighted confidence tuned for accuracy vs. coverage."""
+    @staticmethod
+    def _agent_tier(agent_name: str) -> int:
+        """Map agent name to source reliability tier.
+
+        Tier 1: Structured API (endoflife.date)
+        Tier 2: JSON-LD extraction (eolstatus.com)
+        Tier 3: Vendor HTML scrapers
+        Tier 4: Browser automation / web search
+        """
+        _TIER_MAP = {
+            "endoflife": 1,
+            "eolstatus": 2,
+            "microsoft": 3,
+            "redhat": 3,
+            "ubuntu": 3,
+            "oracle": 3,
+            "vmware": 3,
+            "apache": 3,
+            "nodejs": 3,
+            "postgresql": 3,
+            "php": 3,
+            "python": 3,
+            "playwright": 4,
+            "azure_ai": 4,
+        }
+        return _TIER_MAP.get(agent_name, 4)
+
+    def _calculate_confidence_v1(self, result, agent_name, software_name):
+        """Evidence-weighted confidence tuned for accuracy vs. coverage (legacy additive formula)."""
         software_lower = software_name.lower()
         data = result.get("data", {}) if isinstance(result, dict) else {}
 
@@ -1282,6 +1311,41 @@ class EOLOrchestratorAgent:
 
         confidence = max(0.05, min(confidence, max_conf_cap))
         return round(confidence, 2)
+
+    def _calculate_confidence(self, result, agent_name, software_name):
+        """Confidence scoring with optional shadow mode.
+
+        When shadow_scoring is enabled (default), runs both the old additive
+        formula (v1) and the new multiplicative formula (v2), logs the delta,
+        and returns the OLD score (no behavior change).
+
+        When shadow_scoring is disabled, returns the new multiplicative score.
+        """
+        old_score = self._calculate_confidence_v1(result, agent_name, software_name)
+
+        # Determine tier for new scorer
+        tier = self._agent_tier(agent_name)
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+
+        # Check shadow mode config
+        shadow_enabled = True
+        try:
+            if _app_config is not None:
+                shadow_enabled = _app_config.eol.shadow_scoring
+        except (AttributeError, Exception):
+            shadow_enabled = True  # Default to shadow mode if config unavailable
+
+        if shadow_enabled:
+            new_score = confidence_scorer.score(data, tier)
+            delta = new_score - old_score
+            logger.info(
+                '[shadow_scoring] query="%s" agent=%s tier=%d old=%.3f new=%.3f delta=%+.3f',
+                software_name, agent_name, tier, old_score, new_score, delta,
+            )
+            return old_score  # Shadow: return old score, no behavior change
+
+        # Non-shadow: return new multiplicative score
+        return confidence_scorer.score(data, tier)
 
     def _software_name_matches(self, result: Dict[str, Any], software_name: str) -> bool:
         """Check if result software name matches the query name."""
