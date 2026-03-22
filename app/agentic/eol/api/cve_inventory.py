@@ -484,8 +484,8 @@ async def get_vm_vulnerabilities(
 @router.get("/{cve_id}/affected-vms", response_model=StandardResponse)
 @readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
-    cve_id: str,
     request: Request,
+    cve_id: str,
     subscription_filter: Optional[str] = Query(None, alias="subscription_id", description="Filter by subscription ID"),
     resource_group_filter: Optional[str] = Query(None, alias="resource_group", description="Filter by resource group"),
     limit: int = Query(default=100, le=1000, ge=1, description="Maximum VMs to return (1-1000)"),
