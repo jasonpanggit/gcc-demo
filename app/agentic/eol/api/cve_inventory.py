@@ -105,6 +105,80 @@ async def _build_vm_vulnerability_response(
         len(matches), vm_id, severity_filter, min_cvss,
     )
 
+    # Enrich CVEs with patch status by cross-referencing against installed/available patches
+    # Build lookup maps: CVE ID -> [KB IDs]
+    # Use the SAME data source (available_patches_result) for both total counts and enrichment
+    installed_cve_to_kbs = {}
+    for patch in installed_patches:
+        kbs = patch.get("kb_ids", [])
+        if not kbs and patch.get("patch_id"):
+            kbs = [patch["patch_id"]]
+        for cve_id in patch.get("cve_ids", []):
+            cve_upper = cve_id.upper()
+            if cve_upper not in installed_cve_to_kbs:
+                installed_cve_to_kbs[cve_upper] = []
+            installed_cve_to_kbs[cve_upper].extend(kbs)
+
+    # CRITICAL: Use available_patches (from available_patches_result) not a separate query
+    # This ensures CVE enrichment uses the SAME data shown in the UI patch sections
+    available_cve_to_kbs = {}
+    for patch in available_patches:
+        kbs = patch.get("kb_ids", [])
+        if not kbs and patch.get("patch_id"):
+            kbs = [patch["patch_id"]]
+        for cve_id in patch.get("cve_ids", []):
+            cve_upper = cve_id.upper()
+            if cve_upper not in available_cve_to_kbs:
+                available_cve_to_kbs[cve_upper] = []
+            available_cve_to_kbs[cve_upper].extend(kbs)
+
+    # Calculate total patch status counts from patch inventories (not just current page)
+    total_installed_cves = len(installed_cve_to_kbs)
+    total_available_cves = len(available_cve_to_kbs)
+    total_no_evidence = total - total_installed_cves - total_available_cves
+
+    total_patch_status_counts = {
+        "installed": total_installed_cves,
+        "available": total_available_cves,
+        "none": max(0, total_no_evidence),  # Ensure non-negative
+    }
+
+    logger.info(
+        "Total patch status counts for VM %s (%d CVEs): installed=%d, available=%d, none=%d",
+        vm_id, total, total_installed_cves, total_available_cves, total_no_evidence,
+    )
+
+    # Enrich each CVE in current page with patch status
+    patch_status_page_counts = {"installed": 0, "available": 0, "none": 0}
+    for cve in matches:
+        cve_id_upper = cve["cve_id"].upper()
+
+        installed_kbs = installed_cve_to_kbs.get(cve_id_upper, [])
+        available_kbs = available_cve_to_kbs.get(cve_id_upper, [])
+
+        if installed_kbs:
+            cve["patch_status"] = "installed"
+            cve["installed_patch_ids"] = list(set(installed_kbs))
+            cve["installed_patches"] = len(installed_kbs)
+            patch_status_page_counts["installed"] += 1
+        elif available_kbs:
+            cve["patch_status"] = "available"
+            cve["available_patch_ids"] = list(set(available_kbs))
+            cve["patches_available"] = len(available_kbs)
+            patch_status_page_counts["available"] += 1
+        else:
+            cve["patch_status"] = "none"
+            cve["patches_available"] = 0
+            patch_status_page_counts["none"] += 1
+
+    logger.info(
+        "Patch status for current page (%d CVEs): installed=%d, available=%d, none=%d",
+        len(matches),
+        patch_status_page_counts["installed"],
+        patch_status_page_counts["available"],
+        patch_status_page_counts["none"],
+    )
+
     # Calculate pagination metadata
     has_more = (offset + limit) < total
 
@@ -130,6 +204,8 @@ async def _build_vm_vulnerability_response(
         "patch_coverage": {
             "installed_patch_entries": installed_patches,
             "available_patch_entries": available_patches,
+            # Total patch status counts across ALL CVEs (not just current page)
+            "total_patch_status_counts": total_patch_status_counts,
         },
         # Keep legacy fields for backward compatibility
         "items": matches,
