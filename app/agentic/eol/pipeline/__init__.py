@@ -1,19 +1,19 @@
 """EOL tiered fetch pipeline.
 
 Provides a uniform SourceAdapter protocol, adapter registry for
-tier-based grouping, and a factory for creating the default adapter set.
+tier-based grouping, a factory for creating the default adapter set,
+and the TieredFetchPipeline execution engine.
 
 Phase 2 deliverables:
 - SourceAdapter (Protocol): Uniform fetch interface for data sources
 - SourceResult (dataclass): Standard result shape from any adapter
 - AdapterRegistry: Groups adapters by reliability tier
 - create_default_registry: Factory creating the standard 4-adapter set
-
-Phase 2.2 will add:
 - TieredFetchPipeline: Sequential tier execution with early termination
 """
 
 from .source_adapter import AdapterRegistry, SourceAdapter, SourceResult
+from .tiered_fetch_pipeline import TieredFetchPipeline
 from .adapters import (
     DEFAULT_VENDOR_ROUTING,
     EndoflifeAdapter,
@@ -81,6 +81,7 @@ __all__ = [
     "AdapterRegistry",
     "SourceAdapter",
     "SourceResult",
+    "TieredFetchPipeline",
     "create_default_registry",
     "EndoflifeAdapter",
     "EolstatusAdapter",
