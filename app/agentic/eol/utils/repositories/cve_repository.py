@@ -834,6 +834,12 @@ LIMIT $10 OFFSET $11;
         if cve_dict is None:
             return None
 
+        # Map database field names to UnifiedCVE field names
+        if 'published_at' in cve_dict:
+            cve_dict['published_date'] = cve_dict.pop('published_at')
+        if 'modified_at' in cve_dict:
+            cve_dict['last_modified_date'] = cve_dict.pop('modified_at')
+
         # Convert Dict to UnifiedCVE
         try:
             return UnifiedCVE(**cve_dict)
