@@ -63,8 +63,8 @@ async def _build_vm_vulnerability_response(
 
     # When patch_status filter is requested, we need to fetch more CVEs because
     # patch_status is computed AFTER database fetch (during enrichment).
-    # Fetch enough CVEs to ensure we have sufficient matches after filtering.
-    fetch_limit = limit if not patch_status_filter else min(5000, total)
+    # Fetch a large number of CVEs to ensure we have sufficient matches after filtering.
+    fetch_limit = limit if not patch_status_filter else 5000
     fetch_offset = offset if not patch_status_filter else 0
 
     # Parallel: fetch CVE matches + total count + severity breakdown + patch data

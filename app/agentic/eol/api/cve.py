@@ -86,9 +86,12 @@ async def get_cve_stats(request: Request) -> StandardResponse:
         medium = entry.get("medium_count", 0)
         low = entry.get("low_count", 0)
 
+        # Generate normalized key for product filtering (e.g., "Windows Server 2016" -> "windows_server_2016")
+        normalized_key = os_name.lower().replace(" ", "_")
+
         os_identities.append({
-            "key": os_name,
-            "display_name": os_name,
+            "key": normalized_key,  # Normalized key for filtering
+            "display_name": os_name,  # Display name for UI
             "normalized_version": "",  # Aggregated across versions
             "match_count": total_cves,
             "query_mode": "CPE_MATCH",  # CPE-based matching against CVE database
@@ -157,6 +160,8 @@ async def search_cves(search_request: CVESearchRequest, request: Request) -> Sta
     source = search_request.source
     limit = search_request.limit or 100
     offset = search_request.offset or 0
+    sort_by = search_request.sort_by or "cvss_v3_score"
+    sort_order = search_request.sort_order or "desc"
 
     # Parallel: search + count
     results, total = await asyncio.gather(
@@ -165,6 +170,7 @@ async def search_cves(search_request: CVESearchRequest, request: Request) -> Sta
             vendor=vendor, product=product,
             date_from=date_from, date_to=date_to,
             source=source, limit=limit, offset=offset,
+            sort_by=sort_by, sort_order=sort_order,
         ),
         cve_repo.count_cves(
             keyword=keyword, severity=severity, min_score=min_score,
@@ -218,3 +224,4 @@ async def get_cve_detail(
         data=cve_data,
         message=f"CVE {cve_id} retrieved",
     )
+# Rebuild Sun 22 Mar 2026 01:03:08 +08

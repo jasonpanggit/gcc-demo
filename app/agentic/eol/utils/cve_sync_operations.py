@@ -138,9 +138,13 @@ async def sync_msrc_kb_edges(
                 else kb_number
             )
             for cve_id in cve_ids:
+                # Filter out non-CVE advisory IDs (e.g., ADV200011)
+                cve_upper = cve_id.upper()
+                if not cve_upper.startswith("CVE-"):
+                    continue
                 edges.append({
                     "kb_number": kb_with_prefix,
-                    "cve_id": cve_id.upper(),
+                    "cve_id": cve_upper,
                     "source": "microsoft",
                     "severity": None,
                     "title": None,
@@ -249,9 +253,13 @@ async def sync_kb_edges_for_kbs(
                 logger.warning(f"sync_kb_edges_for_kbs: MSRC lookup failed for {kb}: {result}")
                 continue
             for cve_id in result:
+                # Filter out non-CVE advisory IDs (e.g., ADV200011)
+                cve_upper = cve_id.upper()
+                if not cve_upper.startswith("CVE-"):
+                    continue
                 all_edges.append({
                     "kb_number": kb,
-                    "cve_id": cve_id.upper(),
+                    "cve_id": cve_upper,
                     "source": "microsoft",
                     "severity": None,
                     "title": None,

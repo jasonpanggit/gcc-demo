@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from decimal import Decimal
 
 import asyncpg
 
@@ -29,6 +30,25 @@ except ModuleNotFoundError:
     from models.cve_models import UnifiedCVE  # type: ignore[import-not-found]
 
 logger = get_logger(__name__)
+
+
+def serialize_row(row: asyncpg.Record) -> Dict[str, Any]:
+    """Convert asyncpg.Record to JSON-serializable dict
+
+    Converts PostgreSQL types to JSON-compatible types:
+    - Decimal → float
+    - datetime → ISO string
+    - Everything else preserved as-is
+    """
+    result = {}
+    for key, value in dict(row).items():
+        if isinstance(value, Decimal):
+            result[key] = float(value)
+        elif isinstance(value, datetime):
+            result[key] = value.isoformat()
+        else:
+            result[key] = value
+    return result
 
 # ---------------------------------------------------------------------------
 # SQL Constants -- Dashboard MV reads (Phase 6 TARGET-SQL-CVE-DOMAIN.md)
@@ -246,7 +266,7 @@ WHERE 1=1
       -- Extract CPE prefix (vendor:product) and match any version wildcard (* or -)
       substring($9 from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
   ))
-ORDER BY c.published_at DESC, c.cve_id DESC
+ORDER BY c.cvss_v3_score DESC NULLS LAST, c.published_at DESC NULLS LAST, c.cve_id DESC
 LIMIT $10 OFFSET $11;
 """
 
@@ -383,7 +403,7 @@ class CVERepository:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(QUERY_TRENDING, cutoff)
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch trending data", exc_info=True)
             return []
@@ -393,7 +413,7 @@ class CVERepository:
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(QUERY_TOP_BY_SCORE, limit)
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch top CVEs by score", exc_info=True)
             return []
@@ -403,7 +423,7 @@ class CVERepository:
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(QUERY_VM_POSTURE, limit)
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch VM posture summary", exc_info=True)
             return []
@@ -413,7 +433,7 @@ class CVERepository:
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(QUERY_OS_CVE_BREAKDOWN)
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch OS CVE breakdown", exc_info=True)
             return []
@@ -661,6 +681,8 @@ class CVERepository:
         cpe_name: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        sort_by: str = "cvss_v3_score",
+        sort_order: str = "desc",
     ) -> List[Dict]:
         """CVE search with full filters including CPE. Phase 6 Query 2a. Eliminates BH-002."""
         try:
@@ -668,16 +690,81 @@ class CVERepository:
             if cpe_name:
                 logger.info(f"search_cves called with cpe_name={cpe_name}, vendor={vendor}, keyword={keyword}")
 
+            # Map sort_by field names to SQL column names
+            sort_field_map = {
+                "cvss_v3_score": "c.cvss_v3_score",
+                "published_date": "c.published_at",
+                "published_at": "c.published_at",
+                "modified_at": "c.modified_at",
+                "cve_id": "c.cve_id",
+            }
+            sql_sort_field = sort_field_map.get(sort_by, "c.cvss_v3_score")
+            sql_sort_order = "ASC" if sort_order.lower() == "asc" else "DESC"
+
+            # Build dynamic ORDER BY with NULLS LAST
+            order_by_clause = f"ORDER BY {sql_sort_field} {sql_sort_order} NULLS LAST, c.published_at DESC NULLS LAST, c.cve_id DESC"
+
+            # Build query with dynamic ORDER BY
+            query = f"""
+SELECT c.cve_id, c.description,
+       c.cvss_v2_score, c.cvss_v2_severity, c.cvss_v2_vector,
+       c.cvss_v2_exploitability AS cvss_v2_exploitability_score,
+       c.cvss_v2_impact AS cvss_v2_impact_score,
+       c.cvss_v3_score, c.cvss_v3_severity, c.cvss_v3_vector,
+       c.cvss_v3_exploitability AS cvss_v3_exploitability_score,
+       c.cvss_v3_impact AS cvss_v3_impact_score,
+       c.published_at, c.modified_at, c.synced_at,
+       c.cwe_ids, c.affected_products, c.references,
+       c.vendor_metadata, c.sources,
+       COALESCE(e.affected_vms, 0) AS affected_vms
+FROM cves c
+LEFT JOIN mv_cve_exposure e ON e.cve_id = c.cve_id
+WHERE 1=1
+  AND ($1::text IS NULL OR $9::text IS NOT NULL OR c.search_vector @@ plainto_tsquery('english', $1))
+  AND ($2::text IS NULL OR c.cvss_v3_severity = $2)
+  AND ($3::numeric IS NULL OR c.cvss_v3_score >= $3)
+  AND ($4::text IS NULL OR $9::text IS NOT NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{{}}' ILIKE '%' || $4 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'vendor' ILIKE $4
+      )
+    END
+  ))
+  AND ($5::text IS NULL OR (
+    CASE
+      WHEN jsonb_typeof(c.affected_products) = 'string'
+      THEN c.affected_products#>>'{{}}' ILIKE '%' || $5 || '%'
+      ELSE EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+        WHERE product->>'product' ILIKE $5
+      )
+    END
+  ))
+  AND ($6::timestamptz IS NULL OR c.published_at >= $6)
+  AND ($7::timestamptz IS NULL OR c.published_at <= $7)
+  AND ($8::text IS NULL OR $8 = ANY(c.sources))
+  AND ($9::text IS NULL OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(c.affected_products) AS product
+    WHERE product->>'cpe_uri' LIKE
+      substring($9 from '^(cpe:2.3:[^:]+:[^:]+:[^:]+):') || ':%'
+  ))
+{order_by_clause}
+LIMIT $10 OFFSET $11;
+"""
+
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
-                    QUERY_SEARCH_CVES,
+                    query,
                     keyword, severity, min_score,
                     vendor, product,
                     date_from, date_to,
                     source, cpe_name,
                     limit, offset,
                 )
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to search CVEs", exc_info=True)
             return []
@@ -714,10 +801,25 @@ class CVERepository:
 
     async def get_cve_detail(self, cve_id: str) -> Optional[Dict]:
         """Single CVE by ID with full columns. Phase 6 Query 3a."""
+        import json as _json
         try:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(QUERY_CVE_DETAIL, cve_id)
-                return dict(row) if row else None
+                if row is None:
+                    return None
+                result = dict(row)
+                # Ensure JSONB list fields are always Python lists, not strings/None
+                for json_field in ("references", "affected_products", "cwe_ids", "sources"):
+                    value = result.get(json_field)
+                    if value is None:
+                        result[json_field] = []
+                    elif isinstance(value, str):
+                        try:
+                            parsed = _json.loads(value)
+                            result[json_field] = parsed if isinstance(parsed, list) else []
+                        except (_json.JSONDecodeError, TypeError):
+                            result[json_field] = []
+                return result
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch CVE detail for %s", cve_id, exc_info=True)
             return None
@@ -737,7 +839,7 @@ class CVERepository:
                     QUERY_CVE_AFFECTED_VMS,
                     cve_id, subscription_id, resource_group, limit, offset,
                 )
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch affected VMs for %s", cve_id, exc_info=True)
             return []
@@ -780,7 +882,7 @@ class CVERepository:
                     rows = await conn.fetch(
                         QUERY_VM_CVE_MATCHES, vm_id, severity, limit, offset,
                     )
-                return [dict(row) for row in rows]
+                return [serialize_row(row) for row in rows]
         except asyncpg.PostgresError as e:
             logger.error("Failed to fetch CVE matches for VM %s", vm_id, exc_info=True)
             return []
@@ -815,3 +917,4 @@ class CVERepository:
         except asyncpg.PostgresError as e:
             logger.error("Failed to get severity breakdown for VM %s", vm_id, exc_info=True)
             return {}
+# Force rebuild Sun 22 Mar 2026 00:52:46 +08

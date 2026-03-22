@@ -533,7 +533,7 @@ async def routing_analytics_ui(request: Request):
     return templates.TemplateResponse(request, "routing-analytics.html")
 
 
-@router.get("/cve-search", response_class=HTMLResponse)
+@router.get("/cve-database", response_class=HTMLResponse)
 @with_timeout_and_stats(
     agent_name="cve_search_page",
     timeout_seconds=5,
@@ -559,12 +559,12 @@ async def cve_search_ui(request: Request):
         request: FastAPI Request object
 
     Returns:
-        HTMLResponse with rendered cve-search.html template.
+        HTMLResponse with rendered cve-database.html template.
     """
     asset_version = config.app.asset_version
     return templates.TemplateResponse(
         request,
-        "cve-search.html",
+        "cve-database.html",
         {"asset_version": asset_version},
     )
 
@@ -608,7 +608,7 @@ async def cve_detail_ui(request: Request, cve_id: str):
 async def cve_detail_query_redirect(request: Request, cve_id: Optional[str] = None):
     """Redirect legacy query-param detail URLs to the canonical path-based route."""
     if not cve_id:
-        return RedirectResponse(url="/cve-search", status_code=307)
+        return RedirectResponse(url="/cve-database", status_code=307)
 
     return RedirectResponse(
         url=f"/cve-detail/{cve_id}?from=dashboard",
@@ -747,3 +747,4 @@ async def vm_vulnerability_page(request: Request):
             "asset_version": asset_version,
         }
     )
+# Force rebuild Sun 22 Mar 2026 00:40:18 +08
