@@ -29,10 +29,10 @@ from .playwright_agent import PlaywrightEOLAgent
 from .eolstatus_agent import EOLStatusAgent
 
 try:
-    from utils.normalization import normalize_os_name_version, normalize_software_name_version
+    from utils.normalization import NormalizedQuery, normalize_os_name_version
 except ImportError:
     # Fallback for relative import
-    from ..utils.normalization import normalize_os_name_version, normalize_software_name_version
+    from ..utils.normalization import NormalizedQuery, normalize_os_name_version
 
 from utils.eol_inventory import eol_inventory
 
@@ -706,9 +706,10 @@ class EOLOrchestratorAgent:
 
             # Normalize for consistent cache keys
             if item_type == "os":
-                normalized_name, normalized_version = normalize_os_name_version(software_name, version)
+                _nq = NormalizedQuery.from_os(software_name, version)
             else:
-                normalized_name, normalized_version = normalize_software_name_version(software_name, version)
+                _nq = NormalizedQuery.from_software(software_name, version)
+            normalized_name, normalized_version = _nq.as_tuple()
             
             logger.debug(
                 f"EOL orchestrator normalized: '{software_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
@@ -1292,8 +1293,8 @@ class EOLOrchestratorAgent:
         if not result_name:
             return False
 
-        query_norm = self._normalize_software_name(software_name)
-        result_norm = self._normalize_software_name(str(result_name))
+        query_norm = NormalizedQuery.from_software(software_name).name
+        result_norm = NormalizedQuery.from_software(str(result_name)).name
 
         if not query_norm or not result_norm:
             return False
@@ -1368,10 +1369,7 @@ class EOLOrchestratorAgent:
 
     def _normalize_software_name(self, name: str) -> str:
         """Normalize software name for comparison."""
-        import re
-
-        cleaned = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
-        return re.sub(r"\s+", " ", cleaned)
+        return NormalizedQuery.from_software(name).name
 
     def _process_eol_data(self, raw_data, software_name, version):
         """
