@@ -233,5 +233,70 @@ def normalize_software_name_version(software_name: str, version: Optional[str] =
     # For now, simple normalization (can be enhanced as needed)
     normalized_name = software_name.lower().strip()
     normalized_version = version.lower().strip() if version else version
-    
+
     return normalized_name, normalized_version
+
+
+import re as _re
+
+
+@dataclass
+class NormalizedQuery:
+    """Unified normalization result for both OS and software queries.
+
+    Replaces direct use of normalize_os_name_version and
+    normalize_software_name_version at callsites.
+    """
+    name: str
+    version: Optional[str]
+    query_type: str  # "os" | "software"
+    raw_name: str
+    raw_version: Optional[str]
+    derivation: Optional[dict] = None
+
+    @classmethod
+    def from_os(cls, name: str, version: Optional[str] = None) -> "NormalizedQuery":
+        """Normalize an OS name/version using the OS extraction rules store."""
+        raw_name = (name or "").strip()
+        raw_version = version.strip() if isinstance(version, str) else version
+        derived = derive_os_name_version(raw_name, raw_version)
+        return cls(
+            name=str(derived.get("normalized_name") or ""),
+            version=derived.get("normalized_version"),
+            query_type="os",
+            raw_name=raw_name,
+            raw_version=raw_version,
+            derivation=derived,
+        )
+
+    @classmethod
+    def from_software(cls, name: str, version: Optional[str] = None) -> "NormalizedQuery":
+        """Normalize a software name/version for consistent cache keys.
+
+        Uses regex-based normalization (strips non-alphanumeric chars,
+        collapses whitespace) for robust matching across input variants.
+        """
+        raw_name = (name or "").strip()
+        raw_version = version.strip() if isinstance(version, str) else version
+        cleaned_name = _re.sub(r"[^a-z0-9]+", " ", raw_name.lower()).strip()
+        cleaned_name = _re.sub(r"\s+", " ", cleaned_name)
+        cleaned_version = raw_version.lower().strip() if raw_version else raw_version
+        return cls(
+            name=cleaned_name,
+            version=cleaned_version,
+            query_type="software",
+            raw_name=raw_name,
+            raw_version=raw_version,
+        )
+
+    @property
+    def canonical_key(self) -> str:
+        """Stable cache key for eol_records lookups.
+
+        Format: ``"{name}:{version_or_any}"``
+        """
+        return f"{self.name}:{self.version or 'any'}"
+
+    def as_tuple(self) -> Tuple[str, Optional[str]]:
+        """Return (name, version) tuple for backward-compatible callsites."""
+        return self.name, self.version
