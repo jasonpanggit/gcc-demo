@@ -28,14 +28,14 @@ try:
     from ..utils import get_logger, config
     from ..utils.inventory_cache import inventory_cache
     from ..utils.cache_stats_manager import cache_stats_manager
-    from ..utils.normalization import normalize_os_name_version
+    from ..utils.normalization import NormalizedQuery
 except ImportError:  # pragma: no cover - support execution when run as script
     import sys
 
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
-    from utils.normalization import normalize_os_name_version
+    from utils.normalization import NormalizedQuery
 
     try:
         from utils.cache_stats_manager import cache_stats_manager
@@ -98,7 +98,8 @@ class OSInventoryAgent:
             return None
 
         # Use centralized normalization for consistent cache keys
-        normalized_name, normalized_version = normalize_os_name_version(os_name, version)
+        _nq = NormalizedQuery.from_os(os_name, version)
+        normalized_name, normalized_version = _nq.as_tuple()
         
         logger.debug(
             f"Normalized OS: '{os_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"
