@@ -6,6 +6,22 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
 
+try:
+    from utils.confidence_scorer import ConfidenceNormalizer
+except ImportError:
+    try:
+        from ..utils.confidence_scorer import ConfidenceNormalizer
+    except ImportError:
+        # Fallback: no-op normalizer if module unavailable
+        class ConfidenceNormalizer:
+            @staticmethod
+            def normalize(value):
+                try:
+                    v = float(value)
+                    return v / 100.0 if v > 1.0 else max(0.0, min(1.0, v))
+                except (TypeError, ValueError):
+                    return None
+
 logger = logging.getLogger(__name__)
 
 class BaseEOLAgent(ABC):
@@ -41,6 +57,13 @@ class BaseEOLAgent(ABC):
         """
         Create a standardized success response
         """
+        # Normalize confidence to [0.0, 1.0] scale (CONF-05)
+        normalized = ConfidenceNormalizer.normalize(confidence)
+        if normalized is not None:
+            confidence = normalized
+        else:
+            confidence = 0.8  # fallback default
+
         response = {
             "success": True,
             "source": self.agent_name,
