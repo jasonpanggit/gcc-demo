@@ -176,8 +176,7 @@ class OSExtractionReapplyRequest(BaseModel):
 @router.get("/api/os-extraction-rules", response_model=StandardResponse)
 @readonly_endpoint(agent_name="os_extraction_rules_list", timeout_seconds=15)
 async def list_os_extraction_rules(request: Request):
-    eol_repo = request.app.state.eol_repo
-    rules = await eol_repo.list_extraction_rules()
+    rules = os_extraction_rules_store.get_rules()
     return StandardResponse(success=True, data=rules, count=len(rules))
 
 
