@@ -1818,30 +1818,30 @@ class EOLOrchestratorAgent:
         return await self.get_autonomous_eol_data(
             software_name=software_name,
             version=software_version,
-            item_type="software",
+            item_type="os",
             search_internet_only=False,
             search_include_internet=search_include_internet,
             search_ignore_cache=search_ignore_cache,
             search_agent_only=search_agent_only,
         )
-    
+
     async def search_software_eol_internet(self, software_name: str, software_version: str = None, search_hints: str = None, search_ignore_cache: bool = False):
         """
         Search for software EOL information using internet-only search (Playwright).
         This is a wrapper around get_autonomous_eol_data with search_internet_only=True.
-        
+
         Args:
             software_name: Name of the software to search for
             software_version: Version of the software (optional)
             search_hints: Search optimization hints (optional, currently unused)
-        
+
         Returns:
             EOL information dictionary
         """
         return await self.get_autonomous_eol_data(
             software_name=software_name,
             version=software_version,
-            item_type="software",
+            item_type="os",
             search_internet_only=True,
             search_ignore_cache=search_ignore_cache,
         )

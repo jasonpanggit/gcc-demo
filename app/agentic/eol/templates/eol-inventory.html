@@ -242,7 +242,7 @@
             params.append('software_name', softwareInput.value.trim());
         }
         if (versionInput.value.trim()) {
-            params.append('version', versionInput.value.trim());
+            params.append('search', versionInput.value.trim());
         }
 
         Object.keys(recordIndex).forEach((key) => delete recordIndex[key]);
@@ -258,7 +258,8 @@
                 return;
             }
 
-            const items = payload.data || [];
+            // API now returns data as a flat array (payload.data) with pagination in metadata
+            const items = Array.isArray(payload.data) ? payload.data : [];
             const total = payload.metadata?.total_count
                 ?? payload.total_records
                 ?? payload.metadata?.total_records
@@ -266,12 +267,12 @@
                 ?? payload.count
                 ?? 0;
             const totalPages = payload.metadata?.total_pages ?? 1;
-            
+
             // Store for current page rendering
             pagingState.allItems = items;
             pagingState.totalCount = total;
             pagingState.totalPages = totalPages;
-            
+
             renderRows(items, total, totalPages);
             updatePagination(total, totalPages);
             updateCounts(total);
@@ -344,7 +345,7 @@
                     <td>${sourceLink}</td>
                     <td>${escapeHtml(item.agent_used || '')}</td>
                     <td><small class="text-muted">${formatDateTime(item.created_at)}</small></td>
-                    <td><small class="text-muted">${formatDateTime(item.updated_at || item.cache_created_at || item.created_at)}</small></td>
+                    <td><small class="text-muted">${formatDateTime(item.updated_at)}</small></td>
                     <td>
                         <div class="btn-group btn-group-sm" role="group">
                             <button class="btn btn-outline-primary edit-btn" onclick="window.handleEdit('${encodedId}','${encodedPk}')">Edit</button>

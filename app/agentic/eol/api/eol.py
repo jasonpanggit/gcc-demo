@@ -1263,23 +1263,49 @@ async def cache_eol_result(request: CacheEOLRequest):
 async def list_eol_inventory_records(
     request: Request,
     search: Optional[str] = None,
+    software_name: Optional[str] = None,
+    version: Optional[str] = None,
     sort_column: str = "updated_at",
     sort_direction: str = "DESC",
     limit: int = 25,
     offset: int = 0,
+    page: int = 1,
+    page_size: int = 25,
 ):
-    """Return EOL inventory records for UI browsing."""
+    """Return EOL inventory records for UI browsing with server-side pagination."""
     try:
         eol_repo = request.app.state.eol_repo
+
+        # Support both offset/limit style and page/page_size style.
+        # page/page_size takes precedence when page > 0.
+        if page > 1 or page_size != 25:
+            effective_limit = page_size
+            effective_offset = (page - 1) * page_size
+        else:
+            effective_limit = limit
+            effective_offset = offset
+
+        # Accept software_name or search as the filter term.
+        filter_term = software_name or search or None
+
+        total_count = await eol_repo.count_records(search=filter_term)
         records = await eol_repo.list_records(
-            search=search, sort_column=sort_column,
-            sort_direction=sort_direction, limit=limit, offset=offset,
+            search=filter_term, sort_column=sort_column,
+            sort_direction=sort_direction, limit=effective_limit, offset=effective_offset,
         )
+        total_pages = max(1, (total_count + effective_limit - 1) // effective_limit)
         return StandardResponse(
             success=True,
-            data={"items": records, "total": len(records), "offset": offset, "limit": limit},
+            data=records,
             count=len(records),
-            message=f"Retrieved {len(records)} EOL records" if records else "No EOL records found",
+            message=f"Retrieved {len(records)} of {total_count} EOL records",
+            metadata={
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "page": page,
+                "page_size": effective_limit,
+                "offset": effective_offset,
+            },
         )
     except Exception as exc:
         logger.debug("EOL inventory list failed: %s", exc)
@@ -1570,7 +1596,7 @@ async def batch_enrich_eol(request: BatchEOLRequest):
             
             # Fetch from agents
             try:
-                result = await orchestrator.get_autonomous_eol_data(name, version)
+                result = await orchestrator.get_autonomous_eol_data(name, version, item_type="os")
                 if result and result.get("success"):
                     data = result.get("data", {})
                     return {

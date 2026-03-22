@@ -24,13 +24,20 @@ logger = logging.getLogger(__name__)
 ALLOWED_SORT_COLUMNS: Dict[str, str] = {
     "software_name": "software_name",
     "software_key": "software_key",
+    "version": "version",
+    "version_key": "version_key",
     "status": "status",
     "risk_level": "risk_level",
     "eol_date": "eol_date",
+    "support_end_date": "support_end_date",
+    "release_date": "release_date",
+    "confidence": "confidence",
+    "source": "source",
+    "agent_used": "agent_used",
     "is_eol": "is_eol",
     "item_type": "item_type",
+    "created_at": "created_at",
     "updated_at": "updated_at",
-    "version_key": "version_key",
 }
 
 # ---------------------------------------------------------------------------
@@ -39,9 +46,11 @@ ALLOWED_SORT_COLUMNS: Dict[str, str] = {
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 12a
 QUERY_EOL_BY_KEY = """
-SELECT software_key, software_name, version_key, status, risk_level,
-       eol_date, extended_end_date, is_eol, last_verified,
-       item_type, lifecycle_url, updated_at
+SELECT id, software_key, software_name, version_key, version,
+       eol_date, support_end_date, release_date, status, risk_level,
+       confidence, source, source_url, agent_used,
+       normalized_software_name, normalized_version,
+       is_eol, item_type, created_at, updated_at
 FROM eol_records
 WHERE software_key = $1;
 """
@@ -50,12 +59,27 @@ WHERE software_key = $1;
 # NOTE: ORDER BY column is dynamically set via ALLOWED_SORT_COLUMNS whitelist.
 # The {sort_clause} is NOT user input -- it is validated against ALLOWED_SORT_COLUMNS.
 QUERY_EOL_LIST_TEMPLATE = """
-SELECT software_key, software_name, version_key, status, risk_level,
-       eol_date, is_eol, item_type, updated_at
+SELECT id, software_key, software_name, version_key, version,
+       eol_date, support_end_date, release_date, status, risk_level,
+       confidence, source, source_url, agent_used,
+       raw_software_name, raw_version,
+       normalized_software_name, normalized_version,
+       derivation_strategy, derivation_rule_name,
+       is_eol, item_type, created_at, updated_at
 FROM eol_records
-WHERE ($1::text IS NULL OR normalized_software_name ILIKE '%%' || $1 || '%%')
+WHERE item_type = 'os'
+  AND ($1::text IS NULL OR normalized_software_name ILIKE '%%' || $1 || '%%'
+       OR software_name ILIKE '%%' || $1 || '%%')
 ORDER BY {sort_clause}
 LIMIT $2 OFFSET $3;
+"""
+
+QUERY_EOL_COUNT = """
+SELECT COUNT(*) AS total
+FROM eol_records
+WHERE item_type = 'os'
+  AND ($1::text IS NULL OR normalized_software_name ILIKE '%%' || $1 || '%%'
+       OR software_name ILIKE '%%' || $1 || '%%');
 """
 
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 14a
@@ -176,6 +200,12 @@ class EOLRepository:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, search, limit, offset)
         return [dict(r) for r in rows]
+
+    async def count_records(self, search: Optional[str] = None) -> int:
+        """Return total count of EOL records matching optional search filter."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(QUERY_EOL_COUNT, search)
+        return int(row["total"]) if row else 0
 
     # -- Query 14a: VMs with EOL status ----------------------------------------
 
