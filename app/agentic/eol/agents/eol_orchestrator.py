@@ -1778,21 +1778,69 @@ class EOLOrchestratorAgent:
                 "cached": bool(eol_result.get("cached")),
                 "cache_created_at": eol_result.get("cache_created_at"),
                 "cache_expires_at": eol_result.get("expires_at"),
+                "search_internet_only": eol_result.get("search_internet_only", False),
             }
-            
+
             # Add to tracking list
             self.eol_agent_responses.append(response_entry)
-            
+
             # Keep only the last MAX_EOL_RESPONSES_TRACKED to prevent memory issues
             if len(self.eol_agent_responses) > MAX_EOL_RESPONSES_TRACKED:
                 self.eol_agent_responses = self.eol_agent_responses[-MAX_EOL_RESPONSES_TRACKED:]
-                
+
             # Log the tracking for debugging
             logger.info(f"📊 [EOL Orchestrator] Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
-            
+
+            # Persist to database (fire-and-forget background task)
+            try:
+                asyncio.create_task(self._persist_agent_response(response_entry))
+            except Exception as persist_error:
+                logger.warning(f"⚠️ Failed to create persistence task: {persist_error}")
+
         except Exception as e:
             logger.error(f"❌ Error tracking EOL agent response: {e}")
-    
+
+    async def _persist_agent_response(self, response_entry: Dict[str, Any]) -> None:
+        """Persist EOL agent response to database (background task)"""
+        try:
+            # Get eol_repo from main app state
+            from main import app
+            eol_repo = getattr(app.state, 'eol_repo', None)
+
+            if eol_repo is None:
+                logger.debug("🔍 [EOL Orchestrator] eol_repo not available on app.state - skipping persistence")
+                return
+
+            # Store the full response_entry as JSON in agent_response
+            # This preserves all fields needed by the frontend
+            import json
+            response_id = str(uuid.uuid4())
+            user_query = f"{response_entry['software_name']} {response_entry['software_version']}"
+            agent_response_json = json.dumps(response_entry)
+
+            sources = {
+                "agent_used": response_entry.get("agent_used"),
+                "source_url": response_entry.get("source_url"),
+                "cache_source": response_entry.get("cache_source"),
+                "orchestrator_type": response_entry.get("orchestrator_type"),
+            }
+            response_time_ms = int(response_entry.get("response_time", 0) * 1000)
+
+            # Call repository save method
+            await eol_repo.save_agent_response(
+                response_id=response_id,
+                session_id=response_entry["session_id"],
+                user_query=user_query,
+                agent_response=agent_response_json,
+                sources=sources,
+                response_time_ms=response_time_ms,
+            )
+
+            logger.debug(f"💾 [EOL Orchestrator] Persisted agent response to database: {response_entry['software_name']}")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to persist agent response to database: {e}")
+
     def get_eol_agent_responses(self) -> List[Dict[str, Any]]:
         """Get all tracked EOL agent responses for this session"""
         return self.eol_agent_responses.copy()

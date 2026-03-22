@@ -237,10 +237,35 @@ class EOLRepository:
         limit: int = 10,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """Return the most recent EOL agent responses."""
+        """Return the most recent EOL agent responses.
+
+        Parses the agent_response JSON field to return structured data
+        that matches the frontend's expected format.
+        """
+        import json
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(QUERY_RECENT_RESPONSES, limit, offset)
-        return [dict(r) for r in rows]
+
+        results = []
+        for row in rows:
+            try:
+                # Try to parse agent_response as JSON
+                agent_response_str = row['agent_response']
+                if agent_response_str:
+                    parsed = json.loads(agent_response_str)
+                    # If it's already a dict with the expected fields, use it
+                    if isinstance(parsed, dict) and 'software_name' in parsed:
+                        results.append(parsed)
+                    else:
+                        # Fallback: convert row to dict
+                        results.append(dict(row))
+                else:
+                    results.append(dict(row))
+            except (json.JSONDecodeError, KeyError, TypeError):
+                # If parsing fails, return the row as-is
+                results.append(dict(row))
+
+        return results
 
     # -- Query 15b: session-scoped responses -----------------------------------
 

@@ -1431,8 +1431,9 @@ async def purge_all_eol_inventory_records():
 # ============================================================================
 
 @router.get("/api/eol-agent-responses", response_model=StandardResponse)
+@router.get("/api/eol-agent-responses", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
-async def get_eol_agent_responses(request: Request, limit: int = 10, offset: int = 0):
+async def get_eol_agent_responses(request: Request, limit: int = 1000, offset: int = 0):
     """
     Get tracked EOL agent responses from the database.
 
