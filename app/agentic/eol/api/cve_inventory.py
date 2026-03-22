@@ -482,7 +482,7 @@ async def get_vm_vulnerabilities(
 
 
 @router.get("/{cve_id}/affected-vms", response_model=StandardResponse)
-# @readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
+@readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
     request: Request,
     cve_id: str = Path(..., description="CVE identifier (e.g., CVE-2024-1234)"),
