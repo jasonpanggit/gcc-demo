@@ -1431,7 +1431,6 @@ async def purge_all_eol_inventory_records():
 # ============================================================================
 
 @router.get("/api/eol-agent-responses", response_model=StandardResponse)
-@router.get("/api/eol-agent-responses", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_agent_responses", timeout_seconds=15)
 async def get_eol_agent_responses(request: Request, limit: int = 1000, offset: int = 0):
     """
@@ -1442,7 +1441,16 @@ async def get_eol_agent_responses(request: Request, limit: int = 1000, offset: i
     Returns:
         StandardResponse with list of agent responses, sorted by timestamp (newest first).
     """
-    eol_repo = request.app.state.eol_repo
+    eol_repo = getattr(request.app.state, 'eol_repo', None)
+    if eol_repo is None:
+        logger.error("❌ eol_repo not found on app.state - startup may not have completed")
+        return StandardResponse(
+            success=False,
+            data=[],
+            count=0,
+            message="Repository not initialized - please try again in a moment",
+        )
+
     responses = await eol_repo.list_recent_responses(limit=limit, offset=offset)
     return StandardResponse(
         success=True,
