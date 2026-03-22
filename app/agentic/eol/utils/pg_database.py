@@ -822,6 +822,11 @@ class PostgresDatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_eol_software_key_lower ON eol_records (LOWER(software_key));"
             )
 
+            # scoring_version column for confidence formula migration (Phase 1)
+            await conn.execute(
+                "ALTER TABLE eol_records ADD COLUMN IF NOT EXISTS scoring_version TEXT DEFAULT 'v1';"
+            )
+
             # --- eol_agent_responses (NEW — P5.4 / migration 030) ---
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS eol_agent_responses (
