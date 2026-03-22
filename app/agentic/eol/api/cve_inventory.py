@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query, Request, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, Path
 
 try:
     from utils.response_models import StandardResponse
@@ -485,7 +485,7 @@ async def get_vm_vulnerabilities(
 @readonly_endpoint(agent_name="cve_affected_vms", timeout_seconds=45)
 async def get_cve_affected_vms(
     request: Request,
-    cve_id: str,
+    cve_id: str = Path(..., description="CVE identifier (e.g., CVE-2024-1234)"),
     subscription_filter: Optional[str] = Query(None, alias="subscription_id", description="Filter by subscription ID"),
     resource_group_filter: Optional[str] = Query(None, alias="resource_group", description="Filter by resource group"),
     limit: int = Query(default=100, le=1000, ge=1, description="Maximum VMs to return (1-1000)"),
