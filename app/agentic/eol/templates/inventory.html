@@ -1391,7 +1391,7 @@
         }
     }
 
-    async function checkEOLInPlace(name, version, itemId, softwareType = '') {
+    async function checkEOLInPlace(name, version, itemId, softwareType = '', resourceId = '', computerName = '') {
         const statusElement = document.getElementById(`eol-status-${itemId}`);
         if (!statusElement) return;
 
@@ -1407,7 +1407,18 @@
             return;
         }
 
-        // Show loading state
+        // --- Cache-first: check preloaded PostgreSQL EOL map ---
+        const pgMap = window._pgEolMap || {};
+        const pgByName = window._pgEolByName || {};
+        const ridKey = (resourceId || '').toLowerCase();
+        const nameKey = (computerName || '').toLowerCase();
+        const cached = (ridKey && pgMap[ridKey]) || (nameKey && pgByName[nameKey]) || null;
+
+        if (cached && cached.eol_date) {
+            // Render immediately from cache — no AI call needed
+            renderEolStatus(statusElement, cached.eol_date, cached.software_name);
+            return;
+        }
         statusElement.innerHTML = `
         <span class="badge bg-secondary text-light">
             <i class="fas fa-spinner fa-spin me-1"></i>
@@ -1991,9 +2002,10 @@
                 `/api/inventory/raw/os?days=${days}${forceParam}`;
 
             // Fetch both software and OS inventory data concurrently
-            const [softwareResponse, osResponse] = await Promise.all([
+            const [softwareResponse, osResponse, pgOsResponse] = await Promise.all([
                 fetch(softwareUrl),
-                fetch(osUrl)
+                fetch(osUrl),
+                fetch('/api/os?limit=1000')  // cached PostgreSQL EOL data — no AI calls
             ]);
 
             // console.log('Software response status:', softwareResponse.status);
@@ -2001,6 +2013,23 @@
 
             const softwareData = await softwareResponse.json();
             const osData = await osResponse.json();
+            // Build a resource_id → EOL lookup from cached PostgreSQL data.
+            // Keys: lowercase resource_id and lowercase vm_name for flexible matching.
+            let pgEolMap = {}; // resource_id (lower) → { eol_date, software_name }
+            let pgEolByName = {}; // vm_name (lower) → { eol_date, software_name }
+            try {
+                const pgOsData = await pgOsResponse.json();
+                const pgItems = (pgOsData.data && pgOsData.data.items) ? pgOsData.data.items : [];
+                for (const vm of pgItems) {
+                    const entry = { eol_date: vm.eol_date || null, software_name: vm.eol_software_name || vm.os_name || '' };
+                    if (vm.resource_id) pgEolMap[vm.resource_id.toLowerCase()] = entry;
+                    if (vm.vm_name) pgEolByName[vm.vm_name.toLowerCase()] = entry;
+                }
+            } catch (e) {
+                console.warn('Could not preload cached EOL data:', e);
+            }
+            window._pgEolMap = pgEolMap;
+            window._pgEolByName = pgEolByName;
 
             // console.log('Software data:', softwareData);
             // console.log('OS data:', osData);
@@ -2257,7 +2286,9 @@
                                 item.normalized_os_name || item.os_name || item.name || '',
                                 item.normalized_os_version ?? item.os_version ?? item.version ?? '',
                                 item.id,
-                                item.software_type || ''
+                                item.software_type || '',
+                                item.resource_id || '',
+                                item.computer || item.computer_name || ''
                             );
                         }
                     });

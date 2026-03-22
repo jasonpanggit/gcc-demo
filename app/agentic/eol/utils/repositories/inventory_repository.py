@@ -36,12 +36,28 @@ WITH vm_data AS (
     FROM vms v
     WHERE ($1::uuid IS NULL OR v.subscription_id = $1)
       AND ($2::text IS NULL OR v.os_name ILIKE '%' || $2 || '%')
+),
+-- For each VM pick the single eol_record with the best (longest) software_key prefix match
+-- and among ties take the soonest eol_date so the most urgent risk is surfaced.
+-- Example: "Windows Server 2016 Datacenter" matches both "windows server" (14 chars)
+-- and "windows server 2016" (19 chars) — we keep the longer, more specific match.
+eol_matched AS (
+    SELECT DISTINCT ON (d.resource_id)
+           d.resource_id,
+           e.is_eol, e.eol_date, e.software_name AS eol_software_name
+    FROM vm_data d
+    JOIN eol_records e
+      ON LOWER(d.os_name) LIKE LOWER(e.software_key) || '%'
+     AND item_type = 'os'
+    ORDER BY d.resource_id,
+             LENGTH(e.software_key) DESC,   -- longest (most specific) key wins
+             e.eol_date ASC NULLS LAST       -- then soonest EOL date
 )
 SELECT d.resource_id, d.vm_name, d.os_name, d.os_type,
        d.location, d.resource_group, d.subscription_id,
-       e.is_eol, e.eol_date, e.software_name AS eol_software_name
+       m.is_eol, m.eol_date, m.eol_software_name
 FROM vm_data d
-LEFT JOIN eol_records e ON LOWER(d.os_name) = LOWER(e.software_key)
+LEFT JOIN eol_matched m ON d.resource_id = m.resource_id
 ORDER BY d.vm_name ASC
 LIMIT $3 OFFSET $4;
 """

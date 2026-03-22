@@ -762,7 +762,7 @@ class EOLOrchestratorAgent:
                             "version": version,
                         }, cached_eol)
 
-                        self._track_eol_agent_response(
+                        await self._track_eol_agent_response(
                             agent_name=cached_eol.get("agent_used", "eol_inventory"),
                             software_name=software_name,
                             software_version=version,
@@ -1092,10 +1092,10 @@ class EOLOrchestratorAgent:
                 # Include communication history in response for frontend display
                 best_result["communications"] = self.get_recent_communications()
                 best_result["elapsed_seconds"] = time.time() - start_time_main
-                
+
                 # Track the EOL agent response for history
                 response_time = time.time() - start_time_main
-                self._track_eol_agent_response(
+                await self._track_eol_agent_response(
                     agent_name=best_result.get("agent_used", "unknown"),
                     software_name=software_name,
                     software_version=version,
@@ -1177,10 +1177,10 @@ class EOLOrchestratorAgent:
                 "elapsed_seconds": time.time() - start_time_main,
                 "search_ignore_cache": search_ignore_cache,
             }
-            
+
             # Track the failed search for history
             response_time = time.time() - start_time_main
-            self._track_eol_agent_response(
+            await self._track_eol_agent_response(
                 agent_name="orchestrator",
                 software_name=software_name,
                 software_version=version,
@@ -1751,8 +1751,8 @@ class EOLOrchestratorAgent:
                 "error": f"Failed to get cache status: {str(e)}"
             }
     
-    def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
-        """Track EOL agent responses for comprehensive history tracking"""
+    async def _track_eol_agent_response(self, agent_name: str, software_name: str, software_version: str, eol_result: Dict[str, Any], response_time: float, query_type: str) -> None:
+        """Track and persist EOL agent responses for comprehensive history tracking"""
         try:
             data_field = eol_result.get("data", {}) if isinstance(eol_result, dict) else {}
             if not isinstance(data_field, dict):
@@ -1791,11 +1791,8 @@ class EOLOrchestratorAgent:
             # Log the tracking for debugging
             logger.info(f"📊 [EOL Orchestrator] Tracked EOL response: {agent_name} -> {software_name} ({software_version}) - Success: {response_entry['success']} - Total tracked: {len(self.eol_agent_responses)}")
 
-            # Persist to database (fire-and-forget background task)
-            try:
-                asyncio.create_task(self._persist_agent_response(response_entry))
-            except Exception as persist_error:
-                logger.warning(f"⚠️ Failed to create persistence task: {persist_error}")
+            # Persist to database
+            await self._persist_agent_response(response_entry)
 
         except Exception as e:
             logger.error(f"❌ Error tracking EOL agent response: {e}")
