@@ -389,13 +389,17 @@ class TimeoutConfig:
 class EolConfig:
     """EOL orchestrator configuration.
 
-    Controls confidence scoring behavior and shadow mode.
+    Controls confidence scoring behavior, shadow mode, and pipeline settings.
 
     Environment variables:
         EOL_SHADOW_SCORING: Enable shadow scoring (default: true)
+        EOL_PIPELINE_CONFIDENCE_THRESHOLD: Minimum confidence for early pipeline termination (default: 0.80)
     """
     shadow_scoring: bool = field(
         default_factory=lambda: os.getenv("EOL_SHADOW_SCORING", "true").lower() == "true"
+    )
+    pipeline_confidence_threshold: float = field(
+        default_factory=lambda: float(os.getenv("EOL_PIPELINE_CONFIDENCE_THRESHOLD", "0.80"))
     )
 
 
