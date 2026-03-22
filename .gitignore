@@ -98,14 +98,10 @@ appsettings*.json
 # litellm
 litellm/**
 
-# machine-specific duplicate filenames
-*-Jason Pang Mac Mini*
-*-Jason’s MacBook Air*
-
 # claude code related files - ignore all .claude directories
 .claude/**
 **/.claude/
-.planning/**
+.planning/
 **/.planning/
 CLAUDE.md
 tasks/
@@ -127,5 +123,5 @@ errors/**
 # git worktrees
 .worktrees/ 
 
-# superpowers
-docs/**
+# local superpowers workspace
+.superpowers/
