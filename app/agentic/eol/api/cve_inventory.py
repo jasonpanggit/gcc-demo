@@ -35,6 +35,7 @@ async def _build_vm_vulnerability_response(
     vm_id: str,
     severity_filter: Optional[str],
     min_cvss: Optional[float],
+    patch_status_filter: Optional[str],
     sort_by: str,
     sort_order: str,
     offset: int = 0,
@@ -60,9 +61,15 @@ async def _build_vm_vulnerability_response(
     # Normalize severity filter for SQL
     severity_sql = severity_filter.upper() if severity_filter else None
 
+    # When patch_status filter is requested, we need to fetch more CVEs because
+    # patch_status is computed AFTER database fetch (during enrichment).
+    # Fetch enough CVEs to ensure we have sufficient matches after filtering.
+    fetch_limit = limit if not patch_status_filter else min(5000, total)
+    fetch_offset = offset if not patch_status_filter else 0
+
     # Parallel: fetch CVE matches + total count + severity breakdown + patch data
     matches_result, total_result, severity_breakdown_result, installed_patches_result, available_patches_result = await asyncio.gather(
-        cve_repo.get_vm_cve_matches(vm_id, severity=severity_sql, limit=limit, offset=offset),
+        cve_repo.get_vm_cve_matches(vm_id, severity=severity_sql, limit=fetch_limit, offset=fetch_offset),
         cve_repo.count_vm_cve_matches(vm_id, severity=severity_sql),
         cve_repo.get_vm_cve_severity_breakdown(vm_id),
         patch_repo.get_installed_patches_for_vm(vm_id),
@@ -179,8 +186,23 @@ async def _build_vm_vulnerability_response(
         patch_status_page_counts["none"],
     )
 
+    # Apply patch_status server-side filter if requested
+    filtered_total = total
+    if patch_status_filter:
+        original_count = len(matches)
+        matches = [cve for cve in matches if cve.get("patch_status") == patch_status_filter]
+        filtered_total = len(matches)  # Store before slicing
+        logger.info(
+            "Applied patch_status=%s filter: %d -> %d CVEs",
+            patch_status_filter, original_count, filtered_total
+        )
+
+        # Now apply pagination to filtered results
+        matches = matches[offset:offset + limit]
+        logger.info("After pagination: showing %d CVEs (offset=%d, limit=%d)", len(matches), offset, limit)
+
     # Calculate pagination metadata
-    has_more = (offset + limit) < total
+    has_more = (offset + limit) < filtered_total
 
     response_data = {
         "vm_id": vm_data["resource_id"],
@@ -194,7 +216,7 @@ async def _build_vm_vulnerability_response(
         "scan_date": vm_data.get("last_scan_date"),
         # JavaScript expects these field names
         "cve_details": matches,
-        "total_cves": total,
+        "total_cves": filtered_total,  # Use filtered total when patch_status filter applied
         "unpatched_by_severity": severity_breakdown,  # Full severity breakdown across ALL CVEs
         "pagination": {
             "offset": offset,
@@ -209,7 +231,7 @@ async def _build_vm_vulnerability_response(
         },
         # Keep legacy fields for backward compatibility
         "items": matches,
-        "total": total,
+        "total": filtered_total,  # Use filtered total when patch_status filter applied
         "offset": offset,
         "limit": limit,
     }
@@ -391,6 +413,7 @@ async def get_vm_vulnerabilities_by_query(
     vm_id: str = Query(..., description="Full VM resource ID"),
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
+    patch_status: Optional[str] = Query(None, description="Filter by patch status: installed, available, none"),
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -398,7 +421,7 @@ async def get_vm_vulnerabilities_by_query(
 ):
     """Get CVEs affecting a specific VM via query parameter to support slash-containing Azure resource IDs."""
     try:
-        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
+        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, patch_status, sort_by, sort_order, offset=offset, limit=limit)
     except HTTPException:
         raise
     except Exception as e:
@@ -416,6 +439,7 @@ async def get_vm_vulnerabilities(
     vm_id: str,
     severity_filter: Optional[str] = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     min_cvss: Optional[float] = Query(None, description="Minimum CVSS score (0.0-10.0)"),
+    patch_status: Optional[str] = Query(None, description="Filter by patch status: installed, available, none"),
     sort_by: str = Query(default="cvss_score", description="Sort by: cvss_score, published_date, severity"),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -445,7 +469,7 @@ async def get_vm_vulnerabilities(
         if not vm_id.startswith('/'):
             vm_id = '/' + vm_id
 
-        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, sort_by, sort_order, offset=offset, limit=limit)
+        return await _build_vm_vulnerability_response(request, vm_id, severity_filter, min_cvss, patch_status, sort_by, sort_order, offset=offset, limit=limit)
 
     except HTTPException:
         raise
