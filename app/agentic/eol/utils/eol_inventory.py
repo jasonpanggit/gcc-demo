@@ -351,8 +351,8 @@ class EolInventory:
 
         # Strip runtime-only / ephemeral fields that must NOT be persisted.
         _EPHEMERAL_KEYS = {
-            "agent_comparisons",
-            "agents_considered",
+            "sources",
+            "discrepancies",
             "communications",
             "elapsed_seconds",
             "cache_hit",
