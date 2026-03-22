@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 # From: TARGET-SQL-INVENTORY-DOMAIN.md Query 9a (BH-005 fix)
 QUERY_VM_INVENTORY_WITH_EOL = """
 WITH vm_data AS (
-    SELECT v.resource_id, v.vm_name, v.os_name, v.os_type,
+    SELECT v.resource_id, v.vm_name, v.os_name, v.os_type, v.vm_type,
            v.location, v.resource_group, v.subscription_id
     FROM vms v
     WHERE ($1::uuid IS NULL OR v.subscription_id = $1)
@@ -44,7 +44,8 @@ WITH vm_data AS (
 eol_matched AS (
     SELECT DISTINCT ON (d.resource_id)
            d.resource_id,
-           e.is_eol, e.eol_date, e.software_name AS eol_software_name
+           e.is_eol, e.eol_date, e.software_name AS eol_software_name,
+           e.version_key AS os_version
     FROM vm_data d
     JOIN eol_records e
       ON LOWER(d.os_name) LIKE LOWER(e.software_key) || '%'
@@ -53,9 +54,9 @@ eol_matched AS (
              LENGTH(e.software_key) DESC,   -- longest (most specific) key wins
              e.eol_date ASC NULLS LAST       -- then soonest EOL date
 )
-SELECT d.resource_id, d.vm_name, d.os_name, d.os_type,
+SELECT d.resource_id, d.vm_name, d.os_name, d.os_type, d.vm_type,
        d.location, d.resource_group, d.subscription_id,
-       m.is_eol, m.eol_date, m.eol_software_name
+       m.is_eol, m.eol_date, m.eol_software_name, m.os_version
 FROM vm_data d
 LEFT JOIN eol_matched m ON d.resource_id = m.resource_id
 ORDER BY d.vm_name ASC
