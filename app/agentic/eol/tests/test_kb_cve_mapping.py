@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import List, Dict, Any
+from types import SimpleNamespace
 
 
 # ── Task 2: PatchRepository.upsert_available_patches ──────────────────────
@@ -150,6 +151,54 @@ async def test_sync_kb_edges_for_kbs_deduplicates_input():
         )
 
     assert mock_vendor.fetch_microsoft_cves_for_kb_sug.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_installed_patches_for_vm_skips_placeholder_rows_and_closes_vendor():
+    """Zero-edge syncs should return empty CVE lists without writing NULL placeholder rows."""
+    mock_conn = AsyncMock()
+    mock_conn.fetch = AsyncMock(side_effect=[
+        [{"kb_number": "KB5052006", "patch_name": "2025-03 Cumulative Update for Server"}],
+        [],
+    ])
+    mock_conn.execute = AsyncMock()
+    mock_conn.fetchrow = AsyncMock()
+
+    mock_pool = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    mock_vendor = MagicMock()
+    mock_vendor.close = AsyncMock()
+
+    from utils.repositories.patch_repository import PatchRepository
+    repo = PatchRepository(mock_pool)
+
+    cfg = SimpleNamespace(
+        cve_data=SimpleNamespace(
+            redhat_base_url="https://example.test/redhat",
+            ubuntu_base_url="https://example.test/ubuntu",
+            msrc_base_url="https://example.test/msrc",
+            msrc_api_key=None,
+            request_timeout=5,
+        )
+    )
+
+    with patch("utils.vendor_feed_client.VendorFeedClient", return_value=mock_vendor), \
+         patch("utils.cve_sync_operations.sync_kb_edges_for_kbs", new=AsyncMock(return_value=0)), \
+         patch("utils.config.get_config", return_value=cfg):
+        result = await repo.get_installed_patches_for_vm("/subscriptions/test/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/test-vm")
+
+    assert result == [{
+        "patch_id": "KB5052006",
+        "kb_ids": ["KB5052006"],
+        "patch_name": "2025-03 Cumulative Update for Server",
+        "classification": "Installed",
+        "cve_ids": [],
+    }]
+    mock_conn.execute.assert_not_called()
+    mock_conn.fetchrow.assert_not_called()
+    mock_vendor.close.assert_awaited_once()
 
 
 # ── Task 4: Scheduler wiring ───────────────────────────────────────────────
@@ -306,11 +355,15 @@ async def test_arg_patch_fetch_triggers_upsert_available_patches():
 
     mock_kb_cve_repo = MagicMock()
 
+    mock_vendor = MagicMock()
+    mock_vendor.close = AsyncMock()
+
     # Patch PatchRepository.upsert_available_patches and the downstream dependencies
     with patch("utils.pg_client.postgres_client") as mock_pg, \
          patch("utils.repositories.patch_repository.PatchRepository.upsert_available_patches",
                new_callable=AsyncMock, return_value=2) as mock_upsert, \
-         patch("utils.cve_patch_enricher.asyncio.create_task") as mock_create_task:
+         patch("utils.cve_sync_operations.sync_kb_edges_for_kbs", new=AsyncMock(return_value=0)) as mock_sync, \
+         patch("utils.vendor_feed_client.VendorFeedClient", return_value=mock_vendor):
 
         mock_pg.pool = MagicMock()  # truthy pool so KB sync branch fires
 
@@ -330,8 +383,11 @@ async def test_arg_patch_fetch_triggers_upsert_available_patches():
     assert call_args[0][1] == sample_patches, \
         "upsert_available_patches should receive the available_patches list"
 
-    # create_task should have been scheduled for KB→CVE edge sync
-    mock_create_task.assert_called_once()
+    # KB→CVE sync should run for the discovered KB numbers and close the vendor client.
+    mock_sync.assert_awaited_once()
+    assert mock_sync.await_args.args[0] == ["KB5052006", "KB5048667"]
+    assert mock_sync.await_args.kwargs["pool"] is mock_pg.pool
+    mock_vendor.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

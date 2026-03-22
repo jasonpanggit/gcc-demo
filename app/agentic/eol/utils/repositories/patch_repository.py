@@ -109,6 +109,39 @@ class PatchRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
+    async def _sync_missing_kb_edges(self, kb_numbers: List[str]) -> int:
+        """Populate KB-to-CVE edges for the provided KB numbers.
+
+        This uses the canonical KB edge upsert path and guarantees the
+        temporary vendor client is closed on both success and failure.
+        """
+        if not kb_numbers:
+            return 0
+
+        vendor_client = None
+        try:
+            from utils.cve_sync_operations import sync_kb_edges_for_kbs
+            from utils.vendor_feed_client import VendorFeedClient
+            from utils.config import get_config
+
+            cfg = get_config()
+            vendor_client = VendorFeedClient(
+                redhat_base_url=cfg.cve_data.redhat_base_url,
+                ubuntu_base_url=cfg.cve_data.ubuntu_base_url,
+                msrc_base_url=cfg.cve_data.msrc_base_url,
+                msrc_api_key=cfg.cve_data.msrc_api_key or None,
+                request_timeout=cfg.cve_data.request_timeout,
+            )
+            return await sync_kb_edges_for_kbs(
+                kb_numbers,
+                vendor_client,
+                pool=self._pool,
+                batch_size=10,
+            )
+        finally:
+            if vendor_client is not None:
+                await vendor_client.close()
+
     # ------------------------------------------------------------------ #
     #  Read methods
     # ------------------------------------------------------------------ #
@@ -142,34 +175,33 @@ class PatchRepository:
         """Get installed patches for a specific VM from inventory_software_cache.
 
         Reads cached software inventory, filters for KB patches, maps to CVEs.
-        Auto-syncs missing KB→CVE edges from MSRC on demand.
+        Auto-syncs missing KB-to-CVE edges from MSRC on demand.
         """
-        # Get VM name from resource_id
-        vm_name = resource_id.split('/')[-1] if '/' in resource_id else resource_id
+        vm_name = resource_id.split("/")[-1] if "/" in resource_id else resource_id
 
         async with self._pool.acquire() as conn:
-            # Extract KB patches from cached software inventory
-            # Note: data is double-encoded (JSONB string containing JSON array)
-            rows = await conn.fetch("""
+            rows = await conn.fetch(
+                """
                 SELECT DISTINCT
-                    'KB' || substring(item->>'name' FROM 'KB(\d{6,7})') as kb_number,
-                    item->>'name' as patch_name
+                    'KB' || substring(item->>'name' FROM 'KB(\\d{6,7})') AS kb_number,
+                    item->>'name' AS patch_name
                 FROM inventory_software_cache,
-                     jsonb_array_elements((data#>>'{}')::jsonb) as item
+                     jsonb_array_elements((data#>>'{}')::jsonb) AS item
                 WHERE cache_key = 'software_inventory'
                   AND UPPER(item->>'computer') = UPPER($1)
-                  AND item->>'name' ~ 'KB\d{6,7}'
+                  AND item->>'name' ~ 'KB\\d{6,7}'
                 ORDER BY kb_number;
-            """, vm_name)
+                """,
+                vm_name,
+            )
 
             if not rows:
                 return []
 
             kb_patches = [row["kb_number"] for row in rows]
             kb_to_name = {row["kb_number"]: row["patch_name"] for row in rows}
-
-            # Get CVE mappings
-            cve_rows = await conn.fetch("""
+            cve_rows = await conn.fetch(
+                """
                 SELECT
                     kb_number,
                     ARRAY_AGG(DISTINCT cve_id ORDER BY cve_id) AS cve_ids
@@ -177,84 +209,58 @@ class PatchRepository:
                 WHERE kb_number = ANY($1::text[])
                 GROUP BY kb_number
                 ORDER BY kb_number;
-            """, kb_patches)
+                """,
+                kb_patches,
+            )
 
         kb_to_cves = {row["kb_number"]: row["cve_ids"] for row in cve_rows}
-
-        # Find KBs that haven't been checked yet (not in db at all)
-        checked_kbs = set(kb_to_cves.keys())
-        unchecked_kbs = [kb for kb in kb_patches if kb not in checked_kbs]
-        missing_kbs = unchecked_kbs  # Only sync KBs that have never been checked
+        missing_kbs = [kb for kb in kb_patches if kb not in kb_to_cves]
 
         if missing_kbs:
-            # Auto-sync missing KBs from MSRC
-            logger.info(f"Found {len(missing_kbs)} installed KBs without CVE mappings, syncing from MSRC: {missing_kbs[:5]}...")
+            logger.info(
+                "Found %d installed KBs without CVE mappings, syncing from MSRC: %s...",
+                len(missing_kbs),
+                missing_kbs[:5],
+            )
             try:
-                from utils.cve_sync_operations import sync_kb_edges_for_kbs
-                from utils.vendor_feed_client import VendorFeedClient
-                from utils.config import get_config
-
-                cfg = get_config()
-                vendor_client = VendorFeedClient(
-                    redhat_base_url=cfg.cve_data.redhat_base_url,
-                    ubuntu_base_url=cfg.cve_data.ubuntu_base_url,
-                    msrc_base_url=cfg.cve_data.msrc_base_url,
-                    msrc_api_key=cfg.cve_data.msrc_api_key or None,
-                    request_timeout=cfg.cve_data.request_timeout,
+                synced_count = await self._sync_missing_kb_edges(missing_kbs)
+                logger.info(
+                    "Auto-synced %d CVE edges for %d missing KBs",
+                    synced_count,
+                    len(missing_kbs),
                 )
-                synced_count = await sync_kb_edges_for_kbs(
-                    missing_kbs,
-                    vendor_client,
-                    pool=self._pool,
-                    batch_size=10
-                )
-                logger.info(f"Auto-synced {synced_count} CVE edges for {len(missing_kbs)} missing KBs")
 
-                # Re-fetch CVE mappings after sync (including empty results to mark as checked)
                 async with self._pool.acquire() as conn:
-                    # Also insert placeholder rows for KBs with no CVEs so we don't re-check them
-                    for kb in missing_kbs:
-                        if kb not in kb_to_cves or not kb_to_cves.get(kb):
-                            # Check if this KB was synced but has no CVEs
-                            result = await conn.fetchrow("""
-                                SELECT COUNT(*) as count FROM kb_cve_edges WHERE kb_number = $1
-                            """, kb)
-
-                            if result and result['count'] == 0:
-                                # Insert a marker row with NULL cve_id to indicate "checked but no CVEs"
-                                await conn.execute("""
-                                    INSERT INTO kb_cve_edges (kb_number, cve_id, source, last_seen)
-                                    VALUES ($1, NULL, 'microsoft', $2)
-                                    ON CONFLICT (kb_number, cve_id) DO NOTHING
-                                """, kb, datetime.now(timezone.utc))
-
-                    # Now re-fetch to get actual CVE mappings
-                    updated_cve_rows = await conn.fetch("""
+                    updated_cve_rows = await conn.fetch(
+                        """
                         SELECT
                             kb_number,
-                            ARRAY_AGG(DISTINCT cve_id ORDER BY cve_id) FILTER (WHERE cve_id IS NOT NULL) AS cve_ids
+                            ARRAY_AGG(DISTINCT cve_id ORDER BY cve_id)
+                                FILTER (WHERE cve_id IS NOT NULL) AS cve_ids
                         FROM kb_cve_edges
                         WHERE kb_number = ANY($1::text[])
                         GROUP BY kb_number;
-                    """, missing_kbs)
+                        """,
+                        missing_kbs,
+                    )
 
-                    for row in updated_cve_rows:
-                        kb_to_cves[row["kb_number"]] = row["cve_ids"] or []
-
+                for row in updated_cve_rows:
+                    kb_to_cves[row["kb_number"]] = row["cve_ids"] or []
+                for kb in missing_kbs:
+                    kb_to_cves.setdefault(kb, [])
             except Exception as e:
                 logger.error(f"Failed to auto-sync KB edges: {e}", exc_info=True)
 
-        # Format for JavaScript
-        result = []
-        for kb in kb_patches:
-            result.append({
+        return [
+            {
                 "patch_id": kb,
                 "kb_ids": [kb],
                 "patch_name": kb_to_name.get(kb, kb),
                 "classification": "Installed",
                 "cve_ids": kb_to_cves.get(kb, []),
-            })
-        return result
+            }
+            for kb in kb_patches
+        ]
 
     async def get_available_patches_for_vm(self, resource_id: str) -> List[Dict]:
         """Get pending/available patches from patch_assessments_cache (ARG data).
@@ -292,24 +298,7 @@ class PatchRepository:
             # Auto-sync missing KBs from MSRC
             logger.info(f"Found {len(missing_kbs)} available patches without CVE mappings, syncing from MSRC: {missing_kbs[:5]}...")
             try:
-                from utils.cve_sync_operations import sync_kb_edges_for_kbs
-                from utils.vendor_feed_client import VendorFeedClient
-                from utils.config import get_config
-
-                cfg = get_config()
-                vendor_client = VendorFeedClient(
-                    redhat_base_url=cfg.cve_data.redhat_base_url,
-                    ubuntu_base_url=cfg.cve_data.ubuntu_base_url,
-                    msrc_base_url=cfg.cve_data.msrc_base_url,
-                    msrc_api_key=cfg.cve_data.msrc_api_key or None,
-                    request_timeout=cfg.cve_data.request_timeout,
-                )
-                synced_count = await sync_kb_edges_for_kbs(
-                    missing_kbs,
-                    vendor_client,
-                    pool=self._pool,
-                    batch_size=10
-                )
+                synced_count = await self._sync_missing_kb_edges(missing_kbs)
                 logger.info(f"Auto-synced {synced_count} CVE edges for {len(missing_kbs)} available patches")
 
                 # Re-fetch CVE mappings after sync
@@ -325,6 +314,8 @@ class PatchRepository:
 
                     for row in updated_cve_rows:
                         kb_to_cves[row["kb_number"]] = row["cve_ids"]
+                    for kb in missing_kbs:
+                        kb_to_cves.setdefault(kb, [])
 
             except Exception as e:
                 logger.error(f"Failed to auto-sync available patch KB edges: {e}", exc_info=True)
