@@ -41,7 +41,22 @@ try:
 except ImportError:
     _app_config = None  # type: ignore[assignment]
 
-from utils.confidence_scorer import confidence_scorer
+try:
+    from pipeline import (
+        create_default_registry,
+        TieredFetchPipeline,
+        ResultAggregator,
+        AdapterRegistry,
+        FallbackAdapter,
+    )
+except ImportError:
+    from ..pipeline import (  # type: ignore[no-redef]
+        create_default_registry,
+        TieredFetchPipeline,
+        ResultAggregator,
+        AdapterRegistry,
+        FallbackAdapter,
+    )
 
 # Import logger
 try:
@@ -53,102 +68,11 @@ except ImportError:
 
 # Configuration constants
 DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
-DEFAULT_AGENT_TIMEOUT_SECONDS = 14  # Fast-fail per agent
-HIGH_CONFIDENCE_THRESHOLD = 0.9  # Threshold for early termination
 MAX_COMMS_LOG_SIZE = 100  # Maximum communication log entries
 MAX_EOL_RESPONSES_TRACKED = 50  # Maximum EOL responses to track
 MAX_CONCURRENT_EOL_ANALYSIS = 10  # Concurrency limit for EOL analysis
 RECENT_COMMS_DISPLAY_LIMIT = 20  # Number of recent communications to display
-PLAYWRIGHT_MAX_CONFIDENCE = 0.95  # Cap Playwright confidence
-GENERAL_MAX_CONFIDENCE = 0.98  # General max confidence
-NAME_MATCH_THRESHOLD = 0.6  # Threshold for fuzzy name matching
 
-
-DEFAULT_VENDOR_ROUTING: Dict[str, List[str]] = {
-    # Microsoft ecosystem
-    "microsoft": [
-        "windows",
-        "office",
-        "sql server",
-        "iis",
-        "visual studio",
-        ".net",
-        "azure",
-        "sharepoint",
-        "exchange",
-        "teams",
-        "power bi",
-        "dynamics",
-    ],
-    # Red Hat ecosystem
-    "redhat": ["red hat", "rhel", "centos", "fedora", "openshift", "ansible"],
-    # Ubuntu ecosystem
-    "ubuntu": ["ubuntu", "canonical", "snap"],
-    # Oracle ecosystem
-    "oracle": [
-        "oracle",
-        "java",
-        "jdk",
-        "jre",
-        "openjdk",
-        "mysql",
-        "virtualbox",
-        "solaris",
-        "weblogic",
-        "graalvm",
-    ],
-    # VMware ecosystem
-    "vmware": [
-        "vmware",
-        "vsphere",
-        "esxi",
-        "vcenter",
-        "workstation",
-        "fusion",
-        "nsx",
-        "vsan",
-        "vrealize",
-        "horizon",
-        "tanzu",
-    ],
-    # Apache ecosystem
-    "apache": [
-        "apache",
-        "httpd",
-        "tomcat",
-        "kafka",
-        "spark",
-        "maven",
-        "cassandra",
-        "solr",
-        "lucene",
-        "struts",
-        "camel",
-        "activemq",
-        "zookeeper",
-    ],
-    # Node.js ecosystem
-    "nodejs": [
-        "node",
-        "nodejs",
-        "npm",
-        "yarn",
-        "express",
-        "react",
-        "vue",
-        "angular",
-        "next",
-        "gatsby",
-        "electron",
-        "typescript",
-    ],
-    # PostgreSQL ecosystem
-    "postgresql": ["postgresql", "postgres", "postgis", "pgbouncer", "timescaledb"],
-    # PHP ecosystem
-    "php": ["php", "composer", "laravel", "symfony", "drupal", "wordpress"],
-    # Python ecosystem
-    "python": ["python", "pip", "django", "flask", "pandas", "numpy", "jupyter"],
-}
 
 class EOLOrchestratorAgent:
     """
@@ -193,17 +117,26 @@ class EOLOrchestratorAgent:
         else:
             self.agents = self._create_default_agents(use_mock_data=use_mock_data)
 
-        self.vendor_routing = (
-            {key: list(value) for key, value in vendor_routing.items()}
-            if vendor_routing is not None
-            else {key: list(value) for key, value in DEFAULT_VENDOR_ROUTING.items()}
-        )
-
         # Cache for EOL results (in-memory for session)
         self.eol_cache: Dict[str, Any] = {}
         self.cache_ttl = DEFAULT_CACHE_TTL_SECONDS
-        self.agent_timeout_seconds = DEFAULT_AGENT_TIMEOUT_SECONDS
-        self.high_confidence_threshold = HIGH_CONFIDENCE_THRESHOLD
+
+        # Pipeline setup
+        _threshold = 0.80
+        try:
+            if _app_config is not None:
+                _threshold = _app_config.eol.pipeline_confidence_threshold
+        except (AttributeError, Exception):
+            pass
+
+        self._pipeline_registry = create_default_registry(
+            self.agents, vendor_routing=vendor_routing
+        )
+        self._pipeline = TieredFetchPipeline(
+            self._pipeline_registry,
+            confidence_threshold=_threshold,
+        )
+        self._aggregator = ResultAggregator()
 
         logger.info(
             "🚀 Autonomous EOL Orchestrator initialized with %d agents",
