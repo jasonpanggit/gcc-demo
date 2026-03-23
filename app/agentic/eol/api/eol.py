@@ -45,7 +45,8 @@ from utils.normalization import derive_os_name_version
 from utils.os_extraction_rules import os_extraction_rules_store
 from utils.vendor_url_inventory import vendor_url_inventory
 
-from agents.eol_orchestrator import DEFAULT_VENDOR_ROUTING
+# Note: DEFAULT_VENDOR_ROUTING removed in pipeline refactor
+# This fallback provides basic vendor list for error scenarios
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,8 @@ async def list_vendors():
         }
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.warning("Vendor list fallback due to orchestrator error: %s", exc)
-        fallback = {key: list(val) for key, val in DEFAULT_VENDOR_ROUTING.items()}
+        # Minimal fallback - pipeline refactor removed DEFAULT_VENDOR_ROUTING
+        fallback = {"endoflife": ["endoflife_agent"], "eolstatus": ["eolstatus_agent"]}
         return {
             "success": True,
             "vendors": sorted(fallback.keys()),
