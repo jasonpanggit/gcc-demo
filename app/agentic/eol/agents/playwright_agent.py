@@ -464,14 +464,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
 
             content = resp.choices[0].message.content if resp and resp.choices else None
             if not content:
+                logger.warning("⚠️ LLM extraction returned empty content")
                 return None
 
+            logger.debug(f"LLM raw response: {content[:500]}")  # Log first 500 chars
             try:
                 parsed = json.loads(content)
-            except json.JSONDecodeError:
+                return parsed
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ LLM extraction failed: JSON parsing error at position {e.pos}: {e.msg}")
+                logger.warning(f"LLM response was: {content[:200]}")
                 return None
-
-            return parsed
         except Exception as exc:
             logger.warning(f"⚠️ LLM extraction failed: {exc}")
             return None
