@@ -19,7 +19,6 @@ from .os_inventory_agent import OSInventoryAgent
 from .software_inventory_agent import SoftwareInventoryAgent
 from .azure_ai_agent import AzureAIAgentEOLAgent
 from .oracle_agent import OracleEOLAgent
-from .vmware_agent import VMwareEOLAgent
 from .apache_agent import ApacheEOLAgent
 from .nodejs_agent import NodeJSEOLAgent
 from .postgresql_agent import PostgreSQLEOLAgent
@@ -123,7 +122,7 @@ class EOLOrchestratorAgent:
         return {
             "inventory": InventoryAgent(), "os_inventory": oa, "software_inventory": sa,
             "endoflife": EndOfLifeAgent(), "microsoft": MicrosoftEOLAgent(), "redhat": RedHatEOLAgent(),
-            "ubuntu": UbuntuEOLAgent(), "oracle": OracleEOLAgent(), "vmware": VMwareEOLAgent(),
+            "ubuntu": UbuntuEOLAgent(), "oracle": OracleEOLAgent(),
             "apache": ApacheEOLAgent(), "nodejs": NodeJSEOLAgent(), "postgresql": PostgreSQLEOLAgent(),
             "php": PHPEOLAgent(), "python": PythonEOLAgent(), "eolstatus": EOLStatusAgent(),
             "azure_ai": AzureAIAgentEOLAgent(), "playwright": PlaywrightEOLAgent(),

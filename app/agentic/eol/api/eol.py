@@ -453,17 +453,23 @@ async def search_vendor_eol(request: VendorParsingRequest):
             return
 
         async def _persist_run(run: Dict[str, Any]) -> None:
+            logger.info("_persist_run called with run: success=%s, software_name=%s",
+                        run.get("success") if run else None,
+                        run.get("software_name") if run else None)
             if not run or not run.get("success"):
+                logger.info("_persist_run early return: run is None or not successful")
                 return
 
             software_name = run.get("software_name")
             if not software_name:
+                logger.info("_persist_run early return: no software_name")
                 return
 
             version = run.get("version")
             eol_date = run.get("eol_date")
             support_end_date = run.get("support_end_date")
             if not eol_date and not support_end_date:
+                logger.info("_persist_run early return: no eol_date or support_end_date")
                 return
 
             raw_data = {
@@ -510,18 +516,27 @@ async def search_vendor_eol(request: VendorParsingRequest):
 
                 # ALWAYS write to L2 PostgreSQL for vendor parsing, regardless of L1 result
                 # This ensures vendor parsing results are visible in /eol-inventory page
+                logger.info(
+                    "Vendor parsing checking L2 write for %s %s: has_pool=%s",
+                    software_name, version or "(any)", eol_inventory._has_pool()
+                )
                 if eol_inventory._has_pool():
                     record = eol_inventory._standardize_data(
                         software_name, version, result,
                         raw_software_name=software_name,
                         raw_version=version
                     )
+                    logger.info(
+                        "Vendor parsing standardize result for %s %s: record=%s",
+                        software_name, version or "(any)", "present" if record else "None"
+                    )
                     if record:
                         logger.info(
                             "Vendor parsing forcing L2 PG write for %s %s (vendor=%s)",
                             software_name, version or "(any)", vendor_key
                         )
-                        asyncio.ensure_future(eol_inventory._pg_upsert(record))
+                        # Change from fire-and-forget to await so we can see errors
+                        await eol_inventory._pg_upsert(record)
 
             except Exception as exc:
                 logger.error(

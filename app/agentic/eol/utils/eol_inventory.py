@@ -335,30 +335,30 @@ class EolInventory:
 
             logger.info(
                 "L2 PG upsert starting: software_key=%s, version_key=%s, confidence=%.2f, "
-                "eol_date=%s, source=%s, agent_used=%s",
+                "eol_date=%s, source=%s, agent_used=%s (record.agent_used=%r)",
                 record.software_key, record.version_key, confidence,
-                record.eol_date, record.source, record.agent_used
+                record.eol_date, record.source, record.agent_used, record.agent_used
             )
 
             async with self._pool.acquire() as conn:
                 await conn.execute(
                     """
                     INSERT INTO eol_records (
-                        software_key, version_key, software_name, version,
+                        id, software_key, version_key, software_name, version,
                         eol_date, status, risk_level, confidence, source,
-                        source_url, item_type,
+                        source_url, agent_used, item_type,
                         normalized_software_name, normalized_version,
                         data,
                         is_eol, created_at, updated_at
                     ) VALUES (
-                        $1, $2, $3, $4,
-                        $5, $6, $7, $8, $9,
-                        $10, $11,
-                        $12, $13,
-                        $14::jsonb,
-                        $15, NOW(), NOW()
+                        $1, $2, $3, $4, $5,
+                        $6, $7, $8, $9, $10,
+                        $11, $12, $13,
+                        $14, $15,
+                        $16::jsonb,
+                        $17, NOW(), NOW()
                     )
-                    ON CONFLICT (software_key) DO UPDATE SET
+                    ON CONFLICT (id) DO UPDATE SET
                         version_key              = EXCLUDED.version_key,
                         software_name            = EXCLUDED.software_name,
                         version                  = EXCLUDED.version,
@@ -368,6 +368,7 @@ class EolInventory:
                         confidence               = EXCLUDED.confidence,
                         source                   = EXCLUDED.source,
                         source_url               = EXCLUDED.source_url,
+                        agent_used               = EXCLUDED.agent_used,
                         item_type                = EXCLUDED.item_type,
                         normalized_software_name = EXCLUDED.normalized_software_name,
                         normalized_version       = EXCLUDED.normalized_version,
@@ -377,25 +378,27 @@ class EolInventory:
                     WHERE eol_records.confidence IS NULL
                        OR EXCLUDED.confidence >= eol_records.confidence
                     """,
-                    record.software_key,                          # $1
-                    record.version_key,                           # $2
-                    record.software_name,                         # $3
-                    record.version,                               # $4
-                    record.eol_date,                              # $5
-                    record.status,                                # $6
-                    record.risk_level,                            # $7
-                    confidence,                                   # $8
-                    record.source,                                # $9
-                    record.source_url,                            # $10
-                    record.item_type,                             # $11
-                    record.normalized_software_name,              # $12
-                    record.normalized_version,                    # $13
-                    raw_response,                                 # $14
-                    record.status in ("expired", "eol", "End of Life"),  # $15
+                    record.id,                                    # $1
+                    record.software_key,                          # $2
+                    record.version_key,                           # $3
+                    record.software_name,                         # $4
+                    record.version,                               # $5
+                    record.eol_date,                              # $6
+                    record.status,                                # $7
+                    record.risk_level,                            # $8
+                    confidence,                                   # $9
+                    record.source,                                # $10
+                    record.source_url,                            # $11
+                    record.agent_used,                            # $12
+                    record.item_type,                             # $13
+                    record.normalized_software_name,              # $14
+                    record.normalized_version,                    # $15
+                    raw_response,                                 # $16
+                    record.status in ("expired", "eol", "End of Life"),  # $17
                 )
             logger.info(
-                "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, vendor=%s)",
-                record.software_key, record.version_key, confidence, vendor,
+                "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, source=%s)",
+                record.software_key, record.version_key, confidence, record.source,
             )
         except Exception as exc:
             logger.error(

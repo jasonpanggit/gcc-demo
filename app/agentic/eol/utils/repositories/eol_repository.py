@@ -67,7 +67,7 @@ SELECT id, software_key, software_name, version_key, version,
        derivation_strategy, derivation_rule_name,
        is_eol, item_type, created_at, updated_at
 FROM eol_records
-WHERE item_type = 'os'
+WHERE (item_type = 'os' OR item_type IS NULL)
   AND ($1::text IS NULL OR normalized_software_name ILIKE '%%' || $1 || '%%'
        OR software_name ILIKE '%%' || $1 || '%%')
 ORDER BY {sort_clause}
@@ -77,7 +77,7 @@ LIMIT $2 OFFSET $3;
 QUERY_EOL_COUNT = """
 SELECT COUNT(*) AS total
 FROM eol_records
-WHERE item_type = 'os'
+WHERE (item_type = 'os' OR item_type IS NULL)
   AND ($1::text IS NULL OR normalized_software_name ILIKE '%%' || $1 || '%%'
        OR software_name ILIKE '%%' || $1 || '%%');
 """
