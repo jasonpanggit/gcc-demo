@@ -462,9 +462,10 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                 max_completion_tokens=300,  # Updated from max_tokens for newer OpenAI models
             )
 
+            logger.info(f"LLM response received: choices={len(resp.choices) if resp and resp.choices else 0}")
             content = resp.choices[0].message.content if resp and resp.choices else None
             if not content:
-                logger.warning("⚠️ LLM extraction returned empty content")
+                logger.warning(f"⚠️ LLM extraction returned empty content. Response: {resp}")
                 return None
 
             logger.debug(f"LLM raw response: {content[:500]}")  # Log first 500 chars
