@@ -49,10 +49,23 @@ try:
         ResultAggregator, AdapterRegistry, FallbackAdapter,
     )
 except ImportError:
-    from ..pipeline import (  # type: ignore[no-redef]
-        create_default_registry, TieredFetchPipeline,
-        ResultAggregator, AdapterRegistry, FallbackAdapter,
-    )
+    try:
+        from app.agentic.eol.pipeline import (  # type: ignore[no-redef]
+            create_default_registry, TieredFetchPipeline,
+            ResultAggregator, AdapterRegistry, FallbackAdapter,
+        )
+    except ImportError:
+        # Fallback for test environments
+        import sys
+        from pathlib import Path
+        # Add parent directory to path if needed
+        parent = Path(__file__).resolve().parent.parent
+        if str(parent) not in sys.path:
+            sys.path.insert(0, str(parent))
+        from pipeline import (  # type: ignore[no-redef]
+            create_default_registry, TieredFetchPipeline,
+            ResultAggregator, AdapterRegistry, FallbackAdapter,
+        )
 
 try:
     from utils import get_logger
