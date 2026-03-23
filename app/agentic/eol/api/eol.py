@@ -1326,6 +1326,17 @@ async def get_eol_record(request: Request, software_key: str):
     return StandardResponse(success=True, data=record, message="EOL record retrieved")
 
 
+@router.get("/api/eol-inventory/vendor/{vendor}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_inventory_vendor", timeout_seconds=20)
+async def list_eol_by_vendor(vendor: str, limit: int = 100, offset: int = 0):
+    """Return EOL records filtered by vendor name from PostgreSQL."""
+    records, total = await eol_inventory.list_by_vendor(vendor, limit=limit, offset=offset)
+    return StandardResponse.success_response(
+        data={"items": records, "total": total, "vendor": vendor},
+        message=f"Retrieved {len(records)} of {total} EOL records for vendor '{vendor}'",
+    ).to_dict()
+
+
 @router.put("/api/eol-inventory/{record_id}", response_model=StandardResponse)
 @write_endpoint(agent_name="eol_inventory_update", timeout_seconds=20)
 async def update_eol_inventory_record(

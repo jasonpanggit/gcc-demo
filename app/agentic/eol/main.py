@@ -1071,8 +1071,10 @@ async def _run_startup_tasks():
         # Initialize specialized caches
         try:
             await eol_cache.initialize()
+            # Inject PG pool into eol_inventory before initialize() so L2 is active
+            eol_inventory._pool = postgres_client.pool
             await eol_inventory.initialize()
-            
+
             # Initialize the unified inventory cache used by agents
             from utils.inventory_cache import inventory_cache
             await inventory_cache.initialize()
