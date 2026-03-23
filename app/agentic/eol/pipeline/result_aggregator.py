@@ -43,6 +43,8 @@ class SourceEntry:
     source_url: Optional[str]
     tier: int
     discrepancy_flag: bool
+    software_name: str = ""
+    version: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
@@ -54,6 +56,8 @@ class SourceEntry:
             "source_url": self.source_url,
             "tier": self.tier,
             "discrepancy_flag": self.discrepancy_flag,
+            "software_name": self.software_name,
+            "version": self.version,
         }
 
 
@@ -173,6 +177,8 @@ class ResultAggregator:
                 source_url=r.source_url,
                 tier=r.tier,
                 discrepancy_flag=id(r) in involved_in_discrepancy,
+                software_name=r.software_name,
+                version=r.version,
             ))
 
         # 4. Top-level confidence is primary's adjusted confidence
