@@ -23,7 +23,7 @@ class FallbackAdapter:
     Increased timeout to accommodate browser launch + page load + LLM call.
     """
 
-    name: str = "fallback"
+    name: str = "web_search"
     tier: int = 4
     timeout: int = 60  # Increased from 30s for browser automation + LLM extraction
 
