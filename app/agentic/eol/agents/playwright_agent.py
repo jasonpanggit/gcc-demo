@@ -781,17 +781,27 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     logger.warning("⚠️ Both LLM and regex extraction failed to find dates")
 
             # Map confidence labels to numeric scores
-            confidence_map = {
-                'very_high': 0.95,
-                'high': 0.85,
-                'medium': 0.70,
-                'low': 0.50
-            }
+            # Boost confidence when LLM extraction succeeded (more reliable than regex)
+            if llm_result:
+                # LLM extraction provides semantic understanding - higher base confidence
+                confidence_map = {
+                    'very_high': 0.85,  # LLM + very high confidence evidence
+                    'high': 0.75,       # LLM + high confidence evidence
+                    'medium': 0.65,     # LLM + medium confidence evidence
+                    'low': 0.55         # LLM + low confidence evidence (still better than regex)
+                }
+            else:
+                # Regex-only extraction - lower confidence (brittle pattern matching)
+                confidence_map = {
+                    'very_high': 0.50,  # Regex can't be very_high
+                    'high': 0.45,
+                    'medium': 0.35,
+                    'low': 0.25
+                }
 
             # Pick primary confidence based on available signals
             primary_conf_label = eol_extraction.get('eol_confidence') or eol_extraction.get('support_confidence') or eol_extraction.get('release_confidence') or 'low'
-            # Clamp Playwright confidence to a max of 95% to prevent overstatement
-            confidence_score = min(confidence_map.get(primary_conf_label, 0.70), 0.95)
+            confidence_score = confidence_map.get(primary_conf_label, 0.55 if llm_result else 0.30)
 
             if any([eol_extraction.get("eol_date"), eol_extraction.get("support_end_date"), eol_extraction.get("release_date")]):
                 response_time = time.time() - start_time
