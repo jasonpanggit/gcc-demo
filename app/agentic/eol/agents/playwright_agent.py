@@ -728,52 +728,56 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             
             # Extract lifecycle dates from content
             text_content = search_result["content"]
-            eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
 
-            # LLM extraction fallback when regex extraction fails or has low confidence
-            # This is especially important for Bing Copilot AI-generated content
-            should_try_llm = (
-                self.enable_llm_extraction and
-                (not eol_extraction.get("eol_date") and not eol_extraction.get("support_end_date"))
-            ) or (
-                # Auto-enable LLM when regex confidence is low (even if env var not set)
-                not eol_extraction.get("eol_date") and
-                not eol_extraction.get("support_end_date") and
-                len(text_content) > 200  # Only if we have enough content
-            )
-
-            if should_try_llm:
-                logger.info("🧠 Regex extraction failed, trying LLM-based extraction for Bing Copilot content...")
+            # For Tier 4 validation use case: prioritize LLM extraction over regex
+            # LLM provides semantic understanding of which date is EOL vs release date
+            llm_result = None
+            if self.enable_llm_extraction and len(text_content) > 200:
+                logger.info("🧠 LLM extraction enabled - using semantic parsing for Bing content...")
                 llm_result = await self._extract_dates_with_llm(text_content, software_name, version)
                 if llm_result:
                     logger.info(f"✅ LLM extraction succeeded: eol={llm_result.get('eol_date')}, support={llm_result.get('support_end_date')}")
-                    def conf_to_label(val: Optional[float]) -> str:
-                        if val is None:
-                            return "low"
-                        if val >= 0.9:
-                            return "very_high"
-                        if val >= 0.75:
-                            return "high"
-                        if val >= 0.5:
-                            return "medium"
+
+            # Regex extraction as fallback (or when LLM disabled)
+            eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
+
+            # If LLM extraction succeeded, use its results (override regex)
+            if llm_result:
+            # If LLM extraction succeeded, use its results (override regex)
+            if llm_result:
+                def conf_to_label(val: Optional[float]) -> str:
+                    if val is None:
                         return "low"
+                    if val >= 0.9:
+                        return "very_high"
+                    if val >= 0.75:
+                        return "high"
+                    if val >= 0.5:
+                        return "medium"
+                    return "low"
 
-                    # Fill dates if present
-                    for key in ["eol_date", "support_end_date", "release_date"]:
-                        if llm_result.get(key):
-                            eol_extraction[key] = llm_result.get(key)
+                # Override regex results with LLM results
+                for key in ["eol_date", "support_end_date", "release_date"]:
+                    if llm_result.get(key):
+                        eol_extraction[key] = llm_result.get(key)
 
-                    # Map confidences
-                    eol_extraction["eol_confidence"] = conf_to_label(llm_result.get("eol_confidence"))
-                    eol_extraction["support_confidence"] = conf_to_label(llm_result.get("support_confidence"))
-                    eol_extraction["release_confidence"] = conf_to_label(llm_result.get("release_confidence"))
+                # Map confidences
+                eol_extraction["eol_confidence"] = conf_to_label(llm_result.get("eol_confidence"))
+                eol_extraction["support_confidence"] = conf_to_label(llm_result.get("support_confidence"))
+                eol_extraction["release_confidence"] = conf_to_label(llm_result.get("release_confidence"))
 
-                    # Preserve evidence snippets
-                    eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
-                    eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
-                    eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+                # Preserve evidence snippets
+                eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
+                eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
+                eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+
+                logger.info(f"📊 Using LLM results (override regex): eol={eol_extraction.get('eol_date')}, confidence={eol_extraction.get('eol_confidence')}")
+            else:
+                # LLM failed or disabled - log that we're using regex results
+                if eol_extraction.get("eol_date"):
+                    logger.warning(f"⚠️ Using regex extraction (LLM unavailable): eol={eol_extraction.get('eol_date')}, confidence={eol_extraction.get('eol_confidence')}")
                 else:
-                    logger.warning("⚠️ LLM extraction also failed to find dates")
+                    logger.warning("⚠️ Both LLM and regex extraction failed to find dates")
 
             # Map confidence labels to numeric scores
             confidence_map = {
