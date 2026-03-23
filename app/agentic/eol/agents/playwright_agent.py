@@ -743,8 +743,6 @@ class PlaywrightEOLAgent(BaseEOLAgent):
 
             # If LLM extraction succeeded, use its results (override regex)
             if llm_result:
-            # If LLM extraction succeeded, use its results (override regex)
-            if llm_result:
                 def conf_to_label(val: Optional[float]) -> str:
                     if val is None:
                         return "low"
