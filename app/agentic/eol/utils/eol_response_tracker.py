@@ -52,6 +52,7 @@ async def track_eol_agent_response(
             "cache_created_at": eol_result.get("cache_created_at"),
             "cache_expires_at": eol_result.get("expires_at"),
             "search_internet_only": eol_result.get("search_internet_only", False),
+            "search_mode": eol_result.get("search_mode"),
         }
 
         responses_list.append(response_entry)

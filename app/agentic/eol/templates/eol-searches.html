@@ -470,12 +470,18 @@
     }
 
     function buildSearchModeBadge(response) {
-        const isInternetOnly = Boolean(response.search_internet_only);
+        const searchMode = response.search_mode;
+        const isInternetOnly = searchMode === 'internet_only' || Boolean(response.search_internet_only);
+        const isAgentsOnly = searchMode === 'agents_only' || searchMode === 'agent_only';
+
         if (isInternetOnly) {
             return `<small class="badge bg-info ms-1">Internet Only</small>`;
         }
-        // Explicitly show when internet search was included alongside agents
-        return `<small class="badge bg-secondary ms-1">Agents + Internet</small>`;
+        if (isAgentsOnly) {
+            return `<small class="badge bg-secondary ms-1">Agents Only</small>`;
+        }
+        // Default: agents + internet
+        return `<small class="badge bg-primary text-light ms-1">Agents + Internet</small>`;
     }
 
     function isDateExpired(dateStr) {
