@@ -460,7 +460,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     {"role": "user", "content": json.dumps(user_content)},
                 ],
                 temperature=0.1,
-                max_tokens=300,
+                max_completion_tokens=300,  # Updated from max_tokens for newer OpenAI models
             )
 
             content = resp.choices[0].message.content if resp and resp.choices else None
