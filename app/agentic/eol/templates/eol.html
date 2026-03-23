@@ -2361,7 +2361,7 @@ Legacy format handling has been removed as all agents now use the standardized f
 
                 if (comparisonSummaries.length > 0) {
                     const comparisonRows = comparisonSummaries.map(entry => {
-                        const nameText = entry.softwareName ? entry.softwareName : '<span class="text-muted">Unknown</span>';
+                        const nameText = entry.softwareName ? capitalizeForDisplay(entry.softwareName) : '<span class="text-muted">Unknown</span>';
                         const versionText = entry.softwareVersion ? entry.softwareVersion : '<span class="text-muted">N/A</span>';
                         const eolText = entry.eolDate ? formatComparisonDate(entry.eolDate) : '<span class="text-muted">Not found</span>';
                         const supportText = entry.supportEnd ? formatComparisonDate(entry.supportEnd) : '<span class="text-muted">Not found</span>';
@@ -2625,6 +2625,64 @@ Legacy format handling has been removed as all agents now use the standardized f
             else badgeClass = 'bg-danger text-light';
 
             return `<span class="badge ${badgeClass} me-2" title="Search confidence">${percentage}%</span>`;
+        }
+
+        function capitalizeForDisplay(str) {
+            if (!str) return str;
+
+            // Special cases for common software names
+            const specialCases = {
+                'windows server': 'Windows Server',
+                'red hat': 'Red Hat',
+                'ubuntu': 'Ubuntu',
+                'centos': 'CentOS',
+                'sql server': 'SQL Server',
+                'exchange server': 'Exchange Server',
+                'apache': 'Apache',
+                'nginx': 'nginx',
+                'postgresql': 'PostgreSQL',
+                'mysql': 'MySQL',
+                'mongodb': 'MongoDB',
+                'nodejs': 'Node.js',
+                'node.js': 'Node.js',
+                'php': 'PHP',
+                'python': 'Python',
+                'java': 'Java',
+                'dotnet': '.NET',
+                '.net': '.NET',
+                'red hat enterprise linux': 'Red Hat Enterprise Linux',
+                'rhel': 'RHEL',
+                'vmware': 'VMware',
+                'esxi': 'ESXi',
+                'macos': 'macOS',
+                'ios': 'iOS',
+                'jquery': 'jQuery',
+                'mariadb': 'MariaDB',
+                'tomcat': 'Tomcat',
+                'kubernetes': 'Kubernetes',
+                'docker': 'Docker',
+                'terraform': 'Terraform',
+                'ansible': 'Ansible'
+            };
+
+            const lowerStr = str.toLowerCase().trim();
+
+            // Check special cases first (try full string, then partial matches)
+            if (specialCases[lowerStr]) {
+                return specialCases[lowerStr];
+            }
+
+            // Check if the string starts with a known special case (e.g., "windows server 2019")
+            for (const [key, value] of Object.entries(specialCases)) {
+                if (lowerStr.startsWith(key + ' ')) {
+                    return value + str.slice(key.length);
+                }
+            }
+
+            // Default: title case each word
+            return str.split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
         }
 
         function formatComparisonDate(dateStr) {
