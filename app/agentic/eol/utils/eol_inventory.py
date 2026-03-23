@@ -1081,17 +1081,33 @@ class EolInventory:
         return len(to_delete)
 
     async def purge_all(self) -> int:
-        """Delete every record in the store.
+        """Delete every record from both L1 memory cache and L2 PostgreSQL.
 
         Returns:
-            Number of records deleted.
+            Number of records deleted from PostgreSQL (L2).
         """
         await self.initialize()
 
-        count = len(self._store)
+        # Clear L1 memory cache
+        memory_count = len(self._store)
         self._store.clear()
-        logger.info("EOL table purge_all: deleted %d record(s)", count)
-        return count
+        logger.info("EOL table purge_all: cleared %d record(s) from memory (L1)", memory_count)
+
+        # Delete from L2 PostgreSQL
+        pg_deleted = 0
+        if self._has_pool():
+            try:
+                async with self._pool.acquire() as conn:
+                    result = await conn.execute("DELETE FROM eol_records")
+                    # Parse result like "DELETE 139" to get count
+                    pg_deleted = int(result.split()[-1]) if result and result.startswith("DELETE") else 0
+                logger.info("EOL table purge_all: deleted %d record(s) from PostgreSQL (L2)", pg_deleted)
+            except Exception as exc:
+                logger.error("EOL table purge_all: PostgreSQL deletion failed: %s", exc, exc_info=True)
+        else:
+            logger.warning("EOL table purge_all: PostgreSQL pool not available, skipped L2 deletion")
+
+        return pg_deleted
 
     async def count_records(
         self,
