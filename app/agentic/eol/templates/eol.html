@@ -1931,8 +1931,8 @@ Legacy format handling has been removed as all agents now use the standardized f
             const eolDate = entry.eol_date || null;
             const supportEnd = entry.support_end_date || null;
             const agent = entry.agent || 'unknown';
-            const softwareName = null;  // sources entries don't carry software_name (it's on the parent)
-            const softwareVersion = null;
+            const softwareName = entry.software_name || entry.softwareName || null;
+            const softwareVersion = entry.version || entry.software_version || entry.softwareVersion || null;
             const confRaw = entry.confidence;
             const confidencePct = confRaw !== undefined ? (confRaw > 1 ? confRaw : Math.round(confRaw * 100)) : null;
             const sourceUrl = entry.source_url || null;
@@ -2363,8 +2363,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                     const comparisonRows = comparisonSummaries.map(entry => {
                         const nameText = entry.softwareName ? entry.softwareName : '<span class="text-muted">Unknown</span>';
                         const versionText = entry.softwareVersion ? entry.softwareVersion : '<span class="text-muted">N/A</span>';
-                        const eolText = entry.eolDate || '<span class="text-muted">Not found</span>';
-                        const supportText = entry.supportEnd || '<span class="text-muted">Not found</span>';
+                        const eolText = entry.eolDate ? formatComparisonDate(entry.eolDate) : '<span class="text-muted">Not found</span>';
+                        const supportText = entry.supportEnd ? formatComparisonDate(entry.supportEnd) : '<span class="text-muted">Not found</span>';
                         const confText = entry.confidencePct !== null && entry.confidencePct !== undefined
                             ? `${Math.round(entry.confidencePct)}%`
                             : 'N/A';
@@ -2600,6 +2600,20 @@ Legacy format handling has been removed as all agents now use the standardized f
             return `<span class="badge ${badgeClass} me-2" title="Search confidence">${percentage}%</span>`;
         }
 
+        function formatComparisonDate(dateStr) {
+            if (!dateStr || dateStr === 'Not found') return dateStr;
+            try {
+                // If already in YYYY-MM-DD format, return as-is
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+                // Parse and normalize to YYYY-MM-DD
+                const date = new Date(dateStr);
+                if (isNaN(date.getTime())) return dateStr;
+                return date.toISOString().split('T')[0];
+            } catch {
+                return dateStr;
+            }
+        }
+
         function getAgentBadge(agentUsed) {
             if (!agentUsed || agentUsed === 'none' || agentUsed === 'undefined' || agentUsed === undefined || agentUsed === 'unknown') {
                 return '<span class="badge bg-secondary text-light" title="Unknown agent"><i class="fas fa-question me-1"></i>Unknown</span>';
@@ -2610,73 +2624,82 @@ Legacy format handling has been removed as all agents now use the standardized f
 
             // Enhanced agent information with more comprehensive mappings
             const agentInfo = {
-                // Microsoft agents
-                'microsoft': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
-                'microsoft_agent': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
-                'microsofteol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
-                'microsoft_eol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
+                // Microsoft agents (Tier 3 - orange/vendor scraper)
+                'microsoft': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft', style: 'background-color: #fd7e14; color: #000;' },
+                'microsoft_agent': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft', style: 'background-color: #fd7e14; color: #000;' },
+                'microsofteol': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft EOL', style: 'background-color: #fd7e14; color: #000;' },
+                'microsoft_eol': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Red Hat agents
-                'redhat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
-                'redhat_agent': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
-                'redhateol': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat EOL' },
-                'red_hat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
+                // Red Hat agents (Tier 3 - orange/vendor scraper)
+                'redhat': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
+                'redhat_agent': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
+                'redhateol': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat EOL', style: 'background-color: #fd7e14; color: #000;' },
+                'red_hat': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Ubuntu agents
-                'ubuntu': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntu_agent': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntueol': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL' },
+                // Ubuntu agents (Tier 3 - orange/vendor scraper)
+                'ubuntu': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu', style: 'background-color: #fd7e14; color: #000;' },
+                'ubuntu_agent': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu', style: 'background-color: #fd7e14; color: #000;' },
+                'ubuntueol': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // EndOfLife.date agents
-                'endoflife': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflife_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflifeeol': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'eol_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                // EndOfLife.date agents (Tier 1 - green)
+                'endoflife': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'endoflife_agent': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'endoflifeeol': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'eol_agent': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
 
-                // Oracle agents
-                'oracle': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
-                'oracle_agent': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
-                'oracleeol': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle EOL' },
+                // EOLStatus agents (Tier 2 - blue)
+                'eolstatus': { class: 'text-light', icon: 'fas fa-calendar-alt', name: 'EOLStatus', style: 'background-color: #0d6efd; color: white;' },
+                'eolstatus_agent': { class: 'text-light', icon: 'fas fa-calendar-alt', name: 'EOLStatus', style: 'background-color: #0d6efd; color: white;' },
 
-                // VMware agents
-                'vmware': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
-                'vmware_agent': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
-                'vmwareeol': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware EOL' },
+                // Oracle agents (Tier 3 - orange/vendor scraper)
+                'oracle': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle', style: 'background-color: #fd7e14; color: #000;' },
+                'oracle_agent': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle', style: 'background-color: #fd7e14; color: #000;' },
+                'oracleeol': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Apache agents
-                'apache': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
-                'apache_agent': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
-                'apacheeol': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache EOL' },
+                // VMware agents (Tier 3 - orange/vendor scraper)
+                'vmware': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware', style: 'background-color: #fd7e14; color: #000;' },
+                'vmware_agent': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware', style: 'background-color: #fd7e14; color: #000;' },
+                'vmwareeol': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Node.js agents
-                'nodejs': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
-                'nodejs_agent': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
-                'node': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
+                // Apache agents (Tier 3 - orange/vendor scraper)
+                'apache': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache', style: 'background-color: #fd7e14; color: #000;' },
+                'apache_agent': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache', style: 'background-color: #fd7e14; color: #000;' },
+                'apacheeol': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // PostgreSQL agents
-                'postgresql': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
-                'postgresql_agent': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
-                'postgres': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
+                // Node.js agents (Tier 3 - orange/vendor scraper)
+                'nodejs': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
+                'nodejs_agent': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
+                'node': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
 
-                // PHP agents
-                'php': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
-                'php_agent': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
-                'phpeol': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP EOL' },
+                // PostgreSQL agents (Tier 3 - orange/vendor scraper)
+                'postgresql': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
+                'postgresql_agent': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
+                'postgres': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Python agents
-                'python': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
-                'python_agent': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
-                'pythoneol': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python EOL' },
+                // PHP agents (Tier 3 - orange/vendor scraper)
+                'php': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP', style: 'background-color: #fd7e14; color: #000;' },
+                'php_agent': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP', style: 'background-color: #fd7e14; color: #000;' },
+                'phpeol': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Azure AI Agent Service (Modern replacement for Bing Search)
-                'azure_ai': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
-                'azure_ai_agent': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
-                'azureai': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
+                // Python agents (Tier 3 - orange/vendor scraper)
+                'python': { class: 'text-dark', icon: 'fab fa-python', name: 'Python', style: 'background-color: #fd7e14; color: #000;' },
+                'python_agent': { class: 'text-dark', icon: 'fab fa-python', name: 'Python', style: 'background-color: #fd7e14; color: #000;' },
+                'pythoneol': { class: 'text-dark', icon: 'fab fa-python', name: 'Python EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Generic/fallback agents
-                'general': { class: 'bg-secondary text-light', icon: 'fas fa-robot', name: 'General Agent' },
-                'web_search': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' },
-                'websearch': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' }
+                // Azure AI Agent Service (Tier 3 - orange/vendor)
+                'azure_ai': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+                'azure_ai_agent': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+                'azureai': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+
+                // Vendor scraper (Tier 3 - orange, explicit)
+                'vendor_scraper': { class: 'text-dark', icon: 'fas fa-spider', name: 'Vendor Scraper', style: 'background-color: #fd7e14; color: #000;' },
+
+                // Generic/fallback agents (Tier 4 - red)
+                'general': { class: 'text-light', icon: 'fas fa-robot', name: 'General Agent', style: 'background-color: #dc3545; color: white;' },
+                'web_search': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
+                'websearch': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
+                'fallback': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' },
+                'fallback_agent': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' }
             };
 
             // Check for exact match first
@@ -2692,6 +2715,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                     agent = agentInfo['ubuntu'];
                 } else if (normalizedAgent.includes('endoflife') || normalizedAgent.includes('eol_date')) {
                     agent = agentInfo['endoflife'];
+                } else if (normalizedAgent.includes('eolstatus')) {
+                    agent = agentInfo['eolstatus'];
                 } else if (normalizedAgent.includes('oracle')) {
                     agent = agentInfo['oracle'];
                 } else if (normalizedAgent.includes('vmware')) {
@@ -2706,6 +2731,10 @@ Legacy format handling has been removed as all agents now use the standardized f
                     agent = agentInfo['php'];
                 } else if (normalizedAgent.includes('python')) {
                     agent = agentInfo['python'];
+                } else if (normalizedAgent.includes('vendor_scraper') || normalizedAgent.includes('scraper')) {
+                    agent = agentInfo['vendor_scraper'];
+                } else if (normalizedAgent.includes('fallback')) {
+                    agent = agentInfo['fallback'];
                 } else {
                     // Fallback: create a generic badge with the original name
                     const displayName = String(agentUsed).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -2713,7 +2742,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                 }
             }
 
-            return `<span class="badge ${agent.class}" title="Data source: ${agent.name}"><i class="${agent.icon} me-1"></i>${agent.name}</span>`;
+            const styleAttr = agent.style ? ` style="${agent.style}"` : '';
+            return `<span class="badge ${agent.class}"${styleAttr} title="Data source: ${agent.name}"><i class="${agent.icon} me-1"></i>${agent.name}</span>`;
         }
 
         function generateAlternativeSourcesSection(allSources, primaryAgent) {
