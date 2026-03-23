@@ -19,12 +19,13 @@ logger = logging.getLogger(__name__)
 class FallbackAdapter:
     """Thin adapter wrapping PlaywrightEOLAgent for the tiered pipeline.
 
-    Tier 4: Browser automation / web search (last resort).
+    Tier 4: Browser automation / web search with LLM extraction.
+    Increased timeout to accommodate browser launch + page load + LLM call.
     """
 
     name: str = "fallback"
     tier: int = 4
-    timeout: int = 30
+    timeout: int = 60  # Increased from 30s for browser automation + LLM extraction
 
     def __init__(self, agent: Any) -> None:
         """Initialize with a PlaywrightEOLAgent instance.
