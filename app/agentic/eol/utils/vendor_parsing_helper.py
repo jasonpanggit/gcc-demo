@@ -104,7 +104,7 @@ async def parse_vendor_urls_generic(
                         "raw": result,
                     })
                     logger.info(f"Parsed 1 record via get_eol_data fallback for {software_hint}")
-                except Exception as exc:
+            except Exception as exc:
                 logger.warning(f"get_eol_data fallback failed for {software_hint}: {exc}")
 
         # If all strategies failed, record failure
