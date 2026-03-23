@@ -1315,17 +1315,6 @@ async def list_eol_inventory_records(
         return response.to_dict()
 
 
-@router.get("/api/eol-inventory/{software_key}", response_model=StandardResponse)
-@readonly_endpoint(agent_name="eol_inventory_get", timeout_seconds=15)
-async def get_eol_record(request: Request, software_key: str):
-    """Retrieve a single EOL record by software_key."""
-    eol_repo = request.app.state.eol_repo
-    record = await eol_repo.get_by_key(software_key)
-    if record is None:
-        raise HTTPException(status_code=404, detail=f"EOL record not found: {software_key}")
-    return StandardResponse(success=True, data=record, message="EOL record retrieved")
-
-
 @router.get("/api/eol-inventory/vendor/{vendor}", response_model=StandardResponse)
 @readonly_endpoint(agent_name="eol_inventory_vendor", timeout_seconds=20)
 async def list_eol_by_vendor(vendor: str, limit: int = 100, offset: int = 0):
@@ -1335,6 +1324,17 @@ async def list_eol_by_vendor(vendor: str, limit: int = 100, offset: int = 0):
         data={"items": records, "total": total, "vendor": vendor},
         message=f"Retrieved {len(records)} of {total} EOL records for vendor '{vendor}'",
     ).to_dict()
+
+
+@router.get("/api/eol-inventory/{software_key}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_inventory_get", timeout_seconds=15)
+async def get_eol_record(request: Request, software_key: str):
+    """Retrieve a single EOL record by software_key."""
+    eol_repo = request.app.state.eol_repo
+    record = await eol_repo.get_by_key(software_key)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"EOL record not found: {software_key}")
+    return StandardResponse(success=True, data=record, message="EOL record retrieved")
 
 
 @router.put("/api/eol-inventory/{record_id}", response_model=StandardResponse)
