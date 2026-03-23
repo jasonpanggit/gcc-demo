@@ -224,14 +224,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             "rc",
         ]
         support_keywords = [
-            "end of support",
+            "extended support end",  # Priority 1 - Extended support is the true EOL
+            "extended support ends",
+            "extended support until",
+            "extended support date",
+            "end of extended support",
+            "end of support",  # Priority 2 - Generic support end
             "support ends",
             "support end",
             "support until",
             "support date",
-            "extended support ends",
-            "mainstream support",
-            "extended support",
+            "mainstream support",  # Priority 3 - Mainstream comes before extended
         ]
 
         conf_order = {'very_high': 4, 'high': 3, 'medium': 2, 'low': 1}
@@ -256,6 +259,24 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                 eol_hit = any(keyword in context_lower for keyword in eol_keywords)
                 support_hit = any(keyword in context_lower for keyword in support_keywords)
 
+                # Check if this is an "extended support" mention (higher priority for Windows products)
+                extended_support_hit = any(keyword in context_lower for keyword in [
+                    "extended support end", "extended support ends", "end of extended support",
+                    "extended support until", "extended support date"
+                ])
+                mainstream_support_hit = "mainstream support" in context_lower
+
+                # For Windows Server and similar products, extended support is the true EOL
+                # Boost confidence if we found extended support date
+                if extended_support_hit:
+                    conf_label = 'very_high'  # Extended support dates are definitive EOL
+                    # This is likely the true EOL date, not mainstream support
+                    support_hit = True
+                elif mainstream_support_hit and not eol_hit:
+                    # Mainstream support is NOT the EOL date, just a milestone
+                    # Only record it if we don't find extended support
+                    conf_label = 'medium' if base_conf in ['very_high', 'high'] else 'low'
+
                 # Skip pure release/GA dates; we only want lifecycle endings
                 if release_hit and not eol_hit:
                     # Treat as release candidate but do not return as EOL/support
@@ -266,15 +287,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                             "confidence": conf_label,
                             "context": context_snippet,
                             "position": span_start,
+                            "extended_support": extended_support_hit,
                         }
                     continue
 
                 # Adjust confidence based on proximity to lifecycle vs. release language
-                conf_label = 'very_high' if eol_hit else base_conf
-                if not eol_hit and base_conf == 'high':
-                    conf_label = 'medium'
-                elif not eol_hit and base_conf == 'medium':
-                    conf_label = 'low'
+                if not extended_support_hit and not mainstream_support_hit:
+                    conf_label = 'very_high' if eol_hit else base_conf
+                    if not eol_hit and base_conf == 'high':
+                        conf_label = 'medium'
+                    elif not eol_hit and base_conf == 'medium':
+                        conf_label = 'low'
 
                 previous = eol_candidates.get(date_str)
                 if eol_hit and (not previous or conf_order[conf_label] > conf_order[previous["confidence"]]):
@@ -282,6 +305,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         "confidence": conf_label,
                         "context": context_snippet,
                         "position": span_start,
+                        "extended_support": extended_support_hit,
                     }
 
                 previous_support = support_candidates.get(date_str)
@@ -290,12 +314,30 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         "confidence": conf_label,
                         "context": context_snippet,
                         "position": span_start,
+                        "extended_support": extended_support_hit,
+                        "mainstream_support": mainstream_support_hit,
                     }
 
         # Helper to select best candidate set
-        def select_best(candidates_dict):
+        def select_best(candidates_dict, prefer_extended=False):
             if not candidates_dict:
                 return None
+
+            # For support dates, prefer extended support over mainstream
+            if prefer_extended:
+                # First try to find extended support dates
+                extended_candidates = {k: v for k, v in candidates_dict.items()
+                                     if v.get("extended_support", False)}
+                if extended_candidates:
+                    sorted_candidates = sorted(
+                        extended_candidates.items(),
+                        key=lambda item: (conf_order[item[1]["confidence"]], -item[1]["position"]),
+                        reverse=True
+                    )
+                    all_dates = [c[0] for c in sorted_candidates]
+                    return sorted_candidates[0], all_dates
+
+            # Default sorting: by confidence first, then by position (earlier in text)
             sorted_candidates = sorted(
                 candidates_dict.items(),
                 key=lambda item: (conf_order[item[1]["confidence"]], -item[1]["position"]),
@@ -304,7 +346,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             return sorted_candidates[0], [c[0] for c in sorted_candidates]
 
         chosen_eol = select_best(eol_candidates)
-        chosen_support = select_best(support_candidates)
+        chosen_support = select_best(support_candidates, prefer_extended=True)  # Prefer extended support
         chosen_release = select_best(release_candidates)
 
         if chosen_eol:
@@ -321,6 +363,19 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             result["support_confidence"] = meta["confidence"]
             result["all_dates"].extend(all_dates)
             result["support_context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+
+            # For Windows Server and similar Microsoft products, Extended Support End Date is the true EOL
+            # If we found an extended support date and no EOL date, promote it to EOL
+            is_windows_product = any(term in software_name.lower() for term in [
+                "windows server", "windows", "sql server", "exchange server",
+                "sharepoint", "office", "visual studio"
+            ])
+            if is_windows_product and meta.get("extended_support") and not result["eol_date"]:
+                result["eol_date"] = best_date
+                result["eol_confidence"] = meta["confidence"]
+                result["confidence"] = meta["confidence"]
+                result["context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+                logger.info(f"💡 Promoted Extended Support date to EOL for {software_name}: {best_date}")
 
         if chosen_release:
             (best_date, meta), all_dates = chosen_release
