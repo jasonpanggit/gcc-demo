@@ -180,6 +180,28 @@ class EOLOrchestratorAgent:
     async def __aexit__(self, *_: Any) -> None:
         await self.aclose()
 
+    @property
+    def vendor_routing(self) -> Dict[str, List[str]]:
+        """Expose vendor routing map from the VendorScraperAdapter.
+
+        This allows the API endpoint to access the vendor routing configuration
+        that determines which keywords map to which vendor agents.
+
+        Returns:
+            Dict mapping vendor name to list of keywords (software names).
+            Returns empty dict if VendorScraperAdapter is not registered.
+        """
+        try:
+            # Find the VendorScraperAdapter in the registry
+            for adapter in self._pipeline_registry.all_adapters():
+                if adapter.name == "vendor_scraper" and adapter.tier == 3:
+                    # VendorScraperAdapter stores routing in _vendor_routing
+                    return getattr(adapter, "_vendor_routing", {})
+            return {}
+        except Exception as exc:
+            logger.warning("Failed to retrieve vendor_routing from pipeline: %s", exc)
+            return {}
+
     async def log_communication(self, agent_name: str, action: str, data: Dict[str, Any], result: Optional[Dict[str, Any]] = None) -> None:
         try:
             self._comms_log.append({"id": str(uuid.uuid4()), "sessionId": self.session_id, "timestamp": datetime.now(timezone.utc).isoformat(), "agentName": agent_name, "action": action, "input": data, "output": result})
