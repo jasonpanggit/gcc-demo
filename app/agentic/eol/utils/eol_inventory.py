@@ -347,7 +347,7 @@ class EolInventory:
                     INSERT INTO eol_records (
                         software_key, version_key, software_name, version,
                         eol_date, status, risk_level, confidence, source,
-                        link, vendor, item_type,
+                        source_url, vendor, item_type,
                         normalized_software_name, normalized_version,
                         raw_response, scoring_version,
                         is_eol, created_at, updated_at
@@ -368,7 +368,7 @@ class EolInventory:
                         risk_level               = EXCLUDED.risk_level,
                         confidence               = EXCLUDED.confidence,
                         source                   = EXCLUDED.source,
-                        link                     = EXCLUDED.link,
+                        source_url               = EXCLUDED.source_url,
                         vendor                   = EXCLUDED.vendor,
                         item_type                = EXCLUDED.item_type,
                         normalized_software_name = EXCLUDED.normalized_software_name,
