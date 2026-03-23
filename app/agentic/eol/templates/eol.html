@@ -2324,6 +2324,74 @@ Legacy format handling has been removed as all agents now use the standardized f
                     `;
                 }
 
+                // Pipeline tier flow visualization (shown for ALL search modes)
+                const pipelineSources = Array.isArray(result.sources) ? result.sources
+                    : (Array.isArray(orchestratorResult.sources) ? orchestratorResult.sources : []);
+
+                const isCacheHit = orchestratorResult.cache_hit || result.cache_hit || false;
+
+                if (pipelineSources.length > 0 || isCacheHit) {
+                    // Sort sources by tier for visual flow
+                    const sortedSources = [...pipelineSources].sort((a, b) => {
+                        const tierOrder = { 1: 1, 2: 2, 3: 3, 4: 4 };
+                        return (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99);
+                    });
+
+                    // Find the winning source (highest confidence)
+                    const winningSource = sortedSources.reduce((best, s) =>
+                        (!best || (s.confidence || 0) > (best.confidence || 0)) ? s : best, null);
+
+                    // Build tier step badges
+                    const tierLabels = { 1: 'API', 2: 'Structured', 3: 'Scraper', 4: 'Fallback' };
+                    const tierColors = { 1: '#198754', 2: '#0d6efd', 3: '#fd7e14', 4: '#dc3545' };
+
+                    const pipelineSteps = sortedSources.map(s => {
+                        const tier = s.tier || '?';
+                        const agent = s.agent || 'unknown';
+                        const conf = s.confidence !== undefined ? (s.confidence > 1 ? s.confidence : Math.round(s.confidence * 100)) : null;
+                        const isWinner = winningSource && s.agent === winningSource.agent && s.tier === winningSource.tier;
+                        const tierLabel = tierLabels[tier] || `T${tier}`;
+                        const tierColor = tierColors[tier] || '#6c757d';
+                        const discrepancy = s.discrepancy_flag ? ' <i class="fas fa-exclamation-triangle text-warning" title="Discrepancy detected"></i>' : '';
+
+                        return `<div class="d-inline-flex align-items-center me-2 mb-2">
+                            <span class="badge ${isWinner ? 'border border-2 border-dark' : ''}"
+                                  style="background-color: ${tierColor}; color: white; font-size: 0.8em; padding: 6px 10px;"
+                                  title="Tier ${tier}: ${tierLabel} - ${agent}${conf !== null ? ` (${conf}%)` : ''}">
+                                <small class="opacity-75">T${tier}</small> ${agent} ${conf !== null ? `<strong>${conf}%</strong>` : ''}${discrepancy}
+                                ${isWinner ? ' <i class="fas fa-trophy" style="color: #ffc107;"></i>' : ''}
+                            </span>
+                        </div>`;
+                    }).join('<i class="fas fa-chevron-right text-muted mx-1 mb-2" style="font-size: 0.7em;"></i>');
+
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                                <h6 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Pipeline Flow</h6>
+                                <small class="text-muted">${sortedSources.length} source${sortedSources.length !== 1 ? 's' : ''} queried</small>
+                            </div>
+                            <div class="card-body py-2">
+                                <div class="d-flex flex-wrap align-items-center">
+                                    ${pipelineSteps}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (isCacheHit || orchestratorResult.cache_source) {
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header py-2">
+                                <h6 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Pipeline Flow</h6>
+                            </div>
+                            <div class="card-body py-2">
+                                <span class="badge bg-secondary" style="font-size: 0.85em;">
+                                    <i class="fas fa-database me-1"></i>Served from cache
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                }
+
             } else {
                 // No data found case with enhanced suggestions
                 html += `
