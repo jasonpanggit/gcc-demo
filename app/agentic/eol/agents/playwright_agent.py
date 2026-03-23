@@ -459,7 +459,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(user_content)},
                 ],
-                max_completion_tokens=300,  # Updated from max_tokens for newer OpenAI models
+                max_completion_tokens=2000,  # Increased for reasoning models (gpt-5-mini uses reasoning tokens)
             )
 
             logger.info(f"LLM response received: choices={len(resp.choices) if resp and resp.choices else 0}")
