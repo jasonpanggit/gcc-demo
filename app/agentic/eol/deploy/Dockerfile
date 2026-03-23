@@ -82,6 +82,7 @@ ENV PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=false
 COPY api ./api
 COPY agents ./agents
 COPY models ./models
+COPY pipeline ./pipeline
 COPY utils ./utils
 COPY mcp_servers ./mcp_servers
 COPY config ./config
