@@ -580,6 +580,45 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
 
         return any(keyword in name_lower for keyword in postgresql_keywords)
 
+    def _convert_date_to_iso(self, date_str: str) -> str:
+        """Convert various date formats to ISO format (YYYY-MM-DD).
+
+        Args:
+            date_str: Date string in formats like "September 9, 2013" or "2013-09-09"
+
+        Returns:
+            ISO formatted date string (YYYY-MM-DD) or original string if conversion fails
+        """
+        if not date_str or date_str.lower() in ('n/a', 'unknown', ''):
+            return ""
+
+        try:
+            # Try ISO format first (YYYY-MM-DD)
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+                return date_str
+
+            # Try "Month DD, YYYY" format (e.g., "September 9, 2013")
+            try:
+                parsed = datetime.strptime(date_str, "%B %d, %Y")
+                return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+            # Try "Month D, YYYY" format (e.g., "July 1, 2009")
+            try:
+                parsed = datetime.strptime(date_str, "%B %d, %Y")
+                return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+            # If all else fails, return original
+            logger.warning(f"Could not convert date format: {date_str}")
+            return date_str
+
+        except Exception as e:
+            logger.error(f"Error converting date '{date_str}': {e}")
+            return date_str
+
     def _parse_all_postgresql_versions(self, soup: BeautifulSoup) -> list:
         """Parse all PostgreSQL versions from the official versioning page.
 
@@ -587,7 +626,7 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
             soup: BeautifulSoup object of the PostgreSQL versioning page
 
         Returns:
-            List of dicts with cycle, eol, support, releaseDate
+            List of dicts with cycle, eol, support, releaseDate in ISO format
         """
         records = []
         try:
@@ -607,13 +646,17 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
                         release_date = cols[2].get_text(strip=True)
                         eol_date = cols[3].get_text(strip=True)
 
-                        # Parse dates if available
+                        # Parse dates if available and convert to ISO format
                         if version and eol_date and eol_date.lower() != 'n/a':
+                            # Convert dates to ISO format
+                            iso_release_date = self._convert_date_to_iso(release_date) if release_date else ""
+                            iso_eol_date = self._convert_date_to_iso(eol_date)
+
                             records.append({
                                 "cycle": version,
-                                "releaseDate": release_date if release_date else "",
-                                "eol": eol_date,
-                                "support": eol_date,  # PostgreSQL has single support date
+                                "releaseDate": iso_release_date,
+                                "eol": iso_eol_date,
+                                "support": iso_eol_date,  # PostgreSQL has single support date
                             })
                     except Exception as e:
                         logger.warning(f"Error parsing PostgreSQL version row: {e}")
