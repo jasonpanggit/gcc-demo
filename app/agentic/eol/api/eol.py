@@ -487,10 +487,31 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 "agent_used": processed.get("agent_used"),
             }
 
+            logger.info(
+                "Vendor parsing persisting: software_name=%s, version=%s, vendor=%s, "
+                "eol_date=%s, confidence=%s, agent_used=%s",
+                software_name, version, vendor_key,
+                run.get("eol_date"), processed.get("confidence"), run.get("agent_used")
+            )
+
             try:
-                await eol_inventory.upsert(software_name, version, result)
+                upsert_success = await eol_inventory.upsert(software_name, version, result)
+                if upsert_success:
+                    logger.info(
+                        "Vendor EOL cache upsert SUCCESS for %s %s (vendor=%s)",
+                        software_name, version or "(any)", vendor_key
+                    )
+                else:
+                    logger.warning(
+                        "Vendor EOL cache upsert returned False for %s %s (vendor=%s)",
+                        software_name, version or "(any)", vendor_key
+                    )
             except Exception as exc:
-                logger.debug("Vendor EOL cache upsert failed for %s %s: %s", software_name, version or "(any)", exc)
+                logger.error(
+                    "Vendor EOL cache upsert EXCEPTION for %s %s (vendor=%s): %s",
+                    software_name, version or "(any)", vendor_key, exc,
+                    exc_info=True
+                )
 
         await asyncio.gather(*(_persist_run(run) for run in runs))
 

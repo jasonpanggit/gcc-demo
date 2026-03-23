@@ -324,11 +324,22 @@ class EolInventory:
     async def _pg_upsert(self, record: EolRecord) -> None:
         """L2 write: INSERT … ON CONFLICT with confidence-gated update."""
         if not self._has_pool():
+            logger.warning(
+                "L2 PG upsert skipped for %s/%s: no pool available",
+                record.software_key, record.version_key
+            )
             return
         try:
             vendor = self._extract_vendor(record)
             raw_response = json.dumps(record.data) if record.data else None
             confidence = float(record.confidence) if record.confidence is not None else 0.0
+
+            logger.info(
+                "L2 PG upsert starting: software_key=%s, version_key=%s, vendor=%s, confidence=%.2f, "
+                "eol_date=%s, source=%s, agent_used=%s",
+                record.software_key, record.version_key, vendor, confidence,
+                record.eol_date, record.source, record.agent_used
+            )
 
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -387,12 +398,17 @@ class EolInventory:
                     record.scoring_version or "v2",               # $16
                     record.status in ("expired", "eol", "End of Life"),  # $17
                 )
-            logger.debug(
-                "L2 PG upsert OK: %s/%s (confidence=%.2f, vendor=%s)",
+            logger.info(
+                "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, vendor=%s)",
                 record.software_key, record.version_key, confidence, vendor,
             )
         except Exception as exc:
-            logger.debug("L2 PG upsert failed for %s: %s", record.software_key, exc)
+            logger.error(
+                "L2 PG upsert FAILED for %s/%s: %s - software_name=%s, version=%s, source=%s, agent_used=%s",
+                record.software_key, record.version_key, exc,
+                record.software_name, record.version, record.source, record.agent_used,
+                exc_info=True
+            )
 
     def _extract_vendor(self, record: EolRecord) -> Optional[str]:
         """Derive vendor name from record fields."""
