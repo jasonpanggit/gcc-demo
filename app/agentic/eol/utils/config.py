@@ -385,6 +385,20 @@ class TimeoutConfig:
         }
 
 
+@dataclass
+class EolConfig:
+    """EOL orchestrator configuration.
+
+    Controls confidence scoring behavior and pipeline settings.
+
+    Environment variables:
+        EOL_PIPELINE_CONFIDENCE_THRESHOLD: Minimum confidence for early pipeline termination (default: 0.80)
+    """
+    pipeline_confidence_threshold: float = field(
+        default_factory=lambda: float(os.getenv("EOL_PIPELINE_CONFIDENCE_THRESHOLD", "0.80"))
+    )
+
+
 class ConfigManager:
     """Centralized configuration manager"""
 
@@ -398,6 +412,7 @@ class ConfigManager:
         self._cve_scanner_config: Optional[CVEScannerConfig] = None
         self._cve_monitoring_config: Optional[CVEMonitoringConfig] = None
         self._timeout_config: Optional[TimeoutConfig] = None
+        self._eol_config: Optional[EolConfig] = None
         self._appsettings_cache: Optional[Dict[str, Any]] = None
 
     def _load_appsettings(self) -> Dict[str, Any]:
@@ -561,6 +576,13 @@ class ConfigManager:
         if self._timeout_config is None:
             self._timeout_config = TimeoutConfig.from_env()
         return self._timeout_config
+
+    @property
+    def eol(self) -> EolConfig:
+        """Get EOL orchestrator configuration"""
+        if self._eol_config is None:
+            self._eol_config = EolConfig()
+        return self._eol_config
 
     def validate_config(self) -> Dict[str, Any]:
         """

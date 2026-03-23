@@ -27,14 +27,14 @@ try:
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
     from utils.cache_stats_manager import cache_stats_manager
-    from utils.normalization import normalize_software_name_version
+    from utils.normalization import NormalizedQuery
 except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from utils import get_logger, config
     from utils.inventory_cache import inventory_cache
-    from utils.normalization import normalize_software_name_version
+    from utils.normalization import NormalizedQuery
     try:
         from utils.cache_stats_manager import cache_stats_manager
     except ImportError:
@@ -139,7 +139,8 @@ class SoftwareInventoryAgent:
             return None
 
         # Use centralized normalization for consistent cache keys
-        normalized_name, normalized_version = normalize_software_name_version(software_name, version)
+        _nq = NormalizedQuery.from_software(software_name, version)
+        normalized_name, normalized_version = _nq.as_tuple()
         
         logger.debug(
             f"Software inventory normalized: '{software_name}' v'{version}' -> '{normalized_name}' v'{normalized_version}'"

@@ -708,20 +708,20 @@ Legacy format handling has been removed as all agents now use the standardized f
                                     <div class="form-check me-md-3 search-mode-option" data-search-mode="agent_only">
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchAgentsOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchAgentsOnly" style="cursor: pointer;">
-                                            <i class="fas fa-robot me-1"></i>
-                                            <strong>Agents Only</strong>
+                                            <i class="fas fa-layer-group me-1"></i>
+                                            <strong>Structured Sources (T1→T2→T3)</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use specialized agents only (fastest)
+                                                API sources + vendor scrapers • Fastest, most reliable
                                             </small>
                                         </label>
                                     </div>
                                     <div class="form-check me-md-3 search-mode-option" data-search-mode="agents_plus_internet">
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchIncludeInternet" style="cursor: pointer;" checked>
                                         <label class="form-check-label" for="searchIncludeInternet" style="cursor: pointer;">
-                                            <i class="fas fa-globe-asia me-1"></i>
-                                            <strong>Agents + Web Search (default)</strong>
+                                            <i class="fas fa-sitemap me-1"></i>
+                                            <strong>Full Pipeline (T1→T2→T3→T4) — default</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use agents and web search together, show all results found and provide the best (slowest)
+                                                All tiers including web search fallback • Comprehensive
                                             </small>
                                         </label>
                                     </div>
@@ -729,9 +729,9 @@ Legacy format handling has been removed as all agents now use the standardized f
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchInternetOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchInternetOnly" style="cursor: pointer;">
                                             <i class="fas fa-globe me-1"></i>
-                                            <strong>Web Search Only</strong>
+                                            <strong>Web Search Only (T4 direct)</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use web search only (slow)
+                                                Browser automation • Slowest, bypasses T1-T3 for testing
                                             </small>
                                         </label>
                                     </div>
@@ -1766,12 +1766,15 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Display agent communications from search result
         async function displaySearchCommunications(data) {
             // Extract communications from various possible fields
-            const agentComms = extractCommunications(data);
+            let agentComms = extractCommunications(data);
 
-            if (agentComms.length > 0) {
-                // console.log(`🎯 Displaying ${agentComms.length} agent communications`);
+            // Enhance communications with tier execution details from sources array
+            const enrichedComms = enrichCommunicationsWithTierFlow(agentComms, data);
+
+            if (enrichedComms.length > 0) {
+                // console.log(`🎯 Displaying ${enrichedComms.length} agent communications`);
                 try {
-                    displayAgentCommunications(agentComms);
+                    displayAgentCommunications(enrichedComms);
                     // console.log('✅ Agent communications displayed successfully');
                 } catch (commError) {
                     console.error('❌ Error displaying agent communications:', commError);
@@ -1781,6 +1784,96 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // console.log('🎯 No agent communications found - showing simple completion message');
                 displaySimpleCompletionMessage();
             }
+        }
+
+        // Enrich communications with tier execution flow from sources array
+        function enrichCommunicationsWithTierFlow(communications, searchData) {
+            // Extract sources array from result
+            const orchestratorResult = searchData.result || {};
+            const sources = orchestratorResult.sources || searchData.sources || [];
+
+            if (sources.length === 0) {
+                return communications;
+            }
+
+            // Group sources by tier
+            const tierGroups = {};
+            sources.forEach(source => {
+                const tier = source.tier || 0;
+                if (!tierGroups[tier]) {
+                    tierGroups[tier] = [];
+                }
+                tierGroups[tier].push(source);
+            });
+
+            // Create synthetic communication entries for tier execution
+            const tierComms = [];
+            const sortedTiers = Object.keys(tierGroups).sort((a, b) => parseInt(a) - parseInt(b));
+
+            sortedTiers.forEach(tier => {
+                const tierSources = tierGroups[tier];
+                const tierNum = parseInt(tier);
+
+                // Create a communication for this tier's execution
+                const tierLabel = `T${tierNum}`;
+                const tierName = getTierName(tierNum);
+
+                tierSources.forEach(source => {
+                    const comm = {
+                        id: `tier_${tier}_${source.agent || source.source}`,
+                        sessionId: orchestratorResult.session_id || 'eol-search',
+                        timestamp: orchestratorResult.timestamp || new Date().toISOString(),
+                        agentName: `${tierLabel} • ${source.agent || source.source}`,
+                        action: 'tier_execution',
+                        input: {
+                            tier: tierNum,
+                            tier_name: tierName,
+                            agent: source.agent || source.source,
+                            software_name: orchestratorResult.data?.software_name || searchData.software_name,
+                            software_version: orchestratorResult.data?.version || orchestratorResult.data?.software_version || searchData.software_version
+                        },
+                        output: {
+                            success: !!source.eol_date,
+                            confidence: source.confidence,
+                            eol_date: source.eol_date,
+                            support_end_date: source.support_end_date,
+                            release_date: source.release_date,
+                            source_url: source.source_url,
+                            discrepancy_flag: source.discrepancy_flag
+                        }
+                    };
+                    tierComms.push(comm);
+                });
+            });
+
+            // Insert tier communications after the initial orchestrator communication but before completion
+            const result = [...communications];
+
+            // Find insertion point (after first orchestrator comm)
+            const insertIndex = result.findIndex(c =>
+                (c.agentName || c.agent_name || '').toLowerCase().includes('orchestrator')
+            );
+
+            if (insertIndex >= 0) {
+                // Insert after orchestrator initialization
+                result.splice(insertIndex + 1, 0, ...tierComms);
+            } else {
+                // If no orchestrator comm found, prepend tier comms
+                result.unshift(...tierComms);
+            }
+
+            return result;
+        }
+
+        // Get human-readable tier name
+        function getTierName(tier) {
+            const tierNames = {
+                1: 'Structured API',
+                2: 'JSON-LD Source',
+                3: 'Vendor Scraper',
+                4: 'Web Search'
+            };
+            return tierNames[tier] || `Tier ${tier}`;
         }
 
         // Extract communications from search data
@@ -1834,28 +1927,16 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Summarize an agent comparison entry for side-by-side display
         function summarizeAgentComparison(entry) {
             if (!entry || typeof entry !== 'object') return null;
-            const payload = entry.result || {};
-            const dataBlock = payload.data && typeof payload.data === 'object' ? payload.data : payload;
-            const eolDate = dataBlock.eol_date || dataBlock.eol || null;
-            const supportEnd = dataBlock.support_end_date || dataBlock.support || null;
-            const agent = entry.agent || dataBlock.agent_used || dataBlock.source || 'unknown';
-            const softwareName = dataBlock.software_name || null;
-            const softwareVersion = dataBlock.version || null;
-            const confRaw = entry.confidence !== undefined ? entry.confidence : dataBlock.confidence;
+            // New sources array format: {agent, confidence, eol_date, support_end_date, release_date, source_url, tier, discrepancy_flag}
+            const eolDate = entry.eol_date || null;
+            const supportEnd = entry.support_end_date || null;
+            const agent = entry.agent || 'unknown';
+            const softwareName = entry.software_name || entry.softwareName || null;
+            const softwareVersion = entry.version || entry.software_version || entry.softwareVersion || null;
+            const confRaw = entry.confidence;
             const confidencePct = confRaw !== undefined ? (confRaw > 1 ? confRaw : Math.round(confRaw * 100)) : null;
-            const sourceUrl = extractSourceUrl(dataBlock.source_url) || extractSourceUrl(payload.source_url);
-
-            return {
-                agent,
-                softwareName,
-                softwareVersion,
-                confidencePct,
-                eolDate,
-                supportEnd,
-                sourceUrl,
-                error: entry.error || dataBlock.error,
-                duration: entry.duration,
-            };
+            const sourceUrl = entry.source_url || null;
+            return { eolDate, supportEnd, agent, softwareName, softwareVersion, confidencePct, sourceUrl, tier: entry.tier, discrepancyFlag: entry.discrepancy_flag };
         }
 
         // Display error in search results
@@ -2268,10 +2349,10 @@ Legacy format handling has been removed as all agents now use the standardized f
                 const includeInternetFlag = searchData.search_include_internet || searchData.searchIncludeInternet || orchestratorResult.search_mode === 'agents_plus_internet' || searchData.search_mode === 'agents_plus_internet';
                 const agentOnlyFlag = searchData.search_agent_only || searchData.searchAgentOnly || orchestratorResult.search_mode === 'agent_only' || searchData.search_mode === 'agent_only' || (!internetOnlyFlag && !includeInternetFlag);
 
-                const comparisonRaw = agentOnlyFlag ? [] : (Array.isArray(result.agent_comparisons)
-                    ? result.agent_comparisons
-                    : (Array.isArray(orchestratorResult.agent_comparisons)
-                        ? orchestratorResult.agent_comparisons
+                const comparisonRaw = agentOnlyFlag ? [] : (Array.isArray(result.sources)
+                    ? result.sources
+                    : (Array.isArray(orchestratorResult.sources)
+                        ? orchestratorResult.sources
                         : []));
 
                 const comparisonSummaries = comparisonRaw
@@ -2282,8 +2363,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                     const comparisonRows = comparisonSummaries.map(entry => {
                         const nameText = entry.softwareName ? entry.softwareName : '<span class="text-muted">Unknown</span>';
                         const versionText = entry.softwareVersion ? entry.softwareVersion : '<span class="text-muted">N/A</span>';
-                        const eolText = entry.eolDate || '<span class="text-muted">Not found</span>';
-                        const supportText = entry.supportEnd || '<span class="text-muted">Not found</span>';
+                        const eolText = entry.eolDate ? formatComparisonDate(entry.eolDate) : '<span class="text-muted">Not found</span>';
+                        const supportText = entry.supportEnd ? formatComparisonDate(entry.supportEnd) : '<span class="text-muted">Not found</span>';
                         const confText = entry.confidencePct !== null && entry.confidencePct !== undefined
                             ? `${Math.round(entry.confidencePct)}%`
                             : 'N/A';
@@ -2331,6 +2412,74 @@ Legacy format handling has been removed as all agents now use the standardized f
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Pipeline tier flow visualization (shown for ALL search modes)
+                const pipelineSources = Array.isArray(result.sources) ? result.sources
+                    : (Array.isArray(orchestratorResult.sources) ? orchestratorResult.sources : []);
+
+                const isCacheHit = orchestratorResult.cache_hit || result.cache_hit || false;
+
+                if (pipelineSources.length > 0 || isCacheHit) {
+                    // Sort sources by tier for visual flow
+                    const sortedSources = [...pipelineSources].sort((a, b) => {
+                        const tierOrder = { 1: 1, 2: 2, 3: 3, 4: 4 };
+                        return (tierOrder[a.tier] || 99) - (tierOrder[b.tier] || 99);
+                    });
+
+                    // Find the winning source (highest confidence)
+                    const winningSource = sortedSources.reduce((best, s) =>
+                        (!best || (s.confidence || 0) > (best.confidence || 0)) ? s : best, null);
+
+                    // Build tier step badges
+                    const tierLabels = { 1: 'API', 2: 'Structured', 3: 'Scraper', 4: 'Fallback' };
+                    const tierColors = { 1: '#198754', 2: '#0d6efd', 3: '#fd7e14', 4: '#dc3545' };
+
+                    const pipelineSteps = sortedSources.map(s => {
+                        const tier = s.tier || '?';
+                        const agent = s.agent || 'unknown';
+                        const conf = s.confidence !== undefined ? (s.confidence > 1 ? s.confidence : Math.round(s.confidence * 100)) : null;
+                        const isWinner = winningSource && s.agent === winningSource.agent && s.tier === winningSource.tier;
+                        const tierLabel = tierLabels[tier] || `T${tier}`;
+                        const tierColor = tierColors[tier] || '#6c757d';
+                        const discrepancy = s.discrepancy_flag ? ' <i class="fas fa-exclamation-triangle text-warning" title="Discrepancy detected"></i>' : '';
+
+                        return `<div class="d-inline-flex align-items-center me-2 mb-2">
+                            <span class="badge ${isWinner ? 'border border-2 border-dark' : ''}"
+                                  style="background-color: ${tierColor}; color: white; font-size: 0.8em; padding: 6px 10px;"
+                                  title="Tier ${tier}: ${tierLabel} - ${agent}${conf !== null ? ` (${conf}%)` : ''}">
+                                <small class="opacity-75">T${tier}</small> ${agent} ${conf !== null ? `<strong>${conf}%</strong>` : ''}${discrepancy}
+                                ${isWinner ? ' <i class="fas fa-trophy" style="color: #ffc107;"></i>' : ''}
+                            </span>
+                        </div>`;
+                    }).join('<i class="fas fa-chevron-right text-muted mx-1 mb-2" style="font-size: 0.7em;"></i>');
+
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                                <h6 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Pipeline Flow</h6>
+                                <small class="text-muted">${sortedSources.length} source${sortedSources.length !== 1 ? 's' : ''} queried</small>
+                            </div>
+                            <div class="card-body py-2">
+                                <div class="d-flex flex-wrap align-items-center">
+                                    ${pipelineSteps}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (isCacheHit || orchestratorResult.cache_source) {
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header py-2">
+                                <h6 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Pipeline Flow</h6>
+                            </div>
+                            <div class="card-body py-2">
+                                <span class="badge bg-secondary" style="font-size: 0.85em;">
+                                    <i class="fas fa-database me-1"></i>Served from cache
+                                </span>
                             </div>
                         </div>
                     `;
@@ -2451,6 +2600,20 @@ Legacy format handling has been removed as all agents now use the standardized f
             return `<span class="badge ${badgeClass} me-2" title="Search confidence">${percentage}%</span>`;
         }
 
+        function formatComparisonDate(dateStr) {
+            if (!dateStr || dateStr === 'Not found') return dateStr;
+            try {
+                // If already in YYYY-MM-DD format, return as-is
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+                // Parse and normalize to YYYY-MM-DD
+                const date = new Date(dateStr);
+                if (isNaN(date.getTime())) return dateStr;
+                return date.toISOString().split('T')[0];
+            } catch {
+                return dateStr;
+            }
+        }
+
         function getAgentBadge(agentUsed) {
             if (!agentUsed || agentUsed === 'none' || agentUsed === 'undefined' || agentUsed === undefined || agentUsed === 'unknown') {
                 return '<span class="badge bg-secondary text-light" title="Unknown agent"><i class="fas fa-question me-1"></i>Unknown</span>';
@@ -2461,73 +2624,82 @@ Legacy format handling has been removed as all agents now use the standardized f
 
             // Enhanced agent information with more comprehensive mappings
             const agentInfo = {
-                // Microsoft agents
-                'microsoft': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
-                'microsoft_agent': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft' },
-                'microsofteol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
-                'microsoft_eol': { class: 'bg-primary text-light', icon: 'fab fa-microsoft', name: 'Microsoft EOL' },
+                // Microsoft agents (Tier 3 - orange/vendor scraper)
+                'microsoft': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft', style: 'background-color: #fd7e14; color: #000;' },
+                'microsoft_agent': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft', style: 'background-color: #fd7e14; color: #000;' },
+                'microsofteol': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft EOL', style: 'background-color: #fd7e14; color: #000;' },
+                'microsoft_eol': { class: 'text-dark', icon: 'fab fa-microsoft', name: 'Microsoft EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Red Hat agents
-                'redhat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
-                'redhat_agent': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
-                'redhateol': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat EOL' },
-                'red_hat': { class: 'bg-danger text-light', icon: 'fab fa-redhat', name: 'Red Hat' },
+                // Red Hat agents (Tier 3 - orange/vendor scraper)
+                'redhat': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
+                'redhat_agent': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
+                'redhateol': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat EOL', style: 'background-color: #fd7e14; color: #000;' },
+                'red_hat': { class: 'text-dark', icon: 'fab fa-redhat', name: 'Red Hat', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Ubuntu agents
-                'ubuntu': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntu_agent': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu' },
-                'ubuntueol': { class: 'bg-warning', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL' },
+                // Ubuntu agents (Tier 3 - orange/vendor scraper)
+                'ubuntu': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu', style: 'background-color: #fd7e14; color: #000;' },
+                'ubuntu_agent': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu', style: 'background-color: #fd7e14; color: #000;' },
+                'ubuntueol': { class: 'text-dark', icon: 'fab fa-ubuntu', name: 'Ubuntu EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // EndOfLife.date agents
-                'endoflife': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflife_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'endoflifeeol': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
-                'eol_agent': { class: 'bg-info', icon: 'fas fa-calendar-times', name: 'EndOfLife.date' },
+                // EndOfLife.date agents (Tier 1 - green)
+                'endoflife': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'endoflife_agent': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'endoflifeeol': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
+                'eol_agent': { class: 'text-light', icon: 'fas fa-calendar-check', name: 'EndOfLife.date', style: 'background-color: #198754; color: white;' },
 
-                // Oracle agents
-                'oracle': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
-                'oracle_agent': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle' },
-                'oracleeol': { class: 'bg-warning', icon: 'fas fa-database', name: 'Oracle EOL' },
+                // EOLStatus agents (Tier 2 - blue)
+                'eolstatus': { class: 'text-light', icon: 'fas fa-calendar-alt', name: 'EOLStatus', style: 'background-color: #0d6efd; color: white;' },
+                'eolstatus_agent': { class: 'text-light', icon: 'fas fa-calendar-alt', name: 'EOLStatus', style: 'background-color: #0d6efd; color: white;' },
 
-                // VMware agents
-                'vmware': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
-                'vmware_agent': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware' },
-                'vmwareeol': { class: 'bg-success text-light', icon: 'fas fa-server', name: 'VMware EOL' },
+                // Oracle agents (Tier 3 - orange/vendor scraper)
+                'oracle': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle', style: 'background-color: #fd7e14; color: #000;' },
+                'oracle_agent': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle', style: 'background-color: #fd7e14; color: #000;' },
+                'oracleeol': { class: 'text-dark', icon: 'fas fa-database', name: 'Oracle EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Apache agents
-                'apache': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
-                'apache_agent': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache' },
-                'apacheeol': { class: 'bg-danger text-light', icon: 'fab fa-apache', name: 'Apache EOL' },
+                // VMware agents (Tier 3 - orange/vendor scraper)
+                'vmware': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware', style: 'background-color: #fd7e14; color: #000;' },
+                'vmware_agent': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware', style: 'background-color: #fd7e14; color: #000;' },
+                'vmwareeol': { class: 'text-dark', icon: 'fas fa-server', name: 'VMware EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Node.js agents
-                'nodejs': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
-                'nodejs_agent': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
-                'node': { class: 'bg-success text-light', icon: 'fab fa-node-js', name: 'Node.js' },
+                // Apache agents (Tier 3 - orange/vendor scraper)
+                'apache': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache', style: 'background-color: #fd7e14; color: #000;' },
+                'apache_agent': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache', style: 'background-color: #fd7e14; color: #000;' },
+                'apacheeol': { class: 'text-dark', icon: 'fab fa-apache', name: 'Apache EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // PostgreSQL agents
-                'postgresql': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
-                'postgresql_agent': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
-                'postgres': { class: 'bg-primary text-light', icon: 'fas fa-database', name: 'PostgreSQL' },
+                // Node.js agents (Tier 3 - orange/vendor scraper)
+                'nodejs': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
+                'nodejs_agent': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
+                'node': { class: 'text-dark', icon: 'fab fa-node-js', name: 'Node.js', style: 'background-color: #fd7e14; color: #000;' },
 
-                // PHP agents
-                'php': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
-                'php_agent': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP' },
-                'phpeol': { class: 'bg-primary text-light', icon: 'fab fa-php', name: 'PHP EOL' },
+                // PostgreSQL agents (Tier 3 - orange/vendor scraper)
+                'postgresql': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
+                'postgresql_agent': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
+                'postgres': { class: 'text-dark', icon: 'fas fa-database', name: 'PostgreSQL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Python agents
-                'python': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
-                'python_agent': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python' },
-                'pythoneol': { class: 'bg-warning', icon: 'fab fa-python', name: 'Python EOL' },
+                // PHP agents (Tier 3 - orange/vendor scraper)
+                'php': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP', style: 'background-color: #fd7e14; color: #000;' },
+                'php_agent': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP', style: 'background-color: #fd7e14; color: #000;' },
+                'phpeol': { class: 'text-dark', icon: 'fab fa-php', name: 'PHP EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Azure AI Agent Service (Modern replacement for Bing Search)
-                'azure_ai': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
-                'azure_ai_agent': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
-                'azureai': { class: 'bg-primary text-light', icon: 'fas fa-brain', name: 'Azure AI Agent' },
+                // Python agents (Tier 3 - orange/vendor scraper)
+                'python': { class: 'text-dark', icon: 'fab fa-python', name: 'Python', style: 'background-color: #fd7e14; color: #000;' },
+                'python_agent': { class: 'text-dark', icon: 'fab fa-python', name: 'Python', style: 'background-color: #fd7e14; color: #000;' },
+                'pythoneol': { class: 'text-dark', icon: 'fab fa-python', name: 'Python EOL', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Generic/fallback agents
-                'general': { class: 'bg-secondary text-light', icon: 'fas fa-robot', name: 'General Agent' },
-                'web_search': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' },
-                'websearch': { class: 'bg-info', icon: 'fas fa-search', name: 'Web Search' }
+                // Azure AI Agent Service (Tier 3 - orange/vendor)
+                'azure_ai': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+                'azure_ai_agent': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+                'azureai': { class: 'text-dark', icon: 'fas fa-brain', name: 'Azure AI Agent', style: 'background-color: #fd7e14; color: #000;' },
+
+                // Vendor scraper (Tier 3 - orange, explicit)
+                'vendor_scraper': { class: 'text-dark', icon: 'fas fa-spider', name: 'Vendor Scraper', style: 'background-color: #fd7e14; color: #000;' },
+
+                // Generic/fallback agents (Tier 4 - red)
+                'general': { class: 'text-light', icon: 'fas fa-robot', name: 'General Agent', style: 'background-color: #dc3545; color: white;' },
+                'web_search': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
+                'websearch': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
+                'fallback': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' },
+                'fallback_agent': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' }
             };
 
             // Check for exact match first
@@ -2543,6 +2715,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                     agent = agentInfo['ubuntu'];
                 } else if (normalizedAgent.includes('endoflife') || normalizedAgent.includes('eol_date')) {
                     agent = agentInfo['endoflife'];
+                } else if (normalizedAgent.includes('eolstatus')) {
+                    agent = agentInfo['eolstatus'];
                 } else if (normalizedAgent.includes('oracle')) {
                     agent = agentInfo['oracle'];
                 } else if (normalizedAgent.includes('vmware')) {
@@ -2557,6 +2731,10 @@ Legacy format handling has been removed as all agents now use the standardized f
                     agent = agentInfo['php'];
                 } else if (normalizedAgent.includes('python')) {
                     agent = agentInfo['python'];
+                } else if (normalizedAgent.includes('vendor_scraper') || normalizedAgent.includes('scraper')) {
+                    agent = agentInfo['vendor_scraper'];
+                } else if (normalizedAgent.includes('fallback')) {
+                    agent = agentInfo['fallback'];
                 } else {
                     // Fallback: create a generic badge with the original name
                     const displayName = String(agentUsed).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -2564,7 +2742,8 @@ Legacy format handling has been removed as all agents now use the standardized f
                 }
             }
 
-            return `<span class="badge ${agent.class}" title="Data source: ${agent.name}"><i class="${agent.icon} me-1"></i>${agent.name}</span>`;
+            const styleAttr = agent.style ? ` style="${agent.style}"` : '';
+            return `<span class="badge ${agent.class}"${styleAttr} title="Data source: ${agent.name}"><i class="${agent.icon} me-1"></i>${agent.name}</span>`;
         }
 
         function generateAlternativeSourcesSection(allSources, primaryAgent) {
@@ -2838,7 +3017,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                 <tr><td><strong>Extended Support:</strong></td><td>${getDateBadge(extendedSupportDisplay, 'badge-secondary')}${extendedSource}</td></tr>
                 <tr><td><strong>End of Life Date:</strong></td><td>${getDateBadge(eolDateDisplay, 'badge-warning')}${eolSource}</td></tr>
                 <tr><td><strong>Risk Level:</strong></td><td>${getRiskBadge(result.risk_level)}</td></tr>
-                <tr><td><strong>Agent Used:</strong></td><td>${getAgentBadge(data.source || 'unknown')}</td></tr>
+                <tr><td><strong>Agent Used:</strong></td><td>${getAgentBadge(result.agent_used || result.source || 'unknown')}</td></tr>
             </table>
             
             ${result.description ? `<h6>Description</h6><p>${result.description}</p>` : ''}
@@ -2867,7 +3046,8 @@ Legacy format handling has been removed as all agents now use the standardized f
             const fromInventory = urlParams.get('autosearch') === 'true';
 
             // Extract agent information from the response
-            const agentUsed = data.agent_used || data.result?.agent_used || 'Unknown';
+            // data = raw.data = { result: { agent_used, sources, ... }, session_id, ... }
+            const agentUsed = data.result?.agent_used || data.agent_used || data.result?.data?.agent_used || 'Unknown';
             const responseTime = data.response_time || 0;
             const queryType = data.query_type || 'unknown';
             const eolData = data.eol_data || data.result || {};
