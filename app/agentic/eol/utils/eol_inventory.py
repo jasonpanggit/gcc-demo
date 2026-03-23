@@ -348,15 +348,15 @@ class EolInventory:
                         eol_date, status, risk_level, confidence, source,
                         source_url, item_type,
                         normalized_software_name, normalized_version,
-                        raw_response, scoring_version,
+                        data,
                         is_eol, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4,
                         $5::date, $6, $7, $8, $9,
                         $10, $11,
                         $12, $13,
-                        $14::jsonb, $15,
-                        $16, NOW(), NOW()
+                        $14::jsonb,
+                        $15, NOW(), NOW()
                     )
                     ON CONFLICT (software_key) DO UPDATE SET
                         version_key              = EXCLUDED.version_key,
@@ -371,8 +371,7 @@ class EolInventory:
                         item_type                = EXCLUDED.item_type,
                         normalized_software_name = EXCLUDED.normalized_software_name,
                         normalized_version       = EXCLUDED.normalized_version,
-                        raw_response             = EXCLUDED.raw_response,
-                        scoring_version          = EXCLUDED.scoring_version,
+                        data                     = EXCLUDED.data,
                         is_eol                   = EXCLUDED.is_eol,
                         updated_at               = NOW()
                     WHERE eol_records.confidence IS NULL
@@ -392,8 +391,7 @@ class EolInventory:
                     record.normalized_software_name,              # $12
                     record.normalized_version,                    # $13
                     raw_response,                                 # $14
-                    record.scoring_version or "v2",               # $15
-                    record.status in ("expired", "eol", "End of Life"),  # $16
+                    record.status in ("expired", "eol", "End of Life"),  # $15
                 )
             logger.info(
                 "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, vendor=%s)",
