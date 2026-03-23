@@ -85,11 +85,19 @@ class PlaywrightEOLAgent(BaseEOLAgent):
         } if self._stealth_mode else {}
         
         # Selectors to try (in order of reliability based on testing)
+        # Prioritize Bing Copilot Search AI answer boxes first
         self.selectors_to_try = [
+            # Bing Copilot Search (AI-generated answers) - highest priority
+            '[class*="copilot"]',
+            '[data-bs-test="copilot"]',
+            '[aria-label*="Copilot"]',
+            '.cib-serp-main',  # Copilot in Bing SERP
+            # Traditional Bing answer boxes
             '.b_ans',
             '.answer_container',
             '[data-snippet]',
             '#b_context',
+            # Fallback to full page
             'body',
         ]
         
@@ -597,15 +605,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         if element:
                             html = await element.inner_html()
                             text = await element.inner_text()
-                            
+
                             if text and len(text) > 100:
-                                logger.info(f"✅ Extracted content from frame {frame_idx} using selector: {selector}")
+                                logger.info(f"✅ Extracted {len(text)} chars from frame {frame_idx} using selector: {selector}")
                                 extracted_html = html
                                 extracted_text = text
                                 selector_used = f"frame_{frame_idx}_{selector}"
                                 break
+                            else:
+                                logger.debug(f"    Selector {selector} matched but text too short ({len(text) if text else 0} chars)")
                     except Exception as e:
-                        logger.info(f"    Selector {selector} failed on frame {frame_idx}: {e}")
+                        logger.debug(f"    Selector {selector} failed on frame {frame_idx}: {str(e)[:80]}")
                         continue
                 
                 if extracted_html:
@@ -613,12 +623,14 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             
             # Method 2: If no iframe content found, try main page with locators
             if not extracted_html:
-                logger.info("  No content in iframes, trying main page...")
+                logger.info("📄 No content in iframes, trying main page selectors...")
                 for selector in self.selectors_to_try:
                     try:
                         loc = page.locator(selector)
                         count = await loc.count()
-                        
+
+                        logger.debug(f"    Selector '{selector}' found {count} match(es)")
+
                         if count and count > 0:
                             if selector == 'body':
                                 # For body, limit the content size
@@ -627,14 +639,16 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                             else:
                                 extracted_html = await loc.first.inner_html()
                                 extracted_text = await loc.first.inner_text()
-                            
+
                             if extracted_text and len(extracted_text) > 100:
                                 selector_used = selector
-                                logger.info(f"✅ Extracted content from main page using selector: {selector}")
+                                logger.info(f"✅ Extracted {len(extracted_text)} chars from main page using selector: {selector}")
                                 break
-                                
+                            else:
+                                logger.debug(f"    Selector {selector} matched but text too short ({len(extracted_text) if extracted_text else 0} chars)")
+
                     except Exception as e:
-                        logger.info(f"Selector {selector} failed: {e}")
+                        logger.debug(f"    Selector '{selector}' failed: {str(e)[:80]}")
                         continue
             
             if not extracted_text:
@@ -716,10 +730,23 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             text_content = search_result["content"]
             eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
 
-            # Optional LLM refinement when no EOL/support date is found
-            if self.enable_llm_extraction and not eol_extraction.get("eol_date") and not eol_extraction.get("support_end_date"):
+            # LLM extraction fallback when regex extraction fails or has low confidence
+            # This is especially important for Bing Copilot AI-generated content
+            should_try_llm = (
+                self.enable_llm_extraction and
+                (not eol_extraction.get("eol_date") and not eol_extraction.get("support_end_date"))
+            ) or (
+                # Auto-enable LLM when regex confidence is low (even if env var not set)
+                not eol_extraction.get("eol_date") and
+                not eol_extraction.get("support_end_date") and
+                len(text_content) > 200  # Only if we have enough content
+            )
+
+            if should_try_llm:
+                logger.info("🧠 Regex extraction failed, trying LLM-based extraction for Bing Copilot content...")
                 llm_result = await self._extract_dates_with_llm(text_content, software_name, version)
                 if llm_result:
+                    logger.info(f"✅ LLM extraction succeeded: eol={llm_result.get('eol_date')}, support={llm_result.get('support_end_date')}")
                     def conf_to_label(val: Optional[float]) -> str:
                         if val is None:
                             return "low"
@@ -745,6 +772,8 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
                     eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
                     eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+                else:
+                    logger.warning("⚠️ LLM extraction also failed to find dates")
 
             # Map confidence labels to numeric scores
             confidence_map = {
