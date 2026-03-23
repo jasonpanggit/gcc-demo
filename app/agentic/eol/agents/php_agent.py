@@ -3,7 +3,7 @@ PHP EOL Agent - Scrapes PHP official sources for EOL information
 """
 import requests
 from bs4 import BeautifulSoup
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import re
 from datetime import datetime, timedelta
 import json
@@ -572,6 +572,181 @@ class PHPEOLAgent(BaseEOLAgent):
         # For now, return None to rely on static data
         return None
 
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured PHP URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (php, symfony, laravel, wordpress, or drupal)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured PHP URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._scrape_php_eol(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "php_agent",
+                        "agent_used": "php",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "php",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> List[Dict[str, Any]]:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (php, symfony, laravel, wordpress, or drupal)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol_date, etc.
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured PHP URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("php", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("php", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "php":
+                records = self._parse_all_php_versions(soup)
+            elif product_type == "symfony":
+                records = self._parse_all_symfony_versions(soup)
+            elif product_type == "laravel":
+                records = self._parse_all_laravel_versions(soup)
+            elif product_type == "wordpress":
+                records = self._parse_all_wordpress_versions(soup)
+            elif product_type == "drupal":
+                records = self._parse_all_drupal_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "php_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("php", url, response_time, success=False)
+            return []
+
+    def _parse_all_php_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all PHP versions from supported-versions page"""
+        records = []
+        # TODO: Implement parsing logic for php.net/supported-versions.php
+        # This would extract version tables and parse EOL/support dates
+        return records
+
+    def _parse_all_symfony_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all Symfony versions from releases page"""
+        records = []
+        # TODO: Implement parsing logic for symfony.com/releases
+        # This would extract version tables and parse EOL/support dates
+        return records
+
+    def _parse_all_laravel_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all Laravel versions from releases page"""
+        records = []
+        # TODO: Implement parsing logic for laravel.com/docs/releases
+        # This would extract version tables and parse EOL/support dates
+        return records
+
+    def _parse_all_wordpress_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all WordPress versions from releases archive"""
+        records = []
+        # TODO: Implement parsing logic for wordpress.org/download/releases/
+        # This would extract version tables and parse EOL/support dates
+        return records
+
+    def _parse_all_drupal_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all Drupal versions from releases page"""
+        records = []
+        # TODO: Implement parsing logic for drupal.org/project/drupal/releases
+        # This would extract version tables and parse EOL/support dates
+        return records
+
     def is_relevant(self, software_name: str) -> bool:
         """Check if this agent is relevant for the given software"""
         name_lower = software_name.lower()
@@ -579,5 +754,5 @@ class PHPEOLAgent(BaseEOLAgent):
             'php', 'symfony', 'laravel', 'wordpress', 'drupal',
             'codeigniter', 'cakephp', 'zend', 'composer'
         ]
-        
+
         return any(keyword in name_lower for keyword in php_keywords)

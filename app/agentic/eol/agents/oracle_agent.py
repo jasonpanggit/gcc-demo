@@ -229,6 +229,188 @@ class OracleEOLAgent(BaseEOLAgent):
             {"searched_product": software_name, "searched_version": version}
         )
 
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured Oracle URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (oracle-database, java, mysql, or virtualbox)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured Oracle URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._fetch_eol_data(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "oracle_agent",
+                        "agent_used": "oracle",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "oracle",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> list:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (oracle-database, java, mysql, or virtualbox)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol, support, confidence, source
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured Oracle URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = time.time()
+            cache_stats_manager.record_agent_request("oracle", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time_ms = (time.time() - start_time) * 1000
+            cache_stats_manager.record_agent_request(
+                "oracle", url, response_time_ms, success=True, status_code=response.status_code
+            )
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "oracle-database":
+                records = self._parse_all_oracle_database_versions(soup)
+            elif product_type == "java":
+                records = self._parse_all_java_versions(soup)
+            elif product_type == "mysql":
+                records = self._parse_all_mysql_versions(soup)
+            elif product_type == "virtualbox":
+                records = self._parse_all_virtualbox_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "oracle_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time_ms = (time.time() - start_time) * 1000
+                cache_stats_manager.record_agent_request(
+                    "oracle", url, response_time_ms, success=False, error_message=str(exc)
+                )
+            return []
+
+    def _parse_all_oracle_database_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all Oracle Database versions from the page.
+
+        Returns:
+            List of dicts with cycle, eol, support fields
+        """
+        # Placeholder implementation - would need specific parsing logic
+        # for Oracle Database lifecycle page structure
+        return []
+
+    def _parse_all_java_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all Java versions from the page.
+
+        Returns:
+            List of dicts with cycle, eol, support fields
+        """
+        # Placeholder implementation - would need specific parsing logic
+        # for Java SE Support Roadmap page structure
+        return []
+
+    def _parse_all_mysql_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all MySQL versions from the page.
+
+        Returns:
+            List of dicts with cycle, eol, support fields
+        """
+        # Placeholder implementation - would need specific parsing logic
+        # for MySQL supported platforms page structure
+        return []
+
+    def _parse_all_virtualbox_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all VirtualBox versions from the page.
+
+        Returns:
+            List of dicts with cycle, eol, support fields
+        """
+        # Placeholder implementation - would need specific parsing logic
+        # for VirtualBox downloads page structure
+        return []
+
     async def _fetch_eol_data(self, software_name: str, version: str = None) -> Optional[Dict[str, Any]]:
         """
         Fetch EOL data from Oracle sources

@@ -193,20 +193,20 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
 
     async def get_eol_data(self, software_name: str, version: Optional[str] = None) -> Dict[str, Any]:
         """Get EOL data for PostgreSQL products with enhanced static data checking"""
-        
+
         # Try cache first
         cached_data = await self._get_cached_data(software_name, version)
         if cached_data:
             return cached_data
-        
+
         # Get fresh data using enhanced fetch method
         result_data = await self._fetch_eol_data(software_name, version)
-        
+
         if result_data:
             # Add PostgreSQL-specific metadata
             source_url = self._determine_source_url(software_name)
             confidence = result_data.get("confidence", 85)
-            
+
             result = self.create_success_response(
                 software_name=software_name,
                 version=version or result_data.get("cycle", "unknown"),
@@ -221,17 +221,151 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
                     "data_source": "postgresql_agent"
                 }
             )
-            
+
             # Cache the result
             await self._cache_data(software_name, version, result, confidence, source_url)
             return result
-        
+
         # No data found - don't cache negative results
         return self.create_failure_response(
             f"No EOL information found for {software_name}" + (f" version {version}" if version else ""),
             "no_data_found",
             {"searched_product": software_name, "searched_version": version}
         )
+
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured PostgreSQL URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (postgresql or postgis)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured PostgreSQL URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._scrape_postgresql_eol(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "postgresql_agent",
+                        "agent_used": "postgresql",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "postgresql",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> list:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (postgresql or postgis)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol_date, etc.
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured PostgreSQL URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("postgresql", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("postgresql", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "postgresql":
+                records = self._parse_all_postgresql_versions(soup)
+            elif product_type == "postgis":
+                records = self._parse_all_postgis_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "postgresql_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("postgresql", url, response_time, success=False, error_message=str(exc))
+            return []
 
     async def _fetch_eol_data(self, software_name: str, version: str = None) -> Optional[Dict[str, Any]]:
         """
@@ -443,5 +577,92 @@ class PostgreSQLEOLAgent(BaseEOLAgent):
             'postgresql', 'postgres', 'postgis', 'pgbouncer',
             'pgpool', 'pg_dump', 'psql', 'timescaledb'
         ]
-        
+
         return any(keyword in name_lower for keyword in postgresql_keywords)
+
+    def _parse_all_postgresql_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all PostgreSQL versions from the official versioning page.
+
+        Args:
+            soup: BeautifulSoup object of the PostgreSQL versioning page
+
+        Returns:
+            List of dicts with cycle, eol, support, releaseDate
+        """
+        records = []
+        try:
+            # Look for version table on PostgreSQL versioning page
+            # The page has a table with columns: Version, Current minor, Released, Final release
+            table = soup.find('table')
+            if not table:
+                logger.warning("No table found on PostgreSQL versioning page")
+                return records
+
+            rows = table.find_all('tr')[1:]  # Skip header row
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) >= 4:
+                    try:
+                        version = cols[0].get_text(strip=True)
+                        release_date = cols[2].get_text(strip=True)
+                        eol_date = cols[3].get_text(strip=True)
+
+                        # Parse dates if available
+                        if version and eol_date and eol_date.lower() != 'n/a':
+                            records.append({
+                                "cycle": version,
+                                "releaseDate": release_date if release_date else "",
+                                "eol": eol_date,
+                                "support": eol_date,  # PostgreSQL has single support date
+                            })
+                    except Exception as e:
+                        logger.warning(f"Error parsing PostgreSQL version row: {e}")
+                        continue
+
+        except Exception as e:
+            logger.error(f"Error parsing all PostgreSQL versions: {e}")
+
+        return records
+
+    def _parse_all_postgis_versions(self, soup: BeautifulSoup) -> list:
+        """Parse all PostGIS versions from the official support page.
+
+        Args:
+            soup: BeautifulSoup object of the PostGIS support page
+
+        Returns:
+            List of dicts with cycle, eol, support, releaseDate
+        """
+        records = []
+        try:
+            # Look for version information on PostGIS support page
+            # The page structure may vary, so this is a best-effort parser
+            table = soup.find('table')
+            if not table:
+                logger.warning("No table found on PostGIS support page")
+                return records
+
+            rows = table.find_all('tr')[1:]  # Skip header row
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) >= 3:
+                    try:
+                        version = cols[0].get_text(strip=True)
+                        release_date = cols[1].get_text(strip=True) if len(cols) > 1 else ""
+                        eol_date = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+
+                        if version and eol_date and eol_date.lower() != 'n/a':
+                            records.append({
+                                "cycle": version,
+                                "releaseDate": release_date if release_date else "",
+                                "eol": eol_date,
+                                "support": eol_date,
+                            })
+                    except Exception as e:
+                        logger.warning(f"Error parsing PostGIS version row: {e}")
+                        continue
+
+        except Exception as e:
+            logger.error(f"Error parsing all PostGIS versions: {e}")
+
+        return records

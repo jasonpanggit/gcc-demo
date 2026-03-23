@@ -341,6 +341,163 @@ class ApacheEOLAgent(BaseEOLAgent):
             {"searched_product": software_name, "searched_version": version}
         )
 
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured Apache URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (httpd, tomcat, kafka, etc.)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Check if we have any active URLs configured
+            if not self.eol_urls:
+                return {
+                    "success": False,
+                    "error": "No active URLs configured for Apache agent",
+                    "data": {},
+                }
+
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured Apache URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._scrape_apache_eol(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "apache_agent",
+                        "agent_used": "apache",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "apache",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> list:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (httpd, tomcat, kafka, etc.)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol_date, etc.
+        """
+        try:
+            # Check if we have any active URLs configured
+            if not self.eol_urls:
+                logger.warning("No active URLs configured for Apache agent")
+                return []
+
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured Apache URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("apache", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("apache", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "httpd":
+                records = self._parse_all_httpd_versions(soup)
+            elif product_type == "tomcat":
+                records = self._parse_all_tomcat_versions(soup)
+            elif product_type == "kafka":
+                records = self._parse_all_kafka_versions(soup)
+            elif product_type == "spark":
+                records = self._parse_all_spark_versions(soup)
+            elif product_type == "maven":
+                records = self._parse_all_maven_versions(soup)
+            elif product_type == "cassandra":
+                records = self._parse_all_cassandra_versions(soup)
+            elif product_type == "solr":
+                records = self._parse_all_solr_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "apache_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("apache", url, response_time, success=False, error_message=str(exc))
+            return []
+
     def _check_static_data(self, software_name: str, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Check static EOL data for Apache products with enhanced matching"""
         software_lower = software_name.lower().replace(" ", "-")

@@ -3,7 +3,7 @@ VMware EOL Agent - Scrapes VMware official sources for EOL information
 """
 import requests
 from bs4 import BeautifulSoup
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import re
 from datetime import datetime, timedelta
 import json
@@ -500,6 +500,375 @@ class VMwareEOLAgent(BaseEOLAgent):
         # For now, return None to rely on static data
         return None
 
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured VMware URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (vsphere, vcenter, esxi, etc.)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured VMware URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._fetch_eol_data(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "vmware_agent",
+                        "agent_used": "vmware",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "vmware",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> List[Dict[str, Any]]:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (vsphere, vcenter, esxi, etc.)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol_date, etc.
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured VMware URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("vmware", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("vmware", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "vsphere":
+                records = self._parse_all_vsphere_versions(soup)
+            elif product_type == "vcenter":
+                records = self._parse_all_vcenter_versions(soup)
+            elif product_type == "esxi":
+                records = self._parse_all_esxi_versions(soup)
+            elif product_type == "workstation":
+                records = self._parse_all_workstation_versions(soup)
+            elif product_type == "fusion":
+                records = self._parse_all_fusion_versions(soup)
+            elif product_type == "nsx":
+                records = self._parse_all_nsx_versions(soup)
+            elif product_type == "vsan":
+                records = self._parse_all_vsan_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "vmware_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("vmware", url, response_time, success=False, error_message=str(exc))
+            return []
+
+    def _parse_all_vsphere_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL vSphere versions from the page for bulk vendor parsing.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        # Skip header rows
+                        if 'version' in version_text.lower() or 'product' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "vmware_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all vSphere versions: {exc}")
+
+        return records
+
+    def _parse_all_vcenter_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL vCenter versions from the page."""
+        # vCenter typically shares the same lifecycle as vSphere
+        return self._parse_all_vsphere_versions(soup)
+
+    def _parse_all_esxi_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL ESXi versions from the page."""
+        # ESXi typically shares the same lifecycle as vSphere
+        return self._parse_all_vsphere_versions(soup)
+
+    def _parse_all_workstation_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL Workstation versions from the page."""
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        if 'version' in version_text.lower() or 'workstation' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "vmware_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Workstation versions: {exc}")
+
+        return records
+
+    def _parse_all_fusion_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL Fusion versions from the page."""
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        if 'version' in version_text.lower() or 'fusion' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "vmware_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Fusion versions: {exc}")
+
+        return records
+
+    def _parse_all_nsx_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL NSX versions from the page."""
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        if 'version' in version_text.lower() or 'nsx' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "vmware_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all NSX versions: {exc}")
+
+        return records
+
+    def _parse_all_vsan_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL vSAN versions from the page."""
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        if 'version' in version_text.lower() or 'vsan' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "vmware_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all vSAN versions: {exc}")
+
+        return records
+
     def is_relevant(self, software_name: str) -> bool:
         """Check if this agent is relevant for the given software"""
         name_lower = software_name.lower()
@@ -507,5 +876,5 @@ class VMwareEOLAgent(BaseEOLAgent):
             'vmware', 'vsphere', 'esxi', 'vcenter', 'workstation',
             'fusion', 'nsx', 'vsan', 'vrealize', 'vcloud'
         ]
-        
+
         return any(keyword in name_lower for keyword in vmware_keywords)

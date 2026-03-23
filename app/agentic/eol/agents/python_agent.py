@@ -592,6 +592,341 @@ class PythonEOLAgent(BaseEOLAgent):
         # For now, return None to rely on static data
         return None
 
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured Python URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (python, django, flask, numpy)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured Python URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._scrape_python_eol(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "python_agent",
+                        "agent_used": "python",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "python",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> list[Dict[str, Any]]:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (python, django, flask, numpy)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol, support
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured Python URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("python", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("python", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "python":
+                records = self._parse_all_python_versions(soup)
+            elif product_type == "django":
+                records = self._parse_all_django_versions(soup)
+            elif product_type == "flask":
+                records = self._parse_all_flask_versions(soup)
+            elif product_type == "numpy":
+                records = self._parse_all_numpy_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "python_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("python", url, response_time, success=False, error_message=str(exc))
+            return []
+
+    def _parse_all_python_versions(self, soup: BeautifulSoup) -> list[Dict[str, Any]]:
+        """Parse ALL Python versions from the page for bulk vendor parsing.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        # Skip header rows
+                        if 'branch' in version_text.lower() or 'version' in version_text.lower():
+                            continue
+
+                        # Match Python version numbers (e.g., "3.12", "3.11")
+                        version_match = re.search(r'(\d+\.\d+)', version_text)
+                        if not version_match:
+                            continue
+
+                        version_num = version_match.group(1)
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower() or "support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_num,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "python_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Python versions: {exc}")
+
+        return records
+
+    def _parse_all_django_versions(self, soup: BeautifulSoup) -> list[Dict[str, Any]]:
+        """Parse ALL Django versions from the download page.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            # Django download page - extract text-based version info
+            text_content = soup.get_text()
+
+            # Look for Django version mentions and dates
+            lines = text_content.split('\n')
+            for line in lines:
+                # Match patterns like "Django 4.2" or "4.1 LTS"
+                version_match = re.search(r'(?:Django\s+)?(\d+\.\d+)(?:\s+LTS)?', line, re.IGNORECASE)
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
+
+                if version_match and date_match:
+                    records.append({
+                        "cycle": version_match.group(1),
+                        "eol": date_match.group(1),
+                        "support": None,
+                        "source": "python_official_scraped",
+                    })
+
+            # Fallback to static data if scraping fails
+            if not records:
+                for key, value in self.static_eol_data.items():
+                    if 'django' in key:
+                        records.append({
+                            "cycle": value.get("cycle"),
+                            "eol": value.get("eol"),
+                            "support": value.get("support"),
+                            "source": "python_static_data",
+                        })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Django versions: {exc}")
+
+        return records
+
+    def _parse_all_flask_versions(self, soup: BeautifulSoup) -> list[Dict[str, Any]]:
+        """Parse ALL Flask versions from the blog page.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            # Flask blog page - extract version mentions
+            text_content = soup.get_text()
+
+            # Look for Flask version patterns
+            lines = text_content.split('\n')
+            for line in lines:
+                # Match patterns like "Flask 3.0" or "Version 2.3"
+                version_match = re.search(r'(?:Flask\s+|Version\s+)?(\d+\.\d+)', line, re.IGNORECASE)
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
+
+                if version_match and date_match:
+                    records.append({
+                        "cycle": version_match.group(1),
+                        "eol": date_match.group(1),
+                        "support": None,
+                        "source": "python_official_scraped",
+                    })
+
+            # Fallback to static data if scraping fails
+            if not records:
+                for key, value in self.static_eol_data.items():
+                    if 'flask' in key:
+                        records.append({
+                            "cycle": value.get("cycle"),
+                            "eol": value.get("eol"),
+                            "support": value.get("support"),
+                            "source": "python_static_data",
+                        })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Flask versions: {exc}")
+
+        return records
+
+    def _parse_all_numpy_versions(self, soup: BeautifulSoup) -> list[Dict[str, Any]]:
+        """Parse ALL NumPy versions from the deprecation policy page.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            # NumPy NEP-0029 page has deprecation policy
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 2:
+                        version_text = cells[0].get_text().strip()
+
+                        # Match NumPy version numbers
+                        version_match = re.search(r'(\d+\.\d+)', version_text)
+                        if not version_match:
+                            continue
+
+                        version_num = version_match.group(1)
+
+                        # Look for EOL date in subsequent cells
+                        eol_date = None
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                eol_date = date_match.group(1)
+                                break
+
+                        if eol_date:
+                            records.append({
+                                "cycle": version_num,
+                                "eol": eol_date,
+                                "support": None,
+                                "source": "python_official_scraped",
+                            })
+
+            # Fallback to static data if scraping fails
+            if not records:
+                for key, value in self.static_eol_data.items():
+                    if 'numpy' in key:
+                        records.append({
+                            "cycle": value.get("cycle"),
+                            "eol": value.get("eol"),
+                            "support": value.get("support"),
+                            "source": "python_static_data",
+                        })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all NumPy versions: {exc}")
+
+        return records
+
     def is_relevant(self, software_name: str) -> bool:
         """Check if this agent is relevant for the given software"""
         name_lower = software_name.lower()
@@ -600,5 +935,5 @@ class PythonEOLAgent(BaseEOLAgent):
             'numpy', 'pandas', 'scipy', 'matplotlib', 'jupyter',
             'pytest', 'sphinx', 'celery', 'gunicorn', 'uwsgi'
         ]
-        
+
         return any(keyword in name_lower for keyword in python_keywords)
