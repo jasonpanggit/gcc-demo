@@ -708,20 +708,20 @@ Legacy format handling has been removed as all agents now use the standardized f
                                     <div class="form-check me-md-3 search-mode-option" data-search-mode="agent_only">
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchAgentsOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchAgentsOnly" style="cursor: pointer;">
-                                            <i class="fas fa-robot me-1"></i>
-                                            <strong>Agents Only</strong>
+                                            <i class="fas fa-layer-group me-1"></i>
+                                            <strong>Structured Sources (T1→T2→T3)</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use specialized agents only (fastest)
+                                                API sources + vendor scrapers • Fastest, most reliable
                                             </small>
                                         </label>
                                     </div>
                                     <div class="form-check me-md-3 search-mode-option" data-search-mode="agents_plus_internet">
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchIncludeInternet" style="cursor: pointer;" checked>
                                         <label class="form-check-label" for="searchIncludeInternet" style="cursor: pointer;">
-                                            <i class="fas fa-globe-asia me-1"></i>
-                                            <strong>Agents + Web Search (default)</strong>
+                                            <i class="fas fa-sitemap me-1"></i>
+                                            <strong>Full Pipeline (T1→T2→T3→T4) — default</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use agents and web search together, show all results found and provide the best (slowest)
+                                                All tiers including web search fallback • Comprehensive
                                             </small>
                                         </label>
                                     </div>
@@ -729,9 +729,9 @@ Legacy format handling has been removed as all agents now use the standardized f
                                         <input class="form-check-input" type="radio" name="searchMode" id="searchInternetOnly" style="cursor: pointer;">
                                         <label class="form-check-label" for="searchInternetOnly" style="cursor: pointer;">
                                             <i class="fas fa-globe me-1"></i>
-                                            <strong>Web Search Only</strong>
+                                            <strong>Web Search Only (T4 direct)</strong>
                                             <small class="text-muted d-block ms-4">
-                                                Use web search only (slow)
+                                                Browser automation • Slowest, bypasses T1-T3 for testing
                                             </small>
                                         </label>
                                     </div>
@@ -1766,12 +1766,15 @@ Legacy format handling has been removed as all agents now use the standardized f
         // Display agent communications from search result
         async function displaySearchCommunications(data) {
             // Extract communications from various possible fields
-            const agentComms = extractCommunications(data);
+            let agentComms = extractCommunications(data);
 
-            if (agentComms.length > 0) {
-                // console.log(`🎯 Displaying ${agentComms.length} agent communications`);
+            // Enhance communications with tier execution details from sources array
+            const enrichedComms = enrichCommunicationsWithTierFlow(agentComms, data);
+
+            if (enrichedComms.length > 0) {
+                // console.log(`🎯 Displaying ${enrichedComms.length} agent communications`);
                 try {
-                    displayAgentCommunications(agentComms);
+                    displayAgentCommunications(enrichedComms);
                     // console.log('✅ Agent communications displayed successfully');
                 } catch (commError) {
                     console.error('❌ Error displaying agent communications:', commError);
@@ -1781,6 +1784,96 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // console.log('🎯 No agent communications found - showing simple completion message');
                 displaySimpleCompletionMessage();
             }
+        }
+
+        // Enrich communications with tier execution flow from sources array
+        function enrichCommunicationsWithTierFlow(communications, searchData) {
+            // Extract sources array from result
+            const orchestratorResult = searchData.result || {};
+            const sources = orchestratorResult.sources || searchData.sources || [];
+
+            if (sources.length === 0) {
+                return communications;
+            }
+
+            // Group sources by tier
+            const tierGroups = {};
+            sources.forEach(source => {
+                const tier = source.tier || 0;
+                if (!tierGroups[tier]) {
+                    tierGroups[tier] = [];
+                }
+                tierGroups[tier].push(source);
+            });
+
+            // Create synthetic communication entries for tier execution
+            const tierComms = [];
+            const sortedTiers = Object.keys(tierGroups).sort((a, b) => parseInt(a) - parseInt(b));
+
+            sortedTiers.forEach(tier => {
+                const tierSources = tierGroups[tier];
+                const tierNum = parseInt(tier);
+
+                // Create a communication for this tier's execution
+                const tierLabel = `T${tierNum}`;
+                const tierName = getTierName(tierNum);
+
+                tierSources.forEach(source => {
+                    const comm = {
+                        id: `tier_${tier}_${source.agent || source.source}`,
+                        sessionId: orchestratorResult.session_id || 'eol-search',
+                        timestamp: orchestratorResult.timestamp || new Date().toISOString(),
+                        agentName: `${tierLabel} • ${source.agent || source.source}`,
+                        action: 'tier_execution',
+                        input: {
+                            tier: tierNum,
+                            tier_name: tierName,
+                            agent: source.agent || source.source,
+                            software_name: orchestratorResult.data?.software_name || searchData.software_name,
+                            software_version: orchestratorResult.data?.version || orchestratorResult.data?.software_version || searchData.software_version
+                        },
+                        output: {
+                            success: !!source.eol_date,
+                            confidence: source.confidence,
+                            eol_date: source.eol_date,
+                            support_end_date: source.support_end_date,
+                            release_date: source.release_date,
+                            source_url: source.source_url,
+                            discrepancy_flag: source.discrepancy_flag
+                        }
+                    };
+                    tierComms.push(comm);
+                });
+            });
+
+            // Insert tier communications after the initial orchestrator communication but before completion
+            const result = [...communications];
+
+            // Find insertion point (after first orchestrator comm)
+            const insertIndex = result.findIndex(c =>
+                (c.agentName || c.agent_name || '').toLowerCase().includes('orchestrator')
+            );
+
+            if (insertIndex >= 0) {
+                // Insert after orchestrator initialization
+                result.splice(insertIndex + 1, 0, ...tierComms);
+            } else {
+                // If no orchestrator comm found, prepend tier comms
+                result.unshift(...tierComms);
+            }
+
+            return result;
+        }
+
+        // Get human-readable tier name
+        function getTierName(tier) {
+            const tierNames = {
+                1: 'Structured API',
+                2: 'JSON-LD Source',
+                3: 'Vendor Scraper',
+                4: 'Web Search'
+            };
+            return tierNames[tier] || `Tier ${tier}`;
         }
 
         // Extract communications from search data
