@@ -480,6 +480,27 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 "source": vendor_key,
             }
 
+            # Calculate confidence if not provided by agent
+            # Vendor scraping from official sites should have high confidence
+            if raw_data["confidence"] is None or raw_data["confidence"] == 0:
+                base_confidence = 0.80  # Vendor official site
+                completeness_bonus = 0.0
+                if eol_date:
+                    completeness_bonus += 0.10
+                if support_end_date:
+                    completeness_bonus += 0.05
+                if run.get("release_date"):
+                    completeness_bonus += 0.03
+                if run.get("source_url"):
+                    completeness_bonus += 0.02
+
+                calculated_confidence = min(0.95, base_confidence + completeness_bonus)
+                raw_data["confidence"] = calculated_confidence
+                logger.info(
+                    "Vendor parsing calculated confidence=%.2f for %s %s (base=0.80, bonus=%.2f)",
+                    calculated_confidence, software_name, version or "(any)", completeness_bonus
+                )
+
             processed = process_eol_data(raw_data, software_name, version)
             processed["support_end_date"] = support_end_date or processed.get("support_end_date")
             processed["source_url"] = run.get("source_url") or processed.get("source_url")
