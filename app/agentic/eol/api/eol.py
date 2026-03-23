@@ -495,17 +495,34 @@ async def search_vendor_eol(request: VendorParsingRequest):
             )
 
             try:
+                # Try L1 upsert (may be skipped due to confidence check)
                 upsert_success = await eol_inventory.upsert(software_name, version, result)
                 if upsert_success:
                     logger.info(
-                        "Vendor EOL cache upsert SUCCESS for %s %s (vendor=%s)",
+                        "Vendor EOL cache L1 upsert SUCCESS for %s %s (vendor=%s)",
                         software_name, version or "(any)", vendor_key
                     )
                 else:
                     logger.warning(
-                        "Vendor EOL cache upsert returned False for %s %s (vendor=%s)",
+                        "Vendor EOL cache L1 upsert skipped (confidence) for %s %s (vendor=%s)",
                         software_name, version or "(any)", vendor_key
                     )
+
+                # ALWAYS write to L2 PostgreSQL for vendor parsing, regardless of L1 result
+                # This ensures vendor parsing results are visible in /eol-inventory page
+                if eol_inventory._has_pool():
+                    record = eol_inventory._standardize_data(
+                        software_name, version, result,
+                        raw_software_name=software_name,
+                        raw_version=version
+                    )
+                    if record:
+                        logger.info(
+                            "Vendor parsing forcing L2 PG write for %s %s (vendor=%s)",
+                            software_name, version or "(any)", vendor_key
+                        )
+                        asyncio.ensure_future(eol_inventory._pg_upsert(record))
+
             except Exception as exc:
                 logger.error(
                     "Vendor EOL cache upsert EXCEPTION for %s %s (vendor=%s): %s",
