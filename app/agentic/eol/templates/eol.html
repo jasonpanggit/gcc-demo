@@ -2826,7 +2826,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                 <tr><td><strong>Extended Support:</strong></td><td>${getDateBadge(extendedSupportDisplay, 'badge-secondary')}${extendedSource}</td></tr>
                 <tr><td><strong>End of Life Date:</strong></td><td>${getDateBadge(eolDateDisplay, 'badge-warning')}${eolSource}</td></tr>
                 <tr><td><strong>Risk Level:</strong></td><td>${getRiskBadge(result.risk_level)}</td></tr>
-                <tr><td><strong>Agent Used:</strong></td><td>${getAgentBadge(data.source || 'unknown')}</td></tr>
+                <tr><td><strong>Agent Used:</strong></td><td>${getAgentBadge(result.agent_used || result.source || 'unknown')}</td></tr>
             </table>
             
             ${result.description ? `<h6>Description</h6><p>${result.description}</p>` : ''}
@@ -2855,7 +2855,8 @@ Legacy format handling has been removed as all agents now use the standardized f
             const fromInventory = urlParams.get('autosearch') === 'true';
 
             // Extract agent information from the response
-            const agentUsed = data.agent_used || data.result?.agent_used || 'Unknown';
+            // data = raw.data = { result: { agent_used, sources, ... }, session_id, ... }
+            const agentUsed = data.result?.agent_used || data.agent_used || data.result?.data?.agent_used || 'Unknown';
             const responseTime = data.response_time || 0;
             const queryType = data.query_type || 'unknown';
             const eolData = data.eol_data || data.result || {};
