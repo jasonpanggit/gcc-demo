@@ -606,15 +606,14 @@ async def search_vendor_eol(request: VendorParsingRequest):
                         except Exception as exc:
                             logger.debug("Vendor URL persistence failed: %s", exc)
 
-                    # Only return early if we had at least 1 success
-                    # If all strategies failed, fall back to vendor-specific branches or tiered pipeline
-                    if successes > 0:
-                        logger.info(
-                            f"Generic vendor parsing succeeded for {vendor_key}: "
-                            f"{successes}/{len(runs)} successful in {time.time() - start_ts:.2f}s"
-                        )
+                    # Return even if successes == 0
+                    # Vendor parsing should ONLY use configured URLs, not fall back to tiered pipeline
+                    logger.info(
+                        f"Generic vendor parsing completed for {vendor_key}: "
+                        f"{successes}/{len(runs)} successful in {time.time() - start_ts:.2f}s"
+                    )
 
-                        return {
+                    return {
                         "success": True,
                         "vendor": vendor_key,
                         "mode": f"{vendor_key}_generic_urls",
@@ -631,12 +630,6 @@ async def search_vendor_eol(request: VendorParsingRequest):
                         "timestamp": timestamp,
                         "elapsed_seconds": round(time.time() - start_ts, 3),
                     }
-                    else:
-                        # All generic strategies failed - fall back to vendor-specific branches or tiered pipeline
-                        logger.warning(
-                            f"Generic vendor parsing found no data for {vendor_key} "
-                            f"(0/{len(runs)} successful), falling back to tiered pipeline"
-                        )
 
             except ImportError:
                 logger.warning("vendor_parsing_helper not available, falling back to vendor-specific branches")
