@@ -5,23 +5,29 @@ This module provides storage and retrieval for End-of-Life (EOL) data.
 It serves as the single source of truth for all EOL records.
 
 Key Features:
-    - Normalized EOL data storage with consistent schema
+    - L1 in-memory dict for fast lookups
+    - L2 PostgreSQL read-through/write-through via eol_records table
     - Confidence-based record updates (only higher confidence overwrites)
     - Efficient querying by software name and version
-    - Support for pagination and filtering
+    - Vendor-scoped queries via list_by_vendor()
     - Automatic timestamp tracking for created/updated records
 
 Usage:
     from utils.eol_inventory import eol_inventory
 
-    # Get EOL data
+    # Get EOL data (L1 -> L2 -> None)
     result = await eol_inventory.get('Python', '3.9')
 
-    # Store EOL data
+    # Store EOL data (writes to both L1 and L2)
     success = await eol_inventory.upsert('Python', '3.9', response_data)
+
+    # Vendor-scoped query (L2 only)
+    records, total = await eol_inventory.list_by_vendor('Microsoft')
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -179,27 +185,45 @@ class EolRecord:
 
 
 class EolInventory:
-    """In-memory store for standardized EOL records.
+    """L1/L2 store for standardized EOL records.
 
-    Uses an in-memory dictionary for fast lookups. For persistent storage,
-    the PostgreSQL EOLRepository (repositories/eol_repository.py) is the
-    canonical path.
+    L1: in-memory dict for sub-ms lookups.
+    L2: PostgreSQL ``eol_records`` table for persistence across restarts.
+
+    On ``get()``: L1 hit -> return; L1 miss -> L2 read-through -> populate L1.
+    On ``upsert()``: write L1 synchronously, fire-and-forget L2 write.
+
+    L2 failures are logged and swallowed — never break L1-only behaviour.
     """
 
     def __init__(self, container_id: str = "eol_table", default_ttl_days: int = 30):
         self.container_id = container_id
         self.default_ttl_days = default_ttl_days
         self.default_ttl_seconds: Optional[int] = None
-        self._store: Dict[str, Dict[str, Any]] = {}  # In-memory store
+        self._store: Dict[str, Dict[str, Any]] = {}  # L1 in-memory store
+        self._pool = None  # asyncpg.Pool — injected via main.py or initialize()
         self.initialized = False
         self.hit_count = 0
         self.miss_count = 0
+        self.l2_hit_count = 0
 
     async def initialize(self) -> None:
         if self.initialized:
             return
+
+        # Try to acquire pool from pg_client if not already injected
+        if self._pool is None:
+            try:
+                from .pg_client import postgres_client
+                if postgres_client.is_initialized and postgres_client.pool is not None:
+                    self._pool = postgres_client.pool
+                    logger.info("EOL inventory acquired PG pool from postgres_client")
+            except Exception:
+                pass  # Pool will be injected later via main.py
+
         self.initialized = True
-        logger.info("EOL inventory initialized (in-memory store)")
+        l2_status = "L2 PostgreSQL enabled" if self._pool else "L1 in-memory only"
+        logger.info("EOL inventory initialized (%s)", l2_status)
 
     def _normalize_name(self, name: str) -> str:
         """Normalize software name for consistent querying.
@@ -250,6 +274,294 @@ class EolInventory:
             return float(value)
         except (TypeError, ValueError):
             return DEFAULT_CONFIDENCE
+
+    # ------------------------------------------------------------------ #
+    #  L2 PostgreSQL helpers
+    # ------------------------------------------------------------------ #
+
+    def _has_pool(self) -> bool:
+        """Return True if a PostgreSQL connection pool is available."""
+        return self._pool is not None
+
+    async def _pg_get(self, software_key: str, version_key: Optional[str]) -> Optional[Dict[str, Any]]:
+        """L2 read: fetch a single record from eol_records by key + version."""
+        if not self._has_pool():
+            return None
+        try:
+            async with self._pool.acquire() as conn:
+                row = await asyncio.wait_for(
+                    conn.fetchrow(
+                        """
+                        SELECT software_key, version_key, software_name, version,
+                               eol_date::text AS eol_date,
+                               support_ended_at::text AS support_end_date,
+                               release_date::text AS release_date,
+                               status, risk_level, confidence, source,
+                               link AS source_url, vendor,
+                               normalized_software_name, normalized_version,
+                               item_type, raw_response,
+                               scoring_version,
+                               created_at::text AS created_at,
+                               updated_at::text AS updated_at
+                        FROM eol_records
+                        WHERE software_key = $1
+                          AND ($2::text IS NULL OR version_key = $2)
+                        ORDER BY confidence DESC NULLS LAST
+                        LIMIT 1
+                        """,
+                        software_key,
+                        version_key if version_key != "any" else None,
+                    ),
+                    timeout=3.0,
+                )
+            if row is None:
+                return None
+            return dict(row)
+        except Exception as exc:
+            logger.debug("L2 PG read failed for %s/%s: %s", software_key, version_key, exc)
+            return None
+
+    async def _pg_upsert(self, record: EolRecord) -> None:
+        """L2 write: INSERT … ON CONFLICT with confidence-gated update."""
+        if not self._has_pool():
+            return
+        try:
+            vendor = self._extract_vendor(record)
+            raw_response = json.dumps(record.data) if record.data else None
+            confidence = float(record.confidence) if record.confidence is not None else 0.0
+
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO eol_records (
+                        software_key, version_key, software_name, version,
+                        eol_date, status, risk_level, confidence, source,
+                        link, vendor, item_type,
+                        normalized_software_name, normalized_version,
+                        raw_response, scoring_version,
+                        is_eol, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4,
+                        $5::date, $6, $7, $8, $9,
+                        $10, $11, $12,
+                        $13, $14,
+                        $15::jsonb, $16,
+                        $17, NOW(), NOW()
+                    )
+                    ON CONFLICT (software_key) DO UPDATE SET
+                        version_key              = EXCLUDED.version_key,
+                        software_name            = EXCLUDED.software_name,
+                        version                  = EXCLUDED.version,
+                        eol_date                 = EXCLUDED.eol_date,
+                        status                   = EXCLUDED.status,
+                        risk_level               = EXCLUDED.risk_level,
+                        confidence               = EXCLUDED.confidence,
+                        source                   = EXCLUDED.source,
+                        link                     = EXCLUDED.link,
+                        vendor                   = EXCLUDED.vendor,
+                        item_type                = EXCLUDED.item_type,
+                        normalized_software_name = EXCLUDED.normalized_software_name,
+                        normalized_version       = EXCLUDED.normalized_version,
+                        raw_response             = EXCLUDED.raw_response,
+                        scoring_version          = EXCLUDED.scoring_version,
+                        is_eol                   = EXCLUDED.is_eol,
+                        updated_at               = NOW()
+                    WHERE eol_records.confidence IS NULL
+                       OR EXCLUDED.confidence >= eol_records.confidence
+                    """,
+                    record.software_key,                          # $1
+                    record.version_key,                           # $2
+                    record.software_name,                         # $3
+                    record.version,                               # $4
+                    record.eol_date,                              # $5
+                    record.status,                                # $6
+                    record.risk_level,                            # $7
+                    confidence,                                   # $8
+                    record.source,                                # $9
+                    record.source_url,                            # $10
+                    vendor,                                       # $11
+                    record.item_type,                             # $12
+                    record.normalized_software_name,              # $13
+                    record.normalized_version,                    # $14
+                    raw_response,                                 # $15
+                    record.scoring_version or "v2",               # $16
+                    record.status in ("expired", "eol", "End of Life"),  # $17
+                )
+            logger.debug(
+                "L2 PG upsert OK: %s/%s (confidence=%.2f, vendor=%s)",
+                record.software_key, record.version_key, confidence, vendor,
+            )
+        except Exception as exc:
+            logger.debug("L2 PG upsert failed for %s: %s", record.software_key, exc)
+
+    def _extract_vendor(self, record: EolRecord) -> Optional[str]:
+        """Derive vendor name from record fields."""
+        _AGENT_VENDOR_MAP = {
+            "microsoft_agent": "Microsoft",
+            "microsoft": "Microsoft",
+            "redhat_agent": "Red Hat",
+            "redhat": "Red Hat",
+            "ubuntu_agent": "Ubuntu",
+            "ubuntu": "Ubuntu",
+            "oracle_agent": "Oracle",
+            "oracle": "Oracle",
+            "vmware_agent": "VMware",
+            "vmware": "VMware",
+            "apache_agent": "Apache",
+            "apache": "Apache",
+            "nodejs_agent": "Node.js",
+            "nodejs": "Node.js",
+            "postgresql_agent": "PostgreSQL",
+            "postgresql": "PostgreSQL",
+            "php_agent": "PHP",
+            "php": "PHP",
+            "python_agent": "Python",
+            "python": "Python",
+            "endoflife_date": "endoflife.date",
+            "endoflife.date": "endoflife.date",
+            "eolstatus_agent": "eolstatus.com",
+        }
+
+        # Try agent_used first
+        agent = (record.agent_used or "").strip().lower()
+        if agent in _AGENT_VENDOR_MAP:
+            return _AGENT_VENDOR_MAP[agent]
+
+        # Try source
+        source = (record.source or "").strip().lower()
+        if source in _AGENT_VENDOR_MAP:
+            return _AGENT_VENDOR_MAP[source]
+
+        # Derive from software name
+        sw = (record.software_name or "").lower()
+        for keyword, vendor in [
+            ("windows", "Microsoft"), ("sql server", "Microsoft"), (".net", "Microsoft"),
+            ("office", "Microsoft"), ("visual studio", "Microsoft"), ("azure", "Microsoft"),
+            ("red hat", "Red Hat"), ("rhel", "Red Hat"), ("centos", "Red Hat"),
+            ("ubuntu", "Ubuntu"), ("debian", "Debian"),
+            ("oracle", "Oracle"), ("java", "Oracle"),
+            ("vmware", "VMware"), ("esxi", "VMware"),
+            ("apache", "Apache"), ("tomcat", "Apache"),
+            ("node", "Node.js"), ("npm", "Node.js"),
+            ("postgresql", "PostgreSQL"), ("postgres", "PostgreSQL"),
+            ("php", "PHP"),
+            ("python", "Python"),
+            ("mysql", "MySQL"), ("mariadb", "MariaDB"),
+            ("linux", "Linux"),
+        ]:
+            if keyword in sw:
+                return vendor
+
+        return None
+
+    def _pg_row_to_doc(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert a Postgres row dict into an L1-compatible EolRecord dict."""
+        data = {}
+        if row.get("raw_response"):
+            raw = row["raw_response"]
+            if isinstance(raw, str):
+                try:
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+            elif isinstance(raw, dict):
+                data = dict(raw)
+
+        software_key = row.get("software_key", "")
+        version_key = row.get("version_key", "any")
+        record_id = f"{software_key}:{version_key or 'any'}"
+
+        return {
+            "id": record_id,
+            "software_key": software_key,
+            "version_key": version_key or "any",
+            "software_name": row.get("software_name", ""),
+            "version": row.get("version"),
+            "eol_date": row.get("eol_date"),
+            "support_end_date": row.get("support_end_date"),
+            "release_date": row.get("release_date"),
+            "status": row.get("status"),
+            "risk_level": row.get("risk_level"),
+            "confidence": float(row["confidence"]) if row.get("confidence") is not None else 0.0,
+            "source": row.get("source"),
+            "source_url": row.get("source_url"),
+            "agent_used": row.get("source"),
+            "normalized_software_name": row.get("normalized_software_name"),
+            "normalized_version": row.get("normalized_version"),
+            "item_type": row.get("item_type"),
+            "scoring_version": row.get("scoring_version"),
+            "data": data,
+            "created_at": row.get("created_at", datetime.now(timezone.utc).isoformat()),
+            "updated_at": row.get("updated_at"),
+        }
+
+    async def list_by_vendor(
+        self, vendor: str, *, limit: int = 100, offset: int = 0,
+    ) -> tuple[list[Dict[str, Any]], int]:
+        """Query eol_records by vendor name. Returns (records, total_count).
+
+        Falls back gracefully if pool is not available.
+        """
+        if not self._has_pool():
+            return [], 0
+
+        safe_limit = max(1, min(limit, 500))
+        safe_offset = max(0, offset)
+        vendor_pattern = f"%{vendor}%"
+
+        try:
+            async with self._pool.acquire() as conn:
+                total_row = await conn.fetchrow(
+                    """
+                    SELECT COUNT(*) AS total FROM eol_records
+                    WHERE vendor ILIKE $1 OR source ILIKE $1
+                    """,
+                    vendor_pattern,
+                )
+                total = int(total_row["total"]) if total_row else 0
+
+                rows = await conn.fetch(
+                    """
+                    SELECT software_key, version_key, software_name, version,
+                           eol_date::text AS eol_date,
+                           support_ended_at::text AS support_end_date,
+                           release_date::text AS release_date,
+                           status, risk_level, confidence, source,
+                           link AS source_url, vendor,
+                           normalized_software_name, normalized_version,
+                           item_type, scoring_version,
+                           created_at::text AS created_at,
+                           updated_at::text AS updated_at
+                    FROM eol_records
+                    WHERE vendor ILIKE $1 OR source ILIKE $1
+                    ORDER BY updated_at DESC NULLS LAST
+                    LIMIT $2 OFFSET $3
+                    """,
+                    vendor_pattern, safe_limit, safe_offset,
+                )
+
+            records = []
+            for row in rows:
+                r = dict(row)
+                records.append({
+                    "software_key": r.get("software_key"),
+                    "version_key": r.get("version_key"),
+                    "software_name": r.get("software_name"),
+                    "version": r.get("version"),
+                    "eol_date": r.get("eol_date"),
+                    "support_end_date": r.get("support_end_date"),
+                    "status": r.get("status"),
+                    "risk_level": r.get("risk_level"),
+                    "confidence": float(r["confidence"]) if r.get("confidence") is not None else None,
+                    "source": r.get("source"),
+                    "vendor": r.get("vendor"),
+                    "item_type": r.get("item_type"),
+                    "updated_at": r.get("updated_at"),
+                })
+            return records, total
+        except Exception as exc:
+            logger.debug("list_by_vendor(%s) failed: %s", vendor, exc)
+            return [], 0
 
     def _record_to_summary(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         record = EolRecord.from_dict(doc)
@@ -434,6 +746,7 @@ class EolInventory:
                 f"version='{version}' -> key='{version_key}'"
             )
 
+            # --- L1 lookup ---
             doc = self._store.get(record_id)
             if not doc:
                 # Try searching by key/version
@@ -442,18 +755,33 @@ class EolInventory:
                         doc = rdoc
                         break
 
-            if not doc:
-                self.miss_count += 1
-                logger.debug("EOL table miss for %s %s", software_name, version or "(any)")
-                return None
+            if doc:
+                record = EolRecord.from_dict(doc)
+                self.hit_count += 1
+                logger.debug(
+                    f"EOL L1 hit for {software_name} {version or '(any)'}: "
+                    f"eol_date={record.eol_date}, confidence={record.confidence}, source={record.source}"
+                )
+                return record.to_cached_response()
 
-            record = EolRecord.from_dict(doc)
-            self.hit_count += 1
-            logger.debug(
-                f"EOL table hit for {software_name} {version or '(any)'}: "
-                f"eol_date={record.eol_date}, confidence={record.confidence}, source={record.source}"
-            )
-            return record.to_cached_response()
+            # --- L2 read-through ---
+            pg_row = await self._pg_get(software_key, version_key)
+            if pg_row:
+                l2_doc = self._pg_row_to_doc(pg_row)
+                # Populate L1
+                self._store[l2_doc["id"]] = l2_doc
+                self.l2_hit_count += 1
+                self.hit_count += 1
+                record = EolRecord.from_dict(l2_doc)
+                logger.debug(
+                    "EOL L2 hit for %s %s (promoted to L1)",
+                    software_name, version or "(any)",
+                )
+                return record.to_cached_response()
+
+            self.miss_count += 1
+            logger.debug("EOL table miss for %s %s", software_name, version or "(any)")
+            return None
         except Exception as exc:
             logger.debug("EOL table read failed: %s", exc)
             return None
@@ -509,6 +837,11 @@ class EolInventory:
                 record_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._store[record.id] = record_dict
             logger.info(f"Stored EOL record: {record.software_name} {record.version or 'any'} (confidence: {record.confidence or 0:.2f})")
+
+            # Fire-and-forget L2 write — never block L1
+            if self._has_pool():
+                asyncio.ensure_future(self._pg_upsert(record))
+
             return True
         except Exception as exc:
             logger.debug("EOL table upsert failed: %s", exc)
@@ -663,9 +996,9 @@ class EolInventory:
         """Get cache hit/miss statistics.
 
         Returns:
-            Dict[str, int]: Dictionary with 'hits' and 'misses' counts
+            Dict[str, int]: Dictionary with 'hits', 'misses', and 'l2_hits' counts
         """
-        return {"hits": self.hit_count, "misses": self.miss_count}
+        return {"hits": self.hit_count, "misses": self.miss_count, "l2_hits": self.l2_hit_count}
 
     async def delete_record(self, record_id: str, software_key: str) -> bool:
         """Delete a single EOL record.
