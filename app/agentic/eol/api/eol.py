@@ -41,6 +41,7 @@ from utils.endpoint_decorators import (
     with_timeout_and_stats
 )
 from utils.eol_inventory import eol_inventory
+from utils.eol_data_processor import process_eol_data
 from utils.normalization import derive_os_name_version
 from utils.os_extraction_rules import os_extraction_rules_store
 from utils.vendor_url_inventory import vendor_url_inventory
@@ -473,7 +474,7 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 "source": vendor_key,
             }
 
-            processed = orchestrator._process_eol_data(raw_data, software_name, version)
+            processed = process_eol_data(raw_data, software_name, version)
             processed["support_end_date"] = support_end_date or processed.get("support_end_date")
             processed["source_url"] = run.get("source_url") or processed.get("source_url")
             processed["agent_used"] = run.get("agent_used") or processed.get("agent_used")
