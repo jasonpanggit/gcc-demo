@@ -72,7 +72,7 @@ class RedHatEOLAgent(BaseEOLAgent):
                 "priority": 2
             },
             "fedora": {
-                "url": "https://fedoraproject.org/wiki/End_of_life",
+                "url": "https://docs.fedoraproject.org/en-US/releases/eol/",
                 "description": "Fedora End of Life Schedule",
                 "active": True,
                 "priority": 3
@@ -206,7 +206,7 @@ class RedHatEOLAgent(BaseEOLAgent):
             return result
         
         # Try scraping as fallback
-        scraped_result = await self._scrape_data(software_name, version)
+        scraped_result = await self._scrape_eol_data(software_name, version)
         if scraped_result:
             source_url = self._get_scraping_url(software_name)
             
@@ -597,21 +597,31 @@ class RedHatEOLAgent(BaseEOLAgent):
     def _parse_fedora_eol(self, soup: BeautifulSoup, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Parse Fedora EOL information"""
         try:
-            # Fedora has shorter support cycles
+            # Try to parse all versions and find the requested one
+            all_versions = self._parse_all_fedora_versions(soup)
+
+            if version and all_versions:
+                version_num = version.split('.')[0]
+                for record in all_versions:
+                    if record.get("cycle") == version_num:
+                        return record
+
+            # Fallback: use first available version if no specific version requested
+            if all_versions and not version:
+                return all_versions[0]
+
+            # Last resort: approximate calculation for version >= 35
             if version:
                 version_num = int(version.split('.')[0])
-                
-                # Fedora versions are supported for approximately 13 months
-                # Calculate approximate EOL based on version number
                 if version_num >= 35:
                     return {
                         "cycle": str(version_num),
                         "eol": "2024-12-31",  # Approximate
                         "source": "redhat_official_scraped"
                     }
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Error parsing Fedora EOL: {e}")
             return None
@@ -706,14 +716,20 @@ class RedHatEOLAgent(BaseEOLAgent):
         return records
 
     def _parse_all_fedora_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Parse ALL Fedora versions from the EOL wiki page.
+        """Parse ALL Fedora versions from the EOL docs page.
+
+        The page structure (as of 2024):
+        - URL: https://docs.fedoraproject.org/en-US/releases/eol/
+        - Table with columns: Release | EOL since | Maintained for
+        - Version format: "F41", "F40", "FC6" (older), "FC1" (oldest)
+        - Date format: YYYY-MM-DD (ISO 8601)
 
         Returns:
             List of dicts with cycle, eol, support, source fields
         """
         records = []
         try:
-            # Fedora wiki page has tables with version and EOL dates
+            # Find the EOL releases table
             tables = soup.find_all('table')
 
             for table in tables:
@@ -722,23 +738,40 @@ class RedHatEOLAgent(BaseEOLAgent):
                 for row in rows:
                     cells = row.find_all(['td', 'th'])
                     if len(cells) >= 2:
-                        version_text = cells[0].get_text().strip()
+                        release_text = cells[0].get_text().strip()
 
-                        # Match Fedora version numbers
-                        version_match = re.search(r'(\d+)', version_text)
+                        # Match Fedora version: F41, F40, FC6, FC1
+                        # Extract just the number for consistency
+                        version_match = re.search(r'F(?:C)?(\d+)', release_text, re.IGNORECASE)
                         if not version_match:
                             continue
 
                         version_num = version_match.group(1)
 
-                        # Look for EOL date in subsequent cells
+                        # The second column contains the EOL date
                         eol_date = None
-                        for cell in cells[1:]:
-                            cell_text = cell.get_text().strip()
-                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                        if len(cells) >= 2:
+                            eol_text = cells[1].get_text().strip()
+
+                            # Try ISO format: YYYY-MM-DD
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', eol_text)
                             if date_match:
                                 eol_date = date_match.group(1)
-                                break
+                            else:
+                                # Try Month DD, YYYY format
+                                date_match = re.search(r'([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})', eol_text)
+                                if date_match:
+                                    try:
+                                        month_str, day_str, year_str = date_match.groups()
+                                        parsed_date = datetime.strptime(f"{month_str} {day_str} {year_str}", "%B %d %Y")
+                                        eol_date = parsed_date.strftime("%Y-%m-%d")
+                                    except ValueError:
+                                        # Try abbreviated month
+                                        try:
+                                            parsed_date = datetime.strptime(f"{month_str} {day_str} {year_str}", "%b %d %Y")
+                                            eol_date = parsed_date.strftime("%Y-%m-%d")
+                                        except ValueError:
+                                            pass
 
                         if eol_date:
                             records.append({
