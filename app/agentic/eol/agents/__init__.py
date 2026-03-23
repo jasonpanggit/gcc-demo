@@ -8,12 +8,6 @@ from .redhat_agent import RedHatEOLAgent
 from .ubuntu_agent import UbuntuEOLAgent
 from .inventory_agent import InventoryAgent
 from .azure_ai_agent import AzureAIAgentEOLAgent  # Modern replacement for Bing Search
-from .oracle_agent import OracleEOLAgent
-from .apache_agent import ApacheEOLAgent
-from .nodejs_agent import NodeJSEOLAgent
-from .postgresql_agent import PostgreSQLEOLAgent
-from .php_agent import PHPEOLAgent
-from .python_agent import PythonEOLAgent
 
 __all__ = [
     'EOLOrchestratorAgent',
@@ -24,10 +18,4 @@ __all__ = [
     'UbuntuEOLAgent',
     'InventoryAgent',
     'AzureAIAgentEOLAgent',
-    'OracleEOLAgent',
-    'ApacheEOLAgent',
-    'NodeJSEOLAgent',
-    'PostgreSQLEOLAgent',
-    'PHPEOLAgent',
-    'PythonEOLAgent'
 ]

@@ -63,10 +63,9 @@ def create_default_registry(
     if "eolstatus" in agents:
         registry.register(EolstatusAdapter(agents["eolstatus"]))
 
-    # Tier 3: Vendor scraper composite
+    # Tier 3: Vendor scraper composite (only agents not fully covered by endoflife.date)
     vendor_agent_names = [
-        "microsoft", "redhat", "ubuntu", "oracle", "vmware",
-        "apache", "nodejs", "postgresql", "php", "python",
+        "microsoft", "redhat", "ubuntu",
     ]
     vendor_agents = {
         name: agents[name] for name in vendor_agent_names if name in agents
