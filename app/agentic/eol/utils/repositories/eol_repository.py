@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -153,6 +154,22 @@ VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), $6);
 _ALLOWED_DIRECTIONS = {"ASC", "DESC"}
 
 
+def _serialize_row(row: asyncpg.Record) -> Dict[str, Any]:
+    """Convert asyncpg Record to dict with Decimal→float conversion.
+
+    asyncpg returns PostgreSQL NUMERIC columns as Python Decimal objects,
+    which don't serialize to JSON properly. This helper converts Decimals
+    to floats while preserving other types.
+    """
+    result = {}
+    for key, value in dict(row).items():
+        if isinstance(value, Decimal):
+            result[key] = float(value)
+        else:
+            result[key] = value
+    return result
+
+
 class EOLRepository:
     """Repository covering all EOL-domain queries (Phase 6 queries 12a-16a)."""
 
@@ -167,7 +184,7 @@ class EOLRepository:
             row = await conn.fetchrow(QUERY_EOL_BY_KEY, software_key)
         if row is None:
             return None
-        return dict(row)
+        return _serialize_row(row)
 
     # -- Query 13a: paginated list with server-side sort (BH-009 fix) ----------
 
@@ -201,7 +218,7 @@ class EOLRepository:
 
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, search, limit, offset)
-        return [dict(r) for r in rows]
+        return [_serialize_row(r) for r in rows]
 
     async def count_records(self, search: Optional[str] = None) -> int:
         """Return total count of EOL records matching optional search filter."""
@@ -230,7 +247,7 @@ class EOLRepository:
 
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(QUERY_VM_EOL_MANAGEMENT, sub_id, limit, offset)
-        return [dict(r) for r in rows]
+        return [_serialize_row(r) for r in rows]
 
     # -- Query 15a: recent agent responses -------------------------------------
 
