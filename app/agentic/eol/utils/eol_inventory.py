@@ -330,14 +330,13 @@ class EolInventory:
             )
             return
         try:
-            vendor = self._extract_vendor(record)
             raw_response = json.dumps(record.data) if record.data else None
             confidence = float(record.confidence) if record.confidence is not None else 0.0
 
             logger.info(
-                "L2 PG upsert starting: software_key=%s, version_key=%s, vendor=%s, confidence=%.2f, "
+                "L2 PG upsert starting: software_key=%s, version_key=%s, confidence=%.2f, "
                 "eol_date=%s, source=%s, agent_used=%s",
-                record.software_key, record.version_key, vendor, confidence,
+                record.software_key, record.version_key, confidence,
                 record.eol_date, record.source, record.agent_used
             )
 
@@ -347,17 +346,17 @@ class EolInventory:
                     INSERT INTO eol_records (
                         software_key, version_key, software_name, version,
                         eol_date, status, risk_level, confidence, source,
-                        source_url, vendor, item_type,
+                        source_url, item_type,
                         normalized_software_name, normalized_version,
                         raw_response, scoring_version,
                         is_eol, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4,
                         $5::date, $6, $7, $8, $9,
-                        $10, $11, $12,
-                        $13, $14,
-                        $15::jsonb, $16,
-                        $17, NOW(), NOW()
+                        $10, $11,
+                        $12, $13,
+                        $14::jsonb, $15,
+                        $16, NOW(), NOW()
                     )
                     ON CONFLICT (software_key) DO UPDATE SET
                         version_key              = EXCLUDED.version_key,
@@ -369,7 +368,6 @@ class EolInventory:
                         confidence               = EXCLUDED.confidence,
                         source                   = EXCLUDED.source,
                         source_url               = EXCLUDED.source_url,
-                        vendor                   = EXCLUDED.vendor,
                         item_type                = EXCLUDED.item_type,
                         normalized_software_name = EXCLUDED.normalized_software_name,
                         normalized_version       = EXCLUDED.normalized_version,
@@ -390,13 +388,12 @@ class EolInventory:
                     confidence,                                   # $8
                     record.source,                                # $9
                     record.source_url,                            # $10
-                    vendor,                                       # $11
-                    record.item_type,                             # $12
-                    record.normalized_software_name,              # $13
-                    record.normalized_version,                    # $14
-                    raw_response,                                 # $15
-                    record.scoring_version or "v2",               # $16
-                    record.status in ("expired", "eol", "End of Life"),  # $17
+                    record.item_type,                             # $11
+                    record.normalized_software_name,              # $12
+                    record.normalized_version,                    # $13
+                    raw_response,                                 # $14
+                    record.scoring_version or "v2",               # $15
+                    record.status in ("expired", "eol", "End of Life"),  # $16
                 )
             logger.info(
                 "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, vendor=%s)",
