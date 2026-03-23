@@ -563,6 +563,81 @@ async def search_vendor_eol(request: VendorParsingRequest):
     agent = orchestrator.agents.get(vendor_key) if hasattr(orchestrator, "agents") else None
     vendor_urls = _extract_agent_urls(agent)
 
+    # =========================================================================
+    # GENERIC VENDOR PARSING PATH
+    # =========================================================================
+    # Try generic vendor parsing first - works for ANY vendor with fetch methods
+    # This replaces vendor-specific branches (microsoft, nodejs, ubuntu, redhat)
+    # Falls back to vendor-specific branches only if generic path fails
+    # =========================================================================
+
+    if agent and hasattr(agent, "eol_urls"):
+        active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
+
+        if active_urls:
+            # Try generic vendor parsing helper
+            try:
+                from utils.vendor_parsing_helper import parse_vendor_urls_generic
+
+                logger.info(f"Attempting generic vendor parsing for {vendor_key} with {len(active_urls)} URLs")
+                start_ts = time.time()
+
+                runs = await parse_vendor_urls_generic(
+                    agent=agent,
+                    vendor_key=vendor_key,
+                    active_urls=active_urls,
+                )
+
+                if runs:
+                    successes = sum(1 for run in runs if run and run.get("success"))
+                    timestamp = datetime.utcnow().isoformat()
+
+                    await _persist_vendor_runs(runs)
+
+                    urls_persisted = False
+                    if vendor_urls:
+                        try:
+                            urls_persisted = await vendor_url_inventory.upsert_vendor_urls(
+                                vendor=vendor_key,
+                                urls=vendor_urls,
+                                software_found=successes,
+                                parsed_at=timestamp,
+                            )
+                        except Exception as exc:
+                            logger.debug("Vendor URL persistence failed: %s", exc)
+
+                    logger.info(
+                        f"Generic vendor parsing succeeded for {vendor_key}: "
+                        f"{successes}/{len(runs)} successful in {time.time() - start_ts:.2f}s"
+                    )
+
+                    return {
+                        "success": True,
+                        "vendor": vendor_key,
+                        "mode": f"{vendor_key}_generic_urls",
+                        "ignore_cache": bool(request.ignore_cache),
+                        "runs": runs,
+                        "summary": {
+                            "requested": len(active_urls),
+                            "successes": successes,
+                            "failures": max(0, len(runs) - successes),
+                        },
+                        "vendor_urls": vendor_urls,
+                        "url_count": len(vendor_urls),
+                        "urls_persisted": urls_persisted,
+                        "timestamp": timestamp,
+                        "elapsed_seconds": round(time.time() - start_ts, 3),
+                    }
+
+            except ImportError:
+                logger.warning("vendor_parsing_helper not available, falling back to vendor-specific branches")
+            except Exception as exc:
+                logger.warning(f"Generic vendor parsing failed for {vendor_key}: {exc}, trying vendor-specific branch")
+
+    # =========================================================================
+    # VENDOR-SPECIFIC BRANCHES (LEGACY - kept for backward compatibility)
+    # =========================================================================
+
     if vendor_key == "microsoft":
         if not agent:
             raise HTTPException(status_code=500, detail="Microsoft agent not available")
