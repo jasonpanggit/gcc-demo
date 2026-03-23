@@ -43,29 +43,19 @@ try:
 except ImportError:
     _app_config = None  # type: ignore[assignment]
 
-try:
-    from pipeline import (
-        create_default_registry, TieredFetchPipeline,
-        ResultAggregator, AdapterRegistry, FallbackAdapter,
-    )
-except ImportError:
-    try:
-        from app.agentic.eol.pipeline import (  # type: ignore[no-redef]
-            create_default_registry, TieredFetchPipeline,
-            ResultAggregator, AdapterRegistry, FallbackAdapter,
-        )
-    except ImportError:
-        # Fallback for test environments
-        import sys
-        from pathlib import Path
-        # Add parent directory to path if needed
-        parent = Path(__file__).resolve().parent.parent
-        if str(parent) not in sys.path:
-            sys.path.insert(0, str(parent))
-        from pipeline import (  # type: ignore[no-redef]
-            create_default_registry, TieredFetchPipeline,
-            ResultAggregator, AdapterRegistry, FallbackAdapter,
-        )
+# Import from pipeline package - works both in dev and Docker
+import sys
+from pathlib import Path
+
+# Ensure parent directory is in path for relative imports
+_parent_dir = Path(__file__).resolve().parent.parent
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
+
+from pipeline import (
+    create_default_registry, TieredFetchPipeline,
+    ResultAggregator, AdapterRegistry, FallbackAdapter,
+)
 
 try:
     from utils import get_logger
