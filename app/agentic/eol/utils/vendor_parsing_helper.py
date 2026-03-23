@@ -46,7 +46,7 @@ async def parse_vendor_urls_generic(
         if hasattr(agent, "fetch_all_from_url") and callable(agent.fetch_all_from_url):
             try:
                 records = await agent.fetch_all_from_url(url, software_hint)
-                if records:
+                if records:  # Only skip fallback if we got actual data
                     for record in records:
                         runs.append(_format_vendor_record(
                             record=record,
@@ -56,9 +56,11 @@ async def parse_vendor_urls_generic(
                             mode="fetch_all_from_url"
                         ))
                     logger.info(f"Parsed {len(records)} records from {url} via fetch_all_from_url")
-                    continue  # Skip to next URL
+                    continue  # Skip to next URL only if records found
             except Exception as exc:
                 logger.warning(f"fetch_all_from_url failed for {url}: {exc}")
+
+        # If fetch_all_from_url returned empty list, fall through to Strategy 2/3
 
         # Strategy 2: Try fetch_from_url (returns single version)
         if hasattr(agent, "fetch_from_url") and callable(agent.fetch_from_url):
