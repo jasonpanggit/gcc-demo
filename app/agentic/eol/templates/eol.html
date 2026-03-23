@@ -2435,7 +2435,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                         (!best || (s.confidence || 0) > (best.confidence || 0)) ? s : best, null);
 
                     // Build tier step badges
-                    const tierLabels = { 1: 'API', 2: 'Structured', 3: 'Scraper', 4: 'Fallback' };
+                    const tierLabels = { 1: 'API', 2: 'Structured', 3: 'Scraper', 4: 'Web Search' };
                     const tierColors = { 1: '#198754', 2: '#0d6efd', 3: '#fd7e14', 4: '#dc3545' };
 
                     const pipelineSteps = sortedSources.map(s => {
@@ -2504,7 +2504,7 @@ Legacy format handling has been removed as all agents now use the standardized f
                                         <i class="fas fa-code me-1"></i>T3: Vendor Scrapers
                                     </span>
                                     <span class="badge" style="background-color: #dc3545; color: white; font-size: 0.75rem;">
-                                        <i class="fas fa-search me-1"></i>T4: Web Search Fallback
+                                        <i class="fas fa-search me-1"></i>T4: Web Search
                                     </span>
                                 </div>
                             </div>
@@ -2779,12 +2779,12 @@ Legacy format handling has been removed as all agents now use the standardized f
                 // Vendor scraper (Tier 3 - orange, explicit)
                 'vendor_scraper': { class: 'text-dark', icon: 'fas fa-spider', name: 'Vendor Scraper', style: 'background-color: #fd7e14; color: #000;' },
 
-                // Generic/fallback agents (Tier 4 - red)
+                // Generic/web search agents (Tier 4 - red)
                 'general': { class: 'text-light', icon: 'fas fa-robot', name: 'General Agent', style: 'background-color: #dc3545; color: white;' },
                 'web_search': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
                 'websearch': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
-                'fallback': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' },
-                'fallback_agent': { class: 'text-light', icon: 'fas fa-life-ring', name: 'Fallback', style: 'background-color: #dc3545; color: white;' }
+                'fallback': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' },
+                'fallback_agent': { class: 'text-light', icon: 'fas fa-search', name: 'Web Search', style: 'background-color: #dc3545; color: white;' }
             };
 
             // Check for exact match first
