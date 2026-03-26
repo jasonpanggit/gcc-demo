@@ -33,6 +33,11 @@ except ModuleNotFoundError:  # pragma: no cover - support execution without top-
     from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
 
 try:
+    from app.agentic.eol.utils.os_inventory_merger import get_merged_os_inventory
+except ModuleNotFoundError:  # pragma: no cover - support execution without top-level package
+    from utils.os_inventory_merger import get_merged_os_inventory  # type: ignore[import-not-found]
+
+try:
     from .tool_registry import get_tool_registry
 except ImportError:  # pragma: no cover - optional dependency
     get_tool_registry = None  # type: ignore[assignment]
@@ -151,6 +156,42 @@ class InventoryFallbackExecutor:
                 },
                 original_name="law_get_software_inventory",
             ),
+            self._build_tool(
+                name="get_full_os_inventory",
+                description=(
+                    "Get a COMPLETE OS inventory for all machines — Azure VMs AND Arc-connected servers — "
+                    "by merging Log Analytics Heartbeat with Azure Resource Graph gap-fill. "
+                    "Returns per-machine records: computer name, OS name, OS version, machine type, resource group. "
+                    "Use this tool for any query asking about OS inventory or operating systems across the environment."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "Heartbeat lookback window in days.",
+                            "default": 90,
+                        },
+                        "limit": {
+                            "type": ["integer", "null"],
+                            "description": "Maximum number of Heartbeat records to fetch (default: no limit).",
+                            "default": None,
+                        },
+                        "use_cache": {
+                            "type": "boolean",
+                            "description": "Use cached Heartbeat data when available (default true).",
+                            "default": True,
+                        },
+                        "subscription_id": {
+                            "type": ["string", "null"],
+                            "description": "Azure subscription ID for Resource Graph gap-fill query.",
+                            "default": None,
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                original_name="get_full_os_inventory",
+            ),
         ]
         self._handler_map = {
             "inventory.os_inventory": self._handle_os_inventory,
@@ -161,6 +202,8 @@ class InventoryFallbackExecutor:
             "azure_resource_get_os_summary": self._handle_azure_resource_os_summary,
             "inventory.software_inventory": self._handle_software_inventory,
             "law_get_software_inventory": self._handle_software_inventory,
+            "get_full_os_inventory": self._handle_full_os_inventory,
+            "inventory.full_os_inventory": self._handle_full_os_inventory,
         }
 
     async def initialize(self) -> bool:
@@ -458,6 +501,62 @@ class InventoryFallbackExecutor:
             "data": result,
         }
         return self._format_response(requested_name, payload, success)
+
+    async def _handle_full_os_inventory(self, requested_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """In-process handler for get_full_os_inventory — merges Heartbeat + Resource Graph."""
+        try:
+            agent = await self._ensure_os_agent()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            return self._format_response(
+                requested_name,
+                payload={
+                    "success": False,
+                    "error": f"OS inventory agent unavailable: {exc}",
+                    "last_error": self._last_initialization_error,
+                },
+                success=False,
+            )
+        if agent is None:
+            return self._format_response(
+                requested_name,
+                payload={
+                    "success": False,
+                    "error": "OS inventory agent not available in this environment.",
+                    "last_error": self._last_initialization_error,
+                },
+                success=False,
+            )
+
+        days = int(arguments.get("days", 90) or 90)
+        limit_raw = arguments.get("limit")
+        limit = None if limit_raw in (None, "all") else int(limit_raw)
+        use_cache = bool(arguments.get("use_cache", True))
+        subscription_id = arguments.get("subscription_id") or None
+
+        try:
+            records, from_cache = await get_merged_os_inventory(
+                agent,
+                days=days,
+                limit=limit,
+                use_cache=use_cache,
+                subscription_id=subscription_id,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception("Merged OS inventory retrieval failed in fallback executor")
+            return self._format_response(
+                requested_name,
+                payload={"success": False, "error": str(exc), "requested": {"days": days, "limit": limit}},
+                success=False,
+            )
+
+        payload = {
+            "success": True,
+            "requested": {"days": days, "limit": limit, "use_cache": use_cache},
+            "from_cache": from_cache,
+            "total": len(records),
+            "data": records,
+        }
+        return self._format_response(requested_name, payload, True)
 
 
 class InventoryMCPClient:

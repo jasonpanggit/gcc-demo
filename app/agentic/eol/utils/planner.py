@@ -592,23 +592,37 @@ def _pick_operating_systems_summary_sequence(
     query: str,
     tool_names: List[str],
 ) -> Optional[List[PlanStep]]:
-    """Return deterministic OS-summary sequence for Arc + Azure VM coverage.
+    """Return deterministic OS-inventory/summary plan for full Arc + Azure VM coverage.
 
-    Sequence:
-    1) law_get_os_summary              (Arc-enabled servers from Log Analytics)
-    2) azure_resource_get_os_summary   (Azure VMs from resource inventory)
+    Priority:
+    1) get_full_os_inventory  — merged Heartbeat + Resource Graph (preferred, all machines)
+    2) law_get_os_summary + azure_resource_get_os_summary  — fallback two-step summary
     """
     q = query.lower()
     is_list_intent = bool(
         re.search(r"\b(show|list|get|display|enumerate|what\s+are|summarize)\b", q)
     )
     has_os_intent = bool(
-        re.search(r"\boperating\s+systems?\b|\bos\b", q, re.I)
+        re.search(r"\boperating\s+systems?\b|\bos\b|\binventor", q, re.I)
     )
     if not (is_list_intent and has_os_intent):
         return None
 
     available = set(tool_names)
+
+    # Preferred: single merged tool that covers all machines (Arc + Azure VMs)
+    if "get_full_os_inventory" in available:
+        return [
+            PlanStep(
+                step_id="step_1",
+                tool_name="get_full_os_inventory",
+                params={},
+                affordance=ToolAffordance.READ,
+                rationale="OS inventory: get_full_os_inventory returns merged Arc + Azure VM records.",
+                is_parallel=False,
+            )
+        ]
+
     has_arc_tool = "law_get_os_summary" in available
     has_azure_tool = "azure_resource_get_os_summary" in available
 
