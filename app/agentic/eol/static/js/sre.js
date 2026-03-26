@@ -519,13 +519,14 @@ function sendMessage() {
     // Disable input while processing
     input.disabled = true;
     sendBtn.disabled = true;
-    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Sending...';
+    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     // Add user message
     addMessage(query, 'user');
 
     // Clear input
     input.value = '';
+    input.style.height = 'auto';
 
     // Create request to orchestrator
     const url = '/api/sre-orchestrator/execute';
@@ -543,7 +544,7 @@ function sendMessage() {
         // Re-enable input
         input.disabled = false;
         sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
         input.focus();
 
         if (data.success) {
@@ -590,7 +591,7 @@ function sendMessage() {
         // Re-enable input
         input.disabled = false;
         sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+        sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
     });
 }
 

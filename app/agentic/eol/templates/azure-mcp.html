@@ -2155,7 +2155,7 @@
         // Disable input while processing
         input.disabled = true;
         sendBtn.disabled = true;
-        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Thinking...';
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
         // Clear welcome message if it's the first message
         if (chatHistory.querySelector('.text-muted.py-5')) {
@@ -2167,7 +2167,8 @@
         
         // Clear input
         input.value = '';
-        
+        input.style.height = 'auto';
+
         try {
             const response = await fetch('/api/azure-mcp/chat', {
                 method: 'POST',
@@ -2206,7 +2207,7 @@
             // Re-enable input
             input.disabled = false;
             sendBtn.disabled = false;
-            sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Send';
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
             input.focus();
         }
     }
