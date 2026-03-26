@@ -1,8 +1,36 @@
 """
 UI tests for the Azure MCP Assistant page.
 """
+from pathlib import Path
+
 import pytest
 from playwright.sync_api import Page, expect
+
+
+def _load_deduplication_script() -> str:
+    template_path = Path(__file__).resolve().parents[3] / "templates" / "azure-mcp.html"
+    template_text = template_path.read_text(encoding="utf-8")
+    function_name = "function deduplicateSequentialContent(container) {"
+    start = template_text.find(function_name)
+    if start == -1:
+        raise AssertionError("Could not find deduplicateSequentialContent in azure-mcp.html")
+
+    brace_depth = 0
+    end = None
+    for index in range(start, len(template_text)):
+        char = template_text[index]
+        if char == "{":
+            brace_depth += 1
+        elif char == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                end = index + 1
+                break
+
+    if end is None:
+        raise AssertionError("Could not extract deduplicateSequentialContent body from azure-mcp.html")
+
+    return template_text[start:end]
 
 
 class TestAzureMCPAssistant:
@@ -126,3 +154,86 @@ class TestAzureMCPAssistant:
         # Click expand
         expand_button.click()
         self.page.wait_for_timeout(300)
+
+
+class TestAzureMCPDeduplication:
+    @pytest.fixture(autouse=True)
+    def load_deduplication_page(self, page: Page):
+        page.set_content("<html><body></body></html>")
+        page.add_script_tag(content=_load_deduplication_script())
+        self.page = page
+
+    def test_deduplication_preserves_wrapped_table_content(self):
+        """A wrapper div that contains a table should survive deduplication."""
+        counts = self.page.evaluate(
+            """
+            () => {
+                const container = document.createElement('div');
+                container.innerHTML = `
+                    <p>Total machines: <strong>8</strong> <em>(from cache)</em></p>
+                    <div class="inventory-table-wrapper">
+                        <table>
+                            <thead>
+                                <tr><th>Machine</th><th>OS</th><th>Version</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>vm-01</td><td>Ubuntu</td><td>22.04</td></tr>
+                                <tr><td>vm-02</td><td>Windows Server</td><td>2022</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                deduplicateSequentialContent(container);
+
+                return {
+                    wrappers: container.querySelectorAll('.inventory-table-wrapper').length,
+                    tables: container.querySelectorAll('table').length,
+                    rows: container.querySelectorAll('tbody tr').length,
+                    text: container.textContent,
+                };
+            }
+            """
+        )
+
+        assert counts["wrappers"] == 1
+        assert counts["tables"] == 1
+        assert counts["rows"] == 2
+        assert "vm-01" in counts["text"]
+        assert "vm-02" in counts["text"]
+
+    def test_deduplication_removes_duplicate_tables_but_keeps_one_wrapper(self):
+        """Duplicate wrapped tables should collapse to one surviving structure."""
+        counts = self.page.evaluate(
+            """
+            () => {
+                const tableHtml = `
+                    <div class="inventory-table-wrapper">
+                        <table>
+                            <thead>
+                                <tr><th>Machine</th><th>OS</th><th>Version</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>vm-01</td><td>Ubuntu</td><td>22.04</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                const container = document.createElement('div');
+                container.innerHTML = `${tableHtml}${tableHtml}`;
+
+                deduplicateSequentialContent(container);
+
+                return {
+                    wrappers: container.querySelectorAll('.inventory-table-wrapper').length,
+                    tables: container.querySelectorAll('table').length,
+                    rows: container.querySelectorAll('tbody tr').length,
+                };
+            }
+            """
+        )
+
+        assert counts["wrappers"] == 1
+        assert counts["tables"] == 1
+        assert counts["rows"] == 1

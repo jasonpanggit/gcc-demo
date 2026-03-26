@@ -2349,16 +2349,17 @@
 
         // Collect all seen signatures across the entire container to catch
         // non-consecutive duplicates as well as consecutive ones.
-        const seenSignatures = new Set();
+        const seenStructuredSignatures = new Set();
+        const seenTextSignatures = new Set();
 
         let lastTableSignature = null;
         container.querySelectorAll('table').forEach(table => {
             const signature = normalise(table.textContent || '');
-            if (signature && (signature === lastTableSignature || seenSignatures.has(signature))) {
+            if (signature && (signature === lastTableSignature || seenStructuredSignatures.has(signature))) {
                 table.remove();
             } else if (signature) {
                 lastTableSignature = signature;
-                seenSignatures.add(signature);
+                seenStructuredSignatures.add(signature);
             }
         });
 
@@ -2366,11 +2367,11 @@
         let lastListSignature = null;
         container.querySelectorAll('ul, ol').forEach(list => {
             const signature = normalise(list.textContent || '');
-            if (signature && (signature === lastListSignature || seenSignatures.has(signature))) {
+            if (signature && (signature === lastListSignature || seenStructuredSignatures.has(signature))) {
                 list.remove();
             } else if (signature) {
                 lastListSignature = signature;
-                seenSignatures.add(signature);
+                seenStructuredSignatures.add(signature);
             }
         });
 
@@ -2379,9 +2380,14 @@
         const paragraphSignatures = [];
         container.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6').forEach(node => {
             const signature = normalise(node.textContent || '');
-            if (!signature) return;
+            if (!signature) {
+                if (node.tagName.toLowerCase() === 'div' && node.children.length === 0) {
+                    node.remove();
+                }
+                return;
+            }
             // Exact duplicate anywhere
-            if (seenSignatures.has(signature)) {
+            if (seenTextSignatures.has(signature)) {
                 node.remove();
                 return;
             }
@@ -2398,7 +2404,7 @@
                 }
             }
             if (!isNearDup) {
-                seenSignatures.add(signature);
+                seenTextSignatures.add(signature);
                 paragraphSignatures.push(signature);
             }
         });
