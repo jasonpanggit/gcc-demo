@@ -442,6 +442,46 @@
         font-size: 0.85rem;
     }
 
+    /* Unified chat input — matches azure-mcp.html input-group style */
+    .ia-chat-input {
+        border: 1px solid #dee2e6;
+        border-radius: 1.5rem;
+        padding: 0.75rem 3.5rem 0.75rem 1.25rem;
+        resize: none;
+        overflow-y: hidden;
+        min-height: 50px;
+        max-height: 200px;
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        line-height: 1.5;
+    }
+
+    .ia-chat-input:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        outline: none;
+    }
+
+    .ia-send-btn {
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 50%;
+        border: none;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .ia-send-btn:hover {
+        transform: translateY(-50%) scale(1.05);
+        box-shadow: 0 2px 8px rgba(13, 110, 253, 0.4);
+    }
+
     /* Agent Flow Visualization */
     .agent-flow-visual {
         display: flex;
@@ -1806,12 +1846,12 @@
                     </div>
                 </div>
 
-                <!-- Main input field -->
-                <div class="input-group-modern">
-                    <textarea class="form-control chat-input" id="messageInput"
+                <!-- Main input field — styled to match unified chat (azure-mcp) -->
+                <div class="chat-input-group position-relative">
+                    <textarea class="form-control ia-chat-input" id="messageInput"
                         placeholder="Type your message here... (Press Ctrl+Enter to send)" rows="1"
                         onkeydown="handleKeyDown(event)" oninput="autoResizeTextarea(this)"></textarea>
-                    <button class="btn btn-primary send-button" onclick="sendMessage()" id="sendButton">
+                    <button class="btn btn-primary ia-send-btn" onclick="sendMessage()" id="sendButton">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
