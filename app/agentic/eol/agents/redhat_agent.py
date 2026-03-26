@@ -72,7 +72,7 @@ class RedHatEOLAgent(BaseEOLAgent):
                 "priority": 2
             },
             "fedora": {
-                "url": "https://fedoraproject.org/wiki/End_of_life",
+                "url": "https://docs.fedoraproject.org/en-US/releases/eol/",
                 "description": "Fedora End of Life Schedule",
                 "active": True,
                 "priority": 3
@@ -206,7 +206,7 @@ class RedHatEOLAgent(BaseEOLAgent):
             return result
         
         # Try scraping as fallback
-        scraped_result = await self._scrape_data(software_name, version)
+        scraped_result = await self._scrape_eol_data(software_name, version)
         if scraped_result:
             source_url = self._get_scraping_url(software_name)
             
@@ -234,7 +234,143 @@ class RedHatEOLAgent(BaseEOLAgent):
             "no_data_found",
             {"searched_product": software_name, "searched_version": version}
         )
-    
+
+    async def fetch_from_url(self, url: str, software_hint: str) -> Dict[str, Any]:
+        """Fetch EOL data from a specific URL for vendor parsing.
+
+        This method is called by the vendor parsing endpoint to scrape
+        EOL data from the configured Red Hat URLs.
+
+        Args:
+            url: The URL to scrape (must be one of the configured eol_urls)
+            software_hint: Software name hint (rhel, centos, or fedora)
+
+        Returns:
+            Dict with success, data, confidence, agent_used, source_url
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                return {
+                    "success": False,
+                    "error": f"URL not in configured Red Hat URLs: {url}",
+                    "data": {},
+                }
+
+            # Use software_hint to determine what to scrape
+            software_name = software_hint or product_type
+
+            # Call existing scraping logic
+            result = await self._scrape_eol_data(software_name, version=None)
+
+            if result:
+                return {
+                    "success": True,
+                    "data": {
+                        "software_name": software_name,
+                        "version": result.get("cycle"),
+                        "eol_date": result.get("eol"),
+                        "support_end_date": result.get("support"),
+                        "confidence": 0.85,  # Scraped data confidence
+                        "source": "redhat_agent",
+                        "agent_used": "redhat",
+                    },
+                    "confidence": 0.85,
+                    "agent_used": "redhat",
+                    "source_url": url,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"No EOL data found for {software_name}",
+                    "data": {},
+                }
+
+        except Exception as exc:
+            logger.error(f"fetch_from_url failed for {url}: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "data": {},
+            }
+
+    async def fetch_all_from_url(self, url: str, software_hint: str) -> List[Dict[str, Any]]:
+        """Fetch all available EOL records from a specific URL.
+
+        This is the preferred method for vendor parsing as it can return
+        multiple versions/cycles from a single URL scrape.
+
+        Args:
+            url: The URL to scrape
+            software_hint: Software name hint (rhel, centos, or fedora)
+
+        Returns:
+            List of EOL records, each with software_name, version, eol_date, etc.
+        """
+        try:
+            # Map URL to product type
+            product_type = None
+            for key, url_data in self.eol_urls.items():
+                if url_data["url"] == url:
+                    product_type = key
+                    break
+
+            if not product_type:
+                logger.warning(f"URL not in configured Red Hat URLs: {url}")
+                return []
+
+            software_name = software_hint or product_type
+
+            # Scrape the page
+            start_time = datetime.now()
+            cache_stats_manager.record_agent_request("redhat", url)
+
+            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            response_time = (datetime.now() - start_time).total_seconds()
+            cache_stats_manager.record_agent_request("redhat", url, response_time, success=True)
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Parse all versions from the page based on product type
+            records = []
+
+            if product_type == "rhel":
+                records = self._parse_all_rhel_versions(soup)
+            elif product_type == "centos":
+                records = self._parse_all_centos_versions(soup)
+            elif product_type == "fedora":
+                records = self._parse_all_fedora_versions(soup)
+
+            # Convert to vendor parsing format
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    "software_name": software_name,
+                    "version": record.get("cycle"),
+                    "eol": record.get("eol"),
+                    "support": record.get("support"),
+                    "confidence": 0.85,
+                    "source": "redhat_agent",
+                })
+
+            return formatted_records
+
+        except Exception as exc:
+            logger.error(f"fetch_all_from_url failed for {url}: {exc}")
+            # Record failed request
+            if 'start_time' in locals():
+                response_time = (datetime.now() - start_time).total_seconds()
+                cache_stats_manager.record_agent_request("redhat", url, response_time, success=False, error_message=str(exc))
+            return []
+
     def _is_redhat_product(self, software_name: str) -> bool:
         """Check if software is a Red Hat product"""
         software_lower = software_name.lower()
@@ -461,25 +597,195 @@ class RedHatEOLAgent(BaseEOLAgent):
     def _parse_fedora_eol(self, soup: BeautifulSoup, version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Parse Fedora EOL information"""
         try:
-            # Fedora has shorter support cycles
+            # Try to parse all versions and find the requested one
+            all_versions = self._parse_all_fedora_versions(soup)
+
+            if version and all_versions:
+                version_num = version.split('.')[0]
+                for record in all_versions:
+                    if record.get("cycle") == version_num:
+                        return record
+
+            # Fallback: use first available version if no specific version requested
+            if all_versions and not version:
+                return all_versions[0]
+
+            # Last resort: approximate calculation for version >= 35
             if version:
                 version_num = int(version.split('.')[0])
-                
-                # Fedora versions are supported for approximately 13 months
-                # Calculate approximate EOL based on version number
                 if version_num >= 35:
                     return {
                         "cycle": str(version_num),
                         "eol": "2024-12-31",  # Approximate
                         "source": "redhat_official_scraped"
                     }
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Error parsing Fedora EOL: {e}")
             return None
-    
+
+    def _parse_all_rhel_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL RHEL versions from the page for bulk vendor parsing.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        version_text = cells[0].get_text().strip()
+
+                        # Skip header rows
+                        if 'version' in version_text.lower() or 'release' in version_text.lower():
+                            continue
+
+                        eol_date = None
+                        support_date = None
+
+                        for cell in cells[1:]:
+                            cell_text = cell.get_text().strip()
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', cell_text)
+                            if date_match:
+                                if "end of life" in cell_text.lower() or "eol" in cell_text.lower():
+                                    eol_date = date_match.group(1)
+                                elif "end of support" in cell_text.lower():
+                                    support_date = date_match.group(1)
+
+                        if eol_date or support_date:
+                            records.append({
+                                "cycle": version_text,
+                                "eol": eol_date,
+                                "support": support_date,
+                                "source": "redhat_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all RHEL versions: {exc}")
+
+        return records
+
+    def _parse_all_centos_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL CentOS versions from the announcement page.
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            # CentOS announcement page - extract text-based dates
+            text_content = soup.get_text()
+
+            # Look for CentOS version mentions and dates
+            lines = text_content.split('\n')
+            for line in lines:
+                # Match patterns like "CentOS 7" or "CentOS Linux 8"
+                version_match = re.search(r'CentOS\s+(?:Linux\s+)?(\d+)', line, re.IGNORECASE)
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
+
+                if version_match and date_match:
+                    records.append({
+                        "cycle": version_match.group(1),
+                        "eol": date_match.group(1),
+                        "support": None,
+                        "source": "redhat_official_scraped",
+                    })
+
+            # Fallback to static data if scraping fails
+            if not records:
+                for key, value in self.static_eol_data.items():
+                    if 'centos' in key:
+                        records.append({
+                            "cycle": value.get("cycle"),
+                            "eol": value.get("eol"),
+                            "support": value.get("support"),
+                            "source": "redhat_static_data",
+                        })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all CentOS versions: {exc}")
+
+        return records
+
+    def _parse_all_fedora_versions(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse ALL Fedora versions from the EOL docs page.
+
+        The page structure (as of 2024):
+        - URL: https://docs.fedoraproject.org/en-US/releases/eol/
+        - Table with columns: Release | EOL since | Maintained for
+        - Version format: "F41", "F40", "FC6" (older), "FC1" (oldest)
+        - Date format: YYYY-MM-DD (ISO 8601)
+
+        Returns:
+            List of dicts with cycle, eol, support, source fields
+        """
+        records = []
+        try:
+            # Find the EOL releases table
+            tables = soup.find_all('table')
+
+            for table in tables:
+                rows = table.find_all('tr')
+
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 2:
+                        release_text = cells[0].get_text().strip()
+
+                        # Match Fedora version: F41, F40, FC6, FC1
+                        # Extract just the number for consistency
+                        version_match = re.search(r'F(?:C)?(\d+)', release_text, re.IGNORECASE)
+                        if not version_match:
+                            continue
+
+                        version_num = version_match.group(1)
+
+                        # The second column contains the EOL date
+                        eol_date = None
+                        if len(cells) >= 2:
+                            eol_text = cells[1].get_text().strip()
+
+                            # Try ISO format: YYYY-MM-DD
+                            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', eol_text)
+                            if date_match:
+                                eol_date = date_match.group(1)
+                            else:
+                                # Try Month DD, YYYY format
+                                date_match = re.search(r'([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})', eol_text)
+                                if date_match:
+                                    try:
+                                        month_str, day_str, year_str = date_match.groups()
+                                        parsed_date = datetime.strptime(f"{month_str} {day_str} {year_str}", "%B %d %Y")
+                                        eol_date = parsed_date.strftime("%Y-%m-%d")
+                                    except ValueError:
+                                        # Try abbreviated month
+                                        try:
+                                            parsed_date = datetime.strptime(f"{month_str} {day_str} {year_str}", "%b %d %Y")
+                                            eol_date = parsed_date.strftime("%Y-%m-%d")
+                                        except ValueError:
+                                            pass
+
+                        if eol_date:
+                            records.append({
+                                "cycle": version_num,
+                                "eol": eol_date,
+                                "support": None,
+                                "source": "redhat_official_scraped",
+                            })
+
+        except Exception as exc:
+            logger.error(f"Error parsing all Fedora versions: {exc}")
+
+        return records
+
     def get_supported_products(self) -> List[str]:
         """Get list of supported Red Hat products"""
         return [

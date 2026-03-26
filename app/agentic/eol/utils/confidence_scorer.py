@@ -29,10 +29,14 @@ class ConfidenceScorer:
         Tier 1 (endoflife.date API): 0.90
         Tier 2 (eolstatus.com JSON-LD): 0.75
         Tier 3 (vendor HTML scrapers): 0.55
-        Tier 4 (Playwright/web search): 0.35
+        Tier 4 (Web search + LLM extraction): 0.65
+
+    Note: Tier 4 base increased from 0.35 to 0.65 because it now uses
+    Azure OpenAI LLM to semantically parse Bing Copilot content rather
+    than brittle regex scraping. LLM provides validation-grade accuracy.
     """
 
-    TIER_BASE: Dict[int, float] = {1: 0.90, 2: 0.75, 3: 0.55, 4: 0.35}
+    TIER_BASE: Dict[int, float] = {1: 0.90, 2: 0.75, 3: 0.55, 4: 0.65}
 
     COMPLETENESS_WEIGHTS: Dict[str, float] = {
         "eol_date": 0.60,

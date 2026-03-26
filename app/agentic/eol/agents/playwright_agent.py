@@ -85,11 +85,19 @@ class PlaywrightEOLAgent(BaseEOLAgent):
         } if self._stealth_mode else {}
         
         # Selectors to try (in order of reliability based on testing)
+        # Prioritize Bing Copilot Search AI answer boxes first
         self.selectors_to_try = [
+            # Bing Copilot Search (AI-generated answers) - highest priority
+            '[class*="copilot"]',
+            '[data-bs-test="copilot"]',
+            '[aria-label*="Copilot"]',
+            '.cib-serp-main',  # Copilot in Bing SERP
+            # Traditional Bing answer boxes
             '.b_ans',
             '.answer_container',
             '[data-snippet]',
             '#b_context',
+            # Fallback to full page
             'body',
         ]
         
@@ -224,14 +232,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             "rc",
         ]
         support_keywords = [
-            "end of support",
+            "extended support end",  # Priority 1 - Extended support is the true EOL
+            "extended support ends",
+            "extended support until",
+            "extended support date",
+            "end of extended support",
+            "end of support",  # Priority 2 - Generic support end
             "support ends",
             "support end",
             "support until",
             "support date",
-            "extended support ends",
-            "mainstream support",
-            "extended support",
+            "mainstream support",  # Priority 3 - Mainstream comes before extended
         ]
 
         conf_order = {'very_high': 4, 'high': 3, 'medium': 2, 'low': 1}
@@ -256,6 +267,24 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                 eol_hit = any(keyword in context_lower for keyword in eol_keywords)
                 support_hit = any(keyword in context_lower for keyword in support_keywords)
 
+                # Check if this is an "extended support" mention (higher priority for Windows products)
+                extended_support_hit = any(keyword in context_lower for keyword in [
+                    "extended support end", "extended support ends", "end of extended support",
+                    "extended support until", "extended support date"
+                ])
+                mainstream_support_hit = "mainstream support" in context_lower
+
+                # For Windows Server and similar products, extended support is the true EOL
+                # Boost confidence if we found extended support date
+                if extended_support_hit:
+                    conf_label = 'very_high'  # Extended support dates are definitive EOL
+                    # This is likely the true EOL date, not mainstream support
+                    support_hit = True
+                elif mainstream_support_hit and not eol_hit:
+                    # Mainstream support is NOT the EOL date, just a milestone
+                    # Only record it if we don't find extended support
+                    conf_label = 'medium' if base_conf in ['very_high', 'high'] else 'low'
+
                 # Skip pure release/GA dates; we only want lifecycle endings
                 if release_hit and not eol_hit:
                     # Treat as release candidate but do not return as EOL/support
@@ -266,15 +295,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                             "confidence": conf_label,
                             "context": context_snippet,
                             "position": span_start,
+                            "extended_support": extended_support_hit,
                         }
                     continue
 
                 # Adjust confidence based on proximity to lifecycle vs. release language
-                conf_label = 'very_high' if eol_hit else base_conf
-                if not eol_hit and base_conf == 'high':
-                    conf_label = 'medium'
-                elif not eol_hit and base_conf == 'medium':
-                    conf_label = 'low'
+                if not extended_support_hit and not mainstream_support_hit:
+                    conf_label = 'very_high' if eol_hit else base_conf
+                    if not eol_hit and base_conf == 'high':
+                        conf_label = 'medium'
+                    elif not eol_hit and base_conf == 'medium':
+                        conf_label = 'low'
 
                 previous = eol_candidates.get(date_str)
                 if eol_hit and (not previous or conf_order[conf_label] > conf_order[previous["confidence"]]):
@@ -282,6 +313,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         "confidence": conf_label,
                         "context": context_snippet,
                         "position": span_start,
+                        "extended_support": extended_support_hit,
                     }
 
                 previous_support = support_candidates.get(date_str)
@@ -290,12 +322,30 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         "confidence": conf_label,
                         "context": context_snippet,
                         "position": span_start,
+                        "extended_support": extended_support_hit,
+                        "mainstream_support": mainstream_support_hit,
                     }
 
         # Helper to select best candidate set
-        def select_best(candidates_dict):
+        def select_best(candidates_dict, prefer_extended=False):
             if not candidates_dict:
                 return None
+
+            # For support dates, prefer extended support over mainstream
+            if prefer_extended:
+                # First try to find extended support dates
+                extended_candidates = {k: v for k, v in candidates_dict.items()
+                                     if v.get("extended_support", False)}
+                if extended_candidates:
+                    sorted_candidates = sorted(
+                        extended_candidates.items(),
+                        key=lambda item: (conf_order[item[1]["confidence"]], -item[1]["position"]),
+                        reverse=True
+                    )
+                    all_dates = [c[0] for c in sorted_candidates]
+                    return sorted_candidates[0], all_dates
+
+            # Default sorting: by confidence first, then by position (earlier in text)
             sorted_candidates = sorted(
                 candidates_dict.items(),
                 key=lambda item: (conf_order[item[1]["confidence"]], -item[1]["position"]),
@@ -304,7 +354,7 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             return sorted_candidates[0], [c[0] for c in sorted_candidates]
 
         chosen_eol = select_best(eol_candidates)
-        chosen_support = select_best(support_candidates)
+        chosen_support = select_best(support_candidates, prefer_extended=True)  # Prefer extended support
         chosen_release = select_best(release_candidates)
 
         if chosen_eol:
@@ -321,6 +371,19 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             result["support_confidence"] = meta["confidence"]
             result["all_dates"].extend(all_dates)
             result["support_context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+
+            # For Windows Server and similar Microsoft products, Extended Support End Date is the true EOL
+            # If we found an extended support date and no EOL date, promote it to EOL
+            is_windows_product = any(term in software_name.lower() for term in [
+                "windows server", "windows", "sql server", "exchange server",
+                "sharepoint", "office", "visual studio"
+            ])
+            if is_windows_product and meta.get("extended_support") and not result["eol_date"]:
+                result["eol_date"] = best_date
+                result["eol_confidence"] = meta["confidence"]
+                result["confidence"] = meta["confidence"]
+                result["context"] = meta["context"].replace('\n', ' ') if meta.get("context") else None
+                logger.info(f"💡 Promoted Extended Support date to EOL for {software_name}: {best_date}")
 
         if chosen_release:
             (best_date, meta), all_dates = chosen_release
@@ -396,20 +459,23 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": json.dumps(user_content)},
                 ],
-                temperature=0.1,
-                max_tokens=300,
+                max_completion_tokens=2000,  # Increased for reasoning models (gpt-5-mini uses reasoning tokens)
             )
 
+            logger.info(f"LLM response received: choices={len(resp.choices) if resp and resp.choices else 0}")
             content = resp.choices[0].message.content if resp and resp.choices else None
             if not content:
+                logger.warning(f"⚠️ LLM extraction returned empty content. Response: {resp}")
                 return None
 
+            logger.debug(f"LLM raw response: {content[:500]}")  # Log first 500 chars
             try:
                 parsed = json.loads(content)
-            except json.JSONDecodeError:
+                return parsed
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ LLM extraction failed: JSON parsing error at position {e.pos}: {e.msg}")
+                logger.warning(f"LLM response was: {content[:200]}")
                 return None
-
-            return parsed
         except Exception as exc:
             logger.warning(f"⚠️ LLM extraction failed: {exc}")
             return None
@@ -542,15 +608,17 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                         if element:
                             html = await element.inner_html()
                             text = await element.inner_text()
-                            
+
                             if text and len(text) > 100:
-                                logger.info(f"✅ Extracted content from frame {frame_idx} using selector: {selector}")
+                                logger.info(f"✅ Extracted {len(text)} chars from frame {frame_idx} using selector: {selector}")
                                 extracted_html = html
                                 extracted_text = text
                                 selector_used = f"frame_{frame_idx}_{selector}"
                                 break
+                            else:
+                                logger.debug(f"    Selector {selector} matched but text too short ({len(text) if text else 0} chars)")
                     except Exception as e:
-                        logger.info(f"    Selector {selector} failed on frame {frame_idx}: {e}")
+                        logger.debug(f"    Selector {selector} failed on frame {frame_idx}: {str(e)[:80]}")
                         continue
                 
                 if extracted_html:
@@ -558,12 +626,14 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             
             # Method 2: If no iframe content found, try main page with locators
             if not extracted_html:
-                logger.info("  No content in iframes, trying main page...")
+                logger.info("📄 No content in iframes, trying main page selectors...")
                 for selector in self.selectors_to_try:
                     try:
                         loc = page.locator(selector)
                         count = await loc.count()
-                        
+
+                        logger.debug(f"    Selector '{selector}' found {count} match(es)")
+
                         if count and count > 0:
                             if selector == 'body':
                                 # For body, limit the content size
@@ -572,14 +642,16 @@ class PlaywrightEOLAgent(BaseEOLAgent):
                             else:
                                 extracted_html = await loc.first.inner_html()
                                 extracted_text = await loc.first.inner_text()
-                            
+
                             if extracted_text and len(extracted_text) > 100:
                                 selector_used = selector
-                                logger.info(f"✅ Extracted content from main page using selector: {selector}")
+                                logger.info(f"✅ Extracted {len(extracted_text)} chars from main page using selector: {selector}")
                                 break
-                                
+                            else:
+                                logger.debug(f"    Selector {selector} matched but text too short ({len(extracted_text) if extracted_text else 0} chars)")
+
                     except Exception as e:
-                        logger.info(f"Selector {selector} failed: {e}")
+                        logger.debug(f"    Selector '{selector}' failed: {str(e)[:80]}")
                         continue
             
             if not extracted_text:
@@ -659,50 +731,77 @@ class PlaywrightEOLAgent(BaseEOLAgent):
             
             # Extract lifecycle dates from content
             text_content = search_result["content"]
-            eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
 
-            # Optional LLM refinement when no EOL/support date is found
-            if self.enable_llm_extraction and not eol_extraction.get("eol_date") and not eol_extraction.get("support_end_date"):
+            # For Tier 4 validation use case: prioritize LLM extraction over regex
+            # LLM provides semantic understanding of which date is EOL vs release date
+            llm_result = None
+            if self.enable_llm_extraction and len(text_content) > 200:
+                logger.info("🧠 LLM extraction enabled - using semantic parsing for Bing content...")
                 llm_result = await self._extract_dates_with_llm(text_content, software_name, version)
                 if llm_result:
-                    def conf_to_label(val: Optional[float]) -> str:
-                        if val is None:
-                            return "low"
-                        if val >= 0.9:
-                            return "very_high"
-                        if val >= 0.75:
-                            return "high"
-                        if val >= 0.5:
-                            return "medium"
+                    logger.info(f"✅ LLM extraction succeeded: eol={llm_result.get('eol_date')}, support={llm_result.get('support_end_date')}")
+
+            # Regex extraction as fallback (or when LLM disabled)
+            eol_extraction = self._extract_eol_dates_from_text(text_content, software_name)
+
+            # If LLM extraction succeeded, use its results (override regex)
+            if llm_result:
+                def conf_to_label(val: Optional[float]) -> str:
+                    if val is None:
                         return "low"
+                    if val >= 0.9:
+                        return "very_high"
+                    if val >= 0.75:
+                        return "high"
+                    if val >= 0.5:
+                        return "medium"
+                    return "low"
 
-                    # Fill dates if present
-                    for key in ["eol_date", "support_end_date", "release_date"]:
-                        if llm_result.get(key):
-                            eol_extraction[key] = llm_result.get(key)
+                # Override regex results with LLM results
+                for key in ["eol_date", "support_end_date", "release_date"]:
+                    if llm_result.get(key):
+                        eol_extraction[key] = llm_result.get(key)
 
-                    # Map confidences
-                    eol_extraction["eol_confidence"] = conf_to_label(llm_result.get("eol_confidence"))
-                    eol_extraction["support_confidence"] = conf_to_label(llm_result.get("support_confidence"))
-                    eol_extraction["release_confidence"] = conf_to_label(llm_result.get("release_confidence"))
+                # Map confidences
+                eol_extraction["eol_confidence"] = conf_to_label(llm_result.get("eol_confidence"))
+                eol_extraction["support_confidence"] = conf_to_label(llm_result.get("support_confidence"))
+                eol_extraction["release_confidence"] = conf_to_label(llm_result.get("release_confidence"))
 
-                    # Preserve evidence snippets
-                    eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
-                    eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
-                    eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+                # Preserve evidence snippets
+                eol_extraction["context"] = llm_result.get("eol_evidence") or eol_extraction.get("context")
+                eol_extraction["support_context"] = llm_result.get("support_evidence") or eol_extraction.get("support_context")
+                eol_extraction["release_context"] = llm_result.get("release_evidence") or eol_extraction.get("release_context")
+
+                logger.info(f"📊 Using LLM results (override regex): eol={eol_extraction.get('eol_date')}, confidence={eol_extraction.get('eol_confidence')}")
+            else:
+                # LLM failed or disabled - log that we're using regex results
+                if eol_extraction.get("eol_date"):
+                    logger.warning(f"⚠️ Using regex extraction (LLM unavailable): eol={eol_extraction.get('eol_date')}, confidence={eol_extraction.get('eol_confidence')}")
+                else:
+                    logger.warning("⚠️ Both LLM and regex extraction failed to find dates")
 
             # Map confidence labels to numeric scores
-            confidence_map = {
-                'very_high': 0.95,
-                'high': 0.85,
-                'medium': 0.70,
-                'low': 0.50
-            }
+            # Boost confidence when LLM extraction succeeded (more reliable than regex)
+            if llm_result:
+                # LLM extraction provides semantic understanding - higher base confidence
+                confidence_map = {
+                    'very_high': 0.85,  # LLM + very high confidence evidence
+                    'high': 0.75,       # LLM + high confidence evidence
+                    'medium': 0.65,     # LLM + medium confidence evidence
+                    'low': 0.55         # LLM + low confidence evidence (still better than regex)
+                }
+            else:
+                # Regex-only extraction - lower confidence (brittle pattern matching)
+                confidence_map = {
+                    'very_high': 0.50,  # Regex can't be very_high
+                    'high': 0.45,
+                    'medium': 0.35,
+                    'low': 0.25
+                }
 
             # Pick primary confidence based on available signals
             primary_conf_label = eol_extraction.get('eol_confidence') or eol_extraction.get('support_confidence') or eol_extraction.get('release_confidence') or 'low'
-            # Clamp Playwright confidence to a max of 95% to prevent overstatement
-            confidence_score = min(confidence_map.get(primary_conf_label, 0.70), 0.95)
+            confidence_score = confidence_map.get(primary_conf_label, 0.55 if llm_result else 0.30)
 
             if any([eol_extraction.get("eol_date"), eol_extraction.get("support_end_date"), eol_extraction.get("release_date")]):
                 response_time = time.time() - start_time

@@ -821,6 +821,10 @@ class PostgresDatabaseManager:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_eol_software_key_lower ON eol_records (LOWER(software_key));"
             )
+            # Vendor-scoped query index (quick task 260323-hgs)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_eol_vendor ON eol_records (LOWER(vendor));"
+            )
 
             # scoring_version column for confidence formula migration (Phase 1)
             await conn.execute(

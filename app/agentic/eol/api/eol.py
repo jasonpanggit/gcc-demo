@@ -453,17 +453,23 @@ async def search_vendor_eol(request: VendorParsingRequest):
             return
 
         async def _persist_run(run: Dict[str, Any]) -> None:
+            logger.info("_persist_run called with run: success=%s, software_name=%s",
+                        run.get("success") if run else None,
+                        run.get("software_name") if run else None)
             if not run or not run.get("success"):
+                logger.info("_persist_run early return: run is None or not successful")
                 return
 
             software_name = run.get("software_name")
             if not software_name:
+                logger.info("_persist_run early return: no software_name")
                 return
 
             version = run.get("version")
             eol_date = run.get("eol_date")
             support_end_date = run.get("support_end_date")
             if not eol_date and not support_end_date:
+                logger.info("_persist_run early return: no eol_date or support_end_date")
                 return
 
             raw_data = {
@@ -473,6 +479,27 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 "confidence": run.get("confidence"),
                 "source": vendor_key,
             }
+
+            # Calculate confidence if not provided by agent
+            # Vendor scraping from official sites should have high confidence
+            if raw_data["confidence"] is None or raw_data["confidence"] == 0:
+                base_confidence = 0.80  # Vendor official site
+                completeness_bonus = 0.0
+                if eol_date:
+                    completeness_bonus += 0.10
+                if support_end_date:
+                    completeness_bonus += 0.05
+                if run.get("release_date"):
+                    completeness_bonus += 0.03
+                if run.get("source_url"):
+                    completeness_bonus += 0.02
+
+                calculated_confidence = min(0.95, base_confidence + completeness_bonus)
+                raw_data["confidence"] = calculated_confidence
+                logger.info(
+                    "Vendor parsing calculated confidence=%.2f for %s %s (base=0.80, bonus=%.2f)",
+                    calculated_confidence, software_name, version or "(any)", completeness_bonus
+                )
 
             processed = process_eol_data(raw_data, software_name, version)
             processed["support_end_date"] = support_end_date or processed.get("support_end_date")
@@ -487,10 +514,57 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 "agent_used": processed.get("agent_used"),
             }
 
+            logger.info(
+                "Vendor parsing persisting: software_name=%s, version=%s, vendor=%s, "
+                "eol_date=%s, confidence=%s, agent_used=%s",
+                software_name, version, vendor_key,
+                run.get("eol_date"), processed.get("confidence"), run.get("agent_used")
+            )
+
             try:
-                await eol_inventory.upsert(software_name, version, result)
+                # Try L1 upsert (may be skipped due to confidence check)
+                upsert_success = await eol_inventory.upsert(software_name, version, result)
+                if upsert_success:
+                    logger.info(
+                        "Vendor EOL cache L1 upsert SUCCESS for %s %s (vendor=%s)",
+                        software_name, version or "(any)", vendor_key
+                    )
+                else:
+                    logger.warning(
+                        "Vendor EOL cache L1 upsert skipped (confidence) for %s %s (vendor=%s)",
+                        software_name, version or "(any)", vendor_key
+                    )
+
+                # ALWAYS write to L2 PostgreSQL for vendor parsing, regardless of L1 result
+                # This ensures vendor parsing results are visible in /eol-inventory page
+                logger.info(
+                    "Vendor parsing checking L2 write for %s %s: has_pool=%s",
+                    software_name, version or "(any)", eol_inventory._has_pool()
+                )
+                if eol_inventory._has_pool():
+                    record = eol_inventory._standardize_data(
+                        software_name, version, result,
+                        raw_software_name=software_name,
+                        raw_version=version
+                    )
+                    logger.info(
+                        "Vendor parsing standardize result for %s %s: record=%s",
+                        software_name, version or "(any)", "present" if record else "None"
+                    )
+                    if record:
+                        logger.info(
+                            "Vendor parsing forcing L2 PG write for %s %s (vendor=%s)",
+                            software_name, version or "(any)", vendor_key
+                        )
+                        # Change from fire-and-forget to await so we can see errors
+                        await eol_inventory._pg_upsert(record)
+
             except Exception as exc:
-                logger.debug("Vendor EOL cache upsert failed for %s %s: %s", software_name, version or "(any)", exc)
+                logger.error(
+                    "Vendor EOL cache upsert EXCEPTION for %s %s (vendor=%s): %s",
+                    software_name, version or "(any)", vendor_key, exc,
+                    exc_info=True
+                )
 
         await asyncio.gather(*(_persist_run(run) for run in runs))
 
@@ -541,6 +615,83 @@ async def search_vendor_eol(request: VendorParsingRequest):
 
     agent = orchestrator.agents.get(vendor_key) if hasattr(orchestrator, "agents") else None
     vendor_urls = _extract_agent_urls(agent)
+
+    # =========================================================================
+    # GENERIC VENDOR PARSING PATH
+    # =========================================================================
+    # Try generic vendor parsing first - works for ANY vendor with fetch methods
+    # This replaces vendor-specific branches (microsoft, nodejs, ubuntu, redhat)
+    # Falls back to vendor-specific branches only if generic path fails
+    # =========================================================================
+
+    if agent and hasattr(agent, "eol_urls"):
+        active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
+
+        if active_urls:
+            # Try generic vendor parsing helper
+            try:
+                from utils.vendor_parsing_helper import parse_vendor_urls_generic
+
+                logger.info(f"Attempting generic vendor parsing for {vendor_key} with {len(active_urls)} URLs")
+                start_ts = time.time()
+
+                runs = await parse_vendor_urls_generic(
+                    agent=agent,
+                    vendor_key=vendor_key,
+                    active_urls=active_urls,
+                )
+
+                if runs:
+                    successes = sum(1 for run in runs if run and run.get("success"))
+                    timestamp = datetime.utcnow().isoformat()
+
+                    await _persist_vendor_runs(runs)
+
+                    urls_persisted = False
+                    if vendor_urls:
+                        try:
+                            urls_persisted = await vendor_url_inventory.upsert_vendor_urls(
+                                vendor=vendor_key,
+                                urls=vendor_urls,
+                                software_found=successes,
+                                parsed_at=timestamp,
+                            )
+                        except Exception as exc:
+                            logger.debug("Vendor URL persistence failed: %s", exc)
+
+                    # Return even if successes == 0
+                    # Vendor parsing should ONLY use configured URLs, not fall back to tiered pipeline
+                    logger.info(
+                        f"Generic vendor parsing completed for {vendor_key}: "
+                        f"{successes}/{len(runs)} successful in {time.time() - start_ts:.2f}s"
+                    )
+
+                    return {
+                        "success": True,
+                        "vendor": vendor_key,
+                        "mode": f"{vendor_key}_generic_urls",
+                        "ignore_cache": bool(request.ignore_cache),
+                        "runs": runs,
+                        "summary": {
+                            "requested": len(active_urls),
+                            "successes": successes,
+                            "failures": max(0, len(runs) - successes),
+                        },
+                        "vendor_urls": vendor_urls,
+                        "url_count": len(vendor_urls),
+                        "urls_persisted": urls_persisted,
+                        "timestamp": timestamp,
+                        "elapsed_seconds": round(time.time() - start_ts, 3),
+                    }
+
+            except ImportError:
+                logger.warning("vendor_parsing_helper not available, falling back to vendor-specific branches")
+            except Exception as exc:
+                logger.warning(f"Generic vendor parsing failed for {vendor_key}: {exc}, trying vendor-specific branch")
+
+    # =========================================================================
+    # VENDOR-SPECIFIC BRANCHES (LEGACY - kept for backward compatibility)
+    # =========================================================================
 
     if vendor_key == "microsoft":
         if not agent:
@@ -945,6 +1096,145 @@ async def search_vendor_eol(request: VendorParsingRequest):
             "elapsed_seconds": round(time.time() - start_ts, 3),
         }
 
+    if vendor_key == "redhat":
+        if not agent:
+            raise HTTPException(status_code=500, detail="Red Hat agent not available")
+
+        active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
+        if not active_urls:
+            raise HTTPException(status_code=400, detail="No Red Hat URLs configured")
+
+        start_ts = time.time()
+
+        def _infer_redhat_software(entry: Dict[str, Any]) -> str:
+            """Infer software type from URL or description."""
+            url_lower = (entry.get("url") or "").lower()
+            desc_lower = (entry.get("description") or "").lower()
+
+            if "rhel" in url_lower or "rhel" in desc_lower or "enterprise linux" in desc_lower:
+                return "rhel"
+            if "centos" in url_lower or "centos" in desc_lower:
+                return "centos"
+            if "fedora" in url_lower or "fedora" in desc_lower:
+                return "fedora"
+            return "rhel"  # default
+
+        async def run_url(entry: Dict[str, Any]) -> Dict[str, Any]:
+            software_hint = _infer_redhat_software(entry)
+            url = entry.get("url")
+
+            try:
+                # Try fetch_all_from_url first (returns multiple versions)
+                records = await agent.fetch_all_from_url(url, software_hint)
+                if records:
+                    expanded = []
+                    for record in records:
+                        record_confidence = record.get("confidence")
+                        if record_confidence is None:
+                            record_confidence = 0.85
+                        expanded.append({
+                            "software_name": record.get("software_name") or software_hint,
+                            "version": record.get("version") or record.get("cycle"),
+                            "eol_date": record.get("eol"),
+                            "support_end_date": record.get("support"),
+                            "agent_used": "redhat",
+                            "confidence": record_confidence,
+                            "source_url": url,
+                            "success": True,
+                            "mode": "redhat_agent_urls",
+                            "raw": record,
+                        })
+                    return expanded
+            except Exception as exc:
+                logger.debug("Red Hat vendor parsing expansion failed for %s: %s", software_hint, exc)
+
+            # Fallback to single fetch_from_url
+            try:
+                result = await agent.fetch_from_url(url, software_hint)
+            except Exception as exc:  # pragma: no cover
+                return {
+                    "software_name": software_hint,
+                    "version": None,
+                    "eol_date": None,
+                    "support_end_date": None,
+                    "agent_used": "redhat",
+                    "confidence": None,
+                    "source_url": url,
+                    "success": False,
+                    "mode": "redhat_agent_urls",
+                    "error": str(exc),
+                    "raw": None,
+                }
+
+            data_block = result.get("data") if isinstance(result, dict) else {}
+            confidence = None
+            if isinstance(data_block, dict):
+                confidence = data_block.get("confidence") or result.get("confidence")
+            elif isinstance(result, dict):
+                confidence = result.get("confidence")
+
+            if confidence is not None:
+                try:
+                    confidence = float(confidence)
+                except (TypeError, ValueError):
+                    confidence = None
+
+            return {
+                "software_name": (data_block or {}).get("software_name") or software_hint,
+                "version": (data_block or {}).get("version"),
+                "eol_date": (data_block or {}).get("eol_date"),
+                "support_end_date": (data_block or {}).get("support_end_date"),
+                "agent_used": (data_block or {}).get("agent_used") or "redhat",
+                "confidence": confidence,
+                "source_url": url,
+                "success": bool(result.get("success") if isinstance(result, dict) else False),
+                "mode": "redhat_agent_urls",
+                "raw": result,
+            }
+
+        raw_runs = await asyncio.gather(*(run_url(entry) for entry in active_urls))
+        runs: List[Dict[str, Any]] = []
+        for entry in raw_runs:
+            if isinstance(entry, list):
+                runs.extend(entry)
+            elif entry:
+                runs.append(entry)
+
+        successes = sum(1 for run in runs if run and run.get("success"))
+        timestamp = datetime.utcnow().isoformat()
+
+        await _persist_vendor_runs(runs)
+
+        urls_persisted = False
+        if vendor_urls:
+            try:
+                urls_persisted = await vendor_url_inventory.upsert_vendor_urls(
+                    vendor=vendor_key,
+                    urls=vendor_urls,
+                    software_found=successes,
+                    parsed_at=timestamp,
+                )
+            except Exception as exc:
+                logger.debug("Vendor URL persistence failed: %s", exc)
+
+        return {
+            "success": True,
+            "vendor": vendor_key,
+            "mode": "redhat_agent_urls",
+            "ignore_cache": bool(request.ignore_cache),
+            "runs": runs,
+            "summary": {
+                "requested": len(active_urls),
+                "successes": successes,
+                "failures": max(0, len(active_urls) - successes),
+            },
+            "vendor_urls": vendor_urls,
+            "url_count": len(vendor_urls),
+            "urls_persisted": urls_persisted,
+            "timestamp": timestamp,
+            "elapsed_seconds": round(time.time() - start_ts, 3),
+        }
+
     allowed_modes = {"agents_plus_internet", "agents_only", "internet_only"}
     mode = (request.mode or "agents_plus_internet").lower()
     if mode not in allowed_modes:
@@ -1313,6 +1603,17 @@ async def list_eol_inventory_records(
         logger.debug("EOL inventory list failed: %s", exc)
         response = StandardResponse.error_response(error=str(exc))
         return response.to_dict()
+
+
+@router.get("/api/eol-inventory/vendor/{vendor}", response_model=StandardResponse)
+@readonly_endpoint(agent_name="eol_inventory_vendor", timeout_seconds=20)
+async def list_eol_by_vendor(vendor: str, limit: int = 100, offset: int = 0):
+    """Return EOL records filtered by vendor name from PostgreSQL."""
+    records, total = await eol_inventory.list_by_vendor(vendor, limit=limit, offset=offset)
+    return StandardResponse.success_response(
+        data={"items": records, "total": total, "vendor": vendor},
+        message=f"Retrieved {len(records)} of {total} EOL records for vendor '{vendor}'",
+    ).to_dict()
 
 
 @router.get("/api/eol-inventory/{software_key}", response_model=StandardResponse)

@@ -107,7 +107,7 @@
             </div>
 
             <div class="nav-section">
-                <div class="nav-section-title">Assistants</div>
+                <div class="nav-section-title">AI Assistants</div>
                 <a href="/azure-mcp" class="nav-item {% if '/azure-mcp' in request.path %}active{% endif %}">
                     <i class="fas fa-magic"></i>
                     <span class="nav-text">Ask Anything</span>
@@ -118,7 +118,11 @@
                 </a>
                 <a href="/inventory-assistant" class="nav-item {% if '/inventory-assistant' in request.path %}active{% endif %}">
                     <i class="fas fa-robot"></i>
-                    <span class="nav-text">OS & Software</span>
+                    <span class="nav-text">Inventory</span>
+                </a>
+                <a href="/eol-search" class="nav-item {% if request.path == '/eol-search' %}active{% endif %}">
+                    <i class="fas fa-search"></i>
+                    <span class="nav-text">EOL Search</span>
                 </a>
             </div>
 
@@ -135,10 +139,6 @@
                 <a href="/vm-vulnerability" class="nav-item {% if '/vm-vulnerability' in request.path %}active{% endif %}" title="Open My VM Vulnerabilites">
                     <i class="fas fa-server"></i>
                     <span class="nav-text">My VM Vulnerabilites</span>
-                </a>
-                <a href="/eol-search" class="nav-item {% if request.path == '/eol-search' %}active{% endif %}">
-                    <i class="fas fa-search"></i>
-                    <span class="nav-text">EOL Search</span>
                 </a>
                 <a href="/eol-inventory" class="nav-item {% if '/eol-inventory' in request.path %}active{% endif %}">
                     <i class="fas fa-table"></i>
