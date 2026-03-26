@@ -69,13 +69,13 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
             </div>
             {% endif %}
 
-            {# Chat Input #}
-            <div class="input-group">
-                <input type="text" class="form-control" id="chat-input"
-                       placeholder="{{ config.placeholder }}"
-                       onkeypress="if(event.key === 'Enter') sendMessage()">
-                <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
-                    <i class="fas fa-paper-plane me-1"></i>{{ config.button_text }}
+            {# Chat Input — pill-shaped textarea with circular send button #}
+            <div class="chat-input-group position-relative">
+                <textarea class="form-control unified-chat-input" id="chat-input"
+                          placeholder="{{ config.placeholder }}" rows="1"
+                          oninput="unifiedAutoResize(this)"></textarea>
+                <button class="btn btn-primary unified-send-btn" onclick="sendMessage()" id="send-btn">
+                    <i class="fas fa-paper-plane"></i>
                 </button>
             </div>
         </div>
@@ -172,7 +172,71 @@ Modes: 'mcp', 'sre', 'inventory', 'eol'
 
 {# Auto-initialization script - Include once per page #}
 {% macro chat_init_script(mode='mcp', agent_name='mcp-orchestrator') %}
+<style>
+    /* Unified chat input — pill-shaped textarea with circular send button */
+    .unified-chat-input {
+        border: 1px solid #dee2e6;
+        border-radius: 1.5rem;
+        padding: 0.75rem 3.5rem 0.75rem 1.25rem;
+        resize: none;
+        overflow-y: hidden;
+        min-height: 40px;
+        max-height: 200px;
+        line-height: 1.5;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .unified-chat-input:focus {
+        border-color: var(--primary-color, #2563eb);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+    .unified-send-btn {
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 50%;
+        border: none;
+        background: var(--primary-color, #2563eb);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .unified-send-btn:hover:not(:disabled) {
+        background: #0056b3;
+        transform: translateY(-50%) scale(1.05);
+    }
+    .unified-send-btn:disabled {
+        background: var(--muted-color, #6c757d);
+        cursor: not-allowed;
+    }
+</style>
 <script>
+    // Unified chat input: auto-resize textarea
+    function unifiedAutoResize(textarea) {
+        textarea.style.height = 'auto';
+        const newHeight = Math.min(Math.max(textarea.scrollHeight, 40), 200);
+        textarea.style.height = newHeight + 'px';
+        textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden';
+    }
+
+    // Unified chat input: Enter = send, Shift+Enter = newline
+    document.addEventListener('DOMContentLoaded', function() {
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput && chatInput.tagName === 'TEXTAREA') {
+            chatInput.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMessage();
+                }
+            });
+        }
+    });
+
     // Auto-initialize agent communication handler
     // Note: agentCommHandler is already declared in agent-communication.js
 
