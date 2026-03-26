@@ -1849,7 +1849,7 @@
                 <!-- Main input field — styled to match unified chat (azure-mcp) -->
                 <div class="chat-input-group position-relative">
                     <textarea class="form-control ia-chat-input" id="messageInput"
-                        placeholder="Type your message here... (Press Ctrl+Enter to send)" rows="1"
+                        placeholder="Type your message here... (Press Enter to send, Shift+Enter for newline)" rows="1"
                         onkeydown="handleKeyDown(event)" oninput="autoResizeTextarea(this)"></textarea>
                     <button class="btn btn-primary ia-send-btn" onclick="sendMessage()" id="sendButton">
                         <i class="fas fa-paper-plane"></i>
@@ -2168,8 +2168,8 @@
     function handleKeyDown(event) {
         const textarea = event.target;
 
-        // Handle Ctrl+Enter or Cmd+Enter to send message
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        // Handle Enter to send message (Shift+Enter for newline)
+        if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             sendMessage();
             return;
