@@ -2,6 +2,7 @@
 Unified Inventory Cache - Handles both software and OS inventory with memory + PostgreSQL persistence
 """
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -10,6 +11,8 @@ try:
     from utils.pg_client import postgres_client
 except ImportError:
     from app.agentic.eol.utils.pg_client import postgres_client
+
+logger = logging.getLogger(__name__)
 
 
 class InventoryRawCache:
@@ -113,7 +116,7 @@ class InventoryRawCache:
         Returns:
             True if successfully stored, False otherwise
         """
-        print(f"🔵 store_cached_data_async called: cache_type={cache_type}, data_count={len(data) if data else 0}")
+        logger.debug("store_cached_data_async: cache_type=%s, data_count=%d", cache_type, len(data) if data else 0)
 
         # Store in memory first
         self.store_cached_data(cache_key, data, cache_type, metadata)
@@ -121,13 +124,11 @@ class InventoryRawCache:
         # For OS data, also persist to PostgreSQL os_inventory_snapshots table
         if cache_type == "os" and data:
             try:
-                print(f"🔵 Calling _persist_os_inventory_to_postgres with {len(data)} records")
+                logger.debug("store_cached_data_async: persisting %d OS records to PostgreSQL", len(data))
                 await self._persist_os_inventory_to_postgres(data, metadata)
             except Exception as e:
                 # Log but don't fail - memory cache still works
-                print(f"Warning: Failed to persist OS inventory to PostgreSQL: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.warning("Failed to persist OS inventory to PostgreSQL: %s", e)
 
         return True
 
@@ -160,52 +161,52 @@ class InventoryRawCache:
 
     async def _persist_os_inventory_to_postgres(self, os_data: List[Dict], metadata: Optional[Dict[str, Any]]):
         """Persist OS inventory data to os_inventory_snapshots table for database joins."""
-        print(f"🔍 [PERSIST] Entry: os_data count={len(os_data) if os_data else 0}, metadata={metadata}")
+        logger.debug("[PERSIST] Entry: os_data count=%d, metadata=%s", len(os_data) if os_data else 0, metadata)
 
         try:
             pool = postgres_client.pool
-            print(f"🔍 [PERSIST] Pool check: pool={'available' if pool else 'None'}")
+            logger.debug("[PERSIST] Pool check: pool=%s", "available" if pool else "None")
 
             if not pool:
-                print("⚠️ [PERSIST] PostgreSQL pool not available for OS inventory persistence")
+                logger.warning("[PERSIST] PostgreSQL pool not available for OS inventory persistence")
                 return
 
             workspace_id = metadata.get("workspace_id", "default") if metadata else "default"
-            print(f"🔍 [PERSIST] workspace_id={workspace_id}")
+            logger.debug("[PERSIST] workspace_id=%s", workspace_id)
 
             persisted_count = 0
             skipped_count = 0
             skipped_details = []
 
-            print(f"🔍 [PERSIST] Acquiring connection from pool...")
+            logger.debug("[PERSIST] Acquiring connection from pool...")
             async with pool.acquire() as conn:
-                print(f"🔍 [PERSIST] Connection acquired, starting transaction")
+                logger.debug("[PERSIST] Connection acquired, starting transaction")
 
                 # Start transaction
                 async with conn.transaction():
                     for idx, item in enumerate(os_data):
                         resource_id = item.get("resource_id")
-                        print(f"🔍 [PERSIST] Processing item {idx+1}/{len(os_data)}: resource_id={resource_id}")
+                        logger.debug("[PERSIST] Processing item %d/%d: resource_id=%s", idx + 1, len(os_data), resource_id)
 
                         if not resource_id:
-                            print(f"⚠️ [PERSIST] Item {idx+1} has no resource_id, skipping")
+                            logger.debug("[PERSIST] Item %d has no resource_id, skipping", idx + 1)
                             skipped_count += 1
                             skipped_details.append(f"Item {idx+1}: no resource_id")
                             continue
 
                         # Check if VM exists in vms table first
-                        print(f"🔍 [PERSIST] Checking FK: SELECT 1 FROM vms WHERE resource_id={resource_id}")
+                        logger.debug("[PERSIST] Checking FK: SELECT 1 FROM vms WHERE resource_id=%s", resource_id)
                         vm_exists = await conn.fetchval(
                             "SELECT 1 FROM vms WHERE resource_id = $1 LIMIT 1",
                             resource_id
                         )
-                        print(f"🔍 [PERSIST] VM FK check result: vm_exists={vm_exists}")
+                        logger.debug("[PERSIST] VM FK check result: vm_exists=%s", vm_exists)
 
                         if not vm_exists:
                             # Skip if VM not in vms table (FK constraint would fail)
                             skipped_count += 1
                             skipped_details.append(f"{resource_id}: not in vms table")
-                            print(f"⚠️ [PERSIST] Skipping {resource_id}: VM not found in vms table")
+                            logger.debug("[PERSIST] Skipping %s: VM not found in vms table", resource_id)
                             continue
 
                         # Prepare values for upsert
@@ -222,11 +223,11 @@ class InventoryRawCache:
                                 try:
                                     last_heartbeat = datetime.fromisoformat(last_heartbeat_raw.replace('Z', '+00:00'))
                                 except Exception as e:
-                                    print(f"⚠️ [PERSIST] Failed to parse last_heartbeat '{last_heartbeat_raw}': {e}")
+                                    logger.warning("[PERSIST] Failed to parse last_heartbeat '%s': %s", last_heartbeat_raw, e)
                             else:
                                 last_heartbeat = last_heartbeat_raw
 
-                        print(f"🔍 [PERSIST] Upserting: computer={computer_name}, os={os_name}, version={os_version}, type={os_type}, heartbeat={last_heartbeat}")
+                        logger.debug("[PERSIST] Upserting: computer=%s, os=%s, version=%s, type=%s", computer_name, os_name, os_version, os_type)
 
                         # Upsert into os_inventory_snapshots
                         # Schema from migration 030: PK is (resource_id, snapshot_version, workspace_id)
@@ -260,16 +261,14 @@ class InventoryRawCache:
                             last_heartbeat
                         )
                         persisted_count += 1
-                        print(f"✅ [PERSIST] Successfully upserted item {idx+1}/{len(os_data)}")
+                        logger.debug("[PERSIST] Successfully upserted item %d/%d", idx + 1, len(os_data))
 
-            print(f"✅ [PERSIST] Transaction committed: {persisted_count} records persisted, {skipped_count} skipped")
+            logger.info("[PERSIST] Transaction committed: %d records persisted, %d skipped", persisted_count, skipped_count)
             if skipped_details:
-                print(f"🔍 [PERSIST] Skip details: {skipped_details}")
+                logger.debug("[PERSIST] Skip details: %s", skipped_details)
 
         except Exception as e:
-            print(f"❌ [PERSIST] Error persisting OS inventory to PostgreSQL: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("[PERSIST] Error persisting OS inventory to PostgreSQL: %s", e, exc_info=True)
 
     def clear_cache(self, cache_key: str, cache_type: str = "software") -> bool:
         """
