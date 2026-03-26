@@ -23,4 +23,16 @@ Common debug modes:
 - `pytest tests/ui -v --headed`
 - `pytest tests/ui -v --screenshot=only-on-failure`
 
+Marker examples:
+
+- `pytest tests/ui/pages/test_inventory_ai_v2.py -v -m remote`
+- `APP_BASE_URL=http://127.0.0.1:8000 pytest tests/ui/pages/test_inventory_ai_v2.py -v -m local`
+
+Inventory Assistant V2 remote examples:
+
+- Browser/page coverage with remote-safe mocked endpoint interception:
+	`APP_BASE_URL=https://your-remote-app pytest tests/ui/pages/test_inventory_ai_v2.py -v -m remote`
+- Real remote API integration checks for deterministic preview and blocked execute flows:
+	`APP_BASE_URL=https://your-remote-app pytest tests/ui/pages/test_inventory_ai_v2_remote.py -v -m remote`
+
 Many markdown result files in this folder are historical test reports/artifacts.
