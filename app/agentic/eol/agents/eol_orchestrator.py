@@ -277,8 +277,18 @@ class EOLOrchestratorAgent:
         search_include_internet=False,
         search_ignore_cache=False,
         search_agent_only=False,
+        fast_mode=True,
     ):
-        """Autonomous EOL data retrieval via tiered pipeline."""
+        """Autonomous EOL data retrieval via tiered pipeline.
+
+        Args:
+            fast_mode: When True (default), use early-terminating fetch()
+                that stops at the first tier returning a high-confidence result.
+                When False, use fetch_all() to run all tiers for cross-source
+                validation. The default is True because endoflife.date covers
+                487 products and Playwright fallback adds 12-15s latency for
+                products already covered by Tier 1.
+        """
         try:
             t0 = time.time()
             software_name = (software_name or "").strip()
@@ -315,7 +325,13 @@ class EOLOrchestratorAgent:
             elif search_agent_only:
                 pipeline = TieredFetchPipeline(create_default_registry({k: v for k, v in self.agents.items() if k != "playwright"}))
 
-            results = await pipeline.fetch_all(_nq)
+            if fast_mode:
+                # Early-terminating fetch: stops at first high-confidence tier
+                best_result = await pipeline.fetch(_nq)
+                results = [best_result] if best_result is not None else []
+            else:
+                # Full cross-source validation: runs all tiers
+                results = await pipeline.fetch_all(_nq)
             aggregated = self._aggregator.aggregate(results)
 
             if aggregated.primary is not None:

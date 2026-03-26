@@ -297,6 +297,8 @@ def _should_use_deterministic_renderer(execution_result: "ExecutionResult") -> b
         "law_get_os_summary",
         "azure_resource_get_os_summary",
         "inventory_cached_discovery",
+        "get_full_os_inventory",
+        "inventory.full_os_inventory",
     }
     cache_sources = {
         "resource_inventory_cache",
@@ -516,7 +518,7 @@ class ResponseComposer:
         )
 
         ok, content = await self._call_llm(
-            _COMPOSER_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=2000
+            _COMPOSER_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=4096
         )
         if ok and content.strip():
             logger.info("✍️ ResponseComposer: LLM produced HTML (%d chars)", len(content))
@@ -989,6 +991,7 @@ def _build_static_fallback(
     container_app_html = ""
     arc_os_html = ""
     azure_os_html = ""
+    full_os_inventory_html = ""
 
     def _extract_payload(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not isinstance(result, dict):
@@ -1152,6 +1155,50 @@ def _build_static_fallback(
                     "</table>"
                 )
 
+        if sr.success and sr.tool_name in ("get_full_os_inventory", "inventory.full_os_inventory"):
+            payload = _extract_payload(sr.result)
+            # Unwrap: payload -> data (list of records)
+            records = None
+            if isinstance(payload, dict):
+                records = payload.get("data") or payload.get("records") or payload.get("items")
+                if not isinstance(records, list):
+                    records = None
+            if not records and isinstance(payload, list):
+                records = payload
+
+            if isinstance(records, list) and records:
+                inv_rows: List[str] = []
+                for rec in records[:200]:  # cap at 200 rows for the table
+                    if not isinstance(rec, dict):
+                        continue
+                    name = _html.escape(str(rec.get("vm_name") or rec.get("name") or ""))
+                    os_name = _html.escape(str(rec.get("os_name") or rec.get("name") or ""))
+                    os_ver = _html.escape(str(rec.get("os_version") or rec.get("version") or ""))
+                    os_type = _html.escape(str(rec.get("os_type") or ""))
+                    rg = _html.escape(str(rec.get("resource_group") or ""))
+                    location = _html.escape(str(rec.get("location") or ""))
+                    source = _html.escape(str(rec.get("source") or ""))
+                    inv_rows.append(
+                        f"<tr><td>{name}</td><td>{os_name}</td><td>{os_ver}</td>"
+                        f"<td>{os_type}</td><td>{rg}</td><td>{location}</td><td>{source}</td></tr>"
+                    )
+
+                if inv_rows:
+                    total = payload.get("total") if isinstance(payload, dict) else len(records)
+                    note = f" (showing first 200)" if len(records) > 200 else ""
+                    from_cache = payload.get("from_cache") if isinstance(payload, dict) else False
+                    cache_note = " <em>(from cache)</em>" if from_cache else ""
+                    full_os_inventory_html = (
+                        "<h3>OS Inventory</h3>"
+                        f"<p>Total machines: <strong>{_html.escape(str(total))}</strong>{note}{cache_note}</p>"
+                        "<div style='overflow-x:auto'>"
+                        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%;font-size:13px'>"
+                        "<thead><tr><th>Machine</th><th>OS</th><th>Version</th>"
+                        "<th>Type</th><th>Resource Group</th><th>Location</th><th>Source</th></tr></thead>"
+                        f"<tbody>{''.join(inv_rows)}</tbody>"
+                        "</table></div>"
+                    )
+
     confirmation_html = ""
     blocked: List[str] = []
     if verification_result:
@@ -1188,6 +1235,7 @@ def _build_static_fallback(
     return (
         f"<h3>Query Results</h3>"
         f"<p><em>Query: {_html.escape(query)}</em></p>"
+        f"{full_os_inventory_html}"
         f"{arc_os_html}"
         f"{azure_os_html}"
         f"{container_app_html}"

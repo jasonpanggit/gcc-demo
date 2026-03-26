@@ -36,6 +36,16 @@ try:
 except ModuleNotFoundError:
     from utils.resource_inventory_client import get_resource_inventory_client  # type: ignore[import-not-found]
 
+try:
+    from app.agentic.eol.utils.os_inventory_merger import get_merged_os_inventory
+except ModuleNotFoundError:
+    from utils.os_inventory_merger import get_merged_os_inventory  # type: ignore[import-not-found]
+
+try:
+    from utils.pg_client import postgres_client
+except ModuleNotFoundError:
+    from app.agentic.eol.utils.pg_client import postgres_client  # type: ignore[import-not-found]
+
 logger = logging.getLogger(__name__)
 
 _server = FastMCP(name="law-inventory")
@@ -49,6 +59,16 @@ async def _ensure_agents() -> None:
     if _os_agent is not None and _software_agent is not None:
         return
     async with _agent_lock:
+        # Initialize PostgreSQL pool for this subprocess if not already done.
+        # The main app process initializes it via FastAPI lifespan, but the MCP
+        # server runs as a separate stdio subprocess and must initialize its own pool.
+        if not postgres_client.is_initialized:
+            try:
+                await postgres_client.initialize()
+                logger.info("PostgreSQL pool initialized for inventory MCP subprocess")
+            except Exception as exc:
+                logger.warning("PostgreSQL pool init failed -- OS persistence disabled: %s", exc)
+
         if _os_agent is None:
             logger.info("Starting OS inventory agent for MCP server")
             _os_agent = OSInventoryAgent()
@@ -112,9 +132,9 @@ def _normalise_tabular_result(
         "Get raw OS inventory records from Log Analytics for AZURE ARC-ENABLED SERVERS ONLY. "
         "Returns: computer name, OS name, OS version, environment, IP address, last seen date. "
         "⚠️ CRITICAL: This ONLY works with Azure Arc-enabled servers that send inventory to Log Analytics. "
-        "For Azure VMs without Arc, use Azure MCP 'compute' tools instead. "
+        "For a complete merged view (Heartbeat + Azure Resource Graph gap-fill), use get_full_os_inventory instead. "
         "For Container Apps, use 'azure_cli' with 'az containerapp'. "
-        "WORKFLOW: Use this to get the full machine-level list, then pass to os_eol_bulk_lookup for EOL checking."
+        "WORKFLOW: Use this to get the machine-level list, then pass to os_eol_bulk_lookup for EOL checking."
     ),
 )
 async def law_get_os_inventory(
@@ -166,6 +186,54 @@ async def law_get_os_summary(
         "success": True,
         "requested": {"days": days},
         "data": summary,
+    }
+    return _text_payload(payload)
+
+
+@_server.tool(
+    name="get_full_os_inventory",
+    description=(
+        "Get a COMPLETE OS inventory for all machines -- Azure VMs AND Arc-connected servers -- by merging two sources. "
+        "Source 1: Log Analytics Heartbeat (all machines with a Log Analytics/Azure Monitor agent). "
+        "Source 2: Azure Resource Graph gap-fill (adds Azure VMs that have no Log Analytics agent). "
+        "Returns per-machine records: computer name, OS name, OS version, machine type (Azure VM or Arc-enabled Server), resource group. "
+        "Use this tool for any query asking about OS inventory, operating systems across the environment, or 'show my OS'. "
+        "This is the PREFERRED tool over law_get_os_inventory when you need complete coverage of ALL machines. "
+        "For Container Apps, use 'azure_cli' with 'az containerapp'. "
+        "WORKFLOW: Use this to get the full merged machine list, then pass to os_eol_bulk_lookup for EOL checking."
+    ),
+)
+async def get_full_os_inventory(
+    context: Context,  # noqa: ARG001 - unused
+    days: Annotated[int, "Heartbeat lookback window in days."] = 90,
+    limit: Annotated[Optional[int], "Maximum number of Heartbeat records to fetch (default: no limit)."] = None,
+    use_cache: Annotated[bool, "Use cached Heartbeat data when available (default true)."] = True,
+    subscription_id: Annotated[
+        Optional[str],
+        "Azure subscription ID for Resource Graph gap-fill query. Defaults to SUBSCRIPTION_ID/AZURE_SUBSCRIPTION_ID.",
+    ] = None,
+) -> List[TextContent]:
+    await _ensure_agents()
+    assert _os_agent is not None  # Satisfy type checkers
+
+    try:
+        records, from_cache = await get_merged_os_inventory(
+            _os_agent,
+            days=days,
+            limit=limit,
+            use_cache=use_cache,
+            subscription_id=subscription_id,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("Merged OS inventory retrieval failed")
+        return _text_payload({"success": False, "error": str(exc), "requested": {"days": days, "limit": limit}})
+
+    payload = {
+        "success": True,
+        "requested": {"days": days, "limit": limit, "use_cache": use_cache},
+        "from_cache": from_cache,
+        "total": len(records),
+        "data": records,
     }
     return _text_payload(payload)
 
