@@ -1171,7 +1171,7 @@ def _build_static_fallback(
                 for rec in records[:200]:  # cap at 200 rows for the table
                     if not isinstance(rec, dict):
                         continue
-                    name = _html.escape(str(rec.get("vm_name") or rec.get("name") or ""))
+                    name = _html.escape(str(rec.get("vm_name") or rec.get("computer_name") or rec.get("computer") or rec.get("name") or ""))
                     os_name = _html.escape(str(rec.get("os_name") or rec.get("name") or ""))
                     os_ver = _html.escape(str(rec.get("os_version") or rec.get("version") or ""))
                     os_type = _html.escape(str(rec.get("os_type") or ""))

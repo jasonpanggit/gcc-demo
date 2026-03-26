@@ -1349,10 +1349,8 @@ async def update_eol_inventory_record(
             status=record_data.get("status"),
             risk_level=record_data.get("risk_level"),
             eol_date=record_data.get("eol_date"),
-            extended_end_date=record_data.get("support_end_date"),
             is_eol=record_data.get("status") in ("expired", "eol") if record_data.get("status") else False,
             item_type=None,
-            lifecycle_url=record_data.get("source_url"),
         )
         return StandardResponse(success=True, data=record_data, message="EOL record saved")
     except Exception as e:

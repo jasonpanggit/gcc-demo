@@ -123,20 +123,17 @@ ORDER BY priority ASC, rule_type ASC;
 
 QUERY_UPSERT_EOL_RECORD = """
 INSERT INTO eol_records (software_key, software_name, version_key, status, risk_level,
-                         eol_date, extended_end_date, is_eol, last_verified,
-                         item_type, lifecycle_url, normalized_software_name, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, LOWER($2), NOW())
-ON CONFLICT (software_key) DO UPDATE SET
+                         eol_date, is_eol,
+                         item_type, normalized_software_name, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
+        $8, LOWER($2), NOW())
+ON CONFLICT (software_key, version_key) DO UPDATE SET
     software_name = EXCLUDED.software_name,
-    version_key = EXCLUDED.version_key,
     status = EXCLUDED.status,
     risk_level = EXCLUDED.risk_level,
     eol_date = EXCLUDED.eol_date,
-    extended_end_date = EXCLUDED.extended_end_date,
     is_eol = EXCLUDED.is_eol,
-    last_verified = NOW(),
     item_type = EXCLUDED.item_type,
-    lifecycle_url = EXCLUDED.lifecycle_url,
     normalized_software_name = LOWER(EXCLUDED.software_name),
     updated_at = NOW();
 """
@@ -301,10 +298,8 @@ class EOLRepository:
         status: Optional[str] = None,
         risk_level: Optional[str] = None,
         eol_date: Any = None,
-        extended_end_date: Any = None,
         is_eol: bool = False,
         item_type: Optional[str] = None,
-        lifecycle_url: Optional[str] = None,
     ) -> None:
         """Insert or update an EOL record.  Re-raises on error."""
         async with self._pool.acquire() as conn:
@@ -316,10 +311,8 @@ class EOLRepository:
                 status,
                 risk_level,
                 eol_date,
-                extended_end_date,
                 is_eol,
                 item_type,
-                lifecycle_url,
             )
 
     # -- INSERT agent response -------------------------------------------------
