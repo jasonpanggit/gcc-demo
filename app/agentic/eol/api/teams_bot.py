@@ -6,10 +6,13 @@ import hashlib
 import hmac
 import json
 import os
-from typing import Dict, Any, Optional, List
+import re
+from html import unescape
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 
 import aiohttp
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, Request, HTTPException, Header
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -30,6 +33,339 @@ router = APIRouter()
 _conversation_states: Dict[str, Dict[str, Any]] = {}
 _MAX_CONVERSATION_HISTORY = 20  # Keep last 20 messages per conversation
 _CONVERSATION_TTL_HOURS = 24  # Expire conversations after 24 hours
+_SIGNIFICANT_HTML_PATTERN = re.compile(
+    r"<!DOCTYPE\s+html|<(?:html|head|body|table|thead|tbody|tr|td|th|style|script|meta|link)\b",
+    re.IGNORECASE,
+)
+_GENERIC_HTML_TAG_PATTERN = re.compile(r"</?[a-zA-Z][\w:-]*\b[^>]*>", re.IGNORECASE)
+_FALLBACK_HTML_TAG_STRIP_PATTERN = re.compile(r"<[^>]+>")
+_WHITESPACE_PATTERN = re.compile(r"[ \t]+")
+_MULTI_NEWLINE_PATTERN = re.compile(r"\n{3,}")
+_RESPONSIVE_TABLE_COLUMN_THRESHOLD = 5
+_NARROW_TABLE_VALUE_LIMIT = 48
+_MAX_HTML_RESPONSE_SIZE = 256 * 1024
+
+
+def _looks_like_rendered_html(text: str) -> bool:
+    """Heuristically distinguish rendered HTML from inline code examples."""
+    if not text or "<" not in text or ">" not in text:
+        return False
+
+    if _SIGNIFICANT_HTML_PATTERN.search(text):
+        return True
+
+    tag_count = len(_GENERIC_HTML_TAG_PATTERN.findall(text))
+    return tag_count >= 4 or ("\n" in text and tag_count >= 3)
+
+
+def _strip_html_with_fallback_parser(text: str) -> str:
+    """Strip markup without HTML parsing when content is too large or parsing fails."""
+    fallback_text = unescape(_FALLBACK_HTML_TAG_STRIP_PATTERN.sub("\n", text))
+    compact_text = _compact_text_lines(fallback_text)
+    return compact_text or "Response contained formatted content with no text equivalent."
+
+
+def _compact_text_lines(text: str) -> str:
+    """Normalize whitespace while preserving readable line breaks."""
+    normalized_lines = [
+        _WHITESPACE_PATTERN.sub(" ", line).strip()
+        for line in text.splitlines()
+    ]
+    compact_text = "\n".join(line for line in normalized_lines if line)
+    return _MULTI_NEWLINE_PATTERN.sub("\n\n", compact_text)
+
+
+def _normalize_assistant_text(text: str) -> str:
+    """Convert rendered HTML responses into plain chat text for Teams."""
+    if not _looks_like_rendered_html(text):
+        return text
+
+    if len(text) > _MAX_HTML_RESPONSE_SIZE:
+        logger.warning(
+            "HTML response too large for BeautifulSoup normalization (%d bytes)",
+            len(text),
+        )
+        return _strip_html_with_fallback_parser(text)
+
+    try:
+        soup = BeautifulSoup(text, "html.parser")
+
+        for node in soup.find_all(["style", "script", "head", "title", "meta", "link"]):
+            node.decompose()
+
+        for line_break in soup.find_all("br"):
+            line_break.replace_with("\n")
+
+        for table in soup.find_all("table"):
+            table_lines: List[str] = []
+            for row in table.find_all("tr"):
+                cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+                if cells:
+                    table_lines.append(" | ".join(cells))
+            replacement_text = "\n".join(table_lines)
+            table.replace_with(soup.new_string(f"\n{replacement_text}\n" if replacement_text else "\n"))
+
+        for list_item in soup.find_all("li"):
+            item_text = list_item.get_text(" ", strip=True)
+            list_item.replace_with(soup.new_string(f"- {item_text}\n" if item_text else ""))
+
+        raw_text = unescape(soup.get_text("\n", strip=True))
+        compact_text = _compact_text_lines(raw_text)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning("Failed to normalize HTML response for Teams: %s", exc)
+        compact_text = _strip_html_with_fallback_parser(text)
+
+    return compact_text or "Response contained formatted content with no text equivalent."
+
+
+def _build_adaptive_card_text_block(
+    text: str,
+    *,
+    weight: Optional[str] = None,
+    size: Optional[str] = None,
+    subtle: bool = False,
+) -> Dict[str, Any]:
+    block: Dict[str, Any] = {
+        "type": "TextBlock",
+        "text": text,
+        "wrap": True,
+    }
+    if weight:
+        block["weight"] = weight
+    if size:
+        block["size"] = size
+    if subtle:
+        block["isSubtle"] = True
+    return block
+
+
+def _extract_adaptive_card_table_rows(table_tag: Any) -> Optional[Tuple[List[Tuple[bool, List[str]]], int]]:
+    rows = []
+    max_columns = 0
+
+    for row in table_tag.find_all("tr"):
+        cell_tags = row.find_all(["th", "td"])
+        if not cell_tags:
+            continue
+
+        cell_text = [cell.get_text(" ", strip=True) or "-" for cell in cell_tags]
+        max_columns = max(max_columns, len(cell_text))
+        is_header = bool(row.find_parent("thead")) or any(cell.name == "th" for cell in cell_tags)
+        rows.append((is_header, cell_text))
+
+    if not rows or max_columns == 0:
+        return None
+
+    return rows, max_columns
+
+
+def _calculate_adaptive_card_column_widths(
+    rows: List[Tuple[bool, List[str]]],
+    max_columns: int,
+) -> List[int]:
+    column_lengths = [0] * max_columns
+    for _is_header, cell_text in rows:
+        padded_cells = cell_text + ["-"] * (max_columns - len(cell_text))
+        for index, value in enumerate(padded_cells):
+            column_lengths[index] = max(column_lengths[index], len(value.strip()))
+
+    column_widths = []
+    for length in column_lengths:
+        if length <= 10:
+            width = 1
+        elif length <= 18:
+            width = 2
+        elif length <= 28:
+            width = 3
+        elif length <= 40:
+            width = 4
+        else:
+            width = 5
+        column_widths.append(width)
+
+    return column_widths
+
+
+def _build_adaptive_card_table(
+    rows: List[Tuple[bool, List[str]]],
+    max_columns: int,
+) -> Dict[str, Any]:
+    first_row_is_header = rows[0][0]
+    column_widths = _calculate_adaptive_card_column_widths(rows, max_columns)
+
+    adaptive_rows: List[Dict[str, Any]] = []
+    for is_header, cell_text in rows:
+        padded_cells = cell_text + ["-"] * (max_columns - len(cell_text))
+        adaptive_rows.append(
+            {
+                "type": "TableRow",
+                "cells": [
+                    {
+                        "type": "TableCell",
+                        "items": [
+                            _build_adaptive_card_text_block(
+                                value,
+                                weight="Bolder" if is_header else None,
+                            )
+                        ],
+                    }
+                    for value in padded_cells
+                ],
+            }
+        )
+
+    table = {
+        "type": "Table",
+        "firstRowAsHeader": first_row_is_header,
+        "showGridLines": True,
+        "horizontalCellContentAlignment": "Left",
+        "columns": [{"width": width} for width in column_widths],
+        "rows": adaptive_rows,
+    }
+
+    if max_columns >= _RESPONSIVE_TABLE_COLUMN_THRESHOLD:
+        table["targetWidth"] = "atLeast:wide"
+
+    return table
+
+
+def _truncate_narrow_table_value(value: str) -> str:
+    stripped_value = value.strip() or "-"
+    if len(stripped_value) <= _NARROW_TABLE_VALUE_LIMIT:
+        return stripped_value
+
+    return f"{stripped_value[:_NARROW_TABLE_VALUE_LIMIT - 3].rstrip()}..."
+
+
+def _build_compact_adaptive_card_table(
+    rows: List[Tuple[bool, List[str]]],
+    max_columns: int,
+) -> Optional[Dict[str, Any]]:
+    if max_columns < _RESPONSIVE_TABLE_COLUMN_THRESHOLD:
+        return None
+
+    first_row_is_header = rows[0][0]
+    header_values = rows[0][1] if first_row_is_header else [f"Column {index + 1}" for index in range(max_columns)]
+    padded_headers = header_values + [f"Column {index + 1}" for index in range(len(header_values), max_columns)]
+    data_rows = rows[1:] if first_row_is_header else rows
+
+    items: List[Dict[str, Any]] = []
+    for row_index, (_is_header, cell_text) in enumerate(data_rows):
+        padded_cells = cell_text + ["-"] * (max_columns - len(cell_text))
+        primary_value = _truncate_narrow_table_value(padded_cells[0])
+        facts = [
+            {
+                "title": padded_headers[index],
+                "value": _truncate_narrow_table_value(value),
+            }
+            for index, value in enumerate(padded_cells[1:], start=1)
+        ]
+
+        record_items: List[Dict[str, Any]] = [
+            _build_adaptive_card_text_block(primary_value, weight="Bolder")
+        ]
+        if facts:
+            record_items.append({"type": "FactSet", "facts": facts})
+
+        items.append(
+            {
+                "type": "Container",
+                "separator": row_index > 0,
+                "spacing": "Medium",
+                "items": record_items,
+            }
+        )
+
+    if not items:
+        return None
+
+    return {
+        "type": "Container",
+        "targetWidth": "atMost:standard",
+        "items": items,
+    }
+
+
+def create_html_adaptive_card_response(html_text: str) -> Optional[Dict[str, Any]]:
+    """Convert assistant HTML into a Teams Adaptive Card when structured tables are present."""
+    if not _looks_like_rendered_html(html_text):
+        return None
+
+    if len(html_text) > _MAX_HTML_RESPONSE_SIZE:
+        logger.warning(
+            "HTML response too large for Adaptive Card conversion (%d bytes)",
+            len(html_text),
+        )
+        return None
+
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+
+        for node in soup.find_all(["style", "script", "head", "meta", "link"]):
+            node.decompose()
+
+        title_tag = soup.find(["h1", "h2", "h3"]) or soup.find("title")
+        title = title_tag.get_text(" ", strip=True) if title_tag else "Azure MCP Orchestrator Bot"
+
+        body: List[Dict[str, Any]] = [
+            _build_adaptive_card_text_block(title, size="Large", weight="Bolder")
+        ]
+
+        paragraph_texts: List[str] = []
+        for element in soup.find_all(["p", "li"]):
+            text = element.get_text(" ", strip=True)
+            if text:
+                paragraph_texts.append(text)
+            if len(paragraph_texts) >= 4:
+                break
+
+        if not paragraph_texts:
+            fallback_lines = [
+                line.strip()
+                for line in _normalize_assistant_text(html_text).splitlines()
+                if line.strip()
+            ]
+            paragraph_texts = fallback_lines[:3]
+
+        for paragraph in paragraph_texts:
+            body.append(_build_adaptive_card_text_block(paragraph))
+
+        added_table = False
+        for table_tag in soup.find_all("table")[:3]:
+            parsed_table = _extract_adaptive_card_table_rows(table_tag)
+            if not parsed_table:
+                continue
+
+            rows, max_columns = parsed_table
+            body.append(_build_adaptive_card_table(rows, max_columns))
+
+            compact_table = _build_compact_adaptive_card_table(rows, max_columns)
+            if compact_table:
+                body.append(compact_table)
+
+            added_table = True
+
+        if not added_table:
+            return None
+
+        return {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.5",
+                        "msteams": {"width": "Full"},
+                        "body": body,
+                    },
+                }
+            ],
+        }
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning("Failed to build Adaptive Card response for Teams: %s", exc)
+        return None
 
 
 def _get_conversation_history(conversation_id: str) -> List[Dict[str, str]]:
@@ -83,7 +419,7 @@ def _update_conversation_history(
 
     # Append new messages
     history.append({"role": "user", "text": user_message})
-    history.append({"role": "assistant", "text": assistant_response})
+    history.append({"role": "assistant", "text": _normalize_assistant_text(assistant_response)})
 
     # Trim to max history length (keep most recent messages)
     if len(history) > _MAX_CONVERSATION_HISTORY:
@@ -121,6 +457,7 @@ def _format_conversation_context(history: List[Dict[str, str]]) -> str:
         if role == "user":
             context_parts.append(f"User: {text}")
         elif role == "assistant":
+            text = _normalize_assistant_text(text)
             context_parts.append(f"Assistant: {text}")
 
     return "\n".join(context_parts)
@@ -233,9 +570,10 @@ async def send_teams_response(
     service_url: str,
     conversation_id: str,
     activity_id: str,
-    response_text: str,
+    response_text: Optional[str],
     bot_id: str,
-    bot_password: str
+    bot_password: str,
+    response_payload: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
     Send a response back to Teams via Bot Framework API.
@@ -293,12 +631,22 @@ async def send_teams_response(
                 "Content-Type": "application/json"
             }
 
-            reply_body = {
-                "type": "message",
-                "from": {"id": bot_id},
-                "text": response_text,
-                "replyToId": activity_id
-            }
+            if response_payload is not None:
+                reply_body = dict(response_payload)
+                reply_body.setdefault("type", "message")
+                if reply_body.get("attachments"):
+                    reply_body.pop("text", None)
+                else:
+                    reply_body.setdefault("text", response_text or "")
+                reply_body["from"] = {"id": bot_id}
+                reply_body["replyToId"] = activity_id
+            else:
+                reply_body = {
+                    "type": "message",
+                    "from": {"id": bot_id},
+                    "text": response_text or "",
+                    "replyToId": activity_id
+                }
 
             async with session.post(reply_url, json=reply_body, headers=headers) as reply_response:
                 if reply_response.status not in (200, 201):
@@ -545,7 +893,9 @@ async def handle_teams_bot_message(
                 result = await orchestrator.process_message(enhanced_message)
 
                 if result.get("success"):
-                    response_text = result.get("response", "No response generated")
+                    raw_response_text = result.get("response", "No response generated")
+                    response_text = _normalize_assistant_text(raw_response_text)
+                    response_payload = create_html_adaptive_card_response(raw_response_text)
 
                     # Update conversation history with this exchange
                     if conversation_id:
@@ -563,7 +913,8 @@ async def handle_teams_bot_message(
                             activity_id=activity.id,
                             response_text=response_text,
                             bot_id=bot_app_id,
-                            bot_password=bot_app_password
+                            bot_password=bot_app_password,
+                            response_payload=response_payload,
                         )
 
                         if success:
@@ -578,6 +929,14 @@ async def handle_teams_bot_message(
                 else:
                     error_msg = result.get("error", "Unknown error occurred")
                     logger.error(f"MCP orchestrator error: {error_msg}")
+                    error_response_text = f"❌ Error: {error_msg}"
+
+                    if conversation_id:
+                        _update_conversation_history(
+                            conversation_id=conversation_id,
+                            user_message=activity.text,
+                            assistant_response=error_response_text,
+                        )
 
                     # Send error message to Teams
                     if activity.serviceUrl and conversation_id and activity.id:
@@ -585,7 +944,7 @@ async def handle_teams_bot_message(
                             service_url=activity.serviceUrl,
                             conversation_id=conversation_id,
                             activity_id=activity.id,
-                            response_text=f"❌ Error: {error_msg}",
+                            response_text=error_response_text,
                             bot_id=bot_app_id,
                             bot_password=bot_app_password
                         )
@@ -594,6 +953,14 @@ async def handle_teams_bot_message(
 
             except Exception as mcp_error:
                 logger.error(f"Error processing message with MCP orchestrator: {mcp_error}", exc_info=True)
+                error_response_text = "❌ Sorry, I encountered an error processing your request."
+
+                if conversation_id and activity.text:
+                    _update_conversation_history(
+                        conversation_id=conversation_id,
+                        user_message=activity.text,
+                        assistant_response=error_response_text,
+                    )
 
                 # Send error message to Teams
                 if activity.serviceUrl and conversation_id and activity.id:
@@ -601,7 +968,7 @@ async def handle_teams_bot_message(
                         service_url=activity.serviceUrl,
                         conversation_id=conversation_id,
                         activity_id=activity.id,
-                        response_text="❌ Sorry, I encountered an error processing your request.",
+                        response_text=error_response_text,
                         bot_id=bot_app_id,
                         bot_password=bot_app_password
                     )
