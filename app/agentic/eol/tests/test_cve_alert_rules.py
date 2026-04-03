@@ -8,8 +8,13 @@ import pytest
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+import pytest_asyncio
 
+from api.cve_alerts import router as cve_alerts_router
 from models.cve_alert_models import CVEAlertRule, CVEAlertItem, CVEDelta
+import utils.cve_alert_rule_manager as cve_alert_rule_manager_module
 from utils.cve_alert_rule_manager import CVEAlertRuleManager, get_cve_alert_rule_manager
 
 
@@ -30,10 +35,52 @@ def sample_rule_data() -> Dict[str, Any]:
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def rule_manager():
     """Get alert rule manager instance"""
-    return get_cve_alert_rule_manager()
+    manager = CVEAlertRuleManager()
+    cve_alert_rule_manager_module._alert_rule_manager = manager
+    yield manager
+    manager._store.clear()
+    cve_alert_rule_manager_module._alert_rule_manager = None
+
+
+class FakeAlertRepo:
+    def __init__(self):
+        self.rules = {}
+
+    async def list_rules(self, enabled_only=False):
+        rules = list(self.rules.values())
+        if enabled_only:
+            rules = [rule for rule in rules if rule.get("enabled")]
+        return rules
+
+    async def create_rule(self, rule_data):
+        self.rules[rule_data["id"]] = dict(rule_data)
+        return self.rules[rule_data["id"]]
+
+    async def get_rule(self, rule_id):
+        return self.rules.get(rule_id)
+
+    async def update_rule(self, rule_data):
+        self.rules[rule_data["id"]] = dict(rule_data)
+        return self.rules[rule_data["id"]]
+
+    async def delete_rule(self, rule_id):
+        return self.rules.pop(rule_id, None) is not None
+
+
+@pytest_asyncio.fixture
+async def cve_alert_api_client(monkeypatch):
+    app = FastAPI()
+    app.include_router(cve_alerts_router, prefix="/api/cve")
+    app.state.alert_repo = FakeAlertRepo()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as ac:
+        yield ac
 
 
 # ============================================================================
@@ -206,7 +253,7 @@ def test_rule_validation_cvss_bounds():
 # ============================================================================
 
 @pytest.mark.asyncio
-async def test_api_create_rule(client):
+async def test_api_create_rule(cve_alert_api_client):
     """Test POST /api/cve/alerts"""
     rule_data = {
         "name": "API Test Rule",
@@ -216,93 +263,88 @@ async def test_api_create_rule(client):
         "email_recipients": ["test@example.com"]
     }
 
-    response = await client.post("/api/cve/alerts", json=rule_data)
+    response = await cve_alert_api_client.post("/api/cve/alerts", json=rule_data)
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
+    assert result["success"] is True
     assert "rule" in result["data"]
     assert result["data"]["rule"]["name"] == "API Test Rule"
 
 
 @pytest.mark.asyncio
-async def test_api_list_rules(client):
+async def test_api_list_rules(cve_alert_api_client):
     """Test GET /api/cve/alerts"""
-    response = await client.get("/api/cve/alerts")
+    response = await cve_alert_api_client.get("/api/cve/alerts")
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
+    assert result["success"] is True
     assert "rules" in result["data"]
     assert isinstance(result["data"]["rules"], list)
 
 
 @pytest.mark.asyncio
-async def test_api_get_rule(client, sample_rule_data):
+async def test_api_get_rule(cve_alert_api_client, sample_rule_data):
     """Test GET /api/cve/alerts/{id}"""
-    # Create rule first
-    rule = CVEAlertRule(**sample_rule_data)
-    rule_manager = get_cve_alert_rule_manager()
-    created_rule = await rule_manager.create_rule(rule)
+    create_response = await cve_alert_api_client.post("/api/cve/alerts", json=sample_rule_data)
+    created_rule = create_response.json()["data"]["rule"]
 
     # Fetch via API
-    response = await client.get(f"/api/cve/alerts/{created_rule.id}")
+    response = await cve_alert_api_client.get(f"/api/cve/alerts/{created_rule['id']}")
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
-    assert result["data"]["rule"]["id"] == created_rule.id
+    assert result["success"] is True
+    assert result["data"]["rule"]["id"] == created_rule["id"]
 
 
 @pytest.mark.asyncio
-async def test_api_update_rule(client, sample_rule_data):
+async def test_api_update_rule(cve_alert_api_client, sample_rule_data):
     """Test PUT /api/cve/alerts/{id}"""
-    # Create rule first
-    rule = CVEAlertRule(**sample_rule_data)
-    rule_manager = get_cve_alert_rule_manager()
-    created_rule = await rule_manager.create_rule(rule)
+    create_response = await cve_alert_api_client.post("/api/cve/alerts", json=sample_rule_data)
+    created_rule = create_response.json()["data"]["rule"]
 
     # Update via API
     update_data = {"name": "Updated via API"}
-    response = await client.put(f"/api/cve/alerts/{created_rule.id}", json=update_data)
+    response = await cve_alert_api_client.put(f"/api/cve/alerts/{created_rule['id']}", json=update_data)
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
+    assert result["success"] is True
     assert result["data"]["rule"]["name"] == "Updated via API"
 
 
 @pytest.mark.asyncio
-async def test_api_delete_rule(client, sample_rule_data):
+async def test_api_delete_rule(cve_alert_api_client, sample_rule_data):
     """Test DELETE /api/cve/alerts/{id}"""
-    # Create rule first
-    rule = CVEAlertRule(**sample_rule_data)
-    rule_manager = get_cve_alert_rule_manager()
-    created_rule = await rule_manager.create_rule(rule)
+    create_response = await cve_alert_api_client.post("/api/cve/alerts", json=sample_rule_data)
+    created_rule = create_response.json()["data"]["rule"]
 
     # Delete via API
-    response = await client.delete(f"/api/cve/alerts/{created_rule.id}")
+    response = await cve_alert_api_client.delete(f"/api/cve/alerts/{created_rule['id']}")
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
+    assert result["success"] is True
 
 
 @pytest.mark.asyncio
-async def test_api_test_alert(client, sample_rule_data, mocker):
+async def test_api_test_alert(cve_alert_api_client, sample_rule_data, monkeypatch):
     """Test POST /api/cve/alerts/{id}/test"""
-    # Create rule first
-    rule = CVEAlertRule(**sample_rule_data)
-    rule_manager = get_cve_alert_rule_manager()
-    created_rule = await rule_manager.create_rule(rule)
+    create_response = await cve_alert_api_client.post("/api/cve/alerts", json=sample_rule_data)
+    created_rule = create_response.json()["data"]["rule"]
 
     # Mock alert dispatcher
-    mock_dispatcher = mocker.patch("api.cve_alerts.get_cve_alert_dispatcher")
-    mock_dispatcher.return_value.send_cve_alerts = mocker.AsyncMock(return_value={"sent": True})
+    class FakeDispatcher:
+        async def send_cve_alerts(self, **_kwargs):
+            return {"sent": True}
+
+    monkeypatch.setattr("api.cve_alerts.get_cve_alert_dispatcher", lambda: FakeDispatcher())
 
     # Send test alert
-    response = await client.post(f"/api/cve/alerts/{created_rule.id}/test")
+    response = await cve_alert_api_client.post(f"/api/cve/alerts/{created_rule['id']}/test")
     assert response.status_code == 200
 
     result = response.json()
-    assert result["status"] == "success"
+    assert result["success"] is True

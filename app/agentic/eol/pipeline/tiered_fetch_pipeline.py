@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import List, Optional
 
@@ -61,9 +62,11 @@ class TieredFetchPipeline:
         1. Iterate tiers in ascending order (1, 2, 3, 4).
         2. For each tier, run all adapters concurrently with per-adapter timeouts.
         3. Score each successful result via ConfidenceScorer.
-        4. If the best result's confidence >= threshold, return it (early termination).
-        5. Otherwise, continue to the next tier.
-        6. If all tiers exhausted, return the best result seen (or None).
+          4. If a Tier 1 or Tier 2 structured source returns a usable result,
+              return it before invoking legacy vendor scrapers.
+          5. Otherwise, if the best result's confidence >= threshold, return it.
+          6. Otherwise, continue to the next tier.
+          7. If all tiers exhausted, return the best result seen (or None).
 
         Args:
             query: Normalized software/OS query.
@@ -100,6 +103,17 @@ class TieredFetchPipeline:
             if tier_best is not None:
                 if best_overall is None or tier_best.confidence > best_overall.confidence:
                     best_overall = tier_best
+
+            # Structured sources are authoritative enough to avoid legacy
+            # vendor scrapers when they already returned a version-aligned EOL.
+            if tier_best is not None and self._should_short_circuit_structured_result(
+                query, tier_best
+            ):
+                early_terminated = True
+                self._log_result(
+                    query, tiers_tried, tiers, best_overall, early_terminated, pipeline_start
+                )
+                return best_overall
 
             # Early termination check
             if tier_best is not None and tier_best.confidence >= self._confidence_threshold:
@@ -196,6 +210,57 @@ class TieredFetchPipeline:
             return (r.confidence, 1 if r.eol_date else 0)
 
         return max(results, key=_sort_key)
+
+    @staticmethod
+    def _normalize_version_token(value: Optional[str]) -> str:
+        if not value:
+            return ""
+        return re.sub(r"[^a-z0-9.]+", " ", str(value).lower()).strip()
+
+    def _structured_result_version_aligned(
+        self,
+        query: NormalizedQuery,
+        result: SourceResult,
+    ) -> bool:
+        """Return True when a structured result plausibly matches the query version."""
+        if not query.raw_version:
+            return False
+
+        query_version = self._normalize_version_token(query.raw_version)
+        if not query_version:
+            return False
+
+        raw_data = result.raw_data.get("data", {}) if result.raw_data else {}
+        candidates = [
+            result.version,
+            raw_data.get("version") if isinstance(raw_data, dict) else None,
+            raw_data.get("cycle") if isinstance(raw_data, dict) else None,
+        ]
+
+        normalized_candidates = [
+            self._normalize_version_token(candidate) for candidate in candidates if candidate
+        ]
+        if not normalized_candidates:
+            return False
+
+        return any(
+            candidate == query_version
+            or candidate.startswith(f"{query_version}.")
+            or candidate.startswith(f"{query_version} ")
+            for candidate in normalized_candidates
+        )
+
+    def _should_short_circuit_structured_result(
+        self,
+        query: NormalizedQuery,
+        result: SourceResult,
+    ) -> bool:
+        """Return True when Tier 1/2 data is good enough to skip vendor scrapers."""
+        if result.tier not in (1, 2):
+            return False
+        if not result.eol_date:
+            return False
+        return self._structured_result_version_aligned(query, result)
 
     async def fetch_all(self, query: NormalizedQuery) -> List[SourceResult]:
         """Run ALL tiers and return ALL successful results (scored).

@@ -912,6 +912,13 @@ Legacy format handling has been removed as all agents now use the standardized f
             return null;
         }
 
+        function unwrapCommunicationsPayload(payload) {
+            if (payload && payload.success === true && payload.data && typeof payload.data === 'object') {
+                return { success: true, ...payload.data };
+            }
+            return payload;
+        }
+
         function startCommunicationPolling() {
             // Clear any existing polling
             if (communicationPollingInterval) {
@@ -925,7 +932,7 @@ Legacy format handling has been removed as all agents now use the standardized f
             communicationPollingInterval = setInterval(async () => {
                 try {
                     const response = await fetch('/api/communications/eol');
-                    const data = await response.json();
+                    const data = unwrapCommunicationsPayload(await response.json());
 
                     if (data.success && data.communications && data.communications.length > lastCommunicationCount) {
                         // New communications available
@@ -1598,6 +1605,13 @@ Legacy format handling has been removed as all agents now use the standardized f
         }
 
         // Perform a single search stage
+        function unwrapSearchEnvelope(payload) {
+            if (payload && payload.success === true && payload.count !== undefined && payload.data !== undefined) {
+                return payload.data;
+            }
+            return payload;
+        }
+
         async function performSingleSearch(softwareName, softwareVersion, baseSearchData, searchStage) {
             const { type, hasVersion, stage } = searchStage;
 
@@ -1621,13 +1635,14 @@ Legacy format handling has been removed as all agents now use the standardized f
                     throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
                 }
 
-                const data = await response.json();
+                const rawPayload = await response.json();
+                const data = unwrapSearchEnvelope(rawPayload);
 
                 // Validate and process the response
                 // const processedResult = processSearchResponse(data, stage, searchData);
 
                 // Check if we have valid EOL data
-                // API returns: {result: {success: true, data: {...}}, session_id, communications, ...}
+                // Normalized payload: {result: {success: true, data: {...}}, session_id, communications, ...}
                 // We need to check data.result.data for the actual EOL information
                 const orchestratorResult = data.result || {};
                 const actualEOLData = orchestratorResult.data || orchestratorResult;

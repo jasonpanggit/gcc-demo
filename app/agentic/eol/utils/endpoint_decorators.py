@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from utils import get_logger
 from utils.cache_stats_manager import cache_stats_manager
-from utils.response_models import StandardResponse
+from utils.response_models import StandardResponse, ensure_standard_format
 
 logger = get_logger(__name__)
 
@@ -80,17 +80,14 @@ def with_timeout_and_stats(
                 # Wrap in StandardResponse if requested and not already wrapped
                 if auto_wrap_response:
                     if isinstance(result, StandardResponse):
-                        return result
-                    elif isinstance(result, dict) and "success" in result:
-                        # Already has success field, keep as-is
-                        return result
-                    else:
-                        # Wrap in standard format
-                        data = result if isinstance(result, list) else [result] if result is not None else []
-                        return StandardResponse.success_response(
-                            data=data,
-                            metadata={"agent": agent_name}
-                        )
+                        return result.to_dict()
+
+                    normalized = ensure_standard_format(result)
+                    metadata = normalized.get("metadata") or {}
+                    if "agent" not in metadata:
+                        metadata = {**metadata, "agent": agent_name}
+                    normalized["metadata"] = metadata
+                    return normalized
                 else:
                     return result
                     
@@ -131,7 +128,7 @@ def with_timeout_and_stats(
                     return StandardResponse.error_response(
                         error=f"{agent_name}: {str(e)}",
                         metadata={"error_type": type(e).__name__}
-                    )
+                    ).to_dict()
                 else:
                     raise HTTPException(
                         status_code=500,

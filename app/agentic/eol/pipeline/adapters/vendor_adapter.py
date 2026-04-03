@@ -1,7 +1,9 @@
-"""Tier 3 composite adapter wrapping all vendor HTML scraper agents.
+"""Tier 3 composite adapter wrapping legacy vendor HTML scraper agents.
 
 Contains the vendor routing maps (moved from eol_orchestrator.py per ORCH-03)
 and fans out to matched vendor agents concurrently within a single Tier 3 unit.
+These scrapers are retained as a lower-confidence fallback behind structured
+sources such as endoflife.date and eolstatus.
 """
 
 from __future__ import annotations

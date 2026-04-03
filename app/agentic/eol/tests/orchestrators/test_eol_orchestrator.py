@@ -16,6 +16,55 @@ from unittest.mock import AsyncMock, patch
 from agents.eol_orchestrator import EOLOrchestratorAgent
 
 
+class DummyAgent:
+    """Minimal lifecycle-safe test double for orchestrator-managed agents."""
+
+    async def aclose(self):
+        return None
+
+    async def health_check(self):
+        return {"status": "healthy"}
+
+
+@pytest.fixture
+def sample_eol_response():
+    return {
+        "success": True,
+        "data": {
+            "software": "Windows Server 2025",
+            "version": "2025",
+            "eol_date": "2030-10-14",
+        },
+        "confidence": 0.95,
+        "agent_used": "endoflife",
+        "source": "endoflife",
+        "source_url": "https://endoflife.date/windows-server-2025",
+        "search_mode": "agents_plus_internet",
+        "sources": [],
+        "discrepancies": [],
+        "communications": [],
+        "elapsed_seconds": 0.01,
+    }
+
+
+@pytest.fixture
+def factory_eol_orchestrator():
+    """Create orchestrators with lightweight stub agents for focused unit tests."""
+
+    def _factory() -> EOLOrchestratorAgent:
+        agents = {
+            "endoflife": DummyAgent(),
+            "eolstatus": DummyAgent(),
+            "microsoft": DummyAgent(),
+            "redhat": DummyAgent(),
+            "ubuntu": DummyAgent(),
+            "playwright": DummyAgent(),
+        }
+        return EOLOrchestratorAgent(agents=agents, close_provided_agents=False)
+
+    return _factory
+
+
 @pytest.mark.unit
 @pytest.mark.orchestrator
 @pytest.mark.asyncio
@@ -137,20 +186,22 @@ class TestEOLOrchestrator:
         orchestrator = factory_eol_orchestrator()
         software_name = "NonexistentSoftware"
 
-        # Mock all agents to fail
-        with patch.object(orchestrator, '_invoke_agent', new_callable=AsyncMock) as mock_invoke:
-            mock_invoke.side_effect = Exception("Agent invocation failed")
+        # Mock the pipeline itself to fail during fetch
+        with patch.object(orchestrator._pipeline, 'fetch', new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.side_effect = Exception("Agent invocation failed")
 
             # Act
             result = await orchestrator.get_autonomous_eol_data(software_name)
 
             # Assert - orchestrator handles error gracefully
             assert result is not None
-            assert result.get("success") is False or result.get("found") is False
+            assert result.get("success") is False
+            assert "error" in result
+            assert "Agent invocation failed" in result.get("error", "")
 
 
     @pytest.mark.placeholder
-    async def test_get_eol_data_fallback(self, factory_eol_orchestrator, sample_eol_response):
+    async def test_get_eol_data_fallback(self, factory_eol_orchestrator):
         """Test orchestrator uses fallback mechanism when primary agent fails.
 
         Scenario: Primary agent fails, fallback agent succeeds

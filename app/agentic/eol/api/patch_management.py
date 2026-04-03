@@ -43,6 +43,8 @@ _ASSESS_API_VERSION     = "2022-12-27"   # HybridCompute (Arc)
 _AVM_ASSESS_API_VERSION = "2023-03-01"   # Compute (Azure VM)
 _POLL_INTERVAL_SECONDS = 4
 _POLL_MAX_SECONDS = 180  # 3 minutes max wait
+_ARM_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
+_ARM_POLL_TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +145,11 @@ async def _get_arm_token() -> str:
             credential = DefaultAzureCredential()
             logger.debug("ARM token: using DefaultAzureCredential")
 
-        token = await credential.get_token("https://management.azure.com/.default")
-        await credential.close()
-        return token.token
+        try:
+            token = await credential.get_token("https://management.azure.com/.default")
+            return token.token
+        finally:
+            await credential.close()
     except Exception as exc:
         logger.error("Failed to acquire ARM token: %s", exc)
         raise HTTPException(status_code=500, detail=f"Azure auth error: {exc}") from exc
@@ -447,13 +451,14 @@ async def _list_machines_inventory(days: int) -> Dict[str, Any]:
     avm_count  = sum(1 for m in machines if m.get("vm_type") == "azure-vm")
     logger.info("Machines list: %d Arc, %d Azure VM", arc_count, avm_count)
 
-    return {
-        "success":       True,
-        "data":          machines,
-        "count":         len(machines),
-        "arc_count":     arc_count,
-        "azure_vm_count": avm_count,
-    }
+    return StandardResponse.success_response(
+        data=machines,
+        count=len(machines),
+        metadata={
+            "arc_count": arc_count,
+            "azure_vm_count": avm_count,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +495,7 @@ async def list_arc_vms(days: int = Query(90, description="Look-back window for O
         os_result = await orchestrator.agents["os_inventory"].get_os_inventory(days=days)
     except Exception as exc:
         logger.error("Failed to fetch OS inventory: %s", exc)
-        return {"success": False, "error": str(exc), "data": [], "count": 0}
+        return StandardResponse.error_response(error=str(exc))
 
     all_items: List[Dict[str, Any]] = os_result.get("data", []) if isinstance(os_result, dict) else []
 
@@ -502,15 +507,14 @@ async def list_arc_vms(days: int = Query(90, description="Look-back window for O
         )
     ]
 
-    return {
-        "success": True,
-        "data": arc_vms,
-        "count": len(arc_vms),
-        "total_os_inventory": len(all_items),
-    }
+    return StandardResponse.success_response(
+        data=arc_vms,
+        count=len(arc_vms),
+        metadata={"total_os_inventory": len(all_items)},
+    )
 
 
-@router.post("/assess")
+@router.post("/assess", response_model=StandardResponse)
 @write_endpoint(agent_name="patch_mgmt_assess", timeout_seconds=30)
 async def assess_patches(request: Request):
     """
@@ -584,20 +588,24 @@ async def assess_patches(request: Request):
 
     logger.info("Triggering assessPatches for %s: %s / %s / %s", log_label, sub_id, rg, machine_name)
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_ARM_REQUEST_TIMEOUT) as session:
         async with session.post(assess_url, headers=headers, json={}) as resp:
             if resp.status == 200:
                 # Rare synchronous completion – return triggered status (no polling)
                 logger.info("assessPatches returned 200 synchronously for %s", machine_name)
-                return {
-                    "success":  True,
-                    "triggered": True,
-                    "machine":  machine_name,
-                    "subscription_id": sub_id,
-                    "resource_group":  rg,
-                    "vm_type":  vm_type,
-                    "message":  f"Assessment accepted for {log_label} '{machine_name}'. Use 'View Last Assessment' to see results.",
-                }
+                return StandardResponse.success_response(
+                    data={
+                        "triggered": True,
+                        "machine": machine_name,
+                        "subscription_id": sub_id,
+                        "resource_group": rg,
+                        "vm_type": vm_type,
+                    },
+                    message=(
+                        f"Assessment accepted for {log_label} '{machine_name}'. "
+                        "Use 'View Last Assessment' once the results have propagated."
+                    ),
+                )
 
             if resp.status != 202:
                 error_text = await resp.text()
@@ -622,27 +630,28 @@ async def assess_patches(request: Request):
         log_label, sub_id, rg, machine_name, operation_url,
     )
 
-    return {
-        "success":       True,
-        "triggered":     True,
-        "machine":       machine_name,
-        "subscription_id": sub_id,
-        "resource_group":  rg,
-        "vm_type":       vm_type,
-        "operation_url": operation_url,
-        "message": (
+    return StandardResponse.success_response(
+        data={
+            "triggered": True,
+            "machine": machine_name,
+            "subscription_id": sub_id,
+            "resource_group": rg,
+            "vm_type": vm_type,
+            "operation_url": operation_url,
+        },
+        message=(
             f"Assessment triggered for {log_label} '{machine_name}'. "
             "Azure is now scanning this machine — it typically completes in 1–3 minutes. "
             "Use 'View Last Assessment' to load the results once ready."
         ),
-    }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Last-assessment endpoint (ARG query for a single machine)
 # ---------------------------------------------------------------------------
 
-@router.get("/last-assessment")  # no response_model — returns custom shape with 'found', 'patches', etc.
+@router.get("/last-assessment", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_last_assessment", timeout_seconds=30)
 async def get_last_assessment(
     machine_name: str = Query(..., description="Machine name to look up"),
@@ -715,16 +724,17 @@ patchassessmentresources
         raise HTTPException(status_code=502, detail=f"Resource Graph query failed: {exc}") from exc
 
     if not summary_rows:
-        return {
-            "success": True,
-            "found": False,
-            "machine_name": machine_name,
-            "vm_type": resolved_vm_type,
-            "message": (
+        return StandardResponse.success_response(
+            data={
+                "found": False,
+                "machine_name": machine_name,
+                "vm_type": resolved_vm_type,
+            },
+            message=(
                 f"No assessment found in Resource Graph for '{machine_name}'. "
                 "The assessment may still be in progress (wait 1–3 minutes) or has not been run yet."
             ),
-        }
+        )
 
     row = summary_rows[0]
     patches = [
@@ -755,35 +765,34 @@ patchassessmentresources
         f"/providers/{provider}/{machine_name}"
     )
 
-    response = {
-        "success":      True,
-        "found":        True,
+    response_data = {
+        "found": True,
         "machine_name": machine_name,
-        "resource_id":  resource_id,
+        "resource_id": resource_id,
         "resource_group": rg,
         "subscription_id": row.get("subscriptionId") or sub_id,
-        "os_type":      row.get("osType"),
+        "os_type": row.get("osType"),
         "reboot_pending": row.get("rebootPending"),
-        "vm_type":      resolved_vm_type,
+        "vm_type": resolved_vm_type,
         "patches": {
-            "available_patches":           patches,
+            "available_patches": patches,
             "critical_and_security_count": crit,
-            "other_count":                 other,
-            "total_count":                 len(patches) or (crit + other),
-            "last_assessed":               row.get("lastModified"),
-            "status":                      row.get("status"),
-            "source":                      "resource_graph",
+            "other_count": other,
+            "total_count": len(patches) or (crit + other),
+            "last_assessed": row.get("lastModified"),
+            "status": row.get("status"),
+            "source": "resource_graph",
         },
     }
-    _trigger_kb_sync_for_patches([response])
-    return response
+    _trigger_kb_sync_for_patches([response_data])
+    return StandardResponse.success_response(data=response_data)
 
 
 # ---------------------------------------------------------------------------
 # Install endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/install")
+@router.post("/install", response_model=StandardResponse)
 @write_endpoint(agent_name="patch_mgmt_install", timeout_seconds=60)
 async def install_patches(request: Request):
     """
@@ -842,7 +851,7 @@ async def install_patches(request: Request):
         if not body.package_names_to_include and not body.kb_numbers_to_include:
             raise HTTPException(
                 status_code=400,
-                detail="package_names_to_include required for Linux VMs",
+                detail="package_names_to_include or kb_numbers_to_include required for Linux VMs",
             )
 
     # Route to the correct ARM provider based on vm_type
@@ -901,7 +910,7 @@ async def install_patches(request: Request):
         log_label, sub_id, rg, machine_name, os_type, classifications,
     )
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_ARM_REQUEST_TIMEOUT) as session:
         async with session.post(install_url, headers=headers, json=request_body) as resp:
             if resp.status == 200:
                 # Synchronous / immediate completion (rare)
@@ -921,12 +930,16 @@ async def install_patches(request: Request):
                     "start_date_time": sync_result.get("start_date_time"),
                 })
                 # Mark install complete inline since it was a synchronous return
-                return {
-                    "success": True,
-                    "machine": machine_name,
-                    "status": "Completed",
-                    "data": sync_result,
-                }
+                return StandardResponse.success_response(
+                    data={
+                        "machine": machine_name,
+                        "subscription_id": sub_id,
+                        "resource_group": rg,
+                        "status": "Completed",
+                        "result": sync_result,
+                    },
+                    message=f"Patch installation completed for {log_label} '{machine_name}'.",
+                )
 
             if resp.status != 202:
                 err_text = await resp.text()
@@ -964,21 +977,22 @@ async def install_patches(request: Request):
         "status": "InProgress",
     })
 
-    return {
-        "success":       True,
-        "machine":       machine_name,
-        "subscription_id": sub_id,
-        "resource_group": rg,
-        "status":        "InProgress",
-        "operation_url": operation_url,
-        "message":       (
+    return StandardResponse.success_response(
+        data={
+            "machine": machine_name,
+            "subscription_id": sub_id,
+            "resource_group": rg,
+            "status": "InProgress",
+            "operation_url": operation_url,
+        },
+        message=(
             f"Patch installation started. Poll /api/patch-management/install-status "
             f"with the operation_url to track progress."
         ),
-    }
+    )
 
 
-@router.get("/install-status")  # no response_model — returns custom shape: is_done, status, data
+@router.get("/install-status", response_model=StandardResponse)
 @readonly_endpoint(agent_name="patch_mgmt_install_status", timeout_seconds=20)
 async def get_install_status(request: Request, operation_url: str = Query(..., description="Azure-AsyncOperation URL from /install")):
     """
@@ -990,7 +1004,7 @@ async def get_install_status(request: Request, operation_url: str = Query(..., d
     token = await _get_arm_token()
     headers = {"Authorization": f"Bearer {token}"}
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_ARM_POLL_TIMEOUT) as session:
         async with session.get(operation_url, headers=headers) as resp:
             if resp.status != 200:
                 err_text = await resp.text()
@@ -1003,19 +1017,18 @@ async def get_install_status(request: Request, operation_url: str = Query(..., d
     raw_status = (body.get("status") or "Unknown")
     is_done = raw_status.lower() in ("succeeded", "failed", "canceled", "cancelled")
 
-    result: Dict[str, Any] = {
-        "success":    True,
-        "status":     raw_status,
-        "is_done":    is_done,
-        "data":       _extract_install_result(body) if is_done else None,
-        "error":      body.get("error"),
+    result_payload: Dict[str, Any] = {
+        "status": raw_status,
+        "is_done": is_done,
+        "result": _extract_install_result(body) if is_done else None,
+        "error": body.get("error"),
     }
 
-    if is_done and result["data"]:
+    if is_done and result_payload["result"]:
         patch_repo = request.app.state.patch_repo
-        await patch_repo.record_install({"operation_url": operation_url, "status": "Completed", **result["data"]})
+        await patch_repo.record_install({"operation_url": operation_url, "status": "Completed", **result_payload["result"]})
 
-    return result
+    return StandardResponse.success_response(data=result_payload)
 
 
 @router.get("/arg-patch-data", response_model=StandardResponse)

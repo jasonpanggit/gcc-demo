@@ -1,21 +1,16 @@
 """
 Ubuntu EOL Agent - Queries Ubuntu official sources for EOL information
 """
-import requests
-from typing import Dict, Any, Optional
-from datetime import datetime
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+import hashlib
 import logging
+import re
+from typing import Any, Dict, List, Optional
+
 from .base_eol_agent import BaseEOLAgent
 
 logger = logging.getLogger(__name__)
-
-import requests
-from bs4 import BeautifulSoup
-from typing import Dict, Any, Optional, List
-import re
-from datetime import datetime, timedelta
-import os
-import hashlib
 
 try:
     from utils.logger import get_logger
@@ -153,7 +148,7 @@ class UbuntuEOLAgent(BaseEOLAgent):
                 start_time=start_time,
             )
 
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
 
             response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -415,7 +410,7 @@ class UbuntuEOLAgent(BaseEOLAgent):
             cache_stats_manager.record_agent_request("ubuntu", url)
             
             # Try the main releases page
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             # Calculate response time for tracking
@@ -427,9 +422,9 @@ class UbuntuEOLAgent(BaseEOLAgent):
 
         except Exception as e:
             # Record failed request for statistics tracking
-            start_time = getattr(locals(), 'start_time', datetime.now())
+            start_time = locals().get('start_time', datetime.now())
             response_time = (datetime.now() - start_time).total_seconds()
-            url_data = getattr(locals(), 'url_data', self.eol_urls["ubuntu"])
+            url_data = locals().get('url_data', self.eol_urls["ubuntu"])
             url = url_data.get("url") if isinstance(url_data, dict) else url_data
             cache_stats_manager.record_agent_request("ubuntu", url, response_time, success=False, error_message=str(e))
             logger.debug(f"Error scraping Ubuntu EOL data: {e}")

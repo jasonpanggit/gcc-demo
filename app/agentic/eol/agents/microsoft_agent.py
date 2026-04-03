@@ -3,7 +3,6 @@ Microsoft EOL Agent - Scrapes Microsoft official sources for EOL information
 """
 import asyncio
 import json
-import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any, Optional
 import re
@@ -114,7 +113,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
                 start_time=start_time,
             )
 
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
 
             response_time_ms = (time.time() - start_time) * 1000
@@ -192,7 +191,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
                 start_time=start_time,
             )
 
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
 
             response_time_ms = (time.time() - start_time) * 1000
@@ -395,7 +394,7 @@ class MicrosoftEOLAgent(BaseEOLAgent):
                 start_time=start_time
             )
             
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             # Calculate response time

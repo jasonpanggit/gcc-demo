@@ -1,10 +1,10 @@
-"""
-Base EOL Agent class that enforces standardized response formats
-"""
+"""Base EOL Agent class that enforces standardized response formats."""
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
+from typing import Any, Dict, Optional
+
+import httpx
 
 try:
     from utils.confidence_scorer import ConfidenceNormalizer
@@ -29,6 +29,37 @@ class BaseEOLAgent(ABC):
     
     def __init__(self, agent_name=None):
         self.agent_name = agent_name or self.__class__.__name__.replace('EOLAgent', '').lower()
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Lazily create a shared async HTTP client for the agent."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(follow_redirects=True)
+        return self._http_client
+
+    async def _http_get(
+        self,
+        url: str,
+        *,
+        timeout: Optional[float] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> httpx.Response:
+        """Issue an async GET request through the shared client."""
+        client = await self._get_http_client()
+        return await client.get(url, timeout=timeout, headers=headers)
+
+    async def aclose(self) -> None:
+        """Release async HTTP resources held by the agent."""
+        client = self._http_client
+        self._http_client = None
+        if client is not None and not client.is_closed:
+            await client.aclose()
+
+    async def __aenter__(self) -> "BaseEOLAgent":
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        await self.aclose()
     
     @abstractmethod
     async def get_eol_data(self, software_name: str, version: Optional[str] = None, **kwargs) -> Dict[str, Any]:

@@ -1358,6 +1358,31 @@
 
     // Core functions that remain in template (due to template variables and API calls)
 
+    function unwrapSearchEnvelope(payload) {
+        if (payload && payload.success === true && payload.count !== undefined && payload.data !== undefined) {
+            return payload.data;
+        }
+        return payload;
+    }
+
+    function normalizeInventoryApiResponse(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return payload;
+        }
+
+        const metadata = payload.metadata || {};
+        return {
+            ...metadata,
+            ...payload,
+            from_cache: payload.from_cache ?? payload.cached ?? metadata.from_cache ?? false,
+            cached_at: payload.cached_at ?? metadata.cached_at ?? null,
+            query_params: payload.query_params ?? metadata.query_params ?? null,
+            source: payload.source ?? metadata.source ?? null,
+            data_source: payload.data_source ?? metadata.data_source ?? null,
+            note: payload.note ?? metadata.note ?? null,
+        };
+    }
+
     // Small helper to guard against slow/failed EOL calls
     async function fetchEOLWithTimeout(payload, timeoutMs = 15000) {
         const controller = new AbortController();
@@ -1372,7 +1397,7 @@
 
             let data = null;
             try {
-                data = await response.json();
+                data = unwrapSearchEnvelope(await response.json());
             } catch (parseError) {
                 if (parseError && parseError.name === 'AbortError') {
                     return { response: null, data: null, timeout: true };
@@ -1939,7 +1964,8 @@
     async function loadInventoryStatus() {
         try {
             const response = await fetch('/api/inventory/status');
-            const status = await response.json();
+            const payload = normalizeInventoryApiResponse(await response.json());
+            const status = payload && payload.success === true && payload.data ? payload.data : payload;
 
             // Show status banner
             const container = document.getElementById('inventory-container');
@@ -2042,8 +2068,8 @@
             // console.log('Software response status:', softwareResponse.status);
             // console.log('OS response status:', osResponse.status);
 
-            const softwareData = await softwareResponse.json();
-            const osData = await osResponse.json();
+            const softwareData = normalizeInventoryApiResponse(await softwareResponse.json());
+            const osData = normalizeInventoryApiResponse(await osResponse.json());
             // Build a resource_id → EOL lookup from cached PostgreSQL data.
             // Keys: lowercase resource_id and lowercase vm_name for flexible matching.
             let pgEolMap = {}; // resource_id (lower) → { eol_date, software_name }

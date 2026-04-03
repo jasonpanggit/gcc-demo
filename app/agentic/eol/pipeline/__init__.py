@@ -40,7 +40,7 @@ def create_default_registry(
     Registers:
       - EndoflifeAdapter (Tier 1) wrapping agents["endoflife"]
       - EolstatusAdapter (Tier 2) wrapping agents["eolstatus"]
-      - VendorScraperAdapter (Tier 3) wrapping vendor agents with routing maps
+    - VendorScraperAdapter (Tier 3) wrapping legacy vendor-specific scrapers
       - FallbackAdapter (Tier 4) wrapping agents["playwright"]
 
     Args:
@@ -63,7 +63,7 @@ def create_default_registry(
     if "eolstatus" in agents:
         registry.register(EolstatusAdapter(agents["eolstatus"]))
 
-    # Tier 3: Vendor scraper composite (only agents not fully covered by endoflife.date)
+    # Tier 3: Legacy vendor scraper composite for uncovered or disputed products
     vendor_agent_names = [
         "microsoft", "redhat", "ubuntu",
     ]

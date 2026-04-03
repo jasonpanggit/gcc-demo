@@ -93,13 +93,12 @@ async def get_alert_configuration():
     if "smtp_settings" in config_dict:
         config_dict["smtp_settings"]["password"] = "***"
 
-    response = StandardResponse.success_response([
+    return StandardResponse.success_response(
         {
             "configuration": config_dict,
-            "source": "cosmos" if config_dict.get("email_recipients") else "local"
+            "source": "cosmos" if config_dict.get("email_recipients") else "local",
         }
-    ])
-    return response.to_dict()
+    )
 
 
 @router.post("/api/alerts/config")
@@ -181,15 +180,13 @@ async def save_alert_configuration(config_data: dict):
                 sanitized_config["smtp_settings"]["password"] = "***"
 
             response = StandardResponse.success_response(
-                [
-                    {
-                        "message": "Configuration saved successfully",
-                        "configuration": sanitized_config,
-                    }
-                ]
+                {
+                    "configuration": sanitized_config,
+                },
+                message="Configuration saved successfully",
             )
             logger.info("✅ Configuration saved successfully")
-            return response.to_dict()
+            return response
         else:
             logger.error("❌ Failed to save configuration to Cosmos DB")
             raise HTTPException(status_code=500, detail="Failed to save configuration")
@@ -235,14 +232,12 @@ async def reload_alert_configuration():
         config_dict["smtp_settings"]["password"] = "***"
 
     response = StandardResponse.success_response(
-        [
-            {
-                "message": "Configuration reloaded successfully from Cosmos DB",
-                "configuration": config_dict,
-            }
-        ]
+        {
+            "configuration": config_dict,
+        },
+        message="Configuration reloaded successfully from Cosmos DB",
     )
-    return response.to_dict()
+    return response
 
 
 # ============================================================================
@@ -489,7 +484,7 @@ async def send_test_alert(request_data: dict):
     level = request_data.get("level", "info")
     custom_subject = request_data.get("custom_subject")
     custom_body = request_data.get("custom_body")
-    use_html_body = request_data.get("use_html_body", False)
+    use_html_body = request_data.get("use_html_body", request_data.get("is_html", False))
     
     logger.info(f"📧 Sending test alert: level={level}, recipients={recipients}")
     logger.info(f"📧 Custom subject: {custom_subject}, HTML: {use_html_body}")
@@ -501,12 +496,10 @@ async def send_test_alert(request_data: dict):
     if not recipients:
         recipients = config.email_recipients
         if not recipients:
-            return {
-                "success": False,
-                "error": "No recipients configured",
-                "message": "Please configure recipients in alert settings",
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            return StandardResponse.error_response(
+                error="No recipients configured",
+                message="Please configure recipients in alert settings",
+            )
     
     # Generate test alert subject and body
     if custom_subject:
@@ -538,29 +531,26 @@ async def send_test_alert(request_data: dict):
         )
         
         if success:
-            return {
-                "success": True,
-                "message": "Test alert sent successfully",
-                "recipients": recipients,
-                "subject": subject,
-                "level": level,
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            return StandardResponse.success_response(
+                {
+                    "recipients": recipients,
+                    "recipients_count": len(recipients),
+                    "subject": subject,
+                    "level": level,
+                },
+                message="Test alert sent successfully",
+            )
         else:
-            return {
-                "success": False,
-                "error": "Failed to send test alert",
-                "message": "Check SMTP configuration and logs",
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            return StandardResponse.error_response(
+                error="Failed to send test alert",
+                message="Check SMTP configuration and logs",
+            )
     except Exception as e:
         logger.error(f"❌ Error sending test alert: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Exception occurred while sending alert",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Exception occurred while sending alert",
+        )
 
 
 @router.post("/api/alerts/send-teams-test")
@@ -623,37 +613,36 @@ async def send_teams_test_alert():
         )
 
         if success:
-            return {
-                "success": True,
-                "message": "Test Teams alert sent successfully",
-                "teams": {
-                    "sent": True,
-                    "message": message
+            return StandardResponse.success_response(
+                {
+                    "teams": {
+                        "sent": True,
+                        "message": message,
+                    }
                 },
-                "timestamp": datetime.utcnow().isoformat()
-            }
+                message="Test Teams alert sent successfully",
+            )
         else:
-            return {
-                "success": False,
-                "error": message,
-                "message": "Failed to send Teams test alert",
-                "teams": {
-                    "sent": False,
-                    "message": message
+            return StandardResponse.error_response(
+                error=message,
+                message="Failed to send Teams test alert",
+                details={
+                    "teams": {
+                        "sent": False,
+                        "message": message,
+                    }
                 },
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            )
     except Exception as e:
         logger.error(f"❌ Error sending test Teams alert: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Exception occurred while sending Teams test alert",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Exception occurred while sending Teams test alert",
+        )
 
 
 @router.post("/api/alerts/send-teams-bot-notification")
+@write_endpoint(agent_name="send_teams_bot_notification", timeout_seconds=45)
 async def send_teams_bot_notification(
     alert_level: str = "info",
     conversation_id: Optional[str] = None,
@@ -702,12 +691,10 @@ async def send_teams_bot_notification(
         tenant_id = os.getenv("AZURE_TENANT_ID", "ffc83107-fcc0-4d2e-8798-d582da36505e")
 
         if not bot_app_id or not bot_app_password:
-            return {
-                "success": False,
-                "error": "Teams Bot not configured",
-                "message": "TEAMS_BOT_APP_ID and TEAMS_BOT_APP_PASSWORD environment variables required",
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            return StandardResponse.error_response(
+                error="Teams Bot not configured",
+                message="TEAMS_BOT_APP_ID and TEAMS_BOT_APP_PASSWORD environment variables required",
+            )
 
         # Create sample alert items for the notification
         sample_items = [
@@ -733,12 +720,10 @@ async def send_teams_bot_notification(
         level_items = [item for item in sample_items if item.alert_level == alert_level]
 
         if not level_items:
-            return {
-                "success": False,
-                "error": "No items match alert level",
-                "message": f"No {alert_level} items found in sample data",
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            return StandardResponse.error_response(
+                error="No items match alert level",
+                message=f"No {alert_level} items found in sample data",
+            )
 
         # Build alert message
         level_title = alert_level.capitalize()
@@ -792,23 +777,19 @@ async def send_teams_bot_notification(
                 if token_response.status != 200:
                     error_text = await token_response.text()
                     logger.error(f"Failed to get Bot Framework token: {token_response.status} - {error_text}")
-                    return {
-                        "success": False,
-                        "error": "Authentication failed",
-                        "message": "Failed to get Bot Framework token",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
+                    return StandardResponse.error_response(
+                        error="Authentication failed",
+                        message="Failed to get Bot Framework token",
+                        )
 
                 token_json = await token_response.json()
                 access_token = token_json.get("access_token")
 
                 if not access_token:
-                    return {
-                        "success": False,
-                        "error": "No access token",
-                        "message": "Failed to obtain Bot Framework access token",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
+                    return StandardResponse.error_response(
+                        error="No access token",
+                        message="Failed to obtain Bot Framework access token",
+                    )
 
             # Determine target for message
             if conversation_id:
@@ -819,31 +800,28 @@ async def send_teams_bot_notification(
             elif recipient_email:
                 # Create 1:1 conversation with user
                 # Note: This requires knowing the user's Teams ID or AAD object ID
-                return {
-                    "success": False,
-                    "error": "Direct messaging not yet implemented",
-                    "message": "Please provide a conversation_id instead. Direct user messaging requires AAD user lookup.",
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+                return StandardResponse.error_response(
+                    error="Direct messaging not yet implemented",
+                    message="Please provide a conversation_id instead. Direct user messaging requires AAD user lookup.",
+                )
             else:
                 # No target specified - return instructions
-                return {
-                    "success": False,
-                    "error": "No target specified",
-                    "message": "Please provide either conversation_id or recipient_email parameter. "
-                              "To find your conversation ID, send any message to the bot in Teams and check the logs.",
-                    "teams_bot_help": {
-                        "how_to_find_conversation_id": [
-                            "1. Open Teams and start a chat with the bot",
-                            "2. Send any message (e.g., 'hello')",
-                            "3. Check the application logs for 'Received Teams bot activity'",
-                            "4. Copy the conversation ID from the logs",
-                            "5. Use that ID in the conversation_id parameter"
-                        ],
-                        "alternative": "Or use the test endpoint: POST /api/alerts/test-teams"
+                return StandardResponse.error_response(
+                    error="No target specified",
+                    message="Please provide either conversation_id or recipient_email parameter. To find your conversation ID, send any message to the bot in Teams and check the logs.",
+                    details={
+                        "teams_bot_help": {
+                            "how_to_find_conversation_id": [
+                                "1. Open Teams and start a chat with the bot",
+                                "2. Send any message (e.g., 'hello')",
+                                "3. Check the application logs for 'Received Teams bot activity'",
+                                "4. Copy the conversation ID from the logs",
+                                "5. Use that ID in the conversation_id parameter"
+                            ],
+                            "alternative": "Or use the test endpoint: POST /api/alerts/test-teams"
+                        }
                     },
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+                )
 
             # Send message to Teams
             headers = {
@@ -861,41 +839,36 @@ async def send_teams_bot_notification(
                 if send_response.status not in (200, 201):
                     error_text = await send_response.text()
                     logger.error(f"Failed to send Teams message: {send_response.status} - {error_text}")
-                    return {
-                        "success": False,
-                        "error": f"Send failed with status {send_response.status}",
-                        "message": f"Failed to send message to {target_description}",
-                        "details": error_text,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
+                    return StandardResponse.error_response(
+                        error=f"Send failed with status {send_response.status}",
+                        message=f"Failed to send message to {target_description}",
+                        details={"response_body": error_text},
+                    )
 
                 logger.info(f"✅ Successfully sent alert notification to {target_description}")
 
-                return {
-                    "success": True,
-                    "message": f"Alert notification sent via Teams Bot to {target_description}",
-                    "data": [{
+                return StandardResponse.success_response(
+                    {
                         "alert_level": alert_level,
                         "systems_count": len(level_items),
                         "notification_sent": True,
                         "delivery_method": "teams_bot",
                         "target": target_description,
-                        "message_preview": alert_message[:200] + "..." if len(alert_message) > 200 else alert_message
-                    }],
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+                        "message_preview": alert_message[:200] + "..." if len(alert_message) > 200 else alert_message,
+                    },
+                    message=f"Alert notification sent via Teams Bot to {target_description}",
+                )
 
     except Exception as e:
         logger.error(f"❌ Error sending Teams Bot notification: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Exception occurred while sending Teams Bot notification",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Exception occurred while sending Teams Bot notification",
+        )
 
 
 @router.get("/api/alerts/teams-bot-conversations")
+@readonly_endpoint(agent_name="teams_bot_conversations", timeout_seconds=20)
 async def get_teams_bot_conversations():
     """
     Get list of active Teams Bot conversations.
@@ -929,10 +902,8 @@ async def get_teams_bot_conversations():
         from api.teams_bot import _conversation_states
 
         if not _conversation_states:
-            return {
-                "success": True,
-                "message": "No active Teams Bot conversations found",
-                "data": [{
+            return StandardResponse.success_response(
+                {
                     "conversations": [],
                     "total_conversations": 0,
                     "help": {
@@ -942,10 +913,11 @@ async def get_teams_bot_conversations():
                             "3. Start a chat and send any message (e.g., 'hello')",
                             "4. The conversation will appear in this list"
                         ]
-                    }
-                }],
-                "timestamp": datetime.utcnow().isoformat()
-            }
+                    },
+                },
+                count=0,
+                message="No active Teams Bot conversations found",
+            )
 
         # Build conversation list
         conversations = []
@@ -966,22 +938,19 @@ async def get_teams_bot_conversations():
         # Sort by most recent first
         conversations.sort(key=lambda x: x["last_updated"] or "", reverse=True)
 
-        return {
-            "success": True,
-            "message": f"Found {len(conversations)} active conversation(s)",
-            "data": [{
+        return StandardResponse.success_response(
+            {
                 "conversations": conversations,
                 "total_conversations": len(conversations),
-                "instructions": "Use conversation_id with POST /api/alerts/send-teams-bot-notification?conversation_id=<id>&alert_level=<level>"
-            }],
-            "timestamp": datetime.utcnow().isoformat()
-        }
+                "instructions": "Use conversation_id with POST /api/alerts/send-teams-bot-notification?conversation_id=<id>&alert_level=<level>",
+            },
+            count=len(conversations),
+            message=f"Found {len(conversations)} active conversation(s)",
+        )
 
     except Exception as e:
         logger.error(f"❌ Error getting Teams Bot conversations: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "Exception occurred while retrieving Teams Bot conversations",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Exception occurred while retrieving Teams Bot conversations",
+        )

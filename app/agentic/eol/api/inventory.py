@@ -48,6 +48,45 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Inventory Management"])
 
 
+def _inventory_standard_response(result: Dict[str, Any], *, default_error: str) -> Dict[str, Any]:
+    """Normalize inventory agent results into the StandardResponse contract."""
+    data = result.get("data", []) if isinstance(result, dict) else []
+    cached = bool(result.get("from_cache") or result.get("cached")) if isinstance(result, dict) else False
+
+    metadata: Dict[str, Any] = {}
+    if isinstance(result, dict):
+        for key in (
+            "query_params",
+            "cached_at",
+            "source",
+            "target_computer",
+            "limit_applied",
+            "full_dataset",
+            "data_source",
+            "note",
+        ):
+            if key in result and result.get(key) is not None:
+                metadata[key] = result.get(key)
+
+    if isinstance(result, dict) and result.get("success"):
+        response = StandardResponse(
+            success=True,
+            data=data,
+            count=result.get("count", StandardResponse.derive_count(data)),
+            cached=cached,
+            metadata=metadata or None,
+            message=result.get("message"),
+        )
+        return response.to_dict()
+
+    error_message = result.get("error", default_error) if isinstance(result, dict) else default_error
+    return StandardResponse.error_response(
+        error=error_message,
+        metadata=metadata or None,
+        message=result.get("message") if isinstance(result, dict) else None,
+    ).to_dict()
+
+
 def _get_eol_orchestrator():
     """Lazy import to avoid circular dependency"""
     from main import get_eol_orchestrator
@@ -58,6 +97,8 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
     """Merge Azure VMs from resource inventory into OS inventory results."""
     if not isinstance(os_items, list):
         return os_items
+
+    merged_items = list(os_items)
 
     try:
         from utils.resource_inventory_client import get_resource_inventory_client
@@ -97,7 +138,7 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
                 selected.get("os_type") or vm.get("os_type"),
             )
 
-            os_items.append({
+            merged_items.append({
                 "computer_name": vm_name,
                 "computer": vm_name,
                 "os_name": normalized_os["os_name"],
@@ -119,12 +160,12 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
                 "software_type": "operating system",
                 "vm_type": "azure-vm",
             })
-            existing_resource_ids.add(resource_id.lower())
-            existing_computer_names.add(vm_name.lower())
+            existing_resource_ids = existing_resource_ids | {resource_id.lower()}
+            existing_computer_names = existing_computer_names | {vm_name.lower()}
     except Exception as exc:
         logger.warning("Failed to merge Azure VMs into OS inventory: %s", exc)
 
-    return os_items
+    return merged_items
 
 
 @router.get("/api/inventory", response_model=StandardResponse)
@@ -132,7 +173,7 @@ async def _merge_azure_vm_os_inventory(os_items: List[Dict[str, Any]]) -> List[D
     agent_name="inventory",
     timeout_seconds=config.app.timeout,
     track_cache=True,
-    auto_wrap_response=False  # Keep original response format for now
+    auto_wrap_response=False  # Endpoint returns a custom-normalized StandardResponse payload.
 )
 async def get_inventory(request: Request, limit: int = 5000, days: int = 90, use_cache: bool = True):
     """
@@ -162,13 +203,13 @@ async def get_inventory(request: Request, limit: int = 5000, days: int = 90, use
 
     # Apply limit if specified
     if limit and limit > 0 and isinstance(result, dict) and "data" in result:
-        result["data"] = result["data"][:limit]
-        result["count"] = len(result["data"])
-    elif limit and limit > 0 and isinstance(result, list):
-        # Legacy format support
-        result = result[:limit]
-
-    return result
+        limited_data = result["data"][:limit]
+        result = {
+            **result,
+            "data": limited_data,
+            "count": len(limited_data),
+        }
+    return _inventory_standard_response(result, default_error="Failed to load software inventory")
 
 
 @router.get("/api/inventory/status", response_model=StandardResponse)
@@ -199,11 +240,13 @@ async def inventory_status():
         }
     """
     summary = await _get_eol_orchestrator().agents["inventory"].get_inventory_summary()
-    return {
-        "status": "ok",
-        "log_analytics_available": bool(config.azure.log_analytics_workspace_id),
-        "summary": summary
-    }
+    return StandardResponse.success_response(
+        data={
+            "status": "ok",
+            "log_analytics_available": bool(config.azure.log_analytics_workspace_id),
+            "summary": summary,
+        }
+    )
 
 
 @router.get("/api/os", response_model=StandardResponse)
@@ -381,27 +424,25 @@ async def get_raw_software_inventory(days: int = 90, limit: int = 1000, force_re
     # Validate result type
     if isinstance(result, str):
         logger.warning(f"Raw software inventory returned string instead of dict: {result}")
-        return {
+        return _inventory_standard_response({
             "success": False,
             "error": f"Invalid response format: {result}",
             "data": [],
             "count": 0,
-            "query_days": days,
-            "query_limit": limit
-        }
+            "query_params": {"days": days, "limit": limit},
+        }, default_error="Failed to load raw software inventory")
     elif not isinstance(result, dict):
         logger.warning(f"Raw software inventory returned unexpected type {type(result)}: {result}")
-        return {
+        return _inventory_standard_response({
             "success": False,
             "error": f"Invalid response type: {type(result).__name__}",
             "data": [],
             "count": 0,
-            "query_days": days,
-            "query_limit": limit
-        }
+            "query_params": {"days": days, "limit": limit},
+        }, default_error="Failed to load raw software inventory")
 
     logger.info(f"✅ Raw software inventory result: success={result.get('success')}, count={result.get('count', 0)}")
-    return result
+    return _inventory_standard_response(result, default_error="Failed to load raw software inventory")
 
 
 @router.get("/api/inventory/raw/os", response_model=StandardResponse)
@@ -470,24 +511,22 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
     # Validate result type
     if isinstance(result, str):
         logger.warning(f"Raw OS inventory returned string instead of dict: {result}")
-        return {
+        return _inventory_standard_response({
             "success": False,
             "error": f"Invalid response format: {result}",
             "data": [],
             "count": 0,
-            "query_days": days,
-            "query_limit": limit
-        }
+            "query_params": {"days": days, "limit": limit},
+        }, default_error="Failed to load raw OS inventory")
     elif not isinstance(result, dict):
         logger.warning(f"Raw OS inventory returned unexpected type {type(result)}: {result}")
-        return {
+        return _inventory_standard_response({
             "success": False,
             "error": f"Invalid response type: {type(result).__name__}",
             "data": [],
             "count": 0,
-            "query_days": days,
-            "query_limit": limit
-        }
+            "query_params": {"days": days, "limit": limit},
+        }, default_error="Failed to load raw OS inventory")
     
     logger.info(f"✅ Raw OS inventory result: success={result.get('success')}, count={result.get('count', 0)}")
 
@@ -496,7 +535,7 @@ async def get_raw_os_inventory(days: int = 90, limit: int = 2000, force_refresh:
     #     result["data"] = await _merge_azure_vm_os_inventory(result["data"])
     #     result["count"] = len(result["data"])
 
-    return result
+    return _inventory_standard_response(result, default_error="Failed to load raw OS inventory")
 
 
 @router.post("/api/inventory/reload", response_model=StandardResponse)
@@ -524,7 +563,12 @@ async def reload_inventory(days: int = 90):
     """
     result = await _get_eol_orchestrator().reload_inventory_from_law(days=days)
     logger.info("Inventory reloaded: %s items", result.get("total_items", 0))
-    return result
+    if result.get("success"):
+        return StandardResponse.success_response(data=result)
+    return StandardResponse.error_response(
+        error=result.get("error", "Failed to reload inventory"),
+        message=result.get("message"),
+    )
 
 
 @router.post("/api/inventory/clear-cache", response_model=StandardResponse)
@@ -549,14 +593,19 @@ async def clear_inventory_cache():
     """
     # Get orchestrator to access inventory agents
     orch = _get_eol_orchestrator()
+    agents = getattr(orch, "agents", {}) or {}
     
     # Clear both software and OS inventory caches
     software_result = {"software_cache_cleared": False}
     os_result = {"os_cache_cleared": False}
     
     try:
-        # Access the software inventory agent through the inventory agent
-        if hasattr(orch, 'inventory_agent') and orch.inventory_agent:
+        software_agent = agents.get("software_inventory")
+        if software_agent and hasattr(software_agent, "clear_cache"):
+            await software_agent.clear_cache()
+            software_result["software_cache_cleared"] = True
+            logger.info("Software inventory cache cleared via orchestrator registry")
+        elif hasattr(orch, 'inventory_agent') and orch.inventory_agent:
             if hasattr(orch.inventory_agent, 'software_inventory_agent'):
                 await orch.inventory_agent.software_inventory_agent.clear_cache()
                 software_result["software_cache_cleared"] = True
@@ -566,8 +615,12 @@ async def clear_inventory_cache():
         software_result["error"] = str(e)
     
     try:
-        # Access the OS inventory agent directly and through inventory agent
-        if hasattr(orch, 'os_agent') and orch.os_agent:
+        os_agent = agents.get("os_inventory")
+        if os_agent and hasattr(os_agent, "clear_cache"):
+            await os_agent.clear_cache()
+            os_result["os_cache_cleared"] = True
+            logger.info("OS inventory cache cleared via orchestrator registry")
+        elif hasattr(orch, 'os_agent') and orch.os_agent:
             await orch.os_agent.clear_cache()
             os_result["os_cache_cleared"] = True
             logger.info("OS inventory cache cleared")
@@ -581,10 +634,21 @@ async def clear_inventory_cache():
         os_result["error"] = str(e)
     
     # Merge results
-    result = {**software_result, **os_result}
-    result["success"] = (
-        software_result.get("software_cache_cleared", False) or 
-        os_result.get("os_cache_cleared", False)
+    software_cleared = software_result.get("software_cache_cleared", False)
+    os_cleared = os_result.get("os_cache_cleared", False)
+    result = {
+        **software_result,
+        **os_result,
+        "success": software_cleared and os_cleared,
+        "partial_success": software_cleared != os_cleared,
+    }
+
+    if result["success"]:
+        return StandardResponse.success_response(data=result)
+    error_message = "Failed to clear inventory caches"
+    if result["partial_success"]:
+        error_message = "Failed to clear all inventory caches"
+    return StandardResponse.error_response(
+        error=error_message,
+        details=result,
     )
-    
-    return result

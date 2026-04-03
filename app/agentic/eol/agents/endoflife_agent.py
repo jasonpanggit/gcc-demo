@@ -2,11 +2,9 @@
 EndOfLife.date Agent - Queries the endoflife.date API for EOL information
 """
 import re
-import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
 import hashlib
-import asyncio
 from .base_eol_agent import BaseEOLAgent
 try:
     from utils.logger import get_logger
@@ -166,7 +164,7 @@ class EndOfLifeAgent(BaseEOLAgent):
         cache_stats_manager.record_agent_request("endoflife", url, software_name=software_name, version=version or "")
         
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = await self._http_get(url, timeout=self.timeout)
             response_time = (datetime.now() - start_time).total_seconds()
             
             if response.status_code == 200:
@@ -219,7 +217,7 @@ class EndOfLifeAgent(BaseEOLAgent):
             cache_stats_manager.record_agent_request("endoflife", url, software_name=software_name, version=version or "")
             
             try:
-                response = requests.get(url, timeout=self.timeout)
+                response = await self._http_get(url, timeout=self.timeout)
                 response_time = (datetime.now() - start_time).total_seconds()
                 
                 if response.status_code == 200:
@@ -279,7 +277,7 @@ class EndOfLifeAgent(BaseEOLAgent):
             cache_stats_manager.record_agent_request("endoflife", url, software_name=software_name, version=version or "")
             
             try:
-                response = requests.get(url, timeout=self.timeout)
+                response = await self._http_get(url, timeout=self.timeout)
                 response_time = (datetime.now() - start_time).total_seconds()
                 
                 if response.status_code == 200:
@@ -395,7 +393,7 @@ class EndOfLifeAgent(BaseEOLAgent):
         cache_stats_manager.record_agent_request("endoflife", url)
         
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = await self._http_get(url, timeout=self.timeout)
             response_time = (datetime.now() - start_time).total_seconds()
             
             if response.status_code == 200:
@@ -956,7 +954,7 @@ class EndOfLifeAgent(BaseEOLAgent):
         cache_stats_manager.record_agent_request("endoflife", url, software_name=product_name, version="all_cycles")
         
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = await self._http_get(url, timeout=self.timeout)
             response_time = (datetime.now() - start_time).total_seconds()
             
             if response.status_code == 200:
@@ -1015,8 +1013,8 @@ class EndOfLifeAgent(BaseEOLAgent):
             "showing": len(limited_matches)
         }
 
-    def get_supported_products(self) -> Dict[str, Any]:
-        """Get list of supported products"""
+    async def get_supported_products(self) -> Dict[str, Any]:
+        """Get the list of products supported by endoflife.date."""
         try:
             url = f"{self.base_url}/all.json"
             
@@ -1024,7 +1022,7 @@ class EndOfLifeAgent(BaseEOLAgent):
             start_time = datetime.now()
             cache_stats_manager.record_agent_request("endoflife", url)
             
-            response = requests.get(url, timeout=self.timeout)
+            response = await self._http_get(url, timeout=self.timeout)
             
             # Calculate response time for tracking
             response_time = (datetime.now() - start_time).total_seconds()

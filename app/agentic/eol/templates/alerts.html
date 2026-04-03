@@ -1241,6 +1241,30 @@
         updatePreview();
     });
 
+    function getAlertActionPayload(response) {
+        if (response && response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+            return response.data;
+        }
+
+        return {};
+    }
+
+    function getAlertConfigurationPayload(response) {
+        if (!response || !response.data) {
+            return null;
+        }
+
+        if (Array.isArray(response.data)) {
+            return response.data[0] || null;
+        }
+
+        if (typeof response.data === 'object') {
+            return response.data;
+        }
+
+        return null;
+    }
+
     async function loadOSInventory() {
         try {
             const response = await fetch('/api/os?days=90');
@@ -1269,9 +1293,11 @@
                 const data = await response.json();
                 // Backend response received
 
-                if (data.success && data.data && data.data.length > 0) {
+                const configPayload = getAlertConfigurationPayload(data);
+
+                if (data.success && configPayload) {
                     // Extract configuration from the response structure
-                    const configData = data.data[0].configuration || data.data[0];
+                    const configData = configPayload.configuration || configPayload;
 
                     // Properly structure the alert configuration with defaults
                     alertConfig = {
@@ -2023,9 +2049,11 @@
             // console.log('Data success:', data.success);
             // console.log('Data data:', data.data);
 
-            if (data.success && data.data && data.data.length > 0) {
+            const configPayload = getAlertConfigurationPayload(data);
+
+            if (data.success && configPayload) {
                 // Extract configuration from the response structure (same as loadAlertConfiguration)
-                const configData = data.data[0].configuration || data.data[0];
+                const configData = configPayload.configuration || configPayload;
 
                 // Reset alertConfig to fresh data from database
                 alertConfig = {
@@ -2637,9 +2665,11 @@
             });
 
             const data = await response.json();
+            const actionPayload = getAlertActionPayload(data);
 
             if (data.success) {
-                resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-2"></i>${data.message} (sent to ${data.recipients_count} recipients)</div>`;
+                const recipientsCount = actionPayload.recipients_count ?? (Array.isArray(actionPayload.recipients) ? actionPayload.recipients.length : 0);
+                resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-2"></i>${data.message} (sent to ${recipientsCount} recipients)</div>`;
             } else {
                 resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times me-2"></i>${data.message}</div>`;
             }

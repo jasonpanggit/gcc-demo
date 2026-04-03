@@ -1,11 +1,10 @@
 """
 EOL Status Agent - Queries eolstatus.com product pages for EOL information
 """
-import re
 import json
-import requests
-from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
+import re
+from typing import Any, Dict, List, Optional
 
 from .base_eol_agent import BaseEOLAgent
 
@@ -57,7 +56,7 @@ class EOLStatusAgent(BaseEOLAgent):
         if cached_data:
             return cached_data
 
-        slug, match_method = self._find_best_slug(software_name, version)
+        slug, match_method = await self._find_best_slug(software_name, version)
         if not slug:
             return self.create_failure_response(
                 software_name=software_name,
@@ -67,7 +66,7 @@ class EOLStatusAgent(BaseEOLAgent):
             )
 
         product_url = f"{self.base_url}/product/{slug}"
-        html = self._fetch_html(product_url)
+        html = await self._fetch_html(product_url)
         if not html:
             return self.create_failure_response(
                 software_name=software_name,
@@ -94,7 +93,7 @@ class EOLStatusAgent(BaseEOLAgent):
         resolved_version = props.get("version") or version
         vendor_name = self._extract_vendor_name(json_ld)
         category = json_ld.get("category")
-        minor_versions = self._collect_minor_versions(
+        minor_versions = await self._collect_minor_versions(
             software_name,
             version,
             selected_slug=slug,
@@ -125,9 +124,9 @@ class EOLStatusAgent(BaseEOLAgent):
         await self._cache_data(software_name, version, result)
         return result
 
-    def _fetch_html(self, url: str) -> Optional[str]:
+    async def _fetch_html(self, url: str) -> Optional[str]:
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = await self._http_get(url, timeout=self.timeout)
             if response.status_code != 200:
                 logger.warning("EOLStatus request failed (%s): %s", response.status_code, url)
                 return None
@@ -136,12 +135,12 @@ class EOLStatusAgent(BaseEOLAgent):
             logger.warning("EOLStatus request error for %s: %s", url, exc)
             return None
 
-    def _get_product_slugs(self) -> List[str]:
+    async def _get_product_slugs(self) -> List[str]:
         now = datetime.utcnow()
         if self._products_cache_ts and now - self._products_cache_ts < self._products_cache_ttl:
             return list(self._products_cache)
 
-        html = self._fetch_html(self.products_url)
+        html = await self._fetch_html(self.products_url)
         if not html:
             return list(self._products_cache)
 
@@ -151,8 +150,8 @@ class EOLStatusAgent(BaseEOLAgent):
             self._products_cache_ts = now
         return slugs
 
-    def _find_best_slug(self, software_name: str, version: Optional[str]) -> (Optional[str], str):
-        slugs = self._get_product_slugs()
+    async def _find_best_slug(self, software_name: str, version: Optional[str]) -> (Optional[str], str):
+        slugs = await self._get_product_slugs()
         if not slugs:
             return None, "no_index"
 
@@ -202,7 +201,7 @@ class EOLStatusAgent(BaseEOLAgent):
             match_method = "name_version"
         return best_slug, match_method
 
-    def _collect_minor_versions(
+    async def _collect_minor_versions(
         self,
         software_name: str,
         version: Optional[str],
@@ -219,7 +218,7 @@ class EOLStatusAgent(BaseEOLAgent):
         if not major.isdigit():
             return []
 
-        slugs = self._get_product_slugs()
+        slugs = await self._get_product_slugs()
         if not slugs:
             return []
 
@@ -239,7 +238,7 @@ class EOLStatusAgent(BaseEOLAgent):
             if selected_slug and slug == selected_slug:
                 json_ld = selected_json_ld
             if json_ld is None:
-                json_ld = self._fetch_product_jsonld(slug)
+                json_ld = await self._fetch_product_jsonld(slug)
             if not json_ld:
                 continue
 
@@ -253,9 +252,9 @@ class EOLStatusAgent(BaseEOLAgent):
 
         return self._sort_versions(versions)
 
-    def _fetch_product_jsonld(self, slug: str) -> Optional[Dict[str, Any]]:
+    async def _fetch_product_jsonld(self, slug: str) -> Optional[Dict[str, Any]]:
         product_url = f"{self.base_url}/product/{slug}"
-        html = self._fetch_html(product_url)
+        html = await self._fetch_html(product_url)
         if not html:
             return None
         return self._extract_product_jsonld(html)

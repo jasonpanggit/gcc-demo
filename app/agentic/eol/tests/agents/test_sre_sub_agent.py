@@ -6,13 +6,12 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 3)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import AsyncMock
 from agents.sre_sub_agent import SRESubAgent
 from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestSRESubAgent:
     """Tests for SRESubAgent."""
 
@@ -83,6 +82,7 @@ class TestSRESubAgent:
         assert hasattr(agent, 'run')
         assert callable(agent.run)
 
+    @pytest.mark.asyncio
     async def test_run_method_signature(self):
         """Test run method accepts user message."""
         tool_defs = []

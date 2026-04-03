@@ -862,7 +862,9 @@
                 setStatus('Purge failed', 'bg-danger');
                 return;
             }
-            const meta = (payload.data && payload.data[0]) || payload.metadata || {};
+            const meta = (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data))
+                ? payload.data
+                : ((payload.data && payload.data[0]) || payload.metadata || {});
             const deleted = meta.deleted ?? payload.deleted ?? '?';
             setStatus(`Purged ${deleted} record(s)`, 'bg-success');
             selectedRecords.clear();

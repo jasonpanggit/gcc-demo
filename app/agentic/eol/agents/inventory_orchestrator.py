@@ -97,6 +97,9 @@ Guidelines:
 3. Surface relevant inventory metrics or Azure configuration insights when they
    strengthen the answer.
 4. When uncertain, state any assumptions and provide next steps for validation.
+5. For simple yes/no questions (e.g. "do I have X?"), lead with a direct answer
+   in one sentence, then provide supporting detail only if needed. Do NOT
+   explain which data sources were or were not checked.
 """
 
     _DECLINED_CONFIRMATION_MESSAGE = (
@@ -258,6 +261,30 @@ Guidelines:
                         content=response_text,
                         conversation_id=conversation_id,
                         metadata={"fast_path": True, "type": "eol_lookup"},
+                    )
+                    return self._build_response_payload(
+                        user_message=user_message,
+                        response_text=response_text,
+                        conversation_id=conversation_id,
+                        processing_seconds=total_time,
+                        confirmation_state=confirmation_state,
+                        error=None,
+                        agent_metadata=agent_grounding.get("metadata"),
+                        agents_called=agent_grounding.get("agents_called"),
+                        fast_path=True,
+                    )
+
+            if self._should_use_software_search_fast_path(user_message, agent_grounding):
+                response_text = self._build_software_search_fast_path_response(
+                    user_message, agent_grounding
+                )
+                if response_text:
+                    total_time = time.time() - start_time
+                    self._append_agent_communication(
+                        role="assistant",
+                        content=response_text,
+                        conversation_id=conversation_id,
+                        metadata={"fast_path": True, "type": "software_search"},
                     )
                     return self._build_response_payload(
                         user_message=user_message,
@@ -694,7 +721,9 @@ Guidelines:
                 section_parts.append("</section>")
                 sections.append("".join(section_parts))
 
-        if include_os_sections and paginated_rows_meta:
+        # Skip rendering detailed OS inventory table in insights
+        # The fast path or agent will handle presentation
+        if False and include_os_sections and paginated_rows_meta:
             paginated_rows = paginated_rows_meta.get("rows") if isinstance(paginated_rows_meta.get("rows"), list) else []
             page_size_value = paginated_rows_meta.get("page_size")
             total_pages_value = paginated_rows_meta.get("total_pages")
@@ -924,10 +953,17 @@ Guidelines:
         wants_inventory = bool(intent.get("is_inventory_query"))
         wants_os_inventory = bool(intent.get("is_os_inventory_query"))
         wants_software_inventory = bool(intent.get("is_software_inventory_query"))
+        is_software_presence_check = bool(intent.get("software_presence_target"))
+
+        # A software presence check (e.g. "do i have solarwinds in my os inventory")
+        # is always treated as software-only even when "os inventory" appears in the text.
         software_only_request = (
-            (wants_inventory or wants_software_inventory)
-            and wants_software_inventory
-            and not wants_os_inventory
+            is_software_presence_check
+            or (
+                (wants_inventory or wants_software_inventory)
+                and wants_software_inventory
+                and not wants_os_inventory
+            )
         )
 
         if wants_inventory or wants_software_inventory:
@@ -1718,6 +1754,157 @@ Guidelines:
         )
         return any(phrase in normalized for phrase in direct_eol_phrases)
 
+    def _should_use_software_search_fast_path(
+        self,
+        user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> bool:
+        """Detect queries that ask about a specific software product's presence.
+
+        Returns True when the user asks something like "do I have SolarWinds?"
+        and the grounding metadata contains a ``software_presence_target``.
+        """
+        if not user_message or not isinstance(agent_grounding, dict):
+            return False
+
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return False
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        return bool(intent.get("software_presence_target"))
+
+    def _build_software_search_fast_path_response(
+        self,
+        _user_message: str,
+        agent_grounding: Dict[str, Any],
+    ) -> str:
+        """Build a concise response for software presence check queries.
+
+        Searches the software inventory data gathered by the agent grounding
+        phase for matches against the target software name.  Returns a brief
+        HTML summary of results: either a "found N matches" table or a clear
+        "not detected" message.
+        """
+        metadata = agent_grounding.get("metadata") if isinstance(agent_grounding, dict) else {}
+        if not isinstance(metadata, dict):
+            return ""
+
+        raw_intent = metadata.get("requested_intents")
+        intent: Dict[str, Any] = raw_intent if isinstance(raw_intent, dict) else {}
+        target_software = intent.get("software_presence_target")
+        if not target_software:
+            return ""
+
+        target_lower = target_software.lower()
+        sanitized_target = self._sanitize_cell(target_software)
+
+        # Gather summary stats for context
+        raw_inventory_summary = metadata.get("inventory_summary")
+        inventory_summary: Dict[str, Any] = (
+            raw_inventory_summary if isinstance(raw_inventory_summary, dict) else {}
+        )
+        software_summary = (
+            inventory_summary.get("software")
+            if isinstance(inventory_summary.get("software"), dict)
+            else {}
+        )
+        total_items = software_summary.get("total_software", 0)
+        total_computers = software_summary.get("total_computers", 0)
+
+        # Search through the raw software inventory data for matches
+        raw_software_meta = metadata.get("software_inventory")
+        software_meta: Dict[str, Any] = (
+            raw_software_meta if isinstance(raw_software_meta, dict) else {}
+        )
+
+        # Check target_rows (per-computer view) and top_software (aggregate view)
+        matched_entries: List[List[str]] = []
+
+        raw_target_rows = software_meta.get("target_rows")
+        if isinstance(raw_target_rows, list):
+            for row in raw_target_rows:
+                if isinstance(row, list) and row:
+                    # row = [Software, Version, Publisher, Last Seen]
+                    name = str(row[0]) if row else ""
+                    if target_lower in name.lower():
+                        matched_entries.append(row)
+
+        # Also check top_software aggregated rows
+        raw_top_software = software_meta.get("top_software")
+        if isinstance(raw_top_software, list) and not matched_entries:
+            for row in raw_top_software:
+                if isinstance(row, list) and row:
+                    # row = [Software, Installations, Computers]
+                    name = str(row[0]) if row else ""
+                    if target_lower in name.lower():
+                        matched_entries.append(row)
+
+        from_cache = bool(software_meta.get("from_cache"))
+        source_label = "inventory cache" if from_cache else "live inventory query"
+
+        sections: List[str] = [f"<section><h2>Software Search: {sanitized_target}</h2>"]
+
+        if matched_entries:
+            sections.append(
+                "<p>"
+                f"Found <strong>{len(matched_entries)}</strong> "
+                f"{'entry' if len(matched_entries) == 1 else 'entries'} "
+                f"matching <strong>{sanitized_target}</strong>."
+                "</p>"
+            )
+
+            # Determine headers based on row structure
+            if raw_target_rows and isinstance(raw_target_rows, list) and matched_entries[0] in (
+                raw_target_rows if isinstance(raw_target_rows, list) else []
+            ):
+                headers = ["Software", "Version", "Publisher", "Last Seen"]
+            else:
+                headers = ["Software", "Installations", "Computers"]
+
+            display_rows = matched_entries[:25]
+            footnote_parts = [
+                f"Source: {source_label}",
+            ]
+            if len(matched_entries) > 25:
+                footnote_parts.append(
+                    f"Showing 25 of {len(matched_entries)} matches"
+                )
+            table = self._render_html_table(
+                headers,
+                display_rows,
+                footnote=" | ".join(footnote_parts),
+                highlight_first_column=True,
+            )
+            if table:
+                sections.append(table)
+        else:
+            context_parts: List[str] = []
+            if total_items:
+                context_parts.append(
+                    f"{self._sanitize_cell(total_items)} software items"
+                )
+            if total_computers:
+                context_parts.append(
+                    f"{self._sanitize_cell(total_computers)} computers"
+                )
+            checked_text = (
+                f" Checked {' across '.join(context_parts)}."
+                if context_parts
+                else ""
+            )
+
+            sections.append(
+                "<p>"
+                f"No <strong>{sanitized_target}</strong> detected in the software inventory.{checked_text}"
+                f" Source: {self._sanitize_cell(source_label)}."
+                "</p>"
+            )
+
+        sections.append("</section>")
+        return "".join(sections)
+
     def _should_use_software_inventory_fast_path(
         self,
         user_message: str,
@@ -2006,6 +2193,24 @@ Guidelines:
             )
             if table:
                 sections.append(f"<div><h3>Operating system counts</h3>{table}</div>")
+
+        # Add detailed computer-level listing (like software inventory does)
+        paginated_rows_meta = os_inventory_meta.get("paginated_rows")
+        if isinstance(paginated_rows_meta, dict):
+            all_rows = paginated_rows_meta.get("rows")
+            if isinstance(all_rows, list) and all_rows:
+                from_cache = bool(os_inventory_meta.get("from_cache"))
+                source_label = "inventory cache" if from_cache else "live inventory query"
+
+                # Render as a single table without pagination
+                table = self._render_html_table(
+                    ["Computer", "OS", "Version", "Type"],
+                    all_rows,
+                    footnote=f"Showing all {len(all_rows)} computers. Source: {source_label}.",
+                    highlight_first_column=True,
+                )
+                if table:
+                    sections.append(f"<div><h3>Computer Details</h3>{table}</div>")
 
         sections.append("</section>")
         return "".join(sections)

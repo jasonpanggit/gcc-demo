@@ -7,6 +7,20 @@ from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
 
+_COLLECTION_COUNT_KEYS = (
+    "items",
+    "results",
+    "vendors",
+    "runs",
+    "responses",
+    "records",
+    "entries",
+    "resources",
+    "objects",
+    "rows",
+)
+
+
 @dataclass
 class StandardResponse:
     """Standard API response format for all endpoints
@@ -36,6 +50,17 @@ class StandardResponse:
     metadata: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
     error: Optional[str] = None
+
+    @staticmethod
+    def derive_count(data: Any) -> int:
+        """Infer a stable count value for common payload shapes."""
+        if data is None:
+            return 0
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict):
+            return 1
+        return 1
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
@@ -61,17 +86,19 @@ class StandardResponse:
     @classmethod
     def success_response(
         cls,
-        data: List[Dict[str, Any]],
+        data: Union[List[Any], Dict[str, Any], None],
         cached: bool = False,
         metadata: Optional[Dict[str, Any]] = None,
         message: Optional[str] = None,
+        count: Optional[int] = None,
     ) -> "StandardResponse":
         """Create a successful response
         
         Args:
-            data: List of data items (always a list for consistency)
+            data: Response payload, typically a list or dict depending on the endpoint contract
             cached: Whether data came from cache
             metadata: Optional metadata about the response
+            count: Optional explicit count override for wrapped collection payloads
             
         Returns:
             StandardResponse instance
@@ -79,7 +106,7 @@ class StandardResponse:
         return cls(
             success=True,
             data=data,
-            count=len(data),
+            count=cls.derive_count(data) if count is None else count,
             cached=cached,
             metadata=metadata,
             message=message,
@@ -210,18 +237,48 @@ def ensure_standard_format(response: Any) -> Dict[str, Any]:
         # Handle various formats
         result = ensure_standard_format(legacy_response)
         # Always returns {"success": bool, "data": [...], ...}
+
+    Note:
+        Dict responses with a ``success`` field but no explicit ``data`` field are
+        normalized by moving their non-standard fields into ``data``.
     """
+    def infer_wrapped_dict_count(data: Dict[str, Any]) -> int:
+        for key in _COLLECTION_COUNT_KEYS:
+            value = data.get(key)
+            if isinstance(value, list):
+                return len(value)
+        return StandardResponse.derive_count(data)
+
     # Already a StandardResponse
     if isinstance(response, StandardResponse):
         return response.to_dict()
     
     # Already a dict with success key
     if isinstance(response, dict) and "success" in response:
-        # Ensure required fields exist
+        if "data" in response:
+            data = response.get("data", [])
+            count = response.get(
+                "count",
+                infer_wrapped_dict_count(data) if isinstance(data, dict) else StandardResponse.derive_count(data),
+            )
+        else:
+            standard_fields = {
+                "success",
+                "data",
+                "count",
+                "cached",
+                "timestamp",
+                "metadata",
+                "message",
+                "error",
+            }
+            data = {key: value for key, value in response.items() if key not in standard_fields}
+            count = response.get("count", infer_wrapped_dict_count(data))
+
         return {
             "success": response.get("success", False),
-            "data": response.get("data", []),
-            "count": response.get("count", len(response.get("data", []))),
+            "data": data,
+            "count": count,
             "cached": response.get("cached", False),
             "timestamp": response.get("timestamp", datetime.utcnow().isoformat()),
             "metadata": response.get("metadata"),
@@ -235,8 +292,10 @@ def ensure_standard_format(response: Any) -> Dict[str, Any]:
     
     # Legacy dict without success key
     if isinstance(response, dict):
-        # Treat as single item
-        return StandardResponse.success_response([response]).to_dict()
+        return StandardResponse.success_response(
+            response,
+            count=infer_wrapped_dict_count(response),
+        ).to_dict()
     
     # Unknown format
     return StandardResponse.error_response(

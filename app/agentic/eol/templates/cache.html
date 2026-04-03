@@ -931,12 +931,10 @@
 
             const response = await fetch('/api/cache/stats/performance');
             if (response.ok) {
-                const rawData = await response.json();
+                const rawData = unwrapCacheResponse(await response.json());
                 console.log('Performance dashboard raw response:', rawData);
-                
-                // API returns StandardResponse format: { success: true, data: [{...}] }
-                // Extract the actual stats from data[0]
-                const data = rawData.data && rawData.data.length > 0 ? rawData.data[0] : rawData;
+
+                const data = getCacheResponseData(rawData);
                 console.log('Extracted performance data:', data);
                 console.log('Data structure check:', {
                     total_requests: data.total_requests,
@@ -1111,12 +1109,10 @@
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const data = await response.json();
+            const data = unwrapCacheResponse(await response.json());
             console.log('Raw API response:', data);
-            
-            // API returns StandardResponse format: { success: true, data: [{...}] }
-            // Extract the actual stats from data[0]
-            const statsData = data.data && data.data.length > 0 ? data.data[0] : data;
+
+            const statsData = getCacheResponseData(data);
             console.log('Extracted stats data:', statsData);
             
             // Update the agent caches display with latest data
@@ -1371,6 +1367,26 @@
         }
     }
 
+    function unwrapCacheResponse(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return payload;
+        }
+
+        if (payload.success === true && Array.isArray(payload.data) && payload.data.length === 1 && typeof payload.data[0] === 'object') {
+            return { ...payload, data: payload.data[0] };
+        }
+
+        return payload;
+    }
+
+    function getCacheResponseData(payload) {
+        const normalized = unwrapCacheResponse(payload);
+        if (normalized && normalized.success === true && normalized.data && typeof normalized.data === 'object' && !Array.isArray(normalized.data)) {
+            return normalized.data;
+        }
+        return normalized;
+    }
+
     async function clearAgentCache(agentKey) {
         const confirmed = await showConfirmation('Clear Agent Cache',
             `This will clear all cached data for the ${agentKey} agent. Continue?`);
@@ -1384,10 +1400,11 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const result = await response.json();
+                const rawResult = await response.json();
+                const result = getCacheResponseData(rawResult);
                 // console.log('Clear agent cache result:', result);
 
-                if (result.success) {
+                if (result && result.results) {
                     const agentResult = result.results[agentKey];
                     if (agentResult && agentResult.error) {
                         showAlert(`${agentKey} agent: ${agentResult.error}`, 'warning');
@@ -1395,7 +1412,7 @@
                         showAlert(`${agentKey} agent cache cleared successfully`, 'success');
                     }
                 } else {
-                    showAlert(`Failed to clear ${agentKey} agent cache: ${result.error || 'Unknown error'}`, 'error');
+                    showAlert(`Failed to clear ${agentKey} agent cache: ${rawResult.error || 'Unknown error'}`, 'error');
                 }
 
                 // Refresh the agent caches display
@@ -1421,10 +1438,11 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const result = await response.json();
+                const rawResult = await response.json();
+                const result = getCacheResponseData(rawResult);
                 // console.log('Clear all agent caches result:', result);
 
-                if (result.success) {
+                if (result && result.results) {
                     let clearedCount = 0;
                     let errorCount = 0;
 
@@ -1451,7 +1469,7 @@
                         showAlert(`No agent caches were cleared (${errorCount} errors)`, 'warning');
                     }
                 } else {
-                    showAlert(`Failed to clear agent caches: ${result.error || 'Unknown error'}`, 'error');
+                    showAlert(`Failed to clear agent caches: ${rawResult.error || 'Unknown error'}`, 'error');
                 }
 
                 // Refresh the agent caches display
@@ -1498,12 +1516,10 @@
                 throw new Error(`HTTP ${enhancedResponse.status}: ${enhancedResponse.statusText}`);
             }
 
-            const enhancedDataRaw = await enhancedResponse.json();
+            const enhancedDataRaw = unwrapCacheResponse(await enhancedResponse.json());
             // console.log('Enhanced cache stats raw:', enhancedDataRaw);
-            
-            // Extract from StandardResponse format (data[0])
-            const enhancedData = enhancedDataRaw.data && enhancedDataRaw.data.length > 0 ? 
-                enhancedDataRaw.data[0] : enhancedDataRaw;
+
+            const enhancedData = getCacheResponseData(enhancedDataRaw);
             // console.log('Enhanced cache stats extracted:', enhancedData);
 
             // Extract inventory agent statistics
@@ -1926,7 +1942,7 @@
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const data = await response.json();
+            const data = getCacheResponseData(await response.json());
             const agentStats = data?.agent_stats?.agents || {};
             const softwareStats = agentStats['software_inventory'];
             const osStats = agentStats['os_inventory'];
@@ -2051,8 +2067,7 @@
                 enhancedStatsResponse.value : { success: false, error: enhancedStatsResponse.reason?.message };
             
             // Extract enhanced stats from StandardResponse format (data[0])
-            const enhancedStats = enhancedStatsRaw.data && enhancedStatsRaw.data.length > 0 ? 
-                enhancedStatsRaw.data[0] : enhancedStatsRaw;
+            const enhancedStats = getCacheResponseData(enhancedStatsRaw);
 
             // console.log('Endpoint results:', {
             //     cacheStatus: cacheStatus.success || cacheStatus.error,
@@ -2066,8 +2081,7 @@
             let hitRate = 0;
 
             // Extract cache status from StandardResponse format (data[0])
-            const cacheData = cacheStatus.success && cacheStatus.data && cacheStatus.data.length > 0 ? 
-                cacheStatus.data[0] : (cacheStatus.data || {});
+            const cacheData = getCacheResponseData(cacheStatus) || {};
 
             // Count from cache status
             if (cacheStatus.success) {
@@ -2581,8 +2595,8 @@
                 throw new Error('Failed to fetch performance data');
             }
             
-            const agentStatsData = await agentStatsResponse.json();
-            const enhancedStatsData = await enhancedStatsResponse.json();
+            const agentStatsData = getCacheResponseData(await agentStatsResponse.json());
+            const enhancedStatsData = getCacheResponseData(await enhancedStatsResponse.json());
             
             // Find the specific agent data
             const agentData = agentStatsData.agents_with_cache?.find(a => 

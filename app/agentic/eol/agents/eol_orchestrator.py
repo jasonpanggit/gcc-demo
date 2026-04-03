@@ -1,8 +1,8 @@
-"""EOL Orchestrator Agent — thin coordinator for tiered EOL data retrieval.
+"""EOL orchestrator coordinating tiered EOL retrieval and compatibility shims.
 
-Delegates dispatch to TieredFetchPipeline, aggregation to ResultAggregator,
-and bulk operations to dedicated helpers in utils/.
-All five public method signatures are preserved for API compatibility.
+The orchestrator delegates source dispatch to ``TieredFetchPipeline``, result
+aggregation to ``ResultAggregator``, and bulk inventory enrichment to helper
+utilities while preserving the historical public method surface used by the API.
 """
 import asyncio
 import uuid

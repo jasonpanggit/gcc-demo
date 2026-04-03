@@ -88,6 +88,23 @@ fi
 
 echo "📖 Reading configuration from $(basename "$APPSETTINGS_FILE")..."
 
+resolve_config_secret() {
+    local raw_value="$1"
+
+    if [[ -z "$raw_value" || "$raw_value" == "null" || "$raw_value" == "empty" ]]; then
+        printf ''
+        return
+    fi
+
+    if [[ "$raw_value" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
+        local env_name="${BASH_REMATCH[1]}"
+        printf '%s' "${!env_name:-}"
+        return
+    fi
+
+    printf '%s' "$raw_value"
+}
+
 # Read configuration from appsettings.json using jq
 SUBSCRIPTION_ID=$(jq -r '.Azure.SubscriptionId' "$APPSETTINGS_FILE")
 TENANT_ID=$(jq -r '.Azure.TenantId' "$APPSETTINGS_FILE")
@@ -100,7 +117,13 @@ IMAGE_NAME=$(jq -r '.Deployment.ContainerRegistry.ImageName' "$APPSETTINGS_FILE"
 MANAGED_IDENTITY_CLIENT_ID=$(jq -r '.ManagedIdentity.ClientId' "$APPSETTINGS_FILE")
 USE_SERVICE_PRINCIPAL=$(jq -r '.ServicePrincipal.UseServicePrincipal' "$APPSETTINGS_FILE")
 SP_CLIENT_ID=$(jq -r '.ServicePrincipal.ClientId // empty' "$APPSETTINGS_FILE")
-SP_CLIENT_SECRET=$(jq -r '.ServicePrincipal.ClientSecret // empty' "$APPSETTINGS_FILE")
+SP_CLIENT_SECRET=$(resolve_config_secret "$(jq -r '.ServicePrincipal.ClientSecret // empty' "$APPSETTINGS_FILE")")
+
+if [[ "$USE_SERVICE_PRINCIPAL" == "true" ]] && [[ -n "$SP_CLIENT_ID" ]] && [[ -z "$SP_CLIENT_SECRET" ]]; then
+    echo "❌ Service principal authentication is enabled, but no client secret was resolved."
+    echo "   Set AZURE_SP_CLIENT_SECRET in your environment or provide a literal ClientSecret in the config file."
+    exit 1
+fi
 
 # Use version parameter or default from config
 IMAGE_TAG="v${VERSION}"
@@ -229,10 +252,16 @@ PLAYWRIGHT_LLM_EXTRACTION=$(jq -r '.AppSettings.PlaywrightLLMExtraction // "fals
 KUSTO_CLUSTER_URI=$(jq -r '.AzureServices.Kusto.ClusterUri // empty' "$APPSETTINGS_FILE")
 KUSTO_DATABASE=$(jq -r '.AzureServices.Kusto.Database // empty' "$APPSETTINGS_FILE")
 AZURE_CLI_EXECUTOR_ENABLED=$(jq -r '.McpSettings.AzureCliExecutorEnabled // true' "$APPSETTINGS_FILE")
-GITHUB_TOKEN=$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")
-MSRC_API_KEY=$(jq -r '.AppSettings.MSRC_API_KEY // empty' "$APPSETTINGS_FILE")
+GITHUB_TOKEN=$(resolve_config_secret "$(jq -r '.AppSettings.GITHUB_TOKEN // empty' "$APPSETTINGS_FILE")")
+MSRC_API_KEY=$(resolve_config_secret "$(jq -r '.AppSettings.MSRC_API_KEY // empty' "$APPSETTINGS_FILE")")
 TEAMS_BOT_APP_ID=$(jq -r '.TeamsBot.AppId // empty' "$APPSETTINGS_FILE")
-TEAMS_BOT_APP_PASSWORD=$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")
+TEAMS_BOT_APP_PASSWORD=$(resolve_config_secret "$(jq -r '.TeamsBot.AppPassword // empty' "$APPSETTINGS_FILE")")
+
+if [[ -n "$TEAMS_BOT_APP_ID" ]] && [[ "$TEAMS_BOT_APP_ID" != "null" ]] && [[ "$TEAMS_BOT_APP_ID" != "empty" ]] && [[ -z "$TEAMS_BOT_APP_PASSWORD" ]]; then
+    echo "❌ Teams Bot App ID is configured, but no app password was resolved."
+    echo "   Set TEAMS_BOT_APP_PASSWORD in your environment or provide a literal AppPassword in the config file."
+    exit 1
+fi
 
 # Normalize project endpoint for Azure AI Foundry agents if appsettings contains base endpoint
 if [[ -n "$AI_PROJECT_NAME" ]] && [[ "$AI_PROJECT_NAME" != "null" ]] && [[ "$AI_PROJECT_ENDPOINT" != *"/api/projects/"* ]]; then
@@ -386,6 +415,7 @@ echo "   Using revision suffix: $REVISION_SUFFIX"
 
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
+chmod 600 "$OUT_FILE" "$ERR_FILE"
 cleanup_temp_files() {
     rm -f "$OUT_FILE" "$ERR_FILE"
 }

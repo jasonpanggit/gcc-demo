@@ -71,23 +71,23 @@ async def query_alert_history(
         alert_repo = request.app.state.alert_repo
         records = await alert_repo.query_history(filters, limit, offset)
 
-        return StandardResponse(
-            success=True,
-            message=f"Retrieved {len(records)} alert history records",
-            data={
+        return StandardResponse.success_response(
+            {
                 "records": records,
                 "count": len(records),
                 "limit": limit,
                 "offset": offset,
-                "filters": filters
-            }
+                "filters": filters,
+            },
+            count=len(records),
+            message=f"Retrieved {len(records)} alert history records",
         )
 
     except Exception as e:
         logger.error(f"Failed to query alert history: {e}", exc_info=True)
-        return StandardResponse(
-            success=False,
-            message=f"Failed to query alert history: {str(e)}"
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Failed to query alert history",
         )
 
 
@@ -107,22 +107,20 @@ async def get_alert_details(request: Request, record_id: str) -> StandardRespons
         record = await alert_repo.get_record(record_id)
 
         if not record:
-            return StandardResponse(
-                success=False,
-                message=f"Alert {record_id} not found"
+            return StandardResponse.error_response(
+                error=f"Alert {record_id} not found"
             )
 
-        return StandardResponse(
-            success=True,
+        return StandardResponse.success_response(
+            {"record": record},
             message="Alert details retrieved",
-            data={"record": record}
         )
 
     except Exception as e:
         logger.error(f"Failed to get alert details {record_id}: {e}", exc_info=True)
-        return StandardResponse(
-            success=False,
-            message=f"Failed to get alert details: {str(e)}"
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Failed to get alert details",
         )
 
 
@@ -149,9 +147,8 @@ async def acknowledge_alert(
     try:
         user = body.get("user")
         if not user:
-            return StandardResponse(
-                success=False,
-                message="User is required for acknowledgment"
+            return StandardResponse.error_response(
+                error="User is required for acknowledgment"
             )
 
         note = body.get("note")
@@ -160,28 +157,26 @@ async def acknowledge_alert(
         success = await alert_repo.acknowledge(record_id, user, note)
 
         if not success:
-            return StandardResponse(
-                success=False,
-                message=f"Alert {record_id} not found or already acknowledged"
+            return StandardResponse.error_response(
+                error=f"Alert {record_id} not found or already acknowledged"
             )
 
         logger.info(f"Alert {record_id} acknowledged by {user}")
 
-        return StandardResponse(
-            success=True,
-            message="Alert acknowledged successfully",
-            data={
+        return StandardResponse.success_response(
+            {
                 "record_id": record_id,
                 "acknowledged_by": user,
-                "note": note
-            }
+                "note": note,
+            },
+            message="Alert acknowledged successfully",
         )
 
     except Exception as e:
         logger.error(f"Failed to acknowledge alert {record_id}: {e}", exc_info=True)
-        return StandardResponse(
-            success=False,
-            message=f"Failed to acknowledge alert: {str(e)}"
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Failed to acknowledge alert",
         )
 
 
@@ -207,34 +202,31 @@ async def dismiss_alert(
     try:
         reason = body.get("reason")
         if not reason:
-            return StandardResponse(
-                success=False,
-                message="Dismissal reason is required"
+            return StandardResponse.error_response(
+                error="Dismissal reason is required"
             )
 
         alert_repo = request.app.state.alert_repo
         success = await alert_repo.dismiss(record_id, reason)
 
         if not success:
-            return StandardResponse(
-                success=False,
-                message=f"Alert {record_id} not found or already dismissed"
+            return StandardResponse.error_response(
+                error=f"Alert {record_id} not found or already dismissed"
             )
 
         logger.info(f"Alert {record_id} dismissed: {reason}")
 
-        return StandardResponse(
-            success=True,
-            message="Alert dismissed successfully",
-            data={
+        return StandardResponse.success_response(
+            {
                 "record_id": record_id,
-                "reason": reason
-            }
+                "reason": reason,
+            },
+            message="Alert dismissed successfully",
         )
 
     except Exception as e:
         logger.error(f"Failed to dismiss alert {record_id}: {e}", exc_info=True)
-        return StandardResponse(
-            success=False,
-            message=f"Failed to dismiss alert: {str(e)}"
+        return StandardResponse.error_response(
+            error=str(e),
+            message="Failed to dismiss alert",
         )

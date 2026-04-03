@@ -39,7 +39,7 @@ router = APIRouter(tags=["Cache Management"])
 
 
 @router.get("/api/cache/status", response_model=StandardResponse)
-@with_timeout_and_stats(agent_name="cache_status", timeout_seconds=20, track_cache=False, auto_wrap_response=False)
+@readonly_endpoint(agent_name="cache_status", timeout_seconds=20)
 async def get_cache_status():
     """
     Get comprehensive cache status across all agents.
@@ -65,7 +65,7 @@ async def get_cache_status():
     Example Response:
         {
             "success": true,
-            "data": [{
+            "data": {
                 "agents_with_cache": [
                     {
                         "name": "microsoft_agent",
@@ -81,7 +81,7 @@ async def get_cache_status():
                     "ttl_seconds": 3600,
                     "items_count": 150
                 }
-            }]
+            }
         }
     """
     # Import here to avoid circular dependency
@@ -119,14 +119,12 @@ async def get_cache_status():
     
     cache_data["inventory_context_cache"] = inventory_stats
     
-    # Wrap in StandardResponse format - data must be a list per StandardResponse model
-    # Final structure: {"success": true, "data": [{"eol_cache": {...}, "agents": {...}, "enhanced_stats": {...}, "inventory_context_cache": {...}}]}
-    response = StandardResponse.success_response(
-        [cache_data],
+    # Return a StandardResponse object-shaped payload for the cache dashboard.
+    return StandardResponse.success_response(
+        data=cache_data,
         cached=inventory_stats["cached"],
         metadata={"source": "orchestrator"}
     )
-    return response.to_dict()
 
 
 @router.get("/api/cache/ui", response_model=StandardResponse)
@@ -144,10 +142,10 @@ async def get_cache_ui_data():
     }
 
     response = StandardResponse.success_response(
-        [payload],
+        payload,
         metadata={"source": "cache_stats_manager"}
     )
-    return response.to_dict()
+    return response
 
 
 @router.post("/api/cache/clear")
@@ -195,24 +193,24 @@ async def clear_cache():
                     "cache_types": result.get("cache_types", []),
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-            ).to_dict()
+            )
 
         # Wrap in StandardResponse format with data as list
         return StandardResponse.success_response(
-            data=[{
+            data={
                 "cleared_cache_types": result.get("cache_types", []),
                 "memory_entries_cleared": result.get("cleared_count", 0),
                 "cache_cleared": result.get("l2_cleared", False),
                 "timestamp": datetime.utcnow().isoformat()
-            }],
+            },
             message="Inventory caches cleared successfully"
-        ).to_dict()
+        )
     except Exception as e:
         logger.error(f"❌ Error clearing caches: {e}")
         return StandardResponse.error_response(
             error_message=f"Failed to clear caches: {str(e)}",
             details={"error_type": type(e).__name__}
-        ).to_dict()
+        )
 
 
 @router.post("/api/cache/purge", response_model=StandardResponse)
@@ -278,22 +276,18 @@ async def purge_cache(agent_type: Optional[str] = None, software_name: Optional[
         }
     }
 
-    return {
-        "success": bool(cache_result.get("success", True) if isinstance(cache_result, dict) else True),
-        "results": results,
-        "data": [{
+    return StandardResponse.success_response(
+        data={
+            "results": results,
             "message": "Agent caches cleared",
             "agent_type": agent_type or "all",
             "software_name": software_name,
             "version": version,
-            "deleted_count": deleted_count,
-            "eol_inventory_deleted": eol_inventory_deleted,
+            "deleted_count": deleted_count + eol_inventory_deleted,
             "memory_cleared": memory_cleared,
-            "timestamp": datetime.utcnow().isoformat()
-        }],
-        "deleted_count": deleted_count + eol_inventory_deleted,
-        "memory_cleared": memory_cleared
-    }
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @router.get("/api/cache/inventory/stats", response_model=StandardResponse)
@@ -367,16 +361,14 @@ async def get_inventory_cache_stats():
     enhanced_inventory_stats = cache_stats_manager.get_inventory_statistics()
     
     response = StandardResponse.success_response(
-        [
-            {
-                "cache_stats": stats,
-                "enhanced_stats": enhanced_inventory_stats,
-            }
-        ],
+        {
+            "cache_stats": stats,
+            "enhanced_stats": enhanced_inventory_stats,
+        },
         cached=was_cache_hit,
         metadata={"source": "inventory_cache"},
     )
-    return response.to_dict()
+    return response
 
 
 @router.get("/api/cache/inventory/details", response_model=StandardResponse)
@@ -422,7 +414,7 @@ async def get_inventory_cache_details():
     
     if cache_stats.get("total_memory_entries", 0) == 0:
         response = StandardResponse.success_response(
-            [{
+            {
                 "summary": {
                     "total_cache_entries": 0,
                     "cache_types": cache_stats.get("supported_cache_types", []),
@@ -430,11 +422,11 @@ async def get_inventory_cache_details():
                 },
                 "cache_stats": cache_stats,
                 "message": "No inventory data cached",
-            }],
+            },
             cached=False,
             metadata={"warning": "inventory_cache_empty"},
         )
-        return response.to_dict()
+        return response
 
     details = {
         "timestamp": None,  # inventory_cache tracks per-entry timestamps
@@ -452,14 +444,14 @@ async def get_inventory_cache_details():
     }
 
     response = StandardResponse.success_response(
-        [{"details": details}],
+        {"details": details},
         cached=True,
         metadata={
             "summary": details["summary"],
             "timestamp": datetime.utcnow().isoformat(),
         },
     )
-    return response.to_dict()
+    return response
 
 
 @router.get("/api/cache/webscraping/details", response_model=StandardResponse)
@@ -552,16 +544,18 @@ async def get_webscraping_cache_details():
             
             cache_details.append(agent_cache_info)
     
-    return {
-        "success": True,
-        "cache_details": cache_details,
-        "summary": {
-            "total_agents": len(cache_details),
-            "agents_with_cache": sum(1 for a in cache_details if a["has_cache"]),
-            "total_cached_items": total_cached_items,
-            "largest_cache": max((a["cache_size"] for a in cache_details), default=0)
-        }
-    }
+    return StandardResponse.success_response(
+        data={
+            "cache_details": cache_details,
+            "summary": {
+                "total_agents": len(cache_details),
+                "agents_with_cache": sum(1 for a in cache_details if a["has_cache"]),
+                "total_cached_items": total_cached_items,
+                "largest_cache": max((a["cache_size"] for a in cache_details), default=0)
+            },
+        },
+        count=len(cache_details),
+    )
 
 
 # ============================================================================
@@ -580,7 +574,7 @@ async def get_enhanced_cache_stats():
     Returns:
         StandardResponse with comprehensive cache statistics.
     """
-    return cache_stats_manager.get_all_statistics()
+    return StandardResponse.success_response(cache_stats_manager.get_all_statistics())
 
 
 @router.get("/api/cache/stats/agents", response_model=StandardResponse)
@@ -595,7 +589,7 @@ async def get_agent_cache_stats():
     Returns:
         StandardResponse with agent-level cache statistics.
     """
-    return cache_stats_manager.get_agent_statistics()
+    return StandardResponse.success_response(cache_stats_manager.get_agent_statistics())
 
 
 @router.get("/api/cache/stats/performance", response_model=StandardResponse)
@@ -610,7 +604,7 @@ async def get_cache_performance_stats():
     Returns:
         StandardResponse with cache performance summary.
     """
-    return cache_stats_manager.get_performance_summary()
+    return StandardResponse.success_response(cache_stats_manager.get_performance_summary())
 
 
 @router.post("/api/cache/stats/reset", response_model=StandardResponse)
@@ -628,14 +622,12 @@ async def reset_cache_stats():
     """
     cache_stats_manager.reset_all_stats()
     response = StandardResponse.success_response(
-        [
-            {
-                "message": "All cache statistics have been reset",
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ]
+        {
+            "message": "All cache statistics have been reset",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
     )
-    return response.to_dict()
+    return response
 
 
 # All cache endpoints have been successfully migrated from main.py

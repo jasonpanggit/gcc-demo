@@ -27,6 +27,7 @@ set -euo pipefail
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../../../" && pwd)"
+TF_OUTPUTS_FILE=""
 
 # Handle output file argument
 if [[ $# -gt 0 ]]; then
@@ -62,6 +63,14 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+cleanup() {
+  if [[ -n "$TF_OUTPUTS_FILE" ]] && [[ -f "$TF_OUTPUTS_FILE" ]]; then
+    rm -f "$TF_OUTPUTS_FILE"
+  fi
+}
+
+trap cleanup EXIT
+
 # Check requirements
 check_requirements() {
     log_info "Checking requirements..."
@@ -91,8 +100,9 @@ get_terraform_outputs() {
     log_info "Getting Terraform outputs from ${PROJECT_ROOT}..."
     
     cd "${PROJECT_ROOT}"
+  TF_OUTPUTS_FILE="$(mktemp "${TMPDIR:-/tmp}/tf_outputs.XXXXXX.json")"
     
-    if ! terraform output -json > /tmp/tf_outputs.json 2>/dev/null; then
+  if ! (umask 077 && terraform output -json > "$TF_OUTPUTS_FILE" 2>/dev/null); then
         log_error "Failed to get Terraform outputs"
         log_error "Make sure terraform init and terraform apply have been run successfully"
         exit 1
@@ -106,7 +116,7 @@ generate_appsettings() {
     log_info "Generating appsettings.json..."
     
     # Read terraform outputs
-    local tf_outputs="/tmp/tf_outputs.json"
+  local tf_outputs="$TF_OUTPUTS_FILE"
     
     # Extract values with fallbacks
     local subscription_id=$(jq -r '.subscription_id.value // "NOT_SET"' "$tf_outputs")
@@ -195,7 +205,7 @@ generate_appsettings() {
     fi
     
     # Generate the appsettings.json content with nested structure
-    cat > "$OUTPUT_FILE" << EOF
+    (umask 077 && cat > "$OUTPUT_FILE" << EOF
 {
   "Azure": {
     "SubscriptionId": "${subscription_id}",
@@ -217,9 +227,9 @@ generate_appsettings() {
   },
   "ServicePrincipal": {
     "ClientId": "${sp_client_id}",
-    "ClientSecret": "${sp_client_secret}",
+    "ClientSecret": "\${AZURE_SP_CLIENT_SECRET}",
     "UseServicePrincipal": $([[ "${sp_client_id}" != "NOT_SET" ]] && echo "true" || echo "false"),
-    "Comment": "Set UseServicePrincipal to false to use Managed Identity instead"
+    "Comment": "Populate AZURE_SP_CLIENT_SECRET in your environment before running deployment scripts"
   },
   "ManagedIdentity": {
     "ClientId": "${managed_identity_client_id}",
@@ -271,8 +281,8 @@ generate_appsettings() {
   },
   "TeamsBot": {
     "AppId": "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_BOT_APP_ID_",
-    "AppPassword": "_PLACEHOLDER_REPLACE_WITH_YOUR_TEAMS_BOT_APP_PASSWORD_",
-    "_comment": "Replace with your Microsoft Teams Bot credentials for SRE notifications"
+    "AppPassword": "\${TEAMS_BOT_APP_PASSWORD}",
+    "_comment": "Populate TEAMS_BOT_APP_PASSWORD in your environment before running deployment scripts"
   },
   "AppSettings": {
     "WEBSITES_PORT": "8000",
@@ -294,6 +304,7 @@ generate_appsettings() {
   }
 }
 EOF
+    )
     
     # Cleanup temp file
     rm -f "$tf_outputs"

@@ -17,6 +17,23 @@ Expected: all local tests collected and run in mock mode.
 
 ---
 
+## Layout Conventions
+
+- Keep domain-specific tests in the closest matching folder: `agents/`, `cache/`, `services/`, `utils/`, `orchestrators/`, `mcp_servers/`, `ui/`, and so on.
+- Keep top-level files only for cross-cutting suites that span multiple domains, especially API contract regression tests and a small number of broad integration flows.
+- If a test targets one concrete module or manager, it should not live at the top level.
+- Disabled historical artifacts should be removed instead of left behind as `.skip` files.
+
+Recent cleanup moved obvious strays into their domain folders, for example:
+
+- `services/test_cve_alert_history_manager.py`
+- `cache/test_resource_inventory_cache.py`
+- `utils/test_nvd_client.py`
+- `utils/test_vendor_feed_client.py`
+- `utils/test_repository_state.py`
+
+---
+
 ## Execution Modes
 
 All modes are driven by `run_tests.sh`. Run `./run_tests.sh --help` for the full
@@ -113,7 +130,11 @@ Newer MCP-focused coverage such as CVE flows is currently run by targeting the t
 | `test_sre_agent_enhancements.py` | unit | `SREResponseFormatter`, `SREInteractionHandler`, `SRECacheManager` |
 | `test_sre_user_interactions.py` | unit | SRE user interaction flows and follow-up handling |
 | `test_resource_inventory_integration.py` | integration | `ResourceInventoryCache` integration with Cosmos mock |
-| `test_resource_inventory_cache.py` | unit | `ResourceInventoryCache` L1/L2 hit/miss, TTL, eviction, batch ops |
+| `cache/test_resource_inventory_cache.py` | unit, cache | `ResourceInventoryCache` L1/L2 hit/miss, TTL, eviction, batch ops |
+| `services/test_cve_alert_history_manager.py` | unit, services | CVE alert history state transitions and repository-facing manager behavior |
+| `utils/test_nvd_client.py` | unit, utils | NVD client request/response normalization |
+| `utils/test_vendor_feed_client.py` | unit, utils | Vendor feed client parsing and normalization |
+| `utils/test_repository_state.py` | unit, utils | Repository initialization and readiness helpers |
 | `test_cosmos_query_optimization.py` | integration | Cosmos query builders, QuerySpec, indexing policy, end-to-end pipeline |
 | `test_resource_discovery_engine.py` | unit | Azure Resource Graph discovery engine |
 | `test_inventory_feature_flags.py` | unit | Inventory feature flag evaluation and rollout logic |

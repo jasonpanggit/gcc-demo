@@ -13,7 +13,7 @@ Validates:
 import asyncio
 import pytest
 from typing import Optional
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import sys
 import os
@@ -22,6 +22,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.source_adapter import AdapterRegistry, SourceResult
+from pipeline import create_default_registry
 from pipeline.tiered_fetch_pipeline import TieredFetchPipeline
 from utils.normalization import NormalizedQuery
 
@@ -282,3 +283,276 @@ class TestConfidenceScoring:
 
         assert r1 is not None and r4 is not None
         assert r1.confidence > r4.confidence
+
+
+class TestDefaultRegistry:
+    """Test default registry priority with real adapter wiring."""
+
+    @pytest.mark.asyncio
+    async def test_partial_tier_1_result_skips_vendor_fallback(self):
+        mock_endoflife = AsyncMock()
+        mock_endoflife.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "source_url": "https://endoflife.date/api/windows-server.json",
+                "agent_used": "endoflife",
+            },
+        }
+
+        mock_microsoft = AsyncMock()
+        mock_microsoft.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "source_url": "https://example.invalid/vendor/windows-server-2019",
+                "agent_used": "microsoft",
+            },
+        }
+
+        registry = create_default_registry(
+            {
+                "endoflife": mock_endoflife,
+                "microsoft": mock_microsoft,
+            }
+        )
+        pipeline = TieredFetchPipeline(registry, confidence_threshold=0.80)
+
+        result = await pipeline.fetch(query=NormalizedQuery.from_software("Windows Server", "2019"))
+
+        assert result is not None
+        assert result.source == "endoflife"
+        assert result.confidence < 0.80
+        mock_endoflife.get_eol_data.assert_awaited_once()
+        mock_microsoft.get_eol_data.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_structured_source_success_skips_vendor_fallback(self):
+        mock_endoflife = AsyncMock()
+        mock_endoflife.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "support_end_date": "2024-01-09",
+                "release_date": "2018-11-13",
+                "source_url": "https://endoflife.date/api/windows-server.json",
+                "agent_used": "endoflife",
+            },
+        }
+
+        mock_eolstatus = AsyncMock()
+        mock_eolstatus.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "support_end_date": "2024-01-09",
+                "release_date": "2018-11-13",
+                "source_url": "https://eolstatus.com/product/windows-server-2019",
+                "agent_used": "eolstatus",
+            },
+        }
+
+        mock_microsoft = AsyncMock()
+        mock_microsoft.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "source_url": "https://example.invalid/vendor/windows-server-2019",
+                "agent_used": "microsoft",
+            },
+        }
+
+        registry = create_default_registry(
+            {
+                "endoflife": mock_endoflife,
+                "eolstatus": mock_eolstatus,
+                "microsoft": mock_microsoft,
+            }
+        )
+        pipeline = TieredFetchPipeline(registry, confidence_threshold=0.80)
+
+        result = await pipeline.fetch(query=NormalizedQuery.from_software("Windows Server", "2019"))
+
+        assert result is not None
+        assert result.source == "endoflife"
+        mock_endoflife.get_eol_data.assert_awaited_once()
+        mock_eolstatus.get_eol_data.assert_not_awaited()
+        mock_microsoft.get_eol_data.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_tier_2_structured_result_skips_vendor_fallback(self):
+        mock_endoflife = AsyncMock()
+        mock_endoflife.get_eol_data.return_value = None
+
+        mock_eolstatus = AsyncMock()
+        mock_eolstatus.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Ubuntu",
+                "version": "22.04 LTS",
+                "cycle": "22.04 LTS",
+                "eol_date": "2032-04-21",
+                "support_end_date": "2027-04-21",
+                "release_date": "2022-04-21",
+                "source_url": "https://eolstatus.com/product/ubuntu-22-04",
+                "agent_used": "eolstatus",
+            },
+        }
+
+        mock_ubuntu = AsyncMock()
+        mock_ubuntu.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Ubuntu",
+                "version": "22.04",
+                "eol_date": "2032-04-21",
+                "source_url": "https://example.invalid/vendor/ubuntu-22-04",
+                "agent_used": "ubuntu",
+            },
+        }
+
+        registry = create_default_registry(
+            {
+                "endoflife": mock_endoflife,
+                "eolstatus": mock_eolstatus,
+                "ubuntu": mock_ubuntu,
+            }
+        )
+        pipeline = TieredFetchPipeline(registry, confidence_threshold=0.80)
+
+        result = await pipeline.fetch(query=NormalizedQuery.from_software("Ubuntu", "22.04"))
+
+        assert result is not None
+        assert result.source == "eolstatus"
+        assert result.confidence < 0.80
+        mock_endoflife.get_eol_data.assert_awaited_once()
+        mock_eolstatus.get_eol_data.assert_awaited_once()
+        mock_ubuntu.get_eol_data.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_tier_2_version_mismatch_does_not_skip_vendor_fallback(self):
+        mock_endoflife = AsyncMock()
+        mock_endoflife.get_eol_data.return_value = None
+
+        mock_eolstatus = AsyncMock()
+        mock_eolstatus.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "RHEL",
+                "version": "17",
+                "cycle": "17",
+                "eol_date": "2030-01-01",
+                "support_end_date": "2029-01-01",
+                "release_date": "2024-01-01",
+                "source_url": "https://eolstatus.com/product/rhel-17",
+                "agent_used": "eolstatus",
+            },
+        }
+
+        mock_redhat = AsyncMock()
+        mock_redhat.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "RHEL",
+                "version": "7",
+                "eol_date": "2024-06-30",
+                "source_url": "https://example.invalid/vendor/rhel-7",
+                "agent_used": "redhat",
+            },
+        }
+
+        registry = create_default_registry(
+            {
+                "endoflife": mock_endoflife,
+                "eolstatus": mock_eolstatus,
+                "redhat": mock_redhat,
+            }
+        )
+        pipeline = TieredFetchPipeline(registry, confidence_threshold=0.80)
+
+        result = await pipeline.fetch(query=NormalizedQuery.from_software("RHEL", "7"))
+
+        assert result is not None
+        mock_endoflife.get_eol_data.assert_awaited_once()
+        mock_eolstatus.get_eol_data.assert_awaited_once()
+        mock_redhat.get_eol_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_versionless_query_does_not_short_circuit_structured_result(self):
+        mock_endoflife = AsyncMock()
+        mock_endoflife.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "source_url": "https://endoflife.date/api/windows-server.json",
+                "agent_used": "endoflife",
+            },
+        }
+
+        mock_microsoft = AsyncMock()
+        mock_microsoft.get_eol_data.return_value = {
+            "success": True,
+            "data": {
+                "software_name": "Windows Server",
+                "version": "2019",
+                "eol_date": "2029-01-09",
+                "source_url": "https://example.invalid/vendor/windows-server-2019",
+                "agent_used": "microsoft",
+            },
+        }
+
+        registry = create_default_registry(
+            {
+                "endoflife": mock_endoflife,
+                "microsoft": mock_microsoft,
+            }
+        )
+        pipeline = TieredFetchPipeline(registry, confidence_threshold=0.95)
+
+        result = await pipeline.fetch(query=NormalizedQuery.from_software("Windows Server"))
+
+        assert result is not None
+        mock_endoflife.get_eol_data.assert_awaited_once()
+        mock_microsoft.get_eol_data.assert_awaited_once()
+
+
+class TestStructuredVersionAlignment:
+    """Direct tests for structured-source version alignment logic."""
+
+    @pytest.mark.parametrize(
+        ("query_version", "result_version", "expected"),
+        [
+            ("7", "17", False),
+            ("8.5", "8", False),
+            ("22.04", "22.04 LTS", True),
+            ("8", "8.10", True),
+            ("2012 r2", "2012", False),
+            ("2012", "2012 r2", True),
+        ],
+    )
+    def test_structured_result_version_alignment(self, query_version, result_version, expected):
+        pipeline = TieredFetchPipeline(AdapterRegistry())
+        query = NormalizedQuery.from_software("TestSoftware", query_version)
+        result = SourceResult(
+            software_name="TestSoftware",
+            version=result_version,
+            eol_date="2030-01-01",
+            source="eolstatus",
+            confidence=0.0,
+            tier=2,
+            raw_data={"data": {"version": result_version}},
+        )
+
+        assert pipeline._structured_result_version_aligned(query, result) is expected

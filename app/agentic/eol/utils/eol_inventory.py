@@ -344,22 +344,21 @@ class EolInventory:
                 await conn.execute(
                     """
                     INSERT INTO eol_records (
-                        id, software_key, version_key, software_name, version,
+                        software_key, version_key, software_name, version,
                         eol_date, status, risk_level, confidence, source,
                         source_url, agent_used, item_type,
                         normalized_software_name, normalized_version,
                         data,
                         is_eol, created_at, updated_at
                     ) VALUES (
-                        $1, $2, $3, $4, $5,
-                        $6, $7, $8, $9, $10,
-                        $11, $12, $13,
-                        $14, $15,
-                        $16::jsonb,
-                        $17, NOW(), NOW()
+                        $1, $2, $3, $4,
+                        $5, $6, $7, $8, $9,
+                        $10, $11, $12,
+                        $13, $14,
+                        $15::jsonb,
+                        $16, NOW(), NOW()
                     )
-                    ON CONFLICT (id) DO UPDATE SET
-                        version_key              = EXCLUDED.version_key,
+                    ON CONFLICT (software_key, version_key) DO UPDATE SET
                         software_name            = EXCLUDED.software_name,
                         version                  = EXCLUDED.version,
                         eol_date                 = EXCLUDED.eol_date,
@@ -378,23 +377,22 @@ class EolInventory:
                     WHERE eol_records.confidence IS NULL
                        OR EXCLUDED.confidence >= eol_records.confidence
                     """,
-                    record.id,                                    # $1
-                    record.software_key,                          # $2
-                    record.version_key,                           # $3
-                    record.software_name,                         # $4
-                    record.version,                               # $5
-                    record.eol_date,                              # $6
-                    record.status,                                # $7
-                    record.risk_level,                            # $8
-                    confidence,                                   # $9
-                    record.source,                                # $10
-                    record.source_url,                            # $11
-                    record.agent_used,                            # $12
-                    record.item_type,                             # $13
-                    record.normalized_software_name,              # $14
-                    record.normalized_version,                    # $15
-                    raw_response,                                 # $16
-                    record.status in ("expired", "eol", "End of Life"),  # $17
+                    record.software_key,                          # $1
+                    record.version_key,                           # $2
+                    record.software_name,                         # $3
+                    record.version,                               # $4
+                    record.eol_date,                              # $5
+                    record.status,                                # $6
+                    record.risk_level,                            # $7
+                    confidence,                                   # $8
+                    record.source,                                # $9
+                    record.source_url,                            # $10
+                    record.agent_used,                            # $11
+                    record.item_type,                             # $12
+                    record.normalized_software_name,              # $13
+                    record.normalized_version,                    # $14
+                    raw_response,                                 # $15
+                    record.status in ("expired", "eol", "End of Life"),  # $16
                 )
             logger.info(
                 "L2 PG upsert SUCCESS: %s/%s (confidence=%.2f, source=%s)",

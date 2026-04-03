@@ -6,13 +6,12 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 2)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 from agents.redhat_agent import RedHatEOLAgent
 from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestRedHatAgent:
     """Tests for RedHatEOLAgent."""
 
@@ -102,7 +101,8 @@ class TestRedHatAgent:
         # Should return None for non-RedHat products
         assert agent._get_scraping_url("Ubuntu") is None
 
-    @patch('agents.redhat_agent.requests.get')
+    @pytest.mark.asyncio
+    @patch('agents.redhat_agent.RedHatEOLAgent._http_get')
     async def test_scrape_success(self, mock_get):
         """Test successful scraping of RedHat EOL data."""
         agent = RedHatEOLAgent()
@@ -115,12 +115,24 @@ class TestRedHatAgent:
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
-        # Test scraping (if agent has a scrape method)
-        if hasattr(agent, '_scrape_eol_data'):
+        with patch.object(agent, '_parse_rhel_eol', return_value={
+            "cycle": "8",
+            "eol": "2029-05-31",
+            "support": "2024-05-31",
+        }) as mock_parse:
             result = await agent._scrape_eol_data("RHEL 8", "8")
-            # Result may be None or data depending on HTML structure
-            assert result is None or isinstance(result, dict)
 
+        assert result is not None
+        assert result["cycle"] == "8"
+        assert result["eol"] == "2029-05-31"
+        mock_get.assert_awaited_once_with(
+            agent._get_scraping_url("RHEL 8"),
+            headers=agent.headers,
+            timeout=agent.timeout,
+        )
+        mock_parse.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_get_eol_data_static(self):
         """Test get_eol_data returns static data."""
         agent = RedHatEOLAgent()
@@ -134,6 +146,7 @@ class TestRedHatAgent:
         version_info = data.get("version", data.get("cycle", ""))
         assert "8" in str(version_info)
 
+    @pytest.mark.asyncio
     async def test_get_eol_data_non_redhat(self):
         """Test get_eol_data with non-RedHat product."""
         agent = RedHatEOLAgent()
@@ -142,12 +155,14 @@ class TestRedHatAgent:
         result = await agent.get_eol_data("Ubuntu", "22.04")
         assert result is None
 
+    @pytest.mark.asyncio
     async def test_query_method_exists(self):
         """Test that agent has query method."""
         agent = RedHatEOLAgent()
 
         assert hasattr(agent, 'get_eol_data')
 
+    @pytest.mark.asyncio
     async def test_timeout_configuration(self):
         """Test that agent respects timeout configuration."""
         agent = RedHatEOLAgent()
@@ -157,6 +172,7 @@ class TestRedHatAgent:
         assert agent.timeout > 0
         assert agent.timeout <= 30  # Reasonable timeout
 
+    @pytest.mark.asyncio
     async def test_cache_duration_configuration(self):
         """Test that agent has cache duration configured."""
         agent = RedHatEOLAgent()
@@ -164,12 +180,14 @@ class TestRedHatAgent:
         assert hasattr(agent, 'cache_duration_hours')
         assert agent.cache_duration_hours > 0
 
+    @pytest.mark.asyncio
     async def test_vendor_name(self):
         """Test that agent has correct agent name."""
         agent = RedHatEOLAgent()
 
         assert agent.agent_name == "redhat"
 
+    @pytest.mark.asyncio
     async def test_agent_inherits_from_base(self):
         """Test that agent inherits from BaseEOLAgent."""
         from agents.base_eol_agent import BaseEOLAgent
@@ -248,44 +266,28 @@ class TestRedHatAgentIntegration:
         # Agent timeout should align with config
         assert agent.timeout <= timeout_config.agent_timeout * 2  # Reasonable range
 
-    @patch('agents.redhat_agent.requests.get')
-    async def test_agent_with_circuit_breaker(self, mock_get):
+    async def test_agent_with_circuit_breaker(self):
         """Test agent with circuit breaker pattern."""
         from utils.circuit_breaker import CircuitBreaker
 
         agent = RedHatEOLAgent()
         cb = CircuitBreaker(failure_threshold=2, name="redhat_agent")
 
-        # Mock failing requests
-        mock_get.side_effect = Exception("Connection failed")
-
-        # Trigger circuit breaker
-        for _ in range(2):
-            try:
-                if hasattr(agent, '_scrape_eol_data'):
+        with patch.object(agent, '_scrape_eol_data', side_effect=RuntimeError("Connection failed")):
+            for _ in range(2):
+                with pytest.raises(RuntimeError, match="Connection failed"):
                     await cb.call(agent._scrape_eol_data, "RHEL 8", "8")
-            except Exception:
-                pass
 
-        # Circuit should open after failures
-        assert cb.state.value in ["OPEN", "CLOSED"]  # State machine works
+        assert cb.state.value == "OPEN"
 
-    @patch('agents.redhat_agent.requests.get')
+    @patch('agents.redhat_agent.RedHatEOLAgent._http_get')
     async def test_scrape_with_error_tracking(self, mock_get):
         """Test scraping with error tracking."""
         agent = RedHatEOLAgent()
-        agg = ErrorAggregator()
 
         # Mock HTTP error
         mock_get.side_effect = Exception("HTTP 500 Internal Server Error")
 
-        try:
-            if hasattr(agent, '_scrape_eol_data'):
-                await agent._scrape_eol_data("RHEL 8", "8")
-        except Exception as e:
-            agg.add_error(e, {"agent": "redhat", "operation": "scrape"})
+        result = await agent._scrape_eol_data("RHEL 8", "8")
 
-        # Should have recorded the error
-        if agg.has_errors():
-            errors = agg.get_errors()
-            assert len(errors) > 0
+        assert result is None

@@ -6,13 +6,12 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 1)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 from agents.microsoft_agent import MicrosoftEOLAgent
 from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestMicrosoftAgent:
     """Tests for MicrosoftEOLAgent."""
 
@@ -41,50 +40,73 @@ class TestMicrosoftAgent:
             assert "description" in config
             assert isinstance(config.get("active", True), bool)
 
-    @patch('agents.microsoft_agent.requests.get')
+    @pytest.mark.asyncio
+    @patch('agents.microsoft_agent.MicrosoftEOLAgent._http_get')
     async def test_scrape_success(self, mock_get):
-        """Test successful scraping of Microsoft EOL data."""
+        """Test fetch_from_url returns a standardized success response."""
         agent = MicrosoftEOLAgent()
 
         # Mock successful HTTP response
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "<html><body>Windows Server 2019 EOL: 2029-01-09</body></html>"
+        mock_response.content = mock_response.text.encode()
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
-        # Test scraping (if agent has a scrape method)
-        if hasattr(agent, 'scrape_url'):
-            result = await agent.scrape_url("https://example.com")
-            assert result is not None
+        with patch.object(agent, '_scrape_eol_data', return_value={
+            "version": "2019",
+            "cycle": "2019",
+            "eol": "2029-01-09",
+            "support": "2024-01-09",
+            "release": "2018-11-13",
+            "confidence": 0.8,
+            "source": "microsoft_scrape",
+        }) as mock_scrape:
+            result = await agent.fetch_from_url(
+                "https://example.com/windows-server",
+                "Windows Server",
+                "2019",
+            )
 
-    @patch('agents.microsoft_agent.requests.get')
+        assert result["success"] is True
+        assert result["data"]["software_name"] == "Windows Server"
+        assert result["data"]["version"] == "2019"
+        assert result["data"]["eol_date"] == "2029-01-09"
+        mock_get.assert_awaited_once_with(
+            "https://example.com/windows-server",
+            headers=agent.headers,
+            timeout=agent.timeout,
+        )
+        mock_scrape.assert_awaited_once_with("Windows Server", "2019")
+
+    @pytest.mark.asyncio
+    @patch('agents.microsoft_agent.MicrosoftEOLAgent._http_get')
     async def test_scrape_http_error(self, mock_get):
-        """Test handling of HTTP errors during scraping."""
+        """Test fetch_from_url returns a standardized failure response."""
         agent = MicrosoftEOLAgent()
 
         # Mock HTTP error
         mock_get.side_effect = Exception("HTTP 404 Not Found")
 
-        agg = ErrorAggregator()
+        result = await agent.fetch_from_url(
+            "https://example.com/windows-server",
+            "Windows Server",
+            "2019",
+        )
 
-        # Should handle error gracefully
-        try:
-            if hasattr(agent, 'scrape_url'):
-                await agent.scrape_url("https://example.com")
-        except Exception as e:
-            agg.add_error(e, {"agent": "microsoft", "operation": "scrape"})
+        assert result["success"] is False
+        assert result["error"]["software_name"] == "Windows Server"
+        assert "Failed to parse" in result["error"]["message"]
 
-        # Error should be recorded
-        if agg.has_errors():
-            assert agg.get_error_count() >= 1
-
+    @pytest.mark.asyncio
     async def test_query_method_exists(self):
         """Test that agent has query method."""
         agent = MicrosoftEOLAgent()
 
         assert hasattr(agent, 'query') or hasattr(agent, 'get_eol_data')
 
+    @pytest.mark.asyncio
     async def test_timeout_configuration(self):
         """Test that agent respects timeout configuration."""
         agent = MicrosoftEOLAgent()
@@ -94,7 +116,8 @@ class TestMicrosoftAgent:
         assert agent.timeout > 0
         assert agent.timeout <= 30  # Reasonable timeout
 
-    @patch('agents.microsoft_agent.requests.get')
+    @pytest.mark.asyncio
+    @patch('agents.microsoft_agent.MicrosoftEOLAgent._http_get')
     async def test_user_agent_header(self, mock_get):
         """Test that agent sends proper User-Agent header."""
         agent = MicrosoftEOLAgent()
@@ -102,31 +125,35 @@ class TestMicrosoftAgent:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "<html></html>"
+        mock_response.content = mock_response.text.encode()
         mock_get.return_value = mock_response
 
-        # Trigger a request (if method exists)
-        if hasattr(agent, 'scrape_url'):
-            await agent.scrape_url("https://example.com")
+        with patch.object(agent, '_scrape_eol_data', return_value={
+            "version": "2019",
+            "eol": "2029-01-09",
+        }):
+            await agent.fetch_from_url("https://example.com", "Windows Server", "2019")
 
-            # Verify User-Agent was sent
-            mock_get.assert_called()
-            call_kwargs = mock_get.call_args[1]
-            if 'headers' in call_kwargs:
-                assert 'User-Agent' in call_kwargs['headers']
+        call_kwargs = mock_get.call_args[1]
+        assert 'User-Agent' in call_kwargs['headers']
 
-    async def test_cache_duration_configuration(self):
-        """Test that agent has cache duration configured."""
+    @pytest.mark.asyncio
+    async def test_agent_cache_is_centrally_managed(self):
+        """Test that agent-level cache management is intentionally disabled."""
         agent = MicrosoftEOLAgent()
 
-        assert hasattr(agent, 'cache_duration_hours')
-        assert agent.cache_duration_hours > 0
+        result = await agent.purge_cache()
+        assert result["success"] is True
+        assert "disabled" in result["message"].lower()
 
+    @pytest.mark.asyncio
     async def test_vendor_name(self):
         """Test that agent has correct agent name."""
         agent = MicrosoftEOLAgent()
 
         assert agent.agent_name == "microsoft"
 
+    @pytest.mark.asyncio
     async def test_agent_inherits_from_base(self):
         """Test that agent inherits from BaseEOLAgent."""
         from agents.base_eol_agent import BaseEOLAgent
@@ -146,17 +173,14 @@ class TestMicrosoftAgentIntegration:
         agent = MicrosoftEOLAgent()
         agg = ErrorAggregator()
 
-        # Simulate agent operation that might fail
-        try:
-            # If agent has a method that can fail
-            if hasattr(agent, 'query'):
-                # Mock call that would fail
-                pass
-        except Exception as e:
-            agg.add_error(e, {"agent": "microsoft", "operation": "query"})
+        with patch.object(agent, '_scrape_eol_data', side_effect=RuntimeError("scrape failed")):
+            try:
+                await agent.get_eol_data("Windows Server 2019")
+            except RuntimeError as e:
+                agg.add_error(e, {"agent": "microsoft", "operation": "query"})
 
-        # Error aggregator should work with agent
-        assert not agg.has_errors() or agg.get_error_count() >= 0
+        assert agg.has_errors()
+        assert agg.get_error_count() == 1
 
     async def test_agent_with_timeout_config(self):
         """Test agent integration with centralized timeout config."""
@@ -169,24 +193,16 @@ class TestMicrosoftAgentIntegration:
         # (Agent might use its own timeout or config timeout)
         assert agent.timeout <= timeout_config.agent_timeout * 2  # Reasonable range
 
-    @patch('agents.microsoft_agent.requests.get')
-    async def test_agent_with_circuit_breaker(self, mock_get):
+    async def test_agent_with_circuit_breaker(self):
         """Test agent with circuit breaker pattern."""
         from utils.circuit_breaker import CircuitBreaker
 
         agent = MicrosoftEOLAgent()
         cb = CircuitBreaker(failure_threshold=2, name="microsoft_agent")
 
-        # Mock failing requests
-        mock_get.side_effect = Exception("Connection failed")
+        with patch.object(agent, 'fetch_from_url', side_effect=RuntimeError("Connection failed")):
+            for _ in range(2):
+                with pytest.raises(RuntimeError, match="Connection failed"):
+                    await cb.call(agent.fetch_from_url, "https://example.com", "Windows Server", "2019")
 
-        # Trigger circuit breaker
-        for _ in range(2):
-            try:
-                if hasattr(agent, 'scrape_url'):
-                    await cb.call(agent.scrape_url, "https://example.com")
-            except Exception:
-                pass
-
-        # Circuit should open after failures
-        assert cb.state.value in ["OPEN", "CLOSED"]  # State machine works
+        assert cb.state.value == "OPEN"

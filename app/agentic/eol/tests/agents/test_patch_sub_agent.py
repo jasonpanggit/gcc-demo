@@ -6,13 +6,12 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 3)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import AsyncMock
 from agents.patch_sub_agent import PatchSubAgent
 from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestPatchSubAgent:
     """Tests for PatchSubAgent."""
 

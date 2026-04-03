@@ -80,19 +80,20 @@ async def get_eol_communications():
     orchestrator = _get_eol_orchestrator()
     if hasattr(orchestrator, 'get_recent_communications'):
         communications = orchestrator.get_recent_communications()
-        return {
-            "success": True,
-            "communications": communications,
-            "count": len(communications),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    else:
-        return {
-            "success": False,
-            "error": "Communications not available",
-            "communications": [],
-            "count": 0
-        }
+        return StandardResponse.success_response(
+            data={
+                "communications": communications,
+                "count": len(communications),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            count=len(communications),
+            message=f"Retrieved {len(communications)} EOL communications",
+        )
+
+    return StandardResponse.error_response(
+        error="Communications not available",
+        details={"communications": []},
+    )
 
 
 @router.get("/api/communications/inventory-assistant", response_model=StandardResponse)
@@ -144,9 +145,12 @@ async def get_inventory_assistant_communications():
         # Wrap in StandardResponse format with data as list
         communications_count = len(communications) if isinstance(communications, list) else 1
         return StandardResponse.success_response(
-            data=communications if isinstance(communications, list) else [communications],
-            metadata={
+            data={
+                "communications": communications if isinstance(communications, list) else [communications],
                 "count": communications_count,
+            },
+            count=communications_count,
+            metadata={
                 "timestamp": datetime.utcnow().isoformat(),
                 "source": "inventory_asst_orchestrator",
                 "orchestrator_state": {
@@ -159,7 +163,7 @@ async def get_inventory_assistant_communications():
     else:
         logger.warning("🔍 [COMMS API] Inventory assistant orchestrator not available or method missing")
         return StandardResponse.error_response(
-            error_message="Inventory assistant orchestrator not available or communications not supported",
+            error="Inventory assistant orchestrator not available or communications not supported",
             details={"communications_count": 0}
         )
 
@@ -211,11 +215,10 @@ async def clear_inventory_assistant_communications():
         result = await orchestrator.clear_communications()
         logger.info("Inventory assistant communications cleared: %s", result)
         return result
-    else:
-        return {
-            "success": False,
-            "error": "Inventory assistant orchestrator not available or clear not supported"
-        }
+
+    return StandardResponse.error_response(
+        error="Inventory assistant orchestrator not available or clear not supported"
+    )
 
 
 @router.get("/api/agent-communications/{session_id}", response_model=StandardResponse)
@@ -254,12 +257,18 @@ async def get_agent_communications(session_id: str):
         }
     """
     if not _get_inventory_asst_available():
-        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
+        return StandardResponse.error_response(
+            error="Inventory assistant orchestrator not available in EOL interface",
+            details={"communications": []},
+        )
     
     # Get the inventory assistant orchestrator instance
     assistant_orchestrator = _get_inventory_asst_orchestrator()
     if assistant_orchestrator is None:
-        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
+        return StandardResponse.error_response(
+            error="Inventory assistant orchestrator not available in EOL interface",
+            details={"communications": []},
+        )
     
     # Get ALL communications for debugging
     all_communications = await assistant_orchestrator.get_agent_communications()
@@ -270,13 +279,17 @@ async def get_agent_communications(session_id: str):
         if comm.get("session_id") == session_id
     ]
     
-    return {
-        "session_id": session_id,
-        "communications": session_communications,
-        "total_count": len(session_communications),
-        "all_communications_count": len(all_communications),
-        "debug_all_communications": all_communications[-5:] if all_communications else []  # Last 5 for debugging
-    }
+    return StandardResponse.success_response(
+        data={
+            "session_id": session_id,
+            "communications": session_communications,
+            "total_count": len(session_communications),
+            "all_communications_count": len(all_communications),
+            "debug_all_communications": all_communications[-5:] if all_communications else [],
+        },
+        count=len(session_communications),
+        message=f"Retrieved {len(session_communications)} communications for session {session_id}",
+    )
 
 
 @router.get("/api/debug/agent-communications", response_model=StandardResponse)
@@ -307,17 +320,27 @@ async def debug_agent_communications():
         }
     """
     if not _get_inventory_asst_available():
-        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
+        return StandardResponse.error_response(
+            error="Inventory assistant orchestrator not available in EOL interface",
+            details={"communications": []},
+        )
     
     # Get the inventory assistant orchestrator instance
     assistant_orchestrator = _get_inventory_asst_orchestrator()
     if assistant_orchestrator is None:
-        return {"error": "Inventory assistant orchestrator not available in EOL interface", "communications": []}
+        return StandardResponse.error_response(
+            error="Inventory assistant orchestrator not available in EOL interface",
+            details={"communications": []},
+        )
     
     all_communications = await assistant_orchestrator.get_agent_communications()
     
-    return {
-        "total_communications": len(all_communications),
-        "communications": all_communications,
-        "orchestrator_session_id": assistant_orchestrator.session_id if hasattr(assistant_orchestrator, 'session_id') else 'unknown'
-    }
+    return StandardResponse.success_response(
+        data={
+            "total_communications": len(all_communications),
+            "communications": all_communications,
+            "orchestrator_session_id": assistant_orchestrator.session_id if hasattr(assistant_orchestrator, 'session_id') else 'unknown',
+        },
+        count=len(all_communications),
+        message=f"Retrieved {len(all_communications)} debug communications",
+    )

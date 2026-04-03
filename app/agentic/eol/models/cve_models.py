@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import re
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
 KB_PATTERN = re.compile(r"\bKB\d{6,8}\b", re.IGNORECASE)
@@ -26,8 +26,7 @@ class CVSSScore(BaseModel):
     exploitability_score: Optional[float] = None
     impact_score: Optional[float] = None
 
-    class Config:
-        frozen = True  # Immutable
+    model_config = ConfigDict(frozen=True)
 
 
 class CVEAffectedProduct(BaseModel):
@@ -40,8 +39,7 @@ class CVEAffectedProduct(BaseModel):
     version: str  # Can be version range like "< 2.0" or specific "1.5.3"
     cpe_uri: Optional[str] = None  # CPE 2.3 format URI
 
-    class Config:
-        frozen = True  # Immutable
+    model_config = ConfigDict(frozen=True)
 
 
 class CVEReference(BaseModel):
@@ -53,8 +51,7 @@ class CVEReference(BaseModel):
     source: str  # Source that provided this reference (cve_org, nvd, redhat, etc.)
     tags: List[str] = Field(default_factory=list)  # e.g., ["Patch", "Vendor Advisory"]
 
-    class Config:
-        frozen = True  # Immutable
+    model_config = ConfigDict(frozen=True)
 
 
 class CVEVendorMetadata(BaseModel):
@@ -159,13 +156,11 @@ class UnifiedCVE(BaseModel):
     references: List[CVEReference] = Field(default_factory=list)
     vendor_metadata: List[CVEVendorMetadata] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)  # ["cve_org", "nvd", "redhat", ...]
-    last_synced: datetime = Field(default_factory=datetime.utcnow)
+    last_synced: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        # Pydantic v2 config
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    @field_serializer("published_date", "last_modified_date", "last_synced", when_used="json")
+    def _serialize_datetime(self, value: datetime) -> str:
+        return value.isoformat()
 
 
 class PatchAdvisoryEdge(BaseModel):
@@ -188,7 +183,7 @@ class PatchAdvisoryEdge(BaseModel):
     cvrf_url: Optional[str] = None
     severity: Optional[str] = None
     published_date: Optional[str] = None
-    last_seen: datetime = Field(default_factory=datetime.utcnow)
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # Backward-compat alias — all existing consumers of KBCVEEdge continue to work

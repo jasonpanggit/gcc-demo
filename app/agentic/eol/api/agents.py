@@ -99,10 +99,18 @@ async def agents_status():
             "healthy_agents": 7
         }
     """
-    return await _get_eol_orchestrator().get_agents_status()
+    orchestrator = _get_eol_orchestrator()
+
+    if hasattr(orchestrator, "get_agents_status") and callable(getattr(orchestrator, "get_agents_status")):
+        return await orchestrator.get_agents_status()
+
+    if hasattr(orchestrator, "health_check") and callable(getattr(orchestrator, "health_check")):
+        return await orchestrator.health_check()
+
+    return StandardResponse.error_response(error="Agent status is unavailable")
 
 
-@router.get("/api/agents/list")
+@router.get("/api/agents/list", response_model=StandardResponse)
 @readonly_endpoint(agent_name="list_agents", timeout_seconds=20)
 async def list_agents():
     """
@@ -147,11 +155,11 @@ async def list_agents():
         # Handle case where orchestrator is not initialized
         if orchestrator is None:
             logger.warning("EOL orchestrator is not initialized")
-            return {
-                "success": True,
-                "data": {"agents": {}},
-                "count": 0
-            }
+            return StandardResponse.success_response(
+                data={"agents": {}},
+                count=0,
+                message="EOL orchestrator is not initialized",
+            )
         
         agents_data = {}
         
@@ -232,22 +240,13 @@ async def list_agents():
                 # Continue processing other agents
                 continue
         
-        return {
-            "success": True,
-            "data": {"agents": agents_data},
-            "count": len(agents_data)
-        }
+        return StandardResponse.success_response(data={"agents": agents_data}, count=len(agents_data))
                 
     except Exception as e:
         logger.error(f"Error in list_agents endpoint: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return {
-            "success": False,
-            "data": {"agents": {}},
-            "count": 0,
-            "error": str(e)
-        }
+        return StandardResponse.error_response(error=str(e))
 
 
 # ============================================================================
@@ -283,12 +282,12 @@ async def add_agent_url(request: AgentUrlRequest):
         }
     """
     orchestrator = _get_eol_orchestrator()
+
+    if orchestrator is None:
+        return StandardResponse.error_response(error="EOL orchestrator is not initialized")
     
     if request.agent_name not in orchestrator.agents:
-        return {
-            "success": False,
-            "error": f"Agent '{request.agent_name}' not found"
-        }
+        return StandardResponse.error_response(error=f"Agent '{request.agent_name}' not found")
     
     agent = orchestrator.agents[request.agent_name]
     
@@ -300,21 +299,22 @@ async def add_agent_url(request: AgentUrlRequest):
     url_entry = {
         "url": request.url,
         "description": request.description or ""
-    } if request.description else request.url
+    }
     
     if request.url not in [u["url"] if isinstance(u, dict) else u for u in agent.urls]:
         agent.urls.append(url_entry)
         logger.info(f"Added URL {request.url} to agent {request.agent_name}")
         
-        return {
-            "success": True,
-            "message": f"URL added to {request.agent_name}"
-        }
+        return StandardResponse.success_response(
+            data={
+                "agent_name": request.agent_name,
+                "url": request.url,
+                "description": request.description or "",
+            },
+            message=f"URL added to {request.agent_name}",
+        )
     else:
-        return {
-            "success": False,
-            "error": "URL already exists for this agent"
-        }
+        return StandardResponse.error_response(error="URL already exists for this agent")
 
 
 @router.post("/api/agents/remove-url", response_model=StandardResponse)
@@ -345,20 +345,17 @@ async def remove_agent_url(request: AgentUrlRequest):
         }
     """
     orchestrator = _get_eol_orchestrator()
+
+    if orchestrator is None:
+        return StandardResponse.error_response(error="EOL orchestrator is not initialized")
     
     if request.agent_name not in orchestrator.agents:
-        return {
-            "success": False,
-            "error": f"Agent '{request.agent_name}' not found"
-        }
+        return StandardResponse.error_response(error=f"Agent '{request.agent_name}' not found")
     
     agent = orchestrator.agents[request.agent_name]
     
     if not hasattr(agent, 'urls') or not agent.urls:
-        return {
-            "success": False,
-            "error": "No URLs configured for this agent"
-        }
+        return StandardResponse.error_response(error="No URLs configured for this agent")
     
     # Remove URL
     original_count = len(agent.urls)
@@ -366,15 +363,16 @@ async def remove_agent_url(request: AgentUrlRequest):
     
     if len(agent.urls) < original_count:
         logger.info(f"Removed URL {request.url} from agent {request.agent_name}")
-        return {
-            "success": True,
-            "message": f"URL removed from {request.agent_name}"
-        }
+        return StandardResponse.success_response(
+            data={
+                "agent_name": request.agent_name,
+                "removed_url": request.url,
+                "remaining_urls": len(agent.urls),
+            },
+            message=f"URL removed from {request.agent_name}",
+        )
     else:
-        return {
-            "success": False,
-            "error": "URL not found for this agent"
-        }
+        return StandardResponse.error_response(error="URL not found for this agent")
 
 
 @router.post("/api/agents/toggle", response_model=StandardResponse)
@@ -406,12 +404,12 @@ async def toggle_agent(request: AgentToggleRequest):
         }
     """
     orchestrator = _get_eol_orchestrator()
+
+    if orchestrator is None:
+        return StandardResponse.error_response(error="EOL orchestrator is not initialized")
     
     if request.agent_name not in orchestrator.agents:
-        return {
-            "success": False,
-            "error": f"Agent '{request.agent_name}' not found"
-        }
+        return StandardResponse.error_response(error=f"Agent '{request.agent_name}' not found")
     
     agent = orchestrator.agents[request.agent_name]
     agent.active = request.active
@@ -419,7 +417,11 @@ async def toggle_agent(request: AgentToggleRequest):
     status = "enabled" if request.active else "disabled"
     logger.info(f"Agent {request.agent_name} {status}")
     
-    return {
-        "success": True,
-        "message": f"Agent {request.agent_name} {status}"
-    }
+    return StandardResponse.success_response(
+        data={
+            "agent_name": request.agent_name,
+            "active": request.active,
+            "status": status,
+        },
+        message=f"Agent {request.agent_name} {status}",
+    )

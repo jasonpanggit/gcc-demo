@@ -179,14 +179,14 @@ class OSExtractionReapplyRequest(BaseModel):
 @readonly_endpoint(agent_name="os_extraction_rules_list", timeout_seconds=15)
 async def list_os_extraction_rules(request: Request):
     rules = os_extraction_rules_store.get_rules()
-    return StandardResponse(success=True, data=rules, count=len(rules))
+    return StandardResponse.success_response(data=rules)
 
 
 @router.post("/api/os-extraction-rules", response_model=StandardResponse)
 @write_endpoint(agent_name="os_extraction_rules_add", timeout_seconds=20)
 async def add_os_extraction_rule(request: OSExtractionRuleRequest):
     rule = await os_extraction_rules_store.add_rule(request.dict())
-    return StandardResponse.success_response(data=[rule], message="OS extraction rule saved").to_dict()
+    return StandardResponse.success_response(data=[rule], message="OS extraction rule saved")
 
 
 @router.put("/api/os-extraction-rules/{rule_id}", response_model=StandardResponse)
@@ -194,8 +194,8 @@ async def add_os_extraction_rule(request: OSExtractionRuleRequest):
 async def update_os_extraction_rule(rule_id: str, request: OSExtractionRuleRequest):
     rule = await os_extraction_rules_store.update_rule(rule_id, request.dict())
     if not rule:
-        return StandardResponse.error_response("Rule not found").to_dict()
-    return StandardResponse.success_response(data=[rule], message="OS extraction rule updated").to_dict()
+        return StandardResponse.error_response("Rule not found")
+    return StandardResponse.success_response(data=[rule], message="OS extraction rule updated")
 
 
 @router.delete("/api/os-extraction-rules/{rule_id}", response_model=StandardResponse)
@@ -203,15 +203,15 @@ async def update_os_extraction_rule(rule_id: str, request: OSExtractionRuleReque
 async def delete_os_extraction_rule(rule_id: str):
     deleted = await os_extraction_rules_store.delete_rule(rule_id)
     if not deleted:
-        return StandardResponse.error_response("Rule not found").to_dict()
-    return StandardResponse.success_response(data=[], message="OS extraction rule deleted").to_dict()
+        return StandardResponse.error_response("Rule not found")
+    return StandardResponse.success_response(data=[], message="OS extraction rule deleted")
 
 
 @router.post("/api/os-extraction-rules/test", response_model=StandardResponse)
 @readonly_endpoint(agent_name="os_extraction_rules_test", timeout_seconds=15)
 async def test_os_extraction_rule(request: OSExtractionTestRequest):
     derived = derive_os_name_version(request.raw_name, request.raw_version)
-    return StandardResponse.success_response(data=[derived]).to_dict()
+    return StandardResponse.success_response(data=[derived])
 
 
 @router.post("/api/os-extraction-rules/reapply", response_model=StandardResponse)
@@ -231,7 +231,7 @@ async def reapply_os_extraction_rules(request: OSExtractionReapplyRequest):
             "apply_changes": request.apply_changes,
         },
         message="Cached OS normalization updated" if request.apply_changes else "Cached OS normalization preview generated",
-    ).to_dict()
+    )
 
 
 # ============================================================================
@@ -258,9 +258,6 @@ async def get_eol(
     Returns:
         StandardResponse with EOL data including dates, support status, and sources.
     
-    Raises:
-        HTTPException: 404 if no EOL data found, 500 for other errors
-    
     Example Response:
         {
             "success": true,
@@ -282,21 +279,23 @@ async def get_eol(
     # Support both 'name' and 'software' parameters for backwards compatibility
     software_name = name or software
     if not software_name:
-        raise HTTPException(status_code=422, detail="Either 'name' or 'software' parameter is required")
+        return StandardResponse.error_response("Either 'name' or 'software' parameter is required")
 
     eol_data = await _get_eol_orchestrator().get_eol_data(software_name, version)
 
     if not eol_data.get("data"):
-        raise HTTPException(status_code=404, detail=f"No EOL data found for {software_name}")
+        return StandardResponse.error_response(f"No EOL data found for {software_name}")
 
-    return {
-        "software_name": software_name,
-        "version": version,
-        "primary_source": eol_data.get("primary_source") or eol_data.get("agent_used") or "unknown",
-        "eol_data": eol_data["data"],
-        "all_sources": eol_data.get("all_sources", {}),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return StandardResponse.success_response(
+        data={
+            "software_name": software_name,
+            "version": version,
+            "primary_source": eol_data.get("primary_source") or eol_data.get("agent_used") or "unknown",
+            "eol_data": eol_data["data"],
+            "all_sources": eol_data.get("all_sources", {}),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
 
 
 @router.post("/api/search/eol")
@@ -304,7 +303,7 @@ async def get_eol(
     agent_name="orchestrator",
     timeout_seconds=45,
     track_cache=True,
-    auto_wrap_response=False
+    auto_wrap_response=True
 )
 async def search_software_eol(request: SoftwareSearchRequest):
     """
@@ -400,53 +399,97 @@ async def search_software_eol(request: SoftwareSearchRequest):
     # Get communication history
     communications = await orchestrator.get_communication_history()
     
-    return {
-        "result": result,
-        "session_id": orchestrator.session_id,
-        "communications": communications,
-        "search_mode": search_mode,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return StandardResponse.success_response(
+        data={
+            "result": result,
+            "session_id": orchestrator.session_id,
+            "communications": communications,
+            "search_mode": search_mode,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
 
 
-@router.get("/api/vendors")
+@router.get("/api/vendors", response_model=StandardResponse)
 @readonly_endpoint(agent_name="list_vendors", timeout_seconds=20)
 async def list_vendors():
     """List vendor identifiers supported by the orchestrator."""
     try:
         orchestrator = _get_eol_orchestrator()
         vendor_map = getattr(orchestrator, "vendor_routing", {}) or {}
-        return {
-            "success": True,
-            "vendors": sorted(vendor_map.keys()),
-            "vendor_routing": vendor_map,
-            "count": len(vendor_map),
-        }
+        return StandardResponse.success_response(
+            data={
+                "vendors": sorted(vendor_map.keys()),
+                "vendor_routing": vendor_map,
+            },
+            count=len(vendor_map),
+        )
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.warning("Vendor list fallback due to orchestrator error: %s", exc)
         # Minimal fallback - pipeline refactor removed DEFAULT_VENDOR_ROUTING
         fallback = {"endoflife": ["endoflife_agent"], "eolstatus": ["eolstatus_agent"]}
-        return {
-            "success": True,
-            "vendors": sorted(fallback.keys()),
-            "vendor_routing": fallback,
-            "count": len(fallback),
-            "warning": "Vendor API fallback; orchestrator unavailable",
-        }
+        return StandardResponse.success_response(
+            data={
+                "vendors": sorted(fallback.keys()),
+                "vendor_routing": fallback,
+            },
+            count=len(fallback),
+            metadata={"warning": "Vendor API fallback; orchestrator unavailable"},
+        )
 
 
-@router.post("/api/search/eol/vendor")
+@router.post("/api/search/eol/vendor", response_model=StandardResponse)
 @with_timeout_and_stats(
     agent_name="orchestrator",
     timeout_seconds=120,
     track_cache=True,
-    auto_wrap_response=False,
+    auto_wrap_response=True,
 )
 async def search_vendor_eol(request: VendorParsingRequest):
     """Run vendor-driven EOL parsing across all known products for that vendor."""
     orchestrator = _get_eol_orchestrator()
     vendor_key = (request.vendor or "").strip().lower()
     vendor_map = getattr(orchestrator, "vendor_routing", {}) or {}
+
+    def _vendor_success_response(
+        *,
+        mode: str,
+        runs: List[Dict[str, Any]],
+        requested: int,
+        vendor_urls_payload: List[Dict[str, Any]],
+        urls_persisted: bool,
+        timestamp: str,
+        elapsed_seconds: float,
+        ignore_cache: bool,
+    ) -> StandardResponse:
+        successes = sum(1 for run in runs if run and run.get("success"))
+        return StandardResponse.success_response(
+            data={
+                "vendor": vendor_key,
+                "mode": mode,
+                "ignore_cache": ignore_cache,
+                "runs": runs,
+                "summary": {
+                    "requested": requested,
+                    "successes": successes,
+                    "failures": max(0, requested - successes),
+                },
+                "vendor_urls": vendor_urls_payload,
+                "url_count": len(vendor_urls_payload),
+                "urls_persisted": urls_persisted,
+                "timestamp": timestamp,
+                "elapsed_seconds": elapsed_seconds,
+            },
+            count=len(runs),
+        )
+
+    def _vendor_error_response(error: str, *, metadata: Optional[Dict[str, Any]] = None) -> StandardResponse:
+        # Vendor parsing now follows the same JSON contract as other Phase 2 endpoints:
+        # callers should inspect `success`/`error` rather than relying on transport status.
+        return StandardResponse.error_response(error=error, metadata=metadata)
+
+    def _count_successful_runs(runs: List[Dict[str, Any]]) -> int:
+        return sum(1 for run in runs if run and run.get("success"))
 
     async def _persist_vendor_runs(runs: List[Dict[str, Any]]) -> None:
         if not runs:
@@ -569,7 +612,7 @@ async def search_vendor_eol(request: VendorParsingRequest):
         await asyncio.gather(*(_persist_run(run) for run in runs))
 
     if not vendor_key or vendor_key not in vendor_map:
-        raise HTTPException(status_code=404, detail=f"Vendor '{request.vendor}' not found")
+        return _vendor_error_response(f"Vendor '{request.vendor}' not found")
 
     keywords: List[str] = list(vendor_map.get(vendor_key, []) or [])
     if request.limit and request.limit > 0:
@@ -577,7 +620,7 @@ async def search_vendor_eol(request: VendorParsingRequest):
 
     keywords = [kw for kw in keywords if kw]
     if not keywords:
-        raise HTTPException(status_code=400, detail="No products configured for this vendor")
+        return _vendor_error_response("No products configured for this vendor")
 
     def _extract_agent_urls(agent) -> List[Dict[str, Any]]:
         urls: List[Dict[str, Any]] = []
@@ -666,23 +709,16 @@ async def search_vendor_eol(request: VendorParsingRequest):
                         f"{successes}/{len(runs)} successful in {time.time() - start_ts:.2f}s"
                     )
 
-                    return {
-                        "success": True,
-                        "vendor": vendor_key,
-                        "mode": f"{vendor_key}_generic_urls",
-                        "ignore_cache": bool(request.ignore_cache),
-                        "runs": runs,
-                        "summary": {
-                            "requested": len(active_urls),
-                            "successes": successes,
-                            "failures": max(0, len(runs) - successes),
-                        },
-                        "vendor_urls": vendor_urls,
-                        "url_count": len(vendor_urls),
-                        "urls_persisted": urls_persisted,
-                        "timestamp": timestamp,
-                        "elapsed_seconds": round(time.time() - start_ts, 3),
-                    }
+                    return _vendor_success_response(
+                        mode=f"{vendor_key}_generic_urls",
+                        runs=runs,
+                        requested=len(active_urls),
+                        vendor_urls_payload=vendor_urls,
+                        urls_persisted=urls_persisted,
+                        timestamp=timestamp,
+                        elapsed_seconds=round(time.time() - start_ts, 3),
+                        ignore_cache=bool(request.ignore_cache),
+                    )
 
             except ImportError:
                 logger.warning("vendor_parsing_helper not available, falling back to vendor-specific branches")
@@ -695,11 +731,11 @@ async def search_vendor_eol(request: VendorParsingRequest):
 
     if vendor_key == "microsoft":
         if not agent:
-            raise HTTPException(status_code=500, detail="Microsoft agent not available")
+            return _vendor_error_response("Microsoft agent not available")
 
         active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
         if not active_urls:
-            raise HTTPException(status_code=400, detail="No Microsoft URLs configured")
+            return _vendor_error_response("No Microsoft URLs configured")
 
         start_ts = time.time()
 
@@ -799,10 +835,10 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 runs.extend(entry)
             elif entry:
                 runs.append(entry)
-        successes = sum(1 for run in runs if run and run.get("success"))
         timestamp = datetime.utcnow().isoformat()
 
         await _persist_vendor_runs(runs)
+        successes = _count_successful_runs(runs)
 
         urls_persisted = False
         if vendor_urls:
@@ -816,31 +852,24 @@ async def search_vendor_eol(request: VendorParsingRequest):
             except Exception as exc:
                 logger.debug("Vendor URL persistence failed: %s", exc)
 
-        return {
-            "success": True,
-            "vendor": vendor_key,
-            "mode": "microsoft_agent_urls",
-            "ignore_cache": bool(request.ignore_cache),
-            "runs": runs,
-            "summary": {
-                "requested": len(active_urls),
-                "successes": successes,
-                "failures": max(0, len(active_urls) - successes),
-            },
-            "vendor_urls": vendor_urls,
-            "url_count": len(vendor_urls),
-            "urls_persisted": urls_persisted,
-            "timestamp": timestamp,
-            "elapsed_seconds": round(time.time() - start_ts, 3),
-        }
+        return _vendor_success_response(
+            mode="microsoft_agent_urls",
+            runs=runs,
+            requested=len(active_urls),
+            vendor_urls_payload=vendor_urls,
+            urls_persisted=urls_persisted,
+            timestamp=timestamp,
+            elapsed_seconds=round(time.time() - start_ts, 3),
+            ignore_cache=bool(request.ignore_cache),
+        )
 
     if vendor_key == "nodejs":
         if not agent:
-            raise HTTPException(status_code=500, detail="Node.js agent not available")
+            return _vendor_error_response("Node.js agent not available")
 
         active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
         if not active_urls:
-            raise HTTPException(status_code=400, detail="No Node.js URLs configured")
+            return _vendor_error_response("No Node.js URLs configured")
 
         start_ts = time.time()
 
@@ -930,10 +959,10 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 runs.extend(entry)
             elif entry:
                 runs.append(entry)
-        successes = sum(1 for run in runs if run and run.get("success"))
         timestamp = datetime.utcnow().isoformat()
 
         await _persist_vendor_runs(runs)
+        successes = _count_successful_runs(runs)
 
         urls_persisted = False
         if vendor_urls:
@@ -947,31 +976,24 @@ async def search_vendor_eol(request: VendorParsingRequest):
             except Exception as exc:
                 logger.debug("Vendor URL persistence failed: %s", exc)
 
-        return {
-            "success": True,
-            "vendor": vendor_key,
-            "mode": "nodejs_agent_urls",
-            "ignore_cache": bool(request.ignore_cache),
-            "runs": runs,
-            "summary": {
-                "requested": len(active_urls),
-                "successes": successes,
-                "failures": max(0, len(active_urls) - successes),
-            },
-            "vendor_urls": vendor_urls,
-            "url_count": len(vendor_urls),
-            "urls_persisted": urls_persisted,
-            "timestamp": timestamp,
-            "elapsed_seconds": round(time.time() - start_ts, 3),
-        }
+        return _vendor_success_response(
+            mode="nodejs_agent_urls",
+            runs=runs,
+            requested=len(active_urls),
+            vendor_urls_payload=vendor_urls,
+            urls_persisted=urls_persisted,
+            timestamp=timestamp,
+            elapsed_seconds=round(time.time() - start_ts, 3),
+            ignore_cache=bool(request.ignore_cache),
+        )
 
     if vendor_key == "ubuntu":
         if not agent:
-            raise HTTPException(status_code=500, detail="Ubuntu agent not available")
+            return _vendor_error_response("Ubuntu agent not available")
 
         active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
         if not active_urls:
-            raise HTTPException(status_code=400, detail="No Ubuntu URLs configured")
+            return _vendor_error_response("No Ubuntu URLs configured")
 
         start_ts = time.time()
 
@@ -1061,10 +1083,10 @@ async def search_vendor_eol(request: VendorParsingRequest):
                 runs.extend(entry)
             elif entry:
                 runs.append(entry)
-        successes = sum(1 for run in runs if run and run.get("success"))
         timestamp = datetime.utcnow().isoformat()
 
         await _persist_vendor_runs(runs)
+        successes = _count_successful_runs(runs)
 
         urls_persisted = False
         if vendor_urls:
@@ -1078,31 +1100,24 @@ async def search_vendor_eol(request: VendorParsingRequest):
             except Exception as exc:
                 logger.debug("Vendor URL persistence failed: %s", exc)
 
-        return {
-            "success": True,
-            "vendor": vendor_key,
-            "mode": "ubuntu_agent_urls",
-            "ignore_cache": bool(request.ignore_cache),
-            "runs": runs,
-            "summary": {
-                "requested": len(active_urls),
-                "successes": successes,
-                "failures": max(0, len(active_urls) - successes),
-            },
-            "vendor_urls": vendor_urls,
-            "url_count": len(vendor_urls),
-            "urls_persisted": urls_persisted,
-            "timestamp": timestamp,
-            "elapsed_seconds": round(time.time() - start_ts, 3),
-        }
+        return _vendor_success_response(
+            mode="ubuntu_agent_urls",
+            runs=runs,
+            requested=len(active_urls),
+            vendor_urls_payload=vendor_urls,
+            urls_persisted=urls_persisted,
+            timestamp=timestamp,
+            elapsed_seconds=round(time.time() - start_ts, 3),
+            ignore_cache=bool(request.ignore_cache),
+        )
 
     if vendor_key == "redhat":
         if not agent:
-            raise HTTPException(status_code=500, detail="Red Hat agent not available")
+            return _vendor_error_response("Red Hat agent not available")
 
         active_urls = [entry for entry in vendor_urls if entry.get("active", True)]
         if not active_urls:
-            raise HTTPException(status_code=400, detail="No Red Hat URLs configured")
+            return _vendor_error_response("No Red Hat URLs configured")
 
         start_ts = time.time()
 
@@ -1200,10 +1215,10 @@ async def search_vendor_eol(request: VendorParsingRequest):
             elif entry:
                 runs.append(entry)
 
-        successes = sum(1 for run in runs if run and run.get("success"))
         timestamp = datetime.utcnow().isoformat()
 
         await _persist_vendor_runs(runs)
+        successes = _count_successful_runs(runs)
 
         urls_persisted = False
         if vendor_urls:
@@ -1217,23 +1232,16 @@ async def search_vendor_eol(request: VendorParsingRequest):
             except Exception as exc:
                 logger.debug("Vendor URL persistence failed: %s", exc)
 
-        return {
-            "success": True,
-            "vendor": vendor_key,
-            "mode": "redhat_agent_urls",
-            "ignore_cache": bool(request.ignore_cache),
-            "runs": runs,
-            "summary": {
-                "requested": len(active_urls),
-                "successes": successes,
-                "failures": max(0, len(active_urls) - successes),
-            },
-            "vendor_urls": vendor_urls,
-            "url_count": len(vendor_urls),
-            "urls_persisted": urls_persisted,
-            "timestamp": timestamp,
-            "elapsed_seconds": round(time.time() - start_ts, 3),
-        }
+        return _vendor_success_response(
+            mode="redhat_agent_urls",
+            runs=runs,
+            requested=len(active_urls),
+            vendor_urls_payload=vendor_urls,
+            urls_persisted=urls_persisted,
+            timestamp=timestamp,
+            elapsed_seconds=round(time.time() - start_ts, 3),
+            ignore_cache=bool(request.ignore_cache),
+        )
 
     allowed_modes = {"agents_plus_internet", "agents_only", "internet_only"}
     mode = (request.mode or "agents_plus_internet").lower()
@@ -1321,10 +1329,10 @@ async def search_vendor_eol(request: VendorParsingRequest):
         }
 
     runs = await asyncio.gather(*(run_keyword(keyword) for keyword in keywords))
-    successes = sum(1 for run in runs if run and run.get("success"))
     timestamp = datetime.utcnow().isoformat()
 
     await _persist_vendor_runs(runs)
+    successes = _count_successful_runs(runs)
 
     urls_persisted = False
     if vendor_urls:
@@ -1338,23 +1346,16 @@ async def search_vendor_eol(request: VendorParsingRequest):
         except Exception as exc:
             logger.debug("Vendor URL persistence failed: %s", exc)
 
-    return {
-        "success": True,
-        "vendor": vendor_key,
-        "mode": mode,
-        "ignore_cache": ignore_cache,
-        "runs": runs,
-        "summary": {
-            "requested": len(keywords),
-            "successes": successes,
-            "failures": max(0, len(keywords) - successes),
-        },
-        "vendor_urls": vendor_urls,
-        "url_count": len(vendor_urls),
-        "urls_persisted": urls_persisted,
-        "timestamp": timestamp,
-        "elapsed_seconds": round(time.time() - start_ts, 3),
-    }
+    return _vendor_success_response(
+        mode=mode,
+        runs=runs,
+        requested=len(keywords),
+        vendor_urls_payload=vendor_urls,
+        urls_persisted=urls_persisted,
+        timestamp=timestamp,
+        elapsed_seconds=round(time.time() - start_ts, 3),
+        ignore_cache=ignore_cache,
+    )
 
 
 @router.post("/api/analyze")
@@ -1454,14 +1455,16 @@ async def verify_eol_result(request: VerifyEOLRequest):
                 version=request.software_version,
                 agent_name=request.agent_name
             )
-            return {
-                "success": True,
-                "message": f"Failed verification - cache entry removed for {request.software_name}",
-                "verification_status": verification_status,
-                "software_name": request.software_name,
-                "software_version": request.software_version,
-                "cache_cleared": True
-            }
+            return StandardResponse.success_response(
+                data={
+                    "verification_status": verification_status,
+                    "software_name": request.software_name,
+                    "software_version": request.software_version,
+                    "cache_cleared": True,
+                },
+                count=1,
+                message=f"Failed verification - cache entry removed for {request.software_name}",
+            )
         else:
             # For verified results, update the cache with verification status
             await eol_cache.cache_response(
@@ -1473,21 +1476,22 @@ async def verify_eol_result(request: VerifyEOLRequest):
                 source_url=request.source_url,
                 priority=2  # High priority for verified results
             )
-            return {
-                "success": True,
-                "message": f"EOL result verified and cached for {request.software_name}",
-                "verification_status": verification_status,
-                "software_name": request.software_name,
-                "software_version": request.software_version,
-                "agent_used": result.get('agent_used'),
-                "cache_updated": True
-            }
+            return StandardResponse.success_response(
+                data={
+                    "verification_status": verification_status,
+                    "software_name": request.software_name,
+                    "software_version": request.software_version,
+                    "agent_used": result.get('agent_used'),
+                    "cache_updated": True,
+                },
+                count=1,
+                message=f"EOL result verified and cached for {request.software_name}",
+            )
     else:
-        return {
-            "success": False,
-            "message": f"Failed to find EOL data for {request.software_name}",
-            "error": "No EOL data found to verify"
-        }
+        return StandardResponse.error_response(
+            error="No EOL data found to verify",
+            message=f"Failed to find EOL data for {request.software_name}",
+        )
 
 
 @router.post("/api/cache-eol-result", response_model=StandardResponse)
@@ -1529,20 +1533,21 @@ async def cache_eol_result(request: CacheEOLRequest):
     
     # If we have a result, the caching should have been handled by the agent
     if result.get('success') and result.get('data'):
-        return {
-            "success": True,
-            "message": f"EOL result cached for {request.software_name}",
-            "software_name": request.software_name,
-            "software_version": request.software_version,
-            "agent_used": result.get('agent_used'),
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return StandardResponse.success_response(
+            data={
+                "software_name": request.software_name,
+                "software_version": request.software_version,
+                "agent_used": result.get('agent_used'),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            count=1,
+            message=f"EOL result cached for {request.software_name}",
+        )
     else:
-        return {
-            "success": False,
-            "message": f"Failed to find EOL data for {request.software_name}",
-            "error": "No EOL data found to cache"
-        }
+        return StandardResponse.error_response(
+            error="No EOL data found to cache",
+            message=f"Failed to find EOL data for {request.software_name}",
+        )
 
 
 # ============================================================================
@@ -1601,8 +1606,7 @@ async def list_eol_inventory_records(
         )
     except Exception as exc:
         logger.debug("EOL inventory list failed: %s", exc)
-        response = StandardResponse.error_response(error=str(exc))
-        return response.to_dict()
+        return StandardResponse.error_response(error=str(exc))
 
 
 @router.get("/api/eol-inventory/vendor/{vendor}", response_model=StandardResponse)
@@ -1612,8 +1616,9 @@ async def list_eol_by_vendor(vendor: str, limit: int = 100, offset: int = 0):
     records, total = await eol_inventory.list_by_vendor(vendor, limit=limit, offset=offset)
     return StandardResponse.success_response(
         data={"items": records, "total": total, "vendor": vendor},
+        count=len(records),
         message=f"Retrieved {len(records)} of {total} EOL records for vendor '{vendor}'",
-    ).to_dict()
+    )
 
 
 @router.get("/api/eol-inventory/{software_key}", response_model=StandardResponse)
@@ -1623,8 +1628,13 @@ async def get_eol_record(request: Request, software_key: str):
     eol_repo = request.app.state.eol_repo
     record = await eol_repo.get_by_key(software_key)
     if record is None:
-        raise HTTPException(status_code=404, detail=f"EOL record not found: {software_key}")
-    return StandardResponse(success=True, data=record, message="EOL record retrieved")
+        return StandardResponse.error_response(
+            error=f"EOL record not found: {software_key}"
+        )
+    return StandardResponse.success_response(
+        data=record,
+        message="EOL record retrieved",
+    )
 
 
 @router.put("/api/eol-inventory/{record_id}", response_model=StandardResponse)
@@ -1639,8 +1649,7 @@ async def update_eol_inventory_record(
     eol_repo = request.app.state.eol_repo
     record_data = body.dict(exclude_unset=True) if body else {}
     if not record_data:
-        response = StandardResponse.error_response("No update fields provided")
-        return response.to_dict()
+        return StandardResponse.error_response("No update fields provided")
 
     try:
         await eol_repo.upsert_eol_record(
@@ -1653,10 +1662,19 @@ async def update_eol_inventory_record(
             is_eol=record_data.get("status") in ("expired", "eol") if record_data.get("status") else False,
             item_type=None,
         )
-        return StandardResponse(success=True, data=record_data, message="EOL record saved")
+        return StandardResponse.success_response(
+            data={
+                "record_id": record_id,
+                "software_key": software_key,
+                "updates": record_data,
+            },
+            message="EOL record saved",
+        )
     except Exception as e:
         logger.error("Failed to upsert EOL record: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"EOL record save failed: {str(e)}")
+        return StandardResponse.error_response(
+            error=f"EOL record save failed: {str(e)}"
+        )
 
 
 @router.delete("/api/eol-inventory/{record_id}", response_model=StandardResponse)
@@ -1665,15 +1683,16 @@ async def delete_eol_inventory_record(record_id: str, software_key: str):
     """Delete a stored EOL record."""
     deleted = await eol_inventory.delete_record(record_id, software_key)
     if not deleted:
-        response = StandardResponse.error_response("Record not found or delete failed")
-        return response.to_dict()
+        return StandardResponse.error_response("Record not found or delete failed")
 
-    response = StandardResponse.success_response(
-        data=[],
-        metadata={"operation": "delete", "id": record_id},
+    return StandardResponse.success_response(
+        data={
+            "deleted": True,
+            "record_id": record_id,
+            "software_key": software_key,
+        },
         message="Record deleted",
     )
-    return response.to_dict()
 
 
 @router.post("/api/eol-inventory/bulk-delete", response_model=StandardResponse)
@@ -1682,23 +1701,22 @@ async def bulk_delete_eol_inventory_records(request: BulkDeleteRequest):
     """Delete multiple EOL records in one call."""
     items = request.items or []
     if not items:
-        response = StandardResponse.error_response("No items provided for deletion")
-        return response.to_dict()
+        return StandardResponse.error_response("No items provided for deletion")
 
     results = await eol_inventory.delete_records([item.dict() for item in items])
     deleted = results.get("deleted", 0)
     failed = results.get("failed", [])
 
     if deleted == 0 and failed:
-        response = StandardResponse.error_response("Bulk delete failed", error_details=failed)
-        return response.to_dict()
+        return StandardResponse.error_response("Bulk delete failed", details={"failed": failed})
 
-    response = StandardResponse.success_response(
-        data=[],
-        metadata={"requested": len(items), **results},
+    return StandardResponse.success_response(
+        data={
+            "requested": len(items),
+            **results,
+        },
         message=f"Deleted {deleted} record(s)" if deleted else "No records deleted",
     )
-    return response.to_dict()
 
 
 @router.post("/api/eol-inventory/purge-all", response_model=StandardResponse)
@@ -1720,12 +1738,10 @@ async def purge_all_eol_inventory_records():
 
     deleted = await eol_inventory.purge_all()
 
-    response = StandardResponse.success_response(
-        data=[],
-        metadata={"deleted": deleted, "memory_cleared": memory_cleared},
+    return StandardResponse.success_response(
+        data={"deleted": deleted, "memory_cleared": memory_cleared},
         message=f"Purged {deleted} record(s) from EOL inventory",
     )
-    return response.to_dict()
 
 
 # ============================================================================
@@ -1746,16 +1762,12 @@ async def get_eol_agent_responses(request: Request, limit: int = 1000, offset: i
     eol_repo = getattr(request.app.state, 'eol_repo', None)
     if eol_repo is None:
         logger.error("❌ eol_repo not found on app.state - startup may not have completed")
-        return StandardResponse(
-            success=False,
-            data=[],
-            count=0,
-            message="Repository not initialized - please try again in a moment",
+        return StandardResponse.error_response(
+            error="Repository not initialized - please try again in a moment"
         )
 
     responses = await eol_repo.list_recent_responses(limit=limit, offset=offset)
-    return StandardResponse(
-        success=True,
+    return StandardResponse.success_response(
         data=responses,
         count=len(responses),
         message=f"Retrieved {len(responses)} agent responses",
@@ -1768,11 +1780,7 @@ async def get_session_responses(request: Request, session_id: str):
     """Return all agent responses for a given session, ordered ASC."""
     eol_repo = request.app.state.eol_repo
     responses = await eol_repo.get_responses_by_session(session_id)
-    return StandardResponse(
-        success=True,
-        data=responses,
-        count=len(responses),
-    )
+    return StandardResponse.success_response(data=responses)
 
 
 @router.post("/api/eol-agent-responses/clear", response_model=StandardResponse)
@@ -1818,14 +1826,15 @@ async def clear_eol_agent_responses():
         logger.info(f"🧹 [API] Cleared {count} EOL responses from EOL orchestrator")
     
     total_cleared = sum(cleared_counts.values())
-    
-    return {
-        "success": True,
-        "message": f"Cleared {total_cleared} EOL agent responses",
-        "cleared_counts": cleared_counts,
-        "total_cleared": total_cleared,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+
+    return StandardResponse.success_response(
+        data={
+            "cleared_counts": cleared_counts,
+            "total_cleared": total_cleared,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        message=f"Cleared {total_cleared} EOL agent responses",
+    )
 
 
 @router.post("/api/eol/batch-enrich", response_model=StandardResponse)
@@ -1855,25 +1864,34 @@ async def batch_enrich_eol(request: BatchEOLRequest):
     Example Response:
         {
             "success": true,
-            "data": [
-                {
-                    "software_name": "Python",
-                    "version": "3.8",
-                    "eol_date": "2024-10-01",
-                    "source": "cache"
-                },
-                ...
-            ]
+            "data": {
+                "items": [
+                    {
+                        "software_name": "Python",
+                        "version": "3.8",
+                        "eol_date": "2024-10-01",
+                        "source": "cache"
+                    },
+                    ...
+                ],
+                "total_items": 2,
+                "timestamp": "2026-03-27T12:00:00Z"
+            }
         }
     """
     if not request.items:
-        return {"success": True, "data": [], "message": "No items to enrich"}
+        return StandardResponse.success_response(
+            data={
+                "items": [],
+                "total_items": 0,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            count=0,
+            message="No items to enrich",
+        )
     
     if len(request.items) > 100:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum 100 items per batch request"
-        )
+        return StandardResponse.error_response("Maximum 100 items per batch request")
     
     orchestrator = _get_eol_orchestrator()
     results = []
@@ -1943,12 +1961,14 @@ async def batch_enrich_eol(request: BatchEOLRequest):
         else:
             clean_results.append(result)
     
-    return {
-        "success": True,
-        "data": clean_results,
-        "total_items": len(clean_results),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return StandardResponse.success_response(
+        data={
+            "items": clean_results,
+            "total_items": len(clean_results),
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        count=len(clean_results),
+    )
 
 
 # ============================================================================
@@ -1968,8 +1988,7 @@ async def get_eol_management(
     vms = await eol_repo.get_vm_eol_management(
         subscription_id=subscription_id, limit=limit, offset=offset,
     )
-    return StandardResponse(
-        success=True,
+    return StandardResponse.success_response(
         data={"items": vms, "total": len(vms), "offset": offset, "limit": limit},
         count=len(vms),
         message=f"Retrieved {len(vms)} VMs with EOL status" if vms else "No VM EOL management data available",

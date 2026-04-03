@@ -1191,8 +1191,8 @@ def _build_static_fallback(
                     full_os_inventory_html = (
                         "<h3>OS Inventory</h3>"
                         f"<p>Total machines: <strong>{_html.escape(str(total))}</strong>{note}{cache_note}</p>"
-                        "<div style='overflow-x:auto'>"
-                        "<table border='1' cellpadding='6' style='border-collapse:collapse;width:100%;font-size:13px'>"
+                        "<div style='overflow-x:auto;max-width:100%'>"
+                        "<table border='1' cellpadding='6' style='border-collapse:collapse;min-width:800px;white-space:nowrap;font-size:13px'>"
                         "<thead><tr><th>Machine</th><th>OS</th><th>Version</th>"
                         "<th>Type</th><th>Resource Group</th><th>Location</th><th>Source</th></tr></thead>"
                         f"<tbody>{''.join(inv_rows)}</tbody>"
@@ -1233,8 +1233,6 @@ def _build_static_fallback(
     ) if include_step_table else ""
 
     return (
-        f"<h3>Query Results</h3>"
-        f"<p><em>Query: {_html.escape(query)}</em></p>"
         f"{full_os_inventory_html}"
         f"{arc_os_html}"
         f"{azure_os_html}"

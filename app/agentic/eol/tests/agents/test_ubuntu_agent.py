@@ -6,13 +6,12 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 2)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 from agents.ubuntu_agent import UbuntuEOLAgent
 from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestUbuntuAgent:
     """Tests for UbuntuEOLAgent."""
 
@@ -88,7 +87,8 @@ class TestUbuntuAgent:
         assert agent._parse_date("-") is None
         assert agent._parse_date("") is None
 
-    @patch('agents.ubuntu_agent.requests.get')
+    @pytest.mark.asyncio
+    @patch('agents.ubuntu_agent.UbuntuEOLAgent._http_get')
     async def test_scrape_success(self, mock_get):
         """Test successful scraping of Ubuntu EOL data."""
         agent = UbuntuEOLAgent()
@@ -108,12 +108,19 @@ class TestUbuntuAgent:
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
-        # Test scraping
-        if hasattr(agent, '_scrape_eol_data'):
-            result = await agent._scrape_eol_data("Ubuntu", "22.04")
-            assert result is not None
-            assert isinstance(result, list)
+        result = await agent._scrape_eol_data("Ubuntu", "22.04")
 
+        assert result is not None
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["cycle"] == "22.04 LTS"
+        mock_get.assert_awaited_once_with(
+            agent.eol_urls["ubuntu"]["url"],
+            headers=agent.headers,
+            timeout=agent.timeout,
+        )
+
+    @pytest.mark.asyncio
     async def test_get_eol_data_ubuntu(self):
         """Test get_eol_data for Ubuntu product."""
         agent = UbuntuEOLAgent()
@@ -136,6 +143,7 @@ class TestUbuntuAgent:
                 version_info = data.get("version", data.get("cycle", ""))
                 assert "22.04" in str(version_info)
 
+    @pytest.mark.asyncio
     async def test_get_eol_data_non_ubuntu(self):
         """Test get_eol_data with non-Ubuntu product."""
         agent = UbuntuEOLAgent()
@@ -144,12 +152,14 @@ class TestUbuntuAgent:
         result = await agent.get_eol_data("RHEL", "8")
         assert result is None
 
+    @pytest.mark.asyncio
     async def test_query_method_exists(self):
         """Test that agent has query method."""
         agent = UbuntuEOLAgent()
 
         assert hasattr(agent, 'get_eol_data')
 
+    @pytest.mark.asyncio
     async def test_timeout_configuration(self):
         """Test that agent respects timeout configuration."""
         agent = UbuntuEOLAgent()
@@ -159,19 +169,23 @@ class TestUbuntuAgent:
         assert agent.timeout > 0
         assert agent.timeout <= 30  # Reasonable timeout
 
-    async def test_cache_duration_configuration(self):
-        """Test that agent has cache duration configured."""
+    @pytest.mark.asyncio
+    async def test_agent_cache_is_centrally_managed(self):
+        """Test that agent-level cache management is intentionally disabled."""
         agent = UbuntuEOLAgent()
 
-        assert hasattr(agent, 'cache_duration_hours')
-        assert agent.cache_duration_hours > 0
+        result = await agent.purge_cache()
+        assert result["success"] is True
+        assert "disabled" in result["message"].lower()
 
+    @pytest.mark.asyncio
     async def test_vendor_name(self):
         """Test that agent has correct agent name."""
         agent = UbuntuEOLAgent()
 
         assert agent.agent_name == "ubuntu"
 
+    @pytest.mark.asyncio
     async def test_agent_inherits_from_base(self):
         """Test that agent inherits from BaseEOLAgent."""
         from agents.base_eol_agent import BaseEOLAgent
@@ -229,6 +243,7 @@ class TestUbuntuAgent:
         # May return empty if table structure doesn't match expected format
         # The important thing is it doesn't crash
 
+    @pytest.mark.asyncio
     async def test_fetch_all_from_url_method_exists(self):
         """Test that agent has fetch_all_from_url method."""
         agent = UbuntuEOLAgent()
@@ -266,15 +281,14 @@ class TestUbuntuAgentIntegration:
         agent = UbuntuEOLAgent()
         agg = ErrorAggregator()
 
-        # Mock scraping to test error handling
         with patch.object(agent, '_scrape_eol_data', side_effect=Exception("Network error")):
             try:
-                result = await agent.get_eol_data("Ubuntu", "22.04")
+                await agent.get_eol_data("Ubuntu", "22.04")
             except Exception as e:
                 agg.add_error(e, {"agent": "ubuntu", "operation": "query"})
 
-        # Error aggregator should work
-        assert not agg.has_errors() or agg.get_error_count() >= 0
+        assert agg.has_errors()
+        assert agg.get_error_count() == 1
 
     async def test_agent_with_timeout_config(self):
         """Test agent integration with centralized timeout config."""
@@ -286,48 +300,33 @@ class TestUbuntuAgentIntegration:
         # Agent timeout should align with config
         assert agent.timeout <= timeout_config.agent_timeout * 2  # Reasonable range
 
-    @patch('agents.ubuntu_agent.requests.get')
-    async def test_agent_with_circuit_breaker(self, mock_get):
+    async def test_agent_with_circuit_breaker(self):
         """Test agent with circuit breaker pattern."""
         from utils.circuit_breaker import CircuitBreaker
 
         agent = UbuntuEOLAgent()
         cb = CircuitBreaker(failure_threshold=2, name="ubuntu_agent")
 
-        # Mock failing requests
-        mock_get.side_effect = Exception("Connection failed")
-
-        # Trigger circuit breaker
-        for _ in range(2):
-            try:
-                if hasattr(agent, '_scrape_eol_data'):
+        with patch.object(agent, '_scrape_eol_data', side_effect=RuntimeError("Connection failed")):
+            for _ in range(2):
+                with pytest.raises(RuntimeError, match="Connection failed"):
                     await cb.call(agent._scrape_eol_data, "Ubuntu 22.04", "22.04")
-            except Exception:
-                pass
 
-        # Circuit should open after failures
-        assert cb.state.value in ["OPEN", "CLOSED"]  # State machine works
+        assert cb.state.value == "OPEN"
 
-    @patch('agents.ubuntu_agent.requests.get')
+    @patch('agents.ubuntu_agent.UbuntuEOLAgent._http_get')
     async def test_scrape_with_error_tracking(self, mock_get):
         """Test scraping with error tracking."""
         agent = UbuntuEOLAgent()
-        agg = ErrorAggregator()
 
         # Mock HTTP error
         mock_get.side_effect = Exception("HTTP 404 Not Found")
 
-        try:
-            if hasattr(agent, '_scrape_eol_data'):
-                await agent._scrape_eol_data("Ubuntu", "22.04")
-        except Exception as e:
-            agg.add_error(e, {"agent": "ubuntu", "operation": "scrape"})
+        result = await agent._scrape_eol_data("Ubuntu", "22.04")
 
-        # Should have recorded the error if exception was raised
-        # (or no error if exception was caught internally)
-        assert not agg.has_errors() or agg.get_error_count() > 0
+        assert result is None
 
-    @patch('agents.ubuntu_agent.requests.get')
+    @patch('agents.ubuntu_agent.UbuntuEOLAgent._http_get')
     async def test_fetch_all_with_mocked_response(self, mock_get):
         """Test fetch_all_from_url with mocked HTTP response."""
         agent = UbuntuEOLAgent()
@@ -346,11 +345,13 @@ class TestUbuntuAgentIntegration:
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
-        # Test fetch_all_from_url
-        if hasattr(agent, 'fetch_all_from_url'):
-            records = await agent.fetch_all_from_url(
-                "https://example.com/releases",
-                "ubuntu",
-                None
-            )
-            assert isinstance(records, list)
+        records = await agent.fetch_all_from_url(
+            "https://example.com/releases",
+            "ubuntu",
+            None
+        )
+
+        assert isinstance(records, list)
+        assert len(records) == 1
+        assert records[0]["cycle"] == "22.04 LTS"
+        assert records[0]["software_name"] == "ubuntu"

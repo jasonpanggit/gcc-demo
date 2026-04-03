@@ -34,13 +34,13 @@ async def list_alert_rules(request: Request, enabled_only: bool = Query(False)) 
     alert_repo = request.app.state.alert_repo
     rules = await alert_repo.list_rules(enabled_only=enabled_only)
 
-    return StandardResponse(
-        success=True,
-        message=f"Retrieved {len(rules)} alert rules",
-        data={
+    return StandardResponse.success_response(
+        {
             "rules": rules,
-            "count": len(rules)
-        }
+            "count": len(rules),
+        },
+        count=len(rules),
+        message=f"Retrieved {len(rules)} alert rules",
     )
 
 
@@ -69,10 +69,7 @@ async def create_alert_rule(request: Request, rule_data: Dict[str, Any]) -> Stan
     try:
         # Validate required fields
         if "name" not in rule_data or not rule_data["name"]:
-            return StandardResponse(
-                success=False,
-                message="Rule name is required"
-            )
+            return StandardResponse.error_response(error="Rule name is required")
 
         # Create rule object for validation
         rule = CVEAlertRule(**rule_data)
@@ -81,23 +78,16 @@ async def create_alert_rule(request: Request, rule_data: Dict[str, Any]) -> Stan
         alert_repo = request.app.state.alert_repo
         created_rule = await alert_repo.create_rule(rule.to_dict())
 
-        return StandardResponse(
-            success=True,
+        return StandardResponse.success_response(
+            {"rule": created_rule},
             message=f"Alert rule '{rule.name}' created",
-            data={"rule": created_rule}
         )
 
     except ValueError as e:
-        return StandardResponse(
-            success=False,
-            message=str(e)
-        )
+        return StandardResponse.error_response(error=str(e))
     except Exception as e:
         logger.error(f"Failed to create alert rule: {e}")
-        return StandardResponse(
-            success=False,
-            message="Failed to create alert rule"
-        )
+        return StandardResponse.error_response(error="Failed to create alert rule")
 
 
 @router.get("/alerts/{rule_id}")
@@ -107,16 +97,9 @@ async def get_alert_rule(request: Request, rule_id: str) -> StandardResponse:
     rule = await alert_repo.get_rule(rule_id)
 
     if not rule:
-        return StandardResponse(
-            success=False,
-            message=f"Alert rule {rule_id} not found"
-        )
+        return StandardResponse.error_response(error=f"Alert rule {rule_id} not found")
 
-    return StandardResponse(
-        success=True,
-        message="Alert rule retrieved",
-        data={"rule": rule}
-    )
+    return StandardResponse.success_response({"rule": rule}, message="Alert rule retrieved")
 
 
 @router.put("/alerts/{rule_id}")
@@ -132,10 +115,7 @@ async def update_alert_rule(request: Request, rule_id: str, rule_data: Dict[str,
         # Fetch existing rule
         existing = await alert_repo.get_rule(rule_id)
         if not existing:
-            return StandardResponse(
-                success=False,
-                message=f"Alert rule {rule_id} not found"
-            )
+            return StandardResponse.error_response(error=f"Alert rule {rule_id} not found")
 
         # Update fields (merge new data into existing)
         for key, value in rule_data.items():
@@ -145,23 +125,16 @@ async def update_alert_rule(request: Request, rule_id: str, rule_data: Dict[str,
         # Persist changes
         updated_rule = await alert_repo.update_rule(existing)
 
-        return StandardResponse(
-            success=True,
+        return StandardResponse.success_response(
+            {"rule": updated_rule},
             message=f"Alert rule '{existing.get('name', rule_id)}' updated",
-            data={"rule": updated_rule}
         )
 
     except ValueError as e:
-        return StandardResponse(
-            success=False,
-            message=str(e)
-        )
+        return StandardResponse.error_response(error=str(e))
     except Exception as e:
         logger.error(f"Failed to update alert rule: {e}")
-        return StandardResponse(
-            success=False,
-            message="Failed to update alert rule"
-        )
+        return StandardResponse.error_response(error="Failed to update alert rule")
 
 
 @router.delete("/alerts/{rule_id}")
@@ -171,15 +144,9 @@ async def delete_alert_rule(request: Request, rule_id: str) -> StandardResponse:
     success = await alert_repo.delete_rule(rule_id)
 
     if not success:
-        return StandardResponse(
-            success=False,
-            message=f"Alert rule {rule_id} not found"
-        )
+        return StandardResponse.error_response(error=f"Alert rule {rule_id} not found")
 
-    return StandardResponse(
-        success=True,
-        message="Alert rule deleted"
-    )
+    return StandardResponse.success_response({"deleted": True, "rule_id": rule_id}, message="Alert rule deleted")
 
 
 @router.post("/alerts/{rule_id}/test")
@@ -194,10 +161,7 @@ async def test_alert_rule(request: Request, rule_id: str) -> StandardResponse:
         rule = await alert_repo.get_rule(rule_id)
 
         if not rule:
-            return StandardResponse(
-                success=False,
-                message=f"Alert rule {rule_id} not found"
-            )
+            return StandardResponse.error_response(error=f"Alert rule {rule_id} not found")
 
         # Create mock CVE alert item
         mock_cve = CVEAlertItem(
@@ -231,15 +195,8 @@ async def test_alert_rule(request: Request, rule_id: str) -> StandardResponse:
             severity_threshold=severity_levels[0] if severity_levels else "HIGH",
         )
 
-        return StandardResponse(
-            success=True,
-            message="Test alert sent",
-            data={"result": result}
-        )
+        return StandardResponse.success_response({"result": result}, message="Test alert sent")
 
     except Exception as e:
         logger.error(f"Failed to send test alert: {e}")
-        return StandardResponse(
-            success=False,
-            message=f"Failed to send test alert: {str(e)}"
-        )
+        return StandardResponse.error_response(error=f"Failed to send test alert: {str(e)}")

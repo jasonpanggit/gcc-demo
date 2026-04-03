@@ -6,7 +6,7 @@ Created: 2026-02-27 (Phase 3, Week 1, Day 3)
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import AsyncMock, MagicMock
 import sys
 
 # Mock the logging_config import before importing monitor_agent
@@ -17,7 +17,6 @@ from utils.error_aggregator import ErrorAggregator
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 class TestMonitorAgent:
     """Tests for MonitorAgent."""
 

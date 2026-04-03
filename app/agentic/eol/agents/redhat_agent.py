@@ -1,7 +1,6 @@
 """
 Red Hat EOL Agent - Web scrapes Red Hat official EOL information
 """
-import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any, Optional, List
 import re
@@ -331,7 +330,7 @@ class RedHatEOLAgent(BaseEOLAgent):
             start_time = datetime.now()
             cache_stats_manager.record_agent_request("redhat", url)
 
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
 
             response_time = (datetime.now() - start_time).total_seconds()
@@ -473,7 +472,7 @@ class RedHatEOLAgent(BaseEOLAgent):
             start_time = datetime.now()
             cache_stats_manager.record_agent_request("redhat", url)
             
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            response = await self._http_get(url, headers=self.headers, timeout=self.timeout)
             response.raise_for_status()
             
             # Calculate response time for tracking
@@ -494,9 +493,9 @@ class RedHatEOLAgent(BaseEOLAgent):
             
         except Exception as e:
             # Record failed request for statistics tracking
-            start_time = getattr(locals(), 'start_time', datetime.now())
+            start_time = locals().get('start_time', datetime.now())
             response_time = (datetime.now() - start_time).total_seconds()
-            url = getattr(locals(), 'url', None)
+            url = locals().get('url')
             if url:
                 cache_stats_manager.record_agent_request("redhat", url, response_time, success=False, error_message=str(e))
             logger.error(f"Error scraping Red Hat EOL data: {e}")

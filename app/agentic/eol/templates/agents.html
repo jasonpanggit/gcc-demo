@@ -1678,25 +1678,35 @@
                 'microsoft', 'redhat', 'ubuntu', 'oracle', 'vmware', 'nodejs', 'postgresql', 'php', 'python'
             ];
 
-            // try {
-            //     const response = await fetch('/api/vendors');
-            //     if (!response.ok) {
-            //         throw new Error(`Vendor API HTTP ${response.status}`);
-            //     }
+            try {
+                // This endpoint may return either the new StandardResponse envelope or the legacy
+                // raw object during rollout; unwrapStandardResponse handles both safely.
+                const response = await fetch('/api/vendors');
+                if (!response.ok) {
+                    throw new Error(`Vendor API HTTP ${response.status}`);
+                }
 
-            //     const data = await response.json();
-            //     const vendors = data?.vendors || Object.keys(data?.vendor_routing || {});
-            //     this.vendors = vendors && vendors.length ? vendors : fallbackVendors;
-            // } catch (error) {
-            //     console.warn('Failed to load vendors:', error);
-            //     if (!this.vendors || this.vendors.length === 0) {
-            //         this.vendors = fallbackVendors;
-            //     }
-            //     this.showMessage('Vendor API unavailable. Using fallback vendor list.', 'error');
-            // }
+                const body = await response.json();
+                const data = this.unwrapStandardResponse(body);
+                const vendors = data?.vendors || Object.keys(data?.vendor_routing || {});
+                this.vendors = vendors && vendors.length ? vendors : fallbackVendors;
+            } catch (error) {
+                console.warn('Failed to load vendors:', error);
+                if (!this.vendors || this.vendors.length === 0) {
+                    this.vendors = fallbackVendors;
+                }
+                this.showMessage('Vendor API unavailable. Using fallback vendor list.', 'error');
+            }
 
-            this.vendors = fallbackVendors;
             this.renderVendorOptions();
+        }
+
+        unwrapStandardResponse(payload) {
+            if (payload && typeof payload === 'object' && 'success' in payload && 'data' in payload) {
+                return payload.data;
+            }
+
+            return payload;
         }
 
         renderVendorOptions() {
@@ -1780,13 +1790,15 @@
         }
 
         renderParsingResult(data, requestedMode) {
-            if (data && Array.isArray(data.runs)) {
-                this.renderVendorParsingResult(data);
+            const payload = this.unwrapStandardResponse(data);
+
+            if (payload && Array.isArray(payload.runs)) {
+                this.renderVendorParsingResult(payload);
                 return;
             }
 
-            const mode = data?.search_mode || requestedMode || 'multi_agent';
-            const result = data?.result || {};
+            const mode = payload?.search_mode || requestedMode || 'multi_agent';
+            const result = payload?.result || {};
             const success = result.success !== false && (result.success || !!result.data);
             const agentUsed = result.agent_used || result.primary_source || result.agent || 'unknown';
             const eolData = result.data || result.eol_data || result.result || {};
@@ -1807,7 +1819,7 @@
                 mode: this.describeMode(mode),
                 agent: agentUsed,
                 confidence: confidence || null,
-                timestamp: data?.timestamp || new Date().toISOString()
+                timestamp: payload?.timestamp || data?.timestamp || new Date().toISOString()
             });
 
             const summary = `
@@ -2095,10 +2107,15 @@
                     body: JSON.stringify(payload)
                 });
 
-                const data = await response.json();
+                const body = await response.json();
+                const data = this.unwrapStandardResponse(body);
 
                 if (!response.ok) {
-                    throw new Error(data?.detail || data?.error || `HTTP ${response.status}`);
+                    throw new Error(body?.detail || body?.error || data?.error || `HTTP ${response.status}`);
+                }
+
+                if (body?.success === false) {
+                    throw new Error(body?.error || 'Vendor parsing failed');
                 }
 
                 this.renderParsingResult(data, mode);

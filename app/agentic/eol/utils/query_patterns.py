@@ -86,7 +86,23 @@ class QueryPatterns:
         r'show\s+(?:all\s+)?applications',
         r'what\s+(?:is\s+)?installed',
         r'softwares?\s+installed\s+on',
-        r'applications?\s+installed\s+on'
+        r'applications?\s+installed\s+on',
+        # "do i have X" patterns — software presence checks
+        r'do\s+i\s+have\s+\S+',
+        r'is\s+\S+\s+installed',
+        r'is\s+\S+\s+in\s+(?:my\s+)?(?:os\s+)?inventory',
+        r'(?:have|has)\s+\S+\s+(?:been\s+)?installed',
+        r'(?:find|search|look\s+for|check\s+for)\s+\S+\s+in\s+(?:my\s+)?(?:os\s+)?(?:software\s+)?inventory',
+    ]
+
+    # Software presence check patterns — "do I have X?", "is X installed?"
+    # These detect when a user asks about a specific software product's presence
+    SOFTWARE_PRESENCE_PATTERNS = [
+        r'do\s+i\s+have\s+(?P<software>.+?)(?:\s+in\s+(?:my\s+)?(?:os\s+)?(?:software\s+)?inventory)?$',
+        r'is\s+(?P<software>.+?)\s+installed(?:\s+(?:in|on)\s+.+)?$',
+        r'is\s+(?P<software>.+?)\s+in\s+(?:my\s+)?(?:os\s+)?(?:software\s+)?inventory$',
+        r'(?:find|search\s+for|look\s+for|check\s+for)\s+(?P<software>.+?)\s+in\s+(?:my\s+)?(?:os\s+)?(?:software\s+)?inventory$',
+        r'(?:any|have\s+any)\s+(?P<software>.+?)\s+(?:in\s+)?(?:my\s+)?inventory$',
     ]
 
     # ── Domain intent patterns for MCP tool routing ──
@@ -332,7 +348,33 @@ class QueryPatterns:
             re.search(pattern, query, re.IGNORECASE)
             for pattern in cls.SOFTWARE_INVENTORY_PATTERNS
         )
-    
+
+    @classmethod
+    def extract_software_presence_target(cls, query: str) -> Optional[str]:
+        """Extract the target software name from a presence-check query.
+
+        Returns the software name if the query is asking about the presence of
+        a specific product (e.g. "do i have solarwinds in my inventory"),
+        or ``None`` if the query is not a presence check.
+        """
+        cleaned = re.sub(r'[?!,.;]+$', '', query.strip())
+        for pattern in cls.SOFTWARE_PRESENCE_PATTERNS:
+            match = re.search(pattern, cleaned, re.IGNORECASE)
+            if match:
+                software = match.group("software").strip()
+                # Filter out generic/noise words that aren't product names.
+                # A phrase is noise when ALL its words are in the noise set.
+                noise = {
+                    "any", "some", "the", "a", "an", "this", "that",
+                    "software", "application", "app", "program",
+                    "in", "my", "inventory", "on", "from",
+                }
+                words = software.lower().split()
+                if all(w in noise for w in words) or len(software) < 2:
+                    continue
+                return software
+        return None
+
     @classmethod
     def get_matched_patterns(cls, query: str, pattern_list: List[str], use_regex: bool = False) -> List[str]:
         """
@@ -390,13 +432,27 @@ class QueryPatterns:
             >>> intent['confidence']
             0.9
         """
+        is_software_inventory = cls.matches_software_inventory_pattern(query)
+        is_os_inventory = cls.matches_os_inventory_pattern(query)
+        software_presence_target = cls.extract_software_presence_target(query)
+
+        # A software presence check is always a software inventory query,
+        # even when the user says "os inventory".
+        if software_presence_target and not is_software_inventory:
+            is_software_inventory = True
+
+        # OS inventory queries should NOT be flagged as software inventory
+        if is_os_inventory and is_software_inventory:
+            is_software_inventory = False
+
         return {
             "query": query,
             "is_eol_query": cls.matches_eol_pattern(query),
             "is_approaching_eol_query": cls.matches_approaching_eol_pattern(query),
             "is_inventory_query": cls.matches_inventory_pattern(query),
-            "is_os_inventory_query": cls.matches_os_inventory_pattern(query),
-            "is_software_inventory_query": cls.matches_software_inventory_pattern(query),
+            "is_os_inventory_query": is_os_inventory,
+            "is_software_inventory_query": is_software_inventory,
+            "software_presence_target": software_presence_target,
             "matched_eol_patterns": cls.get_matched_patterns(query, cls.EOL_PATTERNS),
             "matched_approaching_patterns": cls.get_matched_patterns(query, cls.APPROACHING_EOL_PATTERNS),
             "matched_inventory_patterns": cls.get_matched_patterns(query, cls.INVENTORY_PATTERNS, use_regex=True),

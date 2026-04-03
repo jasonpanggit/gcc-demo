@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Dict, Any
 from fastapi import APIRouter
 
-from utils import config
+from utils import config, get_logger
 from utils.response_models import StandardResponse
 from utils.endpoint_decorators import (
     with_timeout_and_stats,
@@ -28,6 +28,7 @@ from utils.endpoint_decorators import (
 
 # Create router for health endpoints
 router = APIRouter(tags=["Health & Status"])
+logger = get_logger(__name__)
 
 
 def _get_inventory_asst_available():
@@ -88,11 +89,10 @@ async def detailed_health() -> Dict[str, Any]:
     Detailed health check with comprehensive service status.
     
     Performs thorough validation of application configuration and checks
-    the status of all services including:
-    - Cosmos DB connectivity
-    - Azure services configuration
+    the status of configured services including:
+    - Azure service configuration
     - Orchestrator availability
-    - Agent initialization
+    - Agent initialization state
     - Configuration validation
     
     This endpoint provides detailed diagnostics for troubleshooting and
@@ -114,7 +114,6 @@ async def detailed_health() -> Dict[str, Any]:
                 "status": "ok",
                 "timestamp": "2025-10-15T10:30:00.000Z",
                 "services": {
-                    "cosmos_db": "available",
                     "azure_openai": "available",
                     "log_analytics": "available"
                 },
@@ -210,7 +209,7 @@ async def inventory_health_check() -> Dict[str, Any]:
             - completed_at (str): When discovery finished
             - error_count (int): Number of failed subscriptions
             - cache_statistics (Dict): L1/L2 cache hit rates and counts
-            - cosmos_status (Dict): Cosmos DB container readiness
+            - cosmos_status (Dict): Migration placeholder while inventory health moves to PostgreSQL
             - config (Dict): Current inventory configuration summary
 
     Example Response:
@@ -247,7 +246,8 @@ async def inventory_health_check() -> Dict[str, Any]:
         # Deep copy subscriptions to avoid mutation
         if "subscriptions" in status:
             status["subscriptions"] = dict(status["subscriptions"])
-    except Exception:
+    except Exception as exc:
+        logger.debug("Inventory discovery status unavailable: %s", exc)
         status = {"enabled": False, "status": "unavailable"}
 
     # Add cache statistics if available
@@ -255,7 +255,8 @@ async def inventory_health_check() -> Dict[str, Any]:
         from utils.resource_inventory_cache import get_resource_inventory_cache
         cache = get_resource_inventory_cache()
         status["cache_statistics"] = cache.get_statistics()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Inventory cache statistics unavailable: %s", exc)
         status["cache_statistics"] = {"error": "unavailable"}
 
     # Cosmos DB container status removed (BH-042: resource_inventory_cosmos deleted)
@@ -278,7 +279,8 @@ async def inventory_health_check() -> Dict[str, Any]:
         status["scheduler"] = {
             "running": scheduler.running if hasattr(scheduler, 'running') else "unknown",
         }
-    except Exception:
+    except Exception as exc:
+        logger.debug("Inventory scheduler status unavailable: %s", exc)
         status["scheduler"] = {"status": "unavailable"}
 
     return status
@@ -344,7 +346,8 @@ async def cve_sync_health_check() -> Dict[str, Any]:
                 "lookback_days": status_data.get("sync_lookback_days"),
             }
         }
-    except Exception:
+    except Exception as exc:
+        logger.debug("CVE sync scheduler unavailable: %s", exc)
         return {
             "enabled": False,
             "scheduler_running": False,
@@ -370,7 +373,7 @@ async def cve_scanner_health_check() -> Dict[str, Any]:
         Dict containing:
             - enabled (bool): Whether CVE scanner is enabled
             - resource_graph_accessible (bool): Resource Graph connectivity test
-            - scan_container_exists (bool): Cosmos scan container initialized
+            - scan_container_exists (bool): Whether scan storage passed startup validation
             - max_vms_per_scan (int): Configured VM limit
 
     Note:
