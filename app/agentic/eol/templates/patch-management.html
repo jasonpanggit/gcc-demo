@@ -741,6 +741,16 @@ async function fetchLastAssessment(machineName, subId, vmType) {
     const key = machineKey(machineName, vmType);
     const id  = cardId(key);
     const btn = document.getElementById(`${id}-last-btn`);
+
+    // Check if patch data already exists in registry from pre-load
+    const existingVM = vmRegistry[key];
+    if (existingVM && existingVM.patches && existingVM.patches.available_patches) {
+        // Data already available - show modal immediately without re-fetching
+        showDetail(key);
+        return;
+    }
+
+    // No existing data - fetch from ARG
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner-border spinner-sm me-1" role="status"></span>Loading…`;
